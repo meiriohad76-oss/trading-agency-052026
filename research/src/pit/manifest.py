@@ -12,6 +12,7 @@ from .exceptions import DataNotAvailableAt
 
 class DatasetName(StrEnum):
     PRICES = "prices"
+    PRICES_DAILY = "prices_daily"
     FUNDAMENTALS = "fundamentals"
     INSIDER_TRANSACTIONS = "insider_transactions"
     INSTITUTIONAL_HOLDINGS = "institutional_holdings"
@@ -66,7 +67,7 @@ class ManifestRegistry:
         if manifest.stale_after <= self._clock():
             stale_at = manifest.stale_after.isoformat()
             raise DataNotAvailableAt(dataset.value, as_of, f"manifest stale after {stale_at}")
-        if not manifest.path.is_file():
+        if not manifest.path.exists():
             raise DataNotAvailableAt(dataset.value, as_of, f"missing {manifest.path}")
         return manifest
 

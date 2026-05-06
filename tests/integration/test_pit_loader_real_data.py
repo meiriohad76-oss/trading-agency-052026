@@ -10,7 +10,7 @@ from pit.loader import PITLoader
 def test_real_pit_loader_smoke_when_datasets_exist() -> None:
     root = Path(__file__).resolve().parents[2]
     required = [
-        root / "research" / "data" / "manifests" / "prices.json",
+        root / "research" / "data" / "manifests" / "prices_daily.json",
         root / "research" / "data" / "manifests" / "universe_membership.json",
     ]
     if not all(path.exists() for path in required):

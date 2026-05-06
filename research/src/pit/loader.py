@@ -47,9 +47,10 @@ class PITLoader:
         """Daily OHLCV for `tickers` with record dates and knowledge dates <= `as_of`."""
         self._ensure_not_future(as_of)
         self._ensure_positive_lookback(lookback_days)
-        frame = self._read(DatasetName.PRICES, as_of)
-        frame = self._with_date(frame, "date", "__record_date", DatasetName.PRICES, as_of)
-        frame = self._with_date(frame, "timestamp_as_of", "__as_of", DatasetName.PRICES, as_of)
+        dataset = DatasetName.PRICES_DAILY
+        frame = self._read(dataset, as_of)
+        frame = self._with_date(frame, "date", "__record_date", dataset, as_of)
+        frame = self._with_date(frame, "timestamp_as_of", "__as_of", dataset, as_of)
         start = as_of - timedelta(days=lookback_days - 1)
         filtered = frame.filter(
             pl.col("ticker").is_in([ticker.upper() for ticker in tickers]),
@@ -57,7 +58,7 @@ class PITLoader:
             pl.col("__as_of") <= as_of,
         ).drop(["__record_date", "__as_of"])
         if filtered.is_empty():
-            raise DataNotAvailableAt(DatasetName.PRICES.value, as_of, "no PIT rows matched")
+            raise DataNotAvailableAt(dataset.value, as_of, "no PIT rows matched")
         return filtered.sort(["ticker", "date"])
 
     def fundamentals(self, ticker: str, as_of: date) -> Provenanced[dict[str, object]]:
@@ -147,10 +148,22 @@ class PITLoader:
     def _read(self, dataset: DatasetName, as_of: date) -> pl.DataFrame:
         manifest = self._manifests.require(dataset, as_of=as_of)
         try:
+            if manifest.path.is_dir():
+                return self._read_partitioned(manifest.path)
             return pl.read_parquet(manifest.path)
         except Exception as exc:
             reason = f"could not read {manifest.path}"
             raise DataNotAvailableAt(dataset.value, as_of, reason) from exc
+
+    @staticmethod
+    def _read_partitioned(path: Path) -> pl.DataFrame:
+        files = sorted(path.rglob("*.parquet"))
+        if not files:
+            return pl.DataFrame()
+        frames = [frame for file in files if not (frame := pl.read_parquet(file)).is_empty()]
+        if not frames:
+            return pl.DataFrame()
+        return pl.concat(frames, how="diagonal_relaxed")
 
     def _with_date(
         self,
