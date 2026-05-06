@@ -18,7 +18,9 @@ research/data/raw/**
 !research/data/raw/.gitkeep
 research/data/parquet/**
 !research/data/parquet/.gitkeep
+!research/data/parquet/universe_membership.parquet
 *.parquet
+!research/data/parquet/universe_membership.parquet
 *.duckdb
 
 # Database tooling

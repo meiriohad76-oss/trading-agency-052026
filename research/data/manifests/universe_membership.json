@@ -1,0 +1,35 @@
+{
+  "checksum": "6e2b963e4a06f3e5e8681e137bf17453ae339a14b7261a74d9c77fd6405d8174",
+  "columns": [
+    "ticker",
+    "index_name",
+    "start_date",
+    "end_date",
+    "as_of_source",
+    "source_fetched_at",
+    "source_id",
+    "source_url",
+    "timestamp_observed",
+    "timestamp_as_of",
+    "source",
+    "source_tier",
+    "freshness",
+    "confidence",
+    "verification_level"
+  ],
+  "coverage_end": "2026-05-06",
+  "coverage_start": "2019-01-01",
+  "dataset": "universe_membership",
+  "fetched_at": "2026-05-06T17:35:00+00:00",
+  "max_timestamp_as_of": "2026-04-20T00:00:00+00:00",
+  "path": "universe_membership.parquet",
+  "row_count": 285,
+  "schema_version": 1,
+  "source_url": "https://en.wikipedia.org/wiki/S%26P_100",
+  "source_urls": [
+    "https://en.wikipedia.org/wiki/S%26P_100",
+    "https://en.wikipedia.org/wiki/Nasdaq-100",
+    "manual CSV derived from cited S&P DJI press releases"
+  ],
+  "stale_after": "2099-01-01T00:00:00+00:00"
+}

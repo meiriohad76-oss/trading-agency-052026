@@ -1,0 +1,20 @@
+{
+  "fetched_at": "2026-05-06T17:35:00+00:00",
+  "sources": [
+    {
+      "name": "sp100_current",
+      "path": "sp100.html",
+      "url": "https://en.wikipedia.org/wiki/S%26P_100"
+    },
+    {
+      "name": "nasdaq100_current_and_changes",
+      "path": "nasdaq100.html",
+      "url": "https://en.wikipedia.org/wiki/Nasdaq-100"
+    },
+    {
+      "name": "sp100_manual_events",
+      "path": "sp100_manual_events.csv",
+      "url": "manual CSV derived from cited S&P DJI press releases"
+    }
+  ]
+}

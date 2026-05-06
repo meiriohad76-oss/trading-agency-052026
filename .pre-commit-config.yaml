@@ -12,8 +12,11 @@ repos:
       - id: mypy
         args: ["src", "research"]
         additional_dependencies:
+          - "pandas>=2.3"
+          - "pandas-stubs>=2.3"
           - "polars>=1.35"
           - "pydantic>=2.12"
+          - "pyarrow>=22.0"
           - "python-dotenv>=1.2"
           - "SQLAlchemy>=2.0"
         pass_filenames: false
