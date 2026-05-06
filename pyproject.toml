@@ -19,6 +19,7 @@ dependencies = [
   "python-dotenv>=1.2",
   "SQLAlchemy>=2.0",
   "tzdata>=2025.2",
+  "yfinance==1.2.2",
 ]
 
 [project.optional-dependencies]

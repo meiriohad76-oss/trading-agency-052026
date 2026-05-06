@@ -32,7 +32,7 @@ def test_prices_filter_record_date_and_timestamp_as_of(tmp_path: Path) -> None:
             price("MSFT", date(2022, 6, 15), 250.0, date(2022, 6, 15), "p3"),
         ]
     )
-    loader = loader_with(tmp_path, {DatasetName.PRICES: frame})
+    loader = loader_with(tmp_path, {DatasetName.PRICES_DAILY: frame})
 
     result = loader.prices(["AAPL"], date(2022, 6, 15), lookback_days=2)
 
@@ -154,7 +154,7 @@ def test_missing_parquet_raises_data_not_available(tmp_path: Path) -> None:
     manifest_root = tmp_path / "manifests"
     parquet_root.mkdir()
     manifest_root.mkdir()
-    write_manifest(manifest_root, DatasetName.PRICES, "missing.parquet", row_count=1)
+    write_manifest(manifest_root, DatasetName.PRICES_DAILY, "missing.parquet", row_count=1)
     loader = PITLoader(parquet_root=parquet_root, manifest_root=manifest_root, today=lambda: TODAY)
 
     with pytest.raises(DataNotAvailableAt, match="missing"):
@@ -167,11 +167,11 @@ def test_stale_manifest_raises_data_not_available(tmp_path: Path) -> None:
     parquet_root.mkdir()
     manifest_root.mkdir()
     frame = pl.DataFrame([price("AAPL", date(2022, 6, 15), 141.0, date(2022, 6, 15), "p1")])
-    frame.write_parquet(parquet_root / "prices.parquet")
+    frame.write_parquet(parquet_root / "prices_daily.parquet")
     write_manifest(
         manifest_root,
-        DatasetName.PRICES,
-        "prices.parquet",
+        DatasetName.PRICES_DAILY,
+        "prices_daily.parquet",
         frame.height,
         stale_after="2020-01-01T00:00:00+00:00",
     )
