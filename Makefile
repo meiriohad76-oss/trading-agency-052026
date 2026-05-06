@@ -10,7 +10,7 @@ endif
 
 VENV_PYTHON := $(VENV_BIN)/python
 
-.PHONY: setup lint type-check test db-up db-down migrate
+.PHONY: setup lint type-check test pit-guard db-up db-down migrate
 
 setup:
 	$(PYTHON) -m venv $(VENV)
@@ -23,12 +23,16 @@ setup:
 
 lint:
 	$(VENV_PYTHON) -m ruff check .
+	$(VENV_PYTHON) scripts/check_pit_bypass.py
 
 type-check:
 	$(VENV_PYTHON) -m mypy src research
 
 test:
 	$(VENV_PYTHON) -m pytest
+
+pit-guard:
+	$(VENV_PYTHON) scripts/check_pit_bypass.py
 
 db-up:
 	docker compose -f docker/docker-compose.yml up -d postgres

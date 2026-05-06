@@ -25,6 +25,9 @@ jobs:
       - name: Lint
         run: ruff check .
 
+      - name: PIT bypass guard
+        run: python scripts/check_pit_bypass.py
+
       - name: Type check
         run: mypy src research
 
