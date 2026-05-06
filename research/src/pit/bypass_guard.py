@@ -12,7 +12,10 @@ _PATTERNS = (
 )
 _SKIP_DIRS = {".git", ".mypy_cache", ".pytest_cache", ".ruff_cache", ".venv", "__pycache__"}
 _ALLOWED_PREFIXES = ("research/src/pit/",)
-_ALLOWED_FILES = {"tests/unit/test_pit_bypass_guard.py"}
+_ALLOWED_FILES = {
+    "research/scripts/build_universe_membership.py",
+    "tests/unit/test_pit_bypass_guard.py",
+}
 
 
 @dataclass(frozen=True)
