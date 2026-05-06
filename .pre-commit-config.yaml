@@ -12,8 +12,17 @@ repos:
       - id: mypy
         args: ["src", "research"]
         additional_dependencies:
+          - "polars>=1.35"
           - "pydantic>=2.12"
           - "python-dotenv>=1.2"
           - "SQLAlchemy>=2.0"
+        pass_filenames: false
+        always_run: true
+  - repo: local
+    hooks:
+      - id: pit-bypass-guard
+        name: PIT bypass guard
+        entry: python scripts/check_pit_bypass.py
+        language: system
         pass_filenames: false
         always_run: true
