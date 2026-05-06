@@ -11,6 +11,7 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.pre-commit-cache/
 
 # Research data
 research/data/raw/**
@@ -19,6 +20,9 @@ research/data/parquet/**
 !research/data/parquet/.gitkeep
 *.parquet
 *.duckdb
+
+# Database tooling
+*.sql.gz
 
 # Tooling and editors
 .idea/

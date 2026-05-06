@@ -29,3 +29,19 @@ On systems with `make`, the equivalent one-command setup is:
 ```sh
 make setup
 ```
+
+## Local Database
+
+Start the local Postgres 16 service and run the empty baseline migration:
+
+```powershell
+Copy-Item .env.example .env
+docker compose -f docker/docker-compose.yml up -d postgres
+.\.venv\Scripts\python -m alembic upgrade head
+```
+
+The default development connection settings are in [.env.example](.env.example). To remove the database container and volume:
+
+```powershell
+docker compose -f docker/docker-compose.yml down -v
+```
