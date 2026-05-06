@@ -7,6 +7,7 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
+from prices.sector_etfs import covered_sector_etfs
 
 PRICE_COLUMNS = [
     "ticker",
@@ -119,6 +120,7 @@ def write_manifest(
 ) -> None:
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     stats = _price_stats(price_root)
+    tickers = _price_tickers(price_root)
     manifest = {
         "dataset": "prices_daily",
         "path": price_root.name,
@@ -131,6 +133,8 @@ def write_manifest(
         "source_url": "https://finance.yahoo.com",
         "source": "yfinance",
         "ticker_count": stats["ticker_count"],
+        "tickers": tickers,
+        "sector_etfs": covered_sector_etfs(tickers),
         "date_range": {
             "start": requested.start.isoformat(),
             "end": requested.end.isoformat(),
@@ -161,6 +165,15 @@ def _price_stats(price_root: Path) -> dict[str, str | int]:
         "ticker_count": int(combined["ticker"].nunique()),
         "max_timestamp_as_of": max_date.isoformat(),
     }
+
+
+def _price_tickers(price_root: Path) -> list[str]:
+    tickers: set[str] = set()
+    for path in sorted(price_root.rglob("*.parquet")):
+        frame = pd.read_parquet(path, columns=["ticker"])
+        if not frame.empty:
+            tickers.update(str(ticker).upper() for ticker in frame["ticker"].unique())
+    return sorted(tickers)
 
 
 def _tree_checksum(root: Path) -> str:

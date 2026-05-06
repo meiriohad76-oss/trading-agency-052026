@@ -12,6 +12,7 @@ sys.path.insert(0, str(ROOT / "research" / "src"))
 sys.path.insert(0, str(ROOT / "src"))
 
 from prices.puller import pull_prices, universe_tickers  # noqa: E402
+from prices.sector_etfs import include_sector_etfs  # noqa: E402
 from prices.storage import DateRange  # noqa: E402
 
 
@@ -20,6 +21,7 @@ def main() -> int:
     parser.add_argument("--start", type=_date, default=date(2019, 1, 1))
     parser.add_argument("--end", type=_date, default=date.today())
     parser.add_argument("--tickers", nargs="*", default=None)
+    parser.add_argument("--include-etfs", action="store_true")
     parser.add_argument("--refresh", action="store_true")
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument(
@@ -40,6 +42,8 @@ def main() -> int:
     args = parser.parse_args()
 
     tickers = args.tickers or universe_tickers(args.universe_path)
+    if args.include_etfs:
+        tickers = include_sector_etfs(tickers)
     summary = asyncio.run(
         pull_prices(
             tickers=tickers,
