@@ -15,6 +15,9 @@ TODAY = date(2026, 5, 6)
 OBSERVED = datetime(2026, 5, 6, tzinfo=UTC)
 FY22_REVENUE = 394_328
 Q3_MARKET_VALUE = 200
+Q3_HOLDER_COUNT = 2
+Q3_SHARES_A = 120
+Q3_TOTAL_CHANGE = 50
 
 
 def loader_with(tmp_path: Path, frames: dict[DatasetName, pl.DataFrame]) -> PITLoader:

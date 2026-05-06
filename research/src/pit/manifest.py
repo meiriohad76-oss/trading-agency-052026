@@ -14,8 +14,11 @@ class DatasetName(StrEnum):
     PRICES = "prices"
     PRICES_DAILY = "prices_daily"
     FUNDAMENTALS = "fundamentals"
+    SEC_COMPANY_FACTS = "sec_company_facts"
     INSIDER_TRANSACTIONS = "insider_transactions"
+    SEC_FORM4 = "sec_form4"
     INSTITUTIONAL_HOLDINGS = "institutional_holdings"
+    SEC_13F = "sec_13f"
     UNIVERSE_MEMBERSHIP = "universe_membership"
     SECTOR_ETFS = "sector_etfs"
 
