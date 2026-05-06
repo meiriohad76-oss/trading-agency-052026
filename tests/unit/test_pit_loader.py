@@ -127,7 +127,7 @@ def test_sector_etfs_are_pit_filtered(tmp_path: Path) -> None:
             price("XLF", date(2022, 6, 15), 30.0, date(2022, 6, 15), "xlf-1"),
         ]
     )
-    loader = loader_with(tmp_path, {DatasetName.SECTOR_ETFS: frame})
+    loader = loader_with(tmp_path, {DatasetName.PRICES_DAILY: frame})
 
     result = loader.sector_etfs(date(2022, 6, 15), lookback_days=2)
 

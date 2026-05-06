@@ -5,6 +5,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 import polars as pl
+from prices.sector_etfs import SECTOR_ETF_TICKERS
 
 from agency.provenance import Provenanced
 
@@ -113,19 +114,23 @@ class PITLoader:
         return ProvenancedTickerSet(tickers, provenance_from_row(row))
 
     def sector_etfs(self, as_of: date, lookback_days: int) -> pl.DataFrame:
-        """Sector ETF OHLCV with record dates and knowledge dates <= `as_of`."""
+        """Sector ETF OHLCV with the last N available bars known by `as_of`."""
         self._ensure_not_future(as_of)
         self._ensure_positive_lookback(lookback_days)
-        frame = self._read(DatasetName.SECTOR_ETFS, as_of)
-        frame = self._with_date(frame, "date", "__record_date", DatasetName.SECTOR_ETFS, as_of)
-        frame = self._with_date(frame, "timestamp_as_of", "__as_of", DatasetName.SECTOR_ETFS, as_of)
-        start = as_of - timedelta(days=lookback_days - 1)
+        dataset = DatasetName.PRICES_DAILY
+        frame = self._read(dataset, as_of)
+        frame = self._with_date(frame, "date", "__record_date", dataset, as_of)
+        frame = self._with_date(frame, "timestamp_as_of", "__as_of", dataset, as_of)
         filtered = frame.filter(
-            pl.col("__record_date").is_between(start, as_of),
+            pl.col("ticker").is_in(SECTOR_ETF_TICKERS),
+            pl.col("__record_date") <= as_of,
             pl.col("__as_of") <= as_of,
-        ).drop(["__record_date", "__as_of"])
+        ).sort(["ticker", "__record_date"])
         if filtered.is_empty():
-            raise DataNotAvailableAt(DatasetName.SECTOR_ETFS.value, as_of, "no PIT rows matched")
+            raise DataNotAvailableAt(dataset.value, as_of, "no sector ETF rows matched")
+        rows_by_ticker = filtered.partition_by("ticker", maintain_order=True)
+        filtered = pl.concat([ticker_rows.tail(lookback_days) for ticker_rows in rows_by_ticker])
+        filtered = filtered.drop(["__record_date", "__as_of"])
         return filtered.sort(["ticker", "date"])
 
     def _latest_ticker_row(
