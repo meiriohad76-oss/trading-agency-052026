@@ -10,7 +10,10 @@ from pit.loader import PITLoader, ProvenancedTickerSet
 from pit.manifest import DatasetName
 from pit_fixtures import (
     FY22_REVENUE,
+    Q3_HOLDER_COUNT,
     Q3_MARKET_VALUE,
+    Q3_SHARES_A,
+    Q3_TOTAL_CHANGE,
     TODAY,
     filing_row,
     loader_with,
@@ -45,23 +48,27 @@ def test_fundamentals_use_latest_filing_before_as_of(tmp_path: Path) -> None:
         [
             {
                 "ticker": "AAPL",
+                "metric": "revenue",
+                "value": FY22_REVENUE,
+                "period_end": date(2022, 9, 24),
                 "filing_date": date(2022, 10, 28),
-                "revenue": FY22_REVENUE,
                 **provenance(SourceTier.OFFICIAL_FILING, date(2022, 10, 28), source_id="fy22"),
             },
             {
                 "ticker": "AAPL",
+                "metric": "revenue",
+                "value": 999_999,
+                "period_end": date(2022, 12, 31),
                 "filing_date": date(2023, 1, 31),
-                "revenue": 999_999,
                 **provenance(SourceTier.OFFICIAL_FILING, date(2023, 1, 31), source_id="future"),
             },
         ]
     )
-    loader = loader_with(tmp_path, {DatasetName.FUNDAMENTALS: frame})
+    loader = loader_with(tmp_path, {DatasetName.SEC_COMPANY_FACTS: frame})
 
     result = loader.fundamentals("aapl", date(2022, 12, 31))
 
-    assert result.value["revenue"] == FY22_REVENUE
+    assert result.value["revenue"] == float(FY22_REVENUE)
     assert result.provenance.source_id == "fy22"
 
 
@@ -73,7 +80,7 @@ def test_insider_transactions_use_filing_date_lookback(tmp_path: Path) -> None:
             filing_row("AAPL", date(2023, 1, 3), "future", shares=30),
         ]
     )
-    loader = loader_with(tmp_path, {DatasetName.INSIDER_TRANSACTIONS: frame})
+    loader = loader_with(tmp_path, {DatasetName.SEC_FORM4: frame})
 
     result = loader.insider_transactions("AAPL", date(2022, 12, 31), lookback_days=20)
 
@@ -84,17 +91,43 @@ def test_insider_transactions_use_filing_date_lookback(tmp_path: Path) -> None:
 def test_institutional_holdings_use_latest_available_filing(tmp_path: Path) -> None:
     frame = pl.DataFrame(
         [
-            filing_row("AAPL", date(2022, 8, 15), "q2", market_value=100),
-            filing_row("AAPL", date(2022, 11, 14), "q3", market_value=Q3_MARKET_VALUE),
-            filing_row("AAPL", date(2023, 2, 14), "future", market_value=999),
+            filing_row(
+                "AAPL",
+                date(2022, 11, 14),
+                "q3-a",
+                filer_cik="1",
+                quarter_end_date=date(2022, 9, 30),
+                shares_held=Q3_SHARES_A,
+                change_from_prev_quarter=20,
+            ),
+            filing_row(
+                "AAPL",
+                date(2022, 11, 15),
+                "q3-b",
+                filer_cik="2",
+                quarter_end_date=date(2022, 9, 30),
+                shares_held=Q3_MARKET_VALUE,
+                change_from_prev_quarter=30,
+            ),
+            filing_row(
+                "AAPL",
+                date(2023, 2, 14),
+                "future",
+                filer_cik="1",
+                quarter_end_date=date(2022, 12, 31),
+                shares_held=999,
+                change_from_prev_quarter=999,
+            ),
         ]
     )
-    loader = loader_with(tmp_path, {DatasetName.INSTITUTIONAL_HOLDINGS: frame})
+    loader = loader_with(tmp_path, {DatasetName.SEC_13F: frame})
 
     result = loader.institutional_holdings("AAPL", date(2022, 12, 31))
 
-    assert result.value["market_value"] == Q3_MARKET_VALUE
-    assert result.provenance.source_id == "q3"
+    assert result.value["holder_count"] == Q3_HOLDER_COUNT
+    assert result.value["total_shares_held"] == Q3_SHARES_A + Q3_MARKET_VALUE
+    assert result.value["total_change_from_prev_quarter"] == Q3_TOTAL_CHANGE
+    assert result.provenance.source_id == "q3-b"
 
 
 def test_universe_membership_uses_historical_boundaries(tmp_path: Path) -> None:

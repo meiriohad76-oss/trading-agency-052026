@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -18,6 +18,7 @@ from .records import (
     row_to_provenanced,
     rows,
 )
+from .sec_views import fundamentals_from_frame, institutional_holdings_from_frame
 
 
 class PITLoader:
@@ -63,9 +64,16 @@ class PITLoader:
         return filtered.sort(["ticker", "date"])
 
     def fundamentals(self, ticker: str, as_of: date) -> Provenanced[dict[str, object]]:
-        """Most recent SEC company-facts row filed on or before `as_of`."""
-        row = self._latest_ticker_row(DatasetName.FUNDAMENTALS, ticker, as_of)
-        return row_to_provenanced(row, exclude={"ticker"})
+        """Latest SEC company-facts metrics filed on or before `as_of`."""
+        frame = self._ticker_frame(DatasetName.SEC_COMPANY_FACTS, ticker, as_of)
+        frame = self._with_date(
+            frame,
+            "period_end",
+            "__period_end",
+            DatasetName.SEC_COMPANY_FACTS,
+            as_of,
+        )
+        return fundamentals_from_frame(frame, as_of=as_of)
 
     def insider_transactions(
         self,
@@ -76,7 +84,7 @@ class PITLoader:
         """Form 4 events filed on or before `as_of`, limited by filing-date lookback."""
         self._ensure_not_future(as_of)
         self._ensure_positive_lookback(lookback_days)
-        frame = self._ticker_frame(DatasetName.INSIDER_TRANSACTIONS, ticker, as_of)
+        frame = self._ticker_frame(DatasetName.SEC_FORM4, ticker, as_of)
         start = as_of - timedelta(days=lookback_days - 1)
         frame = frame.filter(pl.col("__as_of").is_between(start, as_of))
         return [
@@ -85,8 +93,15 @@ class PITLoader:
 
     def institutional_holdings(self, ticker: str, as_of: date) -> Provenanced[dict[str, object]]:
         """Most recent 13F-derived holdings row available on or before `as_of`."""
-        row = self._latest_ticker_row(DatasetName.INSTITUTIONAL_HOLDINGS, ticker, as_of)
-        return row_to_provenanced(row, exclude={"ticker"})
+        frame = self._ticker_frame(DatasetName.SEC_13F, ticker, as_of)
+        frame = self._with_date(
+            frame,
+            "quarter_end_date",
+            "__quarter_end",
+            DatasetName.SEC_13F,
+            as_of,
+        )
+        return institutional_holdings_from_frame(frame, ticker=ticker, as_of=as_of)
 
     def universe_members(self, as_of: date) -> set[str]:
         """Historical S&P 100 + QQQ members where start_date <= `as_of` < end_date."""
@@ -132,17 +147,6 @@ class PITLoader:
         filtered = pl.concat([ticker_rows.tail(lookback_days) for ticker_rows in rows_by_ticker])
         filtered = filtered.drop(["__record_date", "__as_of"])
         return filtered.sort(["ticker", "date"])
-
-    def _latest_ticker_row(
-        self,
-        dataset: DatasetName,
-        ticker: str,
-        as_of: date,
-    ) -> Mapping[str, object]:
-        frame = self._ticker_frame(dataset, ticker, as_of)
-        if frame.is_empty():
-            raise DataNotAvailableAt(dataset.value, as_of, f"no rows matched {ticker.upper()}")
-        return rows(frame.sort("__as_of", descending=True).head(1))[0]
 
     def _ticker_frame(self, dataset: DatasetName, ticker: str, as_of: date) -> pl.DataFrame:
         self._ensure_not_future(as_of)
