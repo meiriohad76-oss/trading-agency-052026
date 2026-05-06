@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trading-agency.local/schemas/provenance.schema.json",
+  "title": "ProvenancedDict",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["value", "provenance"],
+  "properties": {
+    "value": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "provenance": {
+      "$ref": "#/$defs/Provenance"
+    }
+  },
+  "$defs": {
+    "SourceTier": {
+      "type": "string",
+      "enum": [
+        "OFFICIAL_FILING",
+        "CONFIRMED_TRADE_PRINT",
+        "MARKET_DATA",
+        "PROVIDER_NEWS",
+        "PAID_SUB_EMAIL",
+        "RSS_HEADLINE",
+        "INFERRED_FROM_BARS",
+        "SOCIAL_CROWD"
+      ]
+    },
+    "VerificationLevel": {
+      "type": "string",
+      "enum": ["CONFIRMED", "INFERRED"]
+    },
+    "FreshnessStatus": {
+      "type": "string",
+      "enum": ["FRESH", "AGING", "STALE", "UNAVAILABLE"]
+    },
+    "Provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "source_tier",
+        "source_id",
+        "timestamp_observed",
+        "timestamp_as_of",
+        "freshness",
+        "confidence",
+        "verification_level"
+      ],
+      "properties": {
+        "source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_tier": {
+          "$ref": "#/$defs/SourceTier"
+        },
+        "source_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_url": {
+          "type": ["string", "null"],
+          "minLength": 1
+        },
+        "timestamp_observed": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "timestamp_as_of": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "freshness": {
+          "$ref": "#/$defs/FreshnessStatus"
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "verification_level": {
+          "$ref": "#/$defs/VerificationLevel"
+        }
+      }
+    }
+  }
+}

@@ -12,6 +12,7 @@ repos:
       - id: mypy
         args: ["src", "research"]
         additional_dependencies:
+          - "pydantic>=2.12"
           - "python-dotenv>=1.2"
           - "SQLAlchemy>=2.0"
         pass_filenames: false

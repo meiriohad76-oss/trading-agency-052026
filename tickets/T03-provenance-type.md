@@ -17,12 +17,12 @@ Non-negotiable N7 in `v2-plan.md` makes Provenance a first-class type. Every dat
 
 ## Outputs
 - `src/agency/provenance/types.py`: pydantic v2 models for:
-  - `SourceTier` enum: `OFFICIAL_FILING | CONFIRMED_TRADE_PRINT | PROVIDER_NEWS | PAID_SUB_EMAIL | RSS_HEADLINE | INFERRED_FROM_BARS | SOCIAL_CROWD`
+  - `SourceTier` enum: `OFFICIAL_FILING | CONFIRMED_TRADE_PRINT | MARKET_DATA | PROVIDER_NEWS | PAID_SUB_EMAIL | RSS_HEADLINE | INFERRED_FROM_BARS | SOCIAL_CROWD`
   - `VerificationLevel` enum: `CONFIRMED | INFERRED`
   - `FreshnessStatus` enum: `FRESH | AGING | STALE | UNAVAILABLE`
   - `Provenance` model with all the N7 fields plus a `source_url: str | None` and a `source_id: str` (provider-specific identifier).
   - `Provenanced[T]` generic wrapper: `value: T` + `provenance: Provenance`.
-- `src/agency/provenance/freshness.py`: `compute_freshness(timestamp_as_of, domain)` returning `FreshnessStatus`. Domains: `pricing`, `news`, `sec_fundamentals`, `sec_form4`, `sec_13f`, `broker`, `learning`. Each has its own freshness window (see `v2-plan.md` §7.1 of the v1 doc for windows; v2 freshness windows are defined in this module's docstring).
+- `src/agency/provenance/freshness.py`: `compute_freshness(timestamp_as_of, domain, now)` returning `FreshnessStatus`. Domains: `pricing`, `news`, `sec_fundamentals`, `sec_form4`, `sec_13f`, `broker`, `learning`. Each has its own freshness window; the clock is injected so the function remains pure.
 - `src/agency/provenance/instrumented_call.py`: an async context manager / decorator that wraps an external call, captures `timestamp_observed` and (optionally) `timestamp_as_of`, attaches the source metadata, and returns a `Provenanced[T]`.
 - `schemas/provenance.schema.json`: JSON Schema mirroring the pydantic types for use across the OpenAPI contract.
 
