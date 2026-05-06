@@ -53,4 +53,4 @@ Daily prices are the foundation for every signal lane. yfinance is the free base
 - yfinance occasionally returns bad bars (zero volume, NaN price). Filter at write time: a row with all-NaN OHLC is dropped; log how many.
 - Use `pyarrow` to write parquet with snappy compression and dictionary-encoded ticker columns.
 - For tickers that no longer exist on Yahoo (delisted), document the failure mode in the manifest's "issues" field.
-- Wrap each ticker's pull with `instrumented_call` so each row's provenance is captured (source="yfinance", source_tier=RSS_HEADLINE-equivalent — actually it's market data; consider adding a `MARKET_DATA` SourceTier or use `PROVIDER_NEWS` as a closest match. Discuss with reviewer if the enum needs extending.)
+- Wrap each ticker's pull with `instrumented_call` so each row's provenance is captured (source="yfinance", source_tier=`MARKET_DATA`, verification_level=`CONFIRMED`).

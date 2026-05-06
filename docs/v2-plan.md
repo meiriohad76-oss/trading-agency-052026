@@ -272,7 +272,7 @@ The single biggest revision from v1. v1 had two complaints, both true: signals w
 
 ### 7.1 Taxonomy (every evidence document is tagged on five axes)
 
-1. **Source tier** — Official filing > Confirmed trade print > Provider-linked news > Email from paid subscription > RSS-only headline > Inferred-from-bars > Social/crowd
+1. **Source tier** — Official filing > Confirmed trade print > Market data > Provider-linked news > Email from paid subscription > RSS-only headline > Inferred-from-bars > Social/crowd
 2. **Type** — News, insider buying/selling, institutional flow, abnormal volume, block trade, options flow, sentiment, earnings, polarity reversal, analyst rating change, quant rank change
 3. **Scope** — Stock-specific or market-level
 4. **Direction** — Bullish, bearish, neutral, mixed
