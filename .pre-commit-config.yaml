@@ -11,5 +11,8 @@ repos:
     hooks:
       - id: mypy
         args: ["src", "research"]
+        additional_dependencies:
+          - "python-dotenv>=1.2"
+          - "SQLAlchemy>=2.0"
         pass_filenames: false
         always_run: true

@@ -10,7 +10,7 @@ endif
 
 VENV_PYTHON := $(VENV_BIN)/python
 
-.PHONY: setup lint type-check test
+.PHONY: setup lint type-check test db-up db-down migrate
 
 setup:
 	$(PYTHON) -m venv $(VENV)
@@ -29,3 +29,12 @@ type-check:
 
 test:
 	$(VENV_PYTHON) -m pytest
+
+db-up:
+	docker compose -f docker/docker-compose.yml up -d postgres
+
+db-down:
+	docker compose -f docker/docker-compose.yml down -v
+
+migrate:
+	$(VENV_PYTHON) -m alembic upgrade head
