@@ -1,0 +1,26 @@
+# Local configuration
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Research data
+research/data/raw/**
+!research/data/raw/.gitkeep
+research/data/parquet/**
+!research/data/parquet/.gitkeep
+*.parquet
+*.duckdb
+
+# Tooling and editors
+.idea/
+.vscode/
+.DS_Store

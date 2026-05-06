@@ -1,0 +1,63 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trading-agency-v2"
+version = "0.1.0"
+description = "Supervised equity research and paper-trading assistant."
+readme = "README.md"
+requires-python = ">=3.14,<3.15"
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+  "mypy>=1.10",
+  "pre-commit>=3.7",
+  "pytest>=8.2",
+  "ruff>=0.5",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+
+[tool.ruff.lint]
+select = [
+  "A",
+  "ARG",
+  "B",
+  "C4",
+  "E",
+  "ERA",
+  "F",
+  "I",
+  "N",
+  "PIE",
+  "PL",
+  "PTH",
+  "RET",
+  "SIM",
+  "UP",
+  "W",
+]
+ignore = [
+  "PLR0913",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "research/src"]
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+files = ["src", "research/src"]
+exclude = ["research/notebooks/"]
+
+[[tool.mypy.overrides]]
+module = ["research.notebooks.*"]
+strict = false
