@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import datetime
 from typing import cast
 
 from sqlalchemy import Select, select
@@ -11,6 +10,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from agency.contracts import validate_contract
 from agency.persistence import data_source_health
+from agency.runtime._coerce import (
+    optional_datetime,
+    optional_float,
+    parse_datetime,
+    parse_float,
+    parse_int,
+)
 
 
 def source_health_row_values(
@@ -23,13 +29,13 @@ def source_health_row_values(
         "source": str(payload["source"]),
         "source_tier": str(payload["source_tier"]),
         "status": str(payload["status"]),
-        "checked_at": _parse_datetime(payload["checked_at"]),
+        "checked_at": parse_datetime(payload["checked_at"]),
         "freshness": str(payload["freshness"]),
-        "last_success_at": _optional_datetime(payload["last_success_at"]),
-        "observed_lag_seconds": _optional_float(payload["observed_lag_seconds"]),
-        "error_count": _parse_int(payload["error_count"]),
-        "reliability_score": _parse_float(payload["reliability_score"]),
-        "rate_limit_reset_at": _optional_datetime(payload["rate_limit_reset_at"]),
+        "last_success_at": optional_datetime(payload["last_success_at"]),
+        "observed_lag_seconds": optional_float(payload["observed_lag_seconds"]),
+        "error_count": parse_int(payload["error_count"]),
+        "reliability_score": parse_float(payload["reliability_score"]),
+        "rate_limit_reset_at": optional_datetime(payload["rate_limit_reset_at"]),
         "notes": payload["notes"],
         "payload": dict(payload),
         "last_error": last_error,
@@ -72,39 +78,3 @@ async def list_source_health(session: AsyncSession) -> list[dict[str, object]]:
 
 def source_health_select() -> Select[tuple[object]]:
     return select(data_source_health.c.payload).order_by(data_source_health.c.source)
-
-
-def _parse_datetime(value: object) -> datetime:
-    if not isinstance(value, str):
-        raise TypeError("datetime values must be strings")
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))
-
-
-def _optional_datetime(value: object) -> datetime | None:
-    if value is None:
-        return None
-    return _parse_datetime(value)
-
-
-def _optional_float(value: object) -> float | None:
-    if value is None:
-        return None
-    return _parse_float(value)
-
-
-def _parse_int(value: object) -> int:
-    if isinstance(value, bool):
-        raise TypeError("integer values cannot be booleans")
-    if isinstance(value, int):
-        return value
-    if isinstance(value, str):
-        return int(value)
-    raise TypeError("integer values must be strings or integers")
-
-
-def _parse_float(value: object) -> float:
-    if isinstance(value, bool):
-        raise TypeError("float values cannot be booleans")
-    if isinstance(value, int | float | str):
-        return float(value)
-    raise TypeError("float values must be strings or numbers")
