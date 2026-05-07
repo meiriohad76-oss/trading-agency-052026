@@ -10,6 +10,7 @@ from .deterministic_selection import (
     build_deterministic_selection,
 )
 from .evidence_pack import build_evidence_pack
+from .final_selection import FinalSelectionResult, build_final_selection
 from .llm_review import (
     LlmReviewProvider,
     LlmReviewResult,
@@ -31,6 +32,7 @@ __all__ = [
     "DeterministicSelectionResult",
     "DeterministicRuleConfig",
     "DeterministicRuleResult",
+    "FinalSelectionResult",
     "LlmReviewProvider",
     "LlmReviewResult",
     "SelectionPayloadWriter",
@@ -39,6 +41,7 @@ __all__ = [
     "build_context_only_llm_review",
     "build_deterministic_selection",
     "build_evidence_pack",
+    "build_final_selection",
     "build_llm_review_stub",
     "build_signal_result",
     "build_signal_results_from_scores",
