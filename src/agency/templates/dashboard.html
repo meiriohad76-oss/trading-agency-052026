@@ -54,7 +54,7 @@
             <tbody>
               {% for candidate in candidates %}
               <tr>
-                <td><strong>{{ candidate.ticker }}</strong></td>
+                <td><a class="text-link" href="/candidates/{{ candidate.ticker }}">{{ candidate.ticker }}</a></td>
                 <td><span class="tag tag-neutral">{{ candidate.action }}</span></td>
                 <td>{{ candidate.conviction_pct }}%</td>
                 <td><span class="tag tag-{{ candidate.gate_status | lower }}">{{ candidate.gate_status }}</span></td>

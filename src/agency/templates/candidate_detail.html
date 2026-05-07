@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ ticker }} | Trading Agency v2</title>
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Candidate</p>
+        <h1>{{ ticker }}</h1>
+      </div>
+      <a class="text-link" href="/">Dashboard</a>
+    </header>
+
+    <main class="layout">
+      <section class="summary-band" aria-label="Candidate state">
+        <div>
+          <span class="metric-label">Reports</span>
+          <strong>{{ reports | length }}</strong>
+        </div>
+        <div>
+          <span class="metric-label">Events</span>
+          <strong>{{ timeline | length }}</strong>
+        </div>
+        <div>
+          <span class="metric-label">Latest Action</span>
+          <strong>{% if reports %}{{ reports[0].action }}{% else %}None{% endif %}</strong>
+        </div>
+        <div>
+          <span class="metric-label">Ticker</span>
+          <strong>{{ ticker }}</strong>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="reports-heading">
+        <div class="section-heading">
+          <h2 id="reports-heading">Selection Reports</h2>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Action</th>
+                <th>Conviction</th>
+                <th>Gate</th>
+                <th>Risk Flags</th>
+                <th>As Of</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for report in reports %}
+              <tr>
+                <td><span class="tag tag-neutral">{{ report.action }}</span></td>
+                <td>{{ report.conviction_pct }}%</td>
+                <td><span class="tag tag-{{ report.gate_status | lower }}">{{ report.gate_status }}</span></td>
+                <td>{{ report.risk_flag_count }}</td>
+                <td>{{ report.as_of }}</td>
+              </tr>
+              {% else %}
+              <tr>
+                <td class="empty-row" colspan="5">No selection reports yet</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="timeline-heading">
+        <div class="section-heading">
+          <h2 id="timeline-heading">Audit Trail</h2>
+        </div>
+        <div class="timeline">
+          {% for event in timeline %}
+          <article class="timeline-item">
+            <div>
+              <strong>{{ event.event_type }}</strong>
+              <span>{{ event.event_time }}</span>
+            </div>
+            <span class="tag tag-neutral">{{ event.status }}</span>
+            <p>{{ event.reason or "recorded" }}</p>
+          </article>
+          {% else %}
+          <p class="empty-row">No lifecycle events yet</p>
+          {% endfor %}
+        </div>
+      </section>
+    </main>
+  </body>
+</html>
