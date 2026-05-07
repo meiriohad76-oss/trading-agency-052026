@@ -27,6 +27,8 @@ class LoaderLike(Protocol):
 
     def sector_etfs(self, as_of: date, lookback_days: int) -> pl.DataFrame: ...
 
+    def prepost_bars(self, tickers: list[str], as_of: date, lookback_days: int) -> pl.DataFrame: ...
+
 
 SignalFn = Callable[[date, set[str], LoaderLike], dict[str, float]]
 
@@ -66,6 +68,10 @@ class ScopedPITLoader:
     def sector_etfs(self, as_of: date, lookback_days: int) -> pl.DataFrame:
         self._ensure_in_scope(as_of)
         return self.loader.sector_etfs(as_of, lookback_days)
+
+    def prepost_bars(self, tickers: list[str], as_of: date, lookback_days: int) -> pl.DataFrame:
+        self._ensure_in_scope(as_of)
+        return self.loader.prepost_bars(tickers, as_of, lookback_days)
 
     def _ensure_in_scope(self, requested: date) -> None:
         if requested > self.as_of:
