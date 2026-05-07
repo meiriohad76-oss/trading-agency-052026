@@ -11,30 +11,14 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "research" / "src"))
 sys.path.insert(0, str(ROOT / "src"))
 
-from evaluation.h1_ic import H1ICConfig, SignalFn, evaluate_signal_ic  # noqa: E402
+from evaluation.h1_ic import H1ICConfig, evaluate_signal_ic  # noqa: E402
+from evaluation.signal_registry import SIGNALS  # noqa: E402
 from evaluation.verdicts import (  # noqa: E402
     summarize_signal_verdicts,
     synthesize_horizon_verdicts,
     verdicts_to_markdown,
 )
 from pit.loader import PITLoader  # noqa: E402
-from signals.abnormal_volume import abnormal_volume_score  # noqa: E402
-from signals.fundamentals import fundamental_score  # noqa: E402
-from signals.insider import insider_score  # noqa: E402
-from signals.institutional import institutional_score  # noqa: E402
-from signals.news import news_score  # noqa: E402
-from signals.options_flow import options_flow_score  # noqa: E402
-from signals.sector_momentum import sector_momentum_score  # noqa: E402
-
-SIGNALS: dict[str, SignalFn] = {
-    "abnormal_volume": abnormal_volume_score,
-    "fundamentals": fundamental_score,
-    "insider": insider_score,
-    "institutional": institutional_score,
-    "news": news_score,
-    "options_flow": options_flow_score,
-    "sector_momentum": sector_momentum_score,
-}
 
 
 def main() -> None:
