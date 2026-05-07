@@ -1,0 +1,113 @@
+from __future__ import annotations
+
+import json
+from collections.abc import Sequence
+from datetime import date
+from pathlib import Path
+
+import pytest
+from data_refresh.batch import build_refresh_jobs, run_refresh_batch
+from data_refresh.types import CommandResult, RefreshBatchConfig
+
+FAILURE_CODE = 7
+
+
+def test_build_refresh_jobs_blocks_missing_optional_source_config(tmp_path: Path) -> None:
+    config = _config(tmp_path, datasets=("sec_13f", "news_rss"))
+
+    jobs = build_refresh_jobs(config)
+
+    assert jobs[0].dataset == "sec_13f"
+    assert "missing SEC_USER_AGENT" in jobs[0].blocked_reasons
+    assert "missing 13F filer CIKs" in jobs[0].blocked_reasons
+    assert "missing 13F CUSIP map" in jobs[0].blocked_reasons
+    assert jobs[1].dataset == "news_rss"
+    assert jobs[1].blocked_reasons == ("missing RSS feed specs",)
+
+
+def test_build_refresh_jobs_uses_static_tickers_without_universe_file(tmp_path: Path) -> None:
+    config = _config(
+        tmp_path,
+        datasets=("prices_daily", "options_chains"),
+        tickers=("aapl", "MSFT"),
+    )
+
+    jobs = build_refresh_jobs(config)
+
+    assert all(job.blocked_reasons == () for job in jobs)
+    assert jobs[0].display_command[-2:] == ("AAPL", "MSFT")
+    assert jobs[1].display_command[-4:] == ("--ticker", "AAPL", "--ticker", "MSFT")
+
+
+def test_run_refresh_batch_dry_run_writes_status(tmp_path: Path) -> None:
+    cusip_map = tmp_path / "cusips.json"
+    cusip_map.write_text('{"037833100": "AAPL"}', encoding="utf-8")
+    config = _config(
+        tmp_path,
+        datasets=("sec_13f", "news_rss"),
+        rss_feeds=("Yahoo,AAPL,https://example.test/rss",),
+        filer_ciks=("0001067983",),
+        cusip_map=cusip_map,
+        sec_user_agent="Trading Agency admin@example.com",
+        dry_run=True,
+    )
+
+    result = run_refresh_batch(config)
+
+    status = json.loads(
+        (config.output_root / "data-refresh-status.json").read_text(encoding="utf-8")
+    )
+    assert [job.status for job in result.jobs] == ["planned", "planned"]
+    assert result.jobs[1].command[-1] == "Yahoo,AAPL,https://example.test/rss"
+    assert status["blocked"] is False
+    assert status["failed"] is False
+    assert (config.output_root / "data-refresh-status.md").is_file()
+
+
+def test_run_refresh_batch_records_fake_command_failure(tmp_path: Path) -> None:
+    config = _config(tmp_path, datasets=("prices_daily",), tickers=("AAPL",))
+
+    def runner(command: Sequence[str], cwd: Path) -> CommandResult:
+        assert cwd == tmp_path
+        assert "pull_yfinance_daily.py" in command[1]
+        return CommandResult(FAILURE_CODE, stdout="partial output", stderr="network failed")
+
+    result = run_refresh_batch(config, runner=runner)
+
+    assert result.failed is True
+    assert result.jobs[0].status == "failed"
+    assert result.jobs[0].returncode == FAILURE_CODE
+    assert result.jobs[0].stderr == "network failed"
+
+
+def test_build_refresh_jobs_rejects_unknown_dataset(tmp_path: Path) -> None:
+    config = _config(tmp_path, datasets=("not_a_dataset",))
+
+    with pytest.raises(ValueError, match="unknown dataset"):
+        build_refresh_jobs(config)
+
+
+def _config(
+    tmp_path: Path,
+    *,
+    datasets: tuple[str, ...],
+    tickers: tuple[str, ...] = (),
+    rss_feeds: tuple[str, ...] = (),
+    filer_ciks: tuple[str, ...] = (),
+    cusip_map: Path | None = None,
+    sec_user_agent: str | None = None,
+    dry_run: bool = False,
+) -> RefreshBatchConfig:
+    return RefreshBatchConfig(
+        repo_root=tmp_path,
+        output_root=tmp_path / "results",
+        start=date(2021, 1, 1),
+        end=date(2021, 1, 31),
+        datasets=datasets,
+        tickers=tickers,
+        rss_feeds=rss_feeds,
+        filer_ciks=filer_ciks,
+        cusip_map=cusip_map,
+        sec_user_agent=sec_user_agent,
+        dry_run=dry_run,
+    )
