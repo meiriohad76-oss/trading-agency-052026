@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trading-agency.local/schemas/evidence-pack.schema.json",
+  "title": "EvidencePack",
+  "x-version": "0.1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "cycle_id",
+    "ticker",
+    "as_of",
+    "generated_at",
+    "actionable_signals",
+    "context_signals",
+    "suppressed_signals",
+    "data_quality"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "0.1.0"
+    },
+    "cycle_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ticker": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9.-]{0,9}$"
+    },
+    "as_of": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "actionable_signals": {
+      "type": "array",
+      "items": {
+        "$ref": "https://trading-agency.local/schemas/signal-result.schema.json"
+      }
+    },
+    "context_signals": {
+      "type": "array",
+      "items": {
+        "$ref": "https://trading-agency.local/schemas/signal-result.schema.json"
+      }
+    },
+    "suppressed_signals": {
+      "type": "array",
+      "items": {
+        "$ref": "https://trading-agency.local/schemas/signal-result.schema.json"
+      }
+    },
+    "data_quality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "freshness",
+        "source_count",
+        "confirmed_signal_count",
+        "inferred_signal_count",
+        "blockers"
+      ],
+      "properties": {
+        "freshness": {
+          "$ref": "https://trading-agency.local/schemas/provenance.schema.json#/$defs/FreshnessStatus"
+        },
+        "source_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "confirmed_signal_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "inferred_signal_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "blockers": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}

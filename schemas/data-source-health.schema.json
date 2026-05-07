@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trading-agency.local/schemas/data-source-health.schema.json",
+  "title": "DataSourceHealth",
+  "x-version": "0.1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "source",
+    "source_tier",
+    "status",
+    "checked_at",
+    "freshness",
+    "last_success_at",
+    "observed_lag_seconds",
+    "error_count",
+    "reliability_score",
+    "rate_limit_reset_at",
+    "notes"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "0.1.0"
+    },
+    "source": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_tier": {
+      "$ref": "https://trading-agency.local/schemas/provenance.schema.json#/$defs/SourceTier"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["HEALTHY", "DEGRADED", "STALE", "UNAVAILABLE", "RATE_LIMITED"]
+    },
+    "checked_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "freshness": {
+      "$ref": "https://trading-agency.local/schemas/provenance.schema.json#/$defs/FreshnessStatus"
+    },
+    "last_success_at": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
+    "observed_lag_seconds": {
+      "type": ["number", "null"],
+      "minimum": 0
+    },
+    "error_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "reliability_score": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "rate_limit_reset_at": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  }
+}
