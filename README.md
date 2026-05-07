@@ -47,6 +47,12 @@ The default development connection settings are in [.env.example](.env.example).
 docker compose -f docker/docker-compose.yml down -v
 ```
 
+To populate the local dashboard with deterministic paper/demo data:
+
+```powershell
+.\.venv\Scripts\python scripts\seed_demo_runtime.py
+```
+
 ## Local API
 
 Run the FastAPI shell:

@@ -177,7 +177,8 @@ async def execution_preview_context() -> dict[str, object]:
 
 async def portfolio_monitor_context() -> dict[str, object]:
     reports = await runtime_selection_reports(limit=25)
-    snapshot = build_portfolio_monitor(reports)
+    demo_positions = [str(report["ticker"]) for report in reports[:5]]
+    snapshot = build_portfolio_monitor(reports, positions=demo_positions)
     return {
         "positions": snapshot["positions"],
         "summary": portfolio_monitor_summary(snapshot),
