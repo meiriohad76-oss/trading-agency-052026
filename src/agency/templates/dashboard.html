@@ -29,6 +29,46 @@
           <span class="metric-label">Sources</span>
           <strong>{{ data_sources | length }}</strong>
         </div>
+        <div>
+          <span class="metric-label">Candidates</span>
+          <strong>{{ candidates | length }}</strong>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="candidates-heading">
+        <div class="section-heading">
+          <h2 id="candidates-heading">Candidates</h2>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Ticker</th>
+                <th>Action</th>
+                <th>Conviction</th>
+                <th>Gate</th>
+                <th>Risk Flags</th>
+                <th>As Of</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for candidate in candidates %}
+              <tr>
+                <td><strong>{{ candidate.ticker }}</strong></td>
+                <td><span class="tag tag-neutral">{{ candidate.action }}</span></td>
+                <td>{{ candidate.conviction_pct }}%</td>
+                <td><span class="tag tag-{{ candidate.gate_status | lower }}">{{ candidate.gate_status }}</span></td>
+                <td>{{ candidate.risk_flag_count }}</td>
+                <td>{{ candidate.as_of }}</td>
+              </tr>
+              {% else %}
+              <tr>
+                <td class="empty-row" colspan="6">No candidates yet</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
       </section>
 
       <section class="panel" aria-labelledby="source-heading">
