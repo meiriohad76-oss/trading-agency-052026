@@ -10,6 +10,7 @@ from prices.sector_etfs import SECTOR_ETF_TICKERS
 from agency.provenance import Provenanced
 
 from .exceptions import DataNotAvailableAt, LookaheadRequested
+from .forward_views import news_from_loader, option_chains_from_loader
 from .manifest import DatasetName, ManifestRegistry
 from .records import (
     ProvenancedTickerSet,
@@ -147,6 +148,19 @@ class PITLoader:
         filtered = pl.concat([ticker_rows.tail(lookback_days) for ticker_rows in rows_by_ticker])
         filtered = filtered.drop(["__record_date", "__as_of"])
         return filtered.sort(["ticker", "date"])
+
+    def news(
+        self,
+        as_of: date,
+        lookback_days: int,
+        tickers: list[str] | None = None,
+    ) -> list[Provenanced[dict[str, object]]]:
+        """Forward RSS/news items observed on or before `as_of`."""
+        return news_from_loader(self, as_of, lookback_days, tickers)
+
+    def option_chains(self, tickers: list[str], as_of: date, lookback_days: int) -> pl.DataFrame:
+        """Forward option-chain snapshots observed on or before `as_of`."""
+        return option_chains_from_loader(self, tickers, as_of, lookback_days)
 
     def _ticker_frame(self, dataset: DatasetName, ticker: str, as_of: date) -> pl.DataFrame:
         self._ensure_not_future(as_of)

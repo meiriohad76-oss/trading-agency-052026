@@ -37,6 +37,9 @@ dev = [
   "pytest-asyncio>=0.25",
   "ruff>=0.5",
 ]
+web = [
+  "scrapling>=0.4.7",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
