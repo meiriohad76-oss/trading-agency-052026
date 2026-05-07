@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Trading Agency v2{% endblock %}</title>
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Main navigation">
+        <a class="brand" href="/">
+          <strong>Trading Agency v2</strong>
+          <span>Paper trading · S&amp;P 100 + QQQ</span>
+        </a>
+        <nav class="nav-list">
+          <a class="nav-link {% if active_nav == 'command' %}active{% endif %}" href="/">Command</a>
+          <a class="nav-link disabled" href="/" aria-disabled="true">Universe</a>
+          <a class="nav-link disabled" href="/" aria-disabled="true">Signals</a>
+          <a class="nav-link {% if active_nav == 'final' %}active{% endif %}" href="/final-selection">Final selection</a>
+          <a class="nav-link {% if active_nav == 'risk' %}active{% endif %}" href="/risk">Risk</a>
+          <a class="nav-link {% if active_nav == 'execution' %}active{% endif %}" href="/execution-preview">Execution preview</a>
+          <a class="nav-link {% if active_nav == 'policy' %}active{% endif %}" href="/policy">Policy</a>
+        </nav>
+      </aside>
+
+      <div class="page-frame">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">{% block eyebrow %}Trading Agency v2{% endblock %}</p>
+            <h1>{% block page_title %}Agency Status{% endblock %}</h1>
+          </div>
+          <div class="topbar-actions">
+            <span class="status-dot" aria-hidden="true"></span>
+            <span class="topbar-meta">{% block topbar_meta %}Runtime dashboard{% endblock %}</span>
+            <span class="status-pill">Paper</span>
+          </div>
+        </header>
+
+        <main class="layout">
+          {% block content %}{% endblock %}
+        </main>
+      </div>
+    </div>
+  </body>
+</html>
