@@ -29,6 +29,20 @@ class LoaderLike(Protocol):
 
     def prepost_bars(self, tickers: list[str], as_of: date, lookback_days: int) -> pl.DataFrame: ...
 
+    def news(
+        self,
+        as_of: date,
+        lookback_days: int,
+        tickers: list[str] | None = None,
+    ) -> Sequence[object]: ...
+
+    def option_chains(
+        self,
+        tickers: list[str],
+        as_of: date,
+        lookback_days: int,
+    ) -> pl.DataFrame: ...
+
 
 SignalFn = Callable[[date, set[str], LoaderLike], dict[str, float]]
 
@@ -72,6 +86,19 @@ class ScopedPITLoader:
     def prepost_bars(self, tickers: list[str], as_of: date, lookback_days: int) -> pl.DataFrame:
         self._ensure_in_scope(as_of)
         return self.loader.prepost_bars(tickers, as_of, lookback_days)
+
+    def news(
+        self,
+        as_of: date,
+        lookback_days: int,
+        tickers: list[str] | None = None,
+    ) -> Sequence[object]:
+        self._ensure_in_scope(as_of)
+        return self.loader.news(as_of, lookback_days, tickers)
+
+    def option_chains(self, tickers: list[str], as_of: date, lookback_days: int) -> pl.DataFrame:
+        self._ensure_in_scope(as_of)
+        return self.loader.option_chains(tickers, as_of, lookback_days)
 
     def _ensure_in_scope(self, requested: date) -> None:
         if requested > self.as_of:

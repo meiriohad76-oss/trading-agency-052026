@@ -21,6 +21,8 @@ class DatasetName(StrEnum):
     SEC_13F = "sec_13f"
     UNIVERSE_MEMBERSHIP = "universe_membership"
     SECTOR_ETFS = "sector_etfs"
+    NEWS_RSS = "news_rss"
+    OPTIONS_CHAINS = "options_chains"
 
 
 @dataclass(frozen=True)
