@@ -162,6 +162,12 @@ class PITLoader:
         """Forward option-chain snapshots observed on or before `as_of`."""
         return option_chains_from_loader(self, tickers, as_of, lookback_days)
 
+    def prepost_bars(self, tickers: list[str], as_of: date, lookback_days: int) -> pl.DataFrame:
+        """Extended-hours bars placeholder until the pre/post puller lands."""
+        del tickers, lookback_days
+        self._ensure_not_future(as_of)
+        raise DataNotAvailableAt("prepost_bars", as_of, "pre/post puller not implemented")
+
     def _ticker_frame(self, dataset: DatasetName, ticker: str, as_of: date) -> pl.DataFrame:
         self._ensure_not_future(as_of)
         frame = self._read(dataset, as_of)
