@@ -1,0 +1,117 @@
+{
+  "blocked": true,
+  "config": {
+    "cusip_map": null,
+    "datasets": [
+      "prices_daily",
+      "sec_company_facts",
+      "sec_form4",
+      "sec_13f",
+      "news_rss",
+      "options_chains"
+    ],
+    "dry_run": true,
+    "end": "2025-12-31",
+    "filer_ciks": [],
+    "include_etfs": true,
+    "refresh": false,
+    "rss_feed_count": 0,
+    "start": "2021-01-01",
+    "tickers": [],
+    "workers": 1
+  },
+  "failed": false,
+  "jobs": [
+    {
+      "command": [
+        "$PYTHON",
+        "research/scripts/pull_yfinance_daily.py",
+        "--start",
+        "2021-01-01",
+        "--end",
+        "2025-12-31",
+        "--workers",
+        "1",
+        "--include-etfs"
+      ],
+      "dataset": "prices_daily",
+      "reason": "dry-run only",
+      "returncode": null,
+      "status": "planned",
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "command": [
+        "$PYTHON",
+        "research/scripts/pull_sec_company_facts.py"
+      ],
+      "dataset": "sec_company_facts",
+      "reason": "missing SEC_USER_AGENT",
+      "returncode": null,
+      "status": "blocked",
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "command": [
+        "$PYTHON",
+        "research/scripts/pull_sec_form4.py",
+        "--start",
+        "2021-01-01",
+        "--end",
+        "2025-12-31"
+      ],
+      "dataset": "sec_form4",
+      "reason": "missing SEC_USER_AGENT",
+      "returncode": null,
+      "status": "blocked",
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "command": [
+        "$PYTHON",
+        "research/scripts/pull_sec_13f.py",
+        "--start",
+        "2021-01-01",
+        "--end",
+        "2025-12-31"
+      ],
+      "dataset": "sec_13f",
+      "reason": "missing SEC_USER_AGENT; missing 13F filer CIKs; missing 13F CUSIP map",
+      "returncode": null,
+      "status": "blocked",
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "command": [
+        "$PYTHON",
+        "research/scripts/pull_news_rss.py"
+      ],
+      "dataset": "news_rss",
+      "reason": "missing RSS feed specs",
+      "returncode": null,
+      "status": "blocked",
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "command": [
+        "$PYTHON",
+        "research/scripts/pull_yfinance_options.py"
+      ],
+      "dataset": "options_chains",
+      "reason": "dry-run only",
+      "returncode": null,
+      "status": "planned",
+      "stderr": "",
+      "stdout": ""
+    }
+  ],
+  "written_paths": [
+    "data-refresh-status.json",
+    "data-refresh-status.md"
+  ]
+}

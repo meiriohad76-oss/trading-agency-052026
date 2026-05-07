@@ -64,6 +64,16 @@ The cycle input must include `cycle_id`, `as_of`, `generated_at`, and optional `
 `source_health`, `signals`, and `current_gross_exposure_pct` fields. `source_health`
 entries must match `data-source-health`; `signals` entries must match `signal-result`.
 
+To preview the local PIT data refresh plan without calling external services:
+
+```powershell
+.\.venv\Scripts\python research\scripts\run_data_refresh_batch.py `
+  --start 2021-01-01 --end 2025-12-31 --dry-run
+```
+
+For live SEC pulls, set `SEC_USER_AGENT` in `.env`. RSS and 13F refreshes also need
+explicit `--rss-feed`, `--filer-cik`, and `--cusip-map` inputs.
+
 To run the research result batch after PIT data manifests are refreshed:
 
 ```powershell
