@@ -10,6 +10,12 @@ from .deterministic_selection import (
     build_deterministic_selection,
 )
 from .evidence_pack import build_evidence_pack
+from .llm_review import (
+    LlmReviewProvider,
+    LlmReviewResult,
+    build_context_only_llm_review,
+    build_llm_review_stub,
+)
 from .selection_persistence import (
     SelectionPayloadWriter,
     build_and_persist_deterministic_selection,
@@ -25,11 +31,15 @@ __all__ = [
     "DeterministicSelectionResult",
     "DeterministicRuleConfig",
     "DeterministicRuleResult",
+    "LlmReviewProvider",
+    "LlmReviewResult",
     "SelectionPayloadWriter",
     "SignalActionabilityConfig",
     "build_and_persist_deterministic_selection",
+    "build_context_only_llm_review",
     "build_deterministic_selection",
     "build_evidence_pack",
+    "build_llm_review_stub",
     "build_signal_result",
     "build_signal_results_from_scores",
     "evaluate_deterministic_rules",
