@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import (
 )
 
 REQUIRED_DB_ENV = ("DB_HOST", "DB_PORT", "DB_NAME", "DB_USER", "DB_PASSWORD")
+DEFAULT_CONNECT_TIMEOUT_SECONDS = 1.0
 
 
 class MissingDatabaseConfigurationError(RuntimeError):
@@ -30,6 +31,7 @@ class DatabaseSettings:
     user: str
     password: str
     echo: bool = False
+    connect_timeout_seconds: float = DEFAULT_CONNECT_TIMEOUT_SECONDS
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> DatabaseSettings:
@@ -49,11 +51,21 @@ class DatabaseSettings:
             user=values["DB_USER"],
             password=values["DB_PASSWORD"],
             echo=_env_bool(values.get("DB_ECHO")),
+            connect_timeout_seconds=_env_float(
+                values.get("DB_CONNECT_TIMEOUT_SECONDS"),
+                default=DEFAULT_CONNECT_TIMEOUT_SECONDS,
+            ),
         )
 
 
 def _env_bool(value: str | None) -> bool:
     return value is not None and value.lower() in {"1", "true", "yes", "on"}
+
+
+def _env_float(value: str | None, *, default: float) -> float:
+    if value is None:
+        return default
+    return float(value)
 
 
 def build_database_url(settings: DatabaseSettings | None = None) -> URL:
@@ -74,6 +86,7 @@ def create_engine(settings: DatabaseSettings | None = None) -> AsyncEngine:
         build_database_url(db_settings),
         echo=db_settings.echo,
         pool_pre_ping=True,
+        connect_args={"timeout": db_settings.connect_timeout_seconds},
     )
 
 

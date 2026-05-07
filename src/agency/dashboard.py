@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import cast
@@ -30,8 +31,10 @@ async def dashboard(request: Request) -> Response:
 
 
 async def dashboard_context() -> dict[str, object]:
-    reports = await runtime_selection_reports(limit=10)
-    data_sources = await runtime_data_source_status()
+    reports, data_sources = await asyncio.gather(
+        runtime_selection_reports(limit=10),
+        runtime_data_source_status(),
+    )
     candidates = candidate_rows(reports)
     contracts = contract_summaries()
     summary = command_summary(
@@ -119,8 +122,10 @@ async def policy(request: Request) -> Response:
 
 
 async def disabled_workflow_context(workflow: str) -> dict[str, object]:
-    reports = await runtime_selection_reports(limit=10)
-    data_sources = await runtime_data_source_status()
+    reports, data_sources = await asyncio.gather(
+        runtime_selection_reports(limit=10),
+        runtime_data_source_status(),
+    )
     candidates = candidate_rows(reports)
     return {
         "candidates": candidates,
