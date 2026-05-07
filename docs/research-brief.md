@@ -7,7 +7,7 @@
 
 This is the operational plan for the v2 research phase (Phase 1 in the v2 Plan). The research phase exists to answer one question honestly: **which signals from v1 actually have edge, and what realistic return profile is achievable from a disciplined combination of them?** Until those answers exist, we don't know which v2 to build.
 
-This document is expected to evolve as findings accrue. The `v2-plan.md` companion stays relatively stable. Execution is split between OpenAI Codex (heavy lifting) and Claude Code (architecture + safety-critical) per `working-model.md`; current ticket queue is in `tickets/`.
+This document is expected to evolve as findings accrue. The `v2-plan.md` companion stays relatively stable, and `findings.md` records phase-gate conclusions. Execution is split between OpenAI Codex (heavy lifting) and Claude Code (architecture + safety-critical) per `working-model.md`; current ticket queue is in `tickets/`.
 
 ---
 
@@ -337,9 +337,9 @@ Once Phase 1 is done, the deliverables feed into Phase 2 (Design). At that point
 
 ## 9. Document Maintenance
 
-This document updates as findings come in. After each hypothesis is tested, append a "Findings" subsection under the hypothesis section with the result, the verdict, and any architecture implications.
+This document updates as findings come in. After each hypothesis is tested, append the result, verdict, and architecture implications to `docs/findings.md`, then update the relevant hypothesis section here only if the operating plan changes.
 
-When the research phase ends, the final state of this document plus the results folder is the input to Phase 2.
+When the research phase ends, `docs/findings.md`, this document, and the results folder are the input to Phase 2.
 
 ---
 

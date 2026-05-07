@@ -1,11 +1,11 @@
 # Autonomous Stock Trading Agency — v2 Plan
 
-**Status:** Draft v0.1
+**Status:** Draft v0.2
 **Owner:** Ohad Meiri
-**Last updated:** 2026-05-06
-**Companion document:** `research-brief.md`
+**Last updated:** 2026-05-07
+**Companion documents:** `research-brief.md`, `findings.md`
 
-This document is the strategic anchor for v2 of the autonomous stock trading agency. It captures the locked decisions, non-negotiable requirements, architectural direction, agent topology, data sources catalog, signals taxonomy, and phase structure. It is intended to stay relatively stable; the operational research plan lives separately in `research-brief.md`.
+This document is the strategic anchor for v2 of the autonomous stock trading agency. It captures the locked decisions, non-negotiable requirements, architectural direction, agent topology, data sources catalog, signals taxonomy, and phase structure. It is intended to stay relatively stable; the operational research plan lives separately in `research-brief.md`, and phase-gate conclusions live in `findings.md`.
 
 ---
 
@@ -331,11 +331,11 @@ v2 is a sequential project with explicit phase gates. Each phase produces delive
 
 The work described in `research-brief.md`. Acquires PIT data, tests hypotheses, validates which signals add edge, produces realistic strategy profile.
 
-**Phase gate:** research findings document with: validated/rejected signal lanes, baseline strategy profile (Sharpe, CAGR, max DD), realistic threshold ranges, recommended changes to v2 architecture.
+**Phase gate:** `docs/findings.md` with validated/rejected signal lanes, baseline strategy profile (Sharpe, CAGR, max DD), realistic threshold ranges, and recommended changes to v2 architecture.
 
 ### Phase 2 — Design (2-3 weeks)
 
-- Update v2 architecture based on research findings.
+- Update v2 architecture based on `docs/findings.md`.
 - Final agent topology and contracts.
 - All schemas defined and reviewed.
 - Dashboard wireframes prototyped using Claude design tools and the web-artifacts-builder skill.
