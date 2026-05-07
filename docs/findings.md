@@ -8,6 +8,10 @@ This document is the phase-gate record for the v2 research phase. It separates
 implemented research machinery from empirical findings. Until result files exist under
 `research/results/`, every strategy verdict below remains provisional.
 
+T65 note: the repo has provisional Phase 2 and early Phase 3 implementation scaffolding
+through T64. Those artifacts are useful for local paper/demo workflows, but they do not
+replace the empirical verdicts required here.
+
 ---
 
 ## Evidence Inventory
@@ -98,3 +102,6 @@ Phase 1 implementation scaffolding is substantially complete. Empirical validati
 not complete. The next highest-value work is to run the data refresh and H1/H2/H3/H4
 result jobs, commit compact result summaries, and then revise `docs/v2-plan.md` with
 validated lane weights or documented simplifications.
+
+See `docs/phase-status.md` for the current implementation-vs-phase-gate truth table
+and next ticket candidates.
