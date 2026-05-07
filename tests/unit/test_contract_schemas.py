@@ -15,6 +15,7 @@ SCHEMA_NAMES = [
     "evidence-pack.schema.json",
     "selection-report.schema.json",
     "data-source-health.schema.json",
+    "candidate-lifecycle-event.schema.json",
 ]
 
 
@@ -44,6 +45,10 @@ def test_data_source_health_validates_dashboard_status_payload() -> None:
             "notes": [],
         }
     )
+
+
+def test_candidate_lifecycle_event_validates_audit_payload() -> None:
+    _validator("candidate-lifecycle-event.schema.json").validate(_candidate_lifecycle_event())
 
 
 def test_signal_result_rejects_unknown_fields() -> None:
@@ -151,6 +156,20 @@ def _engine_decision() -> dict[str, object]:
         "conviction": 0.62,
         "reason_codes": ["quality_positive"],
         "blockers": [],
+    }
+
+
+def _candidate_lifecycle_event() -> dict[str, object]:
+    return {
+        "schema_version": "0.1.0",
+        "event_id": "b" * 64,
+        "cycle_id": "cycle-1",
+        "ticker": "AAPL",
+        "event_type": "FINAL_ACTION",
+        "event_time": "2026-05-07T09:31:00Z",
+        "status": "RECORDED",
+        "reason": "selection report persisted",
+        "payload": {"final_action": "WATCH"},
     }
 
 
