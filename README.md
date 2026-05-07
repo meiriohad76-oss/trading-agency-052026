@@ -64,6 +64,15 @@ The cycle input must include `cycle_id`, `as_of`, `generated_at`, and optional `
 `source_health`, `signals`, and `current_gross_exposure_pct` fields. `source_health`
 entries must match `data-source-health`; `signals` entries must match `signal-result`.
 
+To run the research result batch after PIT data manifests are refreshed:
+
+```powershell
+.\.venv\Scripts\python research\scripts\run_research_batch.py `
+  --start 2021-01-01 --end 2025-12-31 `
+  --signal fundamentals --signal insider --signal institutional `
+  --signal sector_momentum --signal abnormal_volume --signal news --signal options_flow
+```
+
 ## Local API
 
 Run the FastAPI shell:

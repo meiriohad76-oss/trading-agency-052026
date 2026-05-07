@@ -1,6 +1,6 @@
 # Phase Status
 
-**Status:** reconciled after T65
+**Status:** reconciled after T66
 **Owner:** Ohad Meiri
 **Last updated:** 2026-05-07
 
@@ -9,7 +9,7 @@ implementation scaffolding from accepted phase gates.
 
 ## Current Truth
 
-- T01-T65 are archived under `tickets/done/`.
+- T01-T66 are archived under `tickets/done/`.
 - The repo contains Phase 0 foundation, Phase 1 research machinery, Phase 2
   contracts/dashboard scaffolding, and early Phase 3 runtime orchestration.
 - T29-T64 are provisional build scaffolding until empirical H1-H5 results exist.
@@ -29,7 +29,8 @@ implementation scaffolding from accepted phase gates.
 
 ## High-Priority Gaps
 
-1. Empirical result artifacts under `research/results/` are still missing.
+1. Empirical result artifacts under `research/results/` are blocked by missing
+   PIT manifests beyond universe membership.
 2. Actionability gates need per-lane source count, freshness, deduplication, and
    inferred-signal corroboration rules.
 3. Runtime audit persistence lacks agent-run rows, prompt/response audit, execution
@@ -43,11 +44,11 @@ implementation scaffolding from accepted phase gates.
 
 | Ticket | Purpose |
 | --- | --- |
-| T66 | Research result runner batch for H1/H2/H3/H4/H5 artifacts. |
-| T67 | Actionability gate v1 with per-lane thresholds and corroboration. |
-| T68 | Runtime audit tables for agent runs, prompt audit, execution state, risk snapshots. |
-| T69 | Scheduler, `/metrics`, and structured runtime logging. |
-| T70 | Deployment/backups checkpoint for Pi-oriented reproducibility. |
+| T67 | Data refresh batch for prices, SEC facts/Form 4/13F, RSS, and options manifests. |
+| T68 | Actionability gate v1 with per-lane thresholds and corroboration. |
+| T69 | Runtime audit tables for agent runs, prompt audit, execution state, risk snapshots. |
+| T70 | Scheduler, `/metrics`, and structured runtime logging. |
+| T71 | Deployment/backups checkpoint for Pi-oriented reproducibility. |
 
 ## Operating Rule
 
