@@ -16,6 +16,10 @@ def test_validate_contract_accepts_nested_selection_report() -> None:
     validate_contract("selection-report", _selection_report())
 
 
+def test_validate_contract_accepts_candidate_lifecycle_event() -> None:
+    validate_contract("candidate-lifecycle-event", _candidate_lifecycle_event())
+
+
 def test_validate_contract_reports_payload_path() -> None:
     payload = _source_health()
     payload["status"] = "BROKEN"
@@ -52,6 +56,20 @@ def _source_health() -> dict[str, object]:
         "reliability_score": 1.0,
         "rate_limit_reset_at": None,
         "notes": [],
+    }
+
+
+def _candidate_lifecycle_event() -> dict[str, object]:
+    return {
+        "schema_version": "0.1.0",
+        "event_id": "c" * 64,
+        "cycle_id": "cycle-1",
+        "ticker": "AAPL",
+        "event_type": "FINAL_ACTION",
+        "event_time": "2026-05-07T09:31:00Z",
+        "status": "RECORDED",
+        "reason": "selection report persisted",
+        "payload": {"final_action": "WATCH"},
     }
 
 
