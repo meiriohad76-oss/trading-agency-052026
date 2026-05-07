@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trading-agency.local/schemas/signal-result.schema.json",
+  "title": "SignalResult",
+  "x-version": "0.1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "cycle_id",
+    "ticker",
+    "as_of",
+    "lane",
+    "score",
+    "direction",
+    "actionability",
+    "source_tier",
+    "verification_level",
+    "freshness",
+    "confidence",
+    "provenance",
+    "reason_codes",
+    "suppression_reason"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "0.1.0"
+    },
+    "cycle_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ticker": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9.-]{0,9}$"
+    },
+    "as_of": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "lane": {
+      "type": "string",
+      "minLength": 1
+    },
+    "score": {
+      "type": "number"
+    },
+    "direction": {
+      "type": "string",
+      "enum": ["BULLISH", "BEARISH", "NEUTRAL", "MIXED"]
+    },
+    "actionability": {
+      "type": "string",
+      "enum": ["ACTIONABLE", "CONTEXT_ONLY", "SUPPRESSED"]
+    },
+    "source_tier": {
+      "$ref": "https://trading-agency.local/schemas/provenance.schema.json#/$defs/SourceTier"
+    },
+    "verification_level": {
+      "$ref": "https://trading-agency.local/schemas/provenance.schema.json#/$defs/VerificationLevel"
+    },
+    "freshness": {
+      "$ref": "https://trading-agency.local/schemas/provenance.schema.json#/$defs/FreshnessStatus"
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "provenance": {
+      "$ref": "https://trading-agency.local/schemas/provenance.schema.json#/$defs/Provenance"
+    },
+    "reason_codes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "suppression_reason": {
+      "type": ["string", "null"],
+      "minLength": 1
+    }
+  }
+}
