@@ -7,6 +7,7 @@ from typing import cast
 from agency.contracts import validate_contract
 from agency.runtime import make_lifecycle_event_id
 from agency.services.deterministic_rules import evaluate_deterministic_rules
+from agency.services.llm_review import build_context_only_llm_review
 
 
 @dataclass(frozen=True)
@@ -37,7 +38,7 @@ def build_deterministic_selection(
         "final_action": rule_result.decision["action"],
         "final_conviction": rule_result.decision["conviction"],
         "deterministic": rule_result.decision,
-        "llm_review": _llm_not_enabled_review(),
+        "llm_review": build_context_only_llm_review(),
         "policy_gates": rule_result.policy_gates,
         "risk_flags": [],
         "evidence_pack": pack,
@@ -48,16 +49,6 @@ def build_deterministic_selection(
     lifecycle_event = _deterministic_lifecycle_event(report)
     validate_contract("candidate-lifecycle-event", lifecycle_event)
     return DeterministicSelectionResult(report, lifecycle_event)
-
-
-def _llm_not_enabled_review() -> dict[str, object]:
-    return {
-        "action": "NO_REVIEW",
-        "confidence": 0.0,
-        "rationale": "LLM review is not enabled for the deterministic stub.",
-        "supporting_factors": [],
-        "concerns": [],
-    }
 
 
 def _deterministic_lifecycle_event(report: Mapping[str, object]) -> dict[str, object]:
