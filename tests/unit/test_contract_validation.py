@@ -20,6 +20,10 @@ def test_validate_contract_accepts_candidate_lifecycle_event() -> None:
     validate_contract("candidate-lifecycle-event", _candidate_lifecycle_event())
 
 
+def test_validate_contract_accepts_risk_decision() -> None:
+    validate_contract("risk-decision", _risk_decision())
+
+
 def test_validate_contract_reports_payload_path() -> None:
     payload = _source_health()
     payload["status"] = "BROKEN"
@@ -36,9 +40,9 @@ def test_is_valid_contract_returns_false_for_invalid_payload() -> None:
 
 
 def test_load_contract_schema_returns_schema_by_name() -> None:
-    schema = load_contract_schema("evidence-pack")
+    schema = load_contract_schema("risk-decision")
 
-    assert schema["title"] == "EvidencePack"
+    assert schema["title"] == "RiskDecision"
     assert schema["x-version"] == "0.1.0"
 
 
@@ -70,6 +74,25 @@ def _candidate_lifecycle_event() -> dict[str, object]:
         "status": "RECORDED",
         "reason": "selection report persisted",
         "payload": {"final_action": "WATCH"},
+    }
+
+
+def _risk_decision() -> dict[str, object]:
+    return {
+        "schema_version": "0.1.0",
+        "cycle_id": "cycle-1",
+        "ticker": "AAPL",
+        "as_of": "2026-05-07T09:30:00Z",
+        "generated_at": "2026-05-07T09:32:00Z",
+        "decision": "ALLOW",
+        "final_action": "BUY",
+        "final_conviction": 0.72,
+        "position_size_pct": 10.0,
+        "projected_gross_exposure_pct": 40.0,
+        "checks": [{"name": "gross_exposure", "status": "PASS", "reason": "within cap"}],
+        "reasons": ["AAPL passed v0 risk checks"],
+        "risk_flags": [],
+        "source_health": {"source_count": 1, "degraded_source_count": 0},
     }
 
 

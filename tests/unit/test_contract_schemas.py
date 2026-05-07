@@ -16,6 +16,10 @@ SCHEMA_NAMES = [
     "selection-report.schema.json",
     "data-source-health.schema.json",
     "candidate-lifecycle-event.schema.json",
+    "risk-decision.schema.json",
+    "execution-preview.schema.json",
+    "portfolio-monitor.schema.json",
+    "learning-outcome.schema.json",
 ]
 
 
@@ -49,6 +53,22 @@ def test_data_source_health_validates_dashboard_status_payload() -> None:
 
 def test_candidate_lifecycle_event_validates_audit_payload() -> None:
     _validator("candidate-lifecycle-event.schema.json").validate(_candidate_lifecycle_event())
+
+
+def test_risk_decision_validates_runtime_payload() -> None:
+    _validator("risk-decision.schema.json").validate(_risk_decision())
+
+
+def test_execution_preview_validates_no_submit_payload() -> None:
+    _validator("execution-preview.schema.json").validate(_execution_preview())
+
+
+def test_portfolio_monitor_validates_read_only_snapshot() -> None:
+    _validator("portfolio-monitor.schema.json").validate(_portfolio_monitor())
+
+
+def test_learning_outcome_validates_advisory_snapshot() -> None:
+    _validator("learning-outcome.schema.json").validate(_learning_outcome())
 
 
 def test_signal_result_rejects_unknown_fields() -> None:
@@ -170,6 +190,76 @@ def _candidate_lifecycle_event() -> dict[str, object]:
         "status": "RECORDED",
         "reason": "selection report persisted",
         "payload": {"final_action": "WATCH"},
+    }
+
+
+def _risk_decision() -> dict[str, object]:
+    return {
+        "schema_version": "0.1.0",
+        "cycle_id": "cycle-1",
+        "ticker": "AAPL",
+        "as_of": "2026-05-07T09:30:00Z",
+        "generated_at": "2026-05-07T09:32:00Z",
+        "decision": "ALLOW",
+        "final_action": "BUY",
+        "final_conviction": 0.72,
+        "position_size_pct": 10.0,
+        "projected_gross_exposure_pct": 40.0,
+        "checks": [{"name": "gross_exposure", "status": "PASS", "reason": "within cap"}],
+        "reasons": ["AAPL passed v0 risk checks"],
+        "risk_flags": [],
+        "source_health": {"source_count": 1, "degraded_source_count": 0},
+    }
+
+
+def _execution_preview() -> dict[str, object]:
+    return {
+        "schema_version": "0.1.0",
+        "cycle_id": "cycle-1",
+        "ticker": "AAPL",
+        "as_of": "2026-05-07T09:30:00Z",
+        "generated_at": "2026-05-07T09:33:00Z",
+        "preview_state": "READY",
+        "side": "BUY",
+        "quantity": None,
+        "entry": None,
+        "stop_loss": None,
+        "take_profit": None,
+        "notional": None,
+        "position_size_pct": 10.0,
+        "time_in_force": "DAY",
+        "risk_decision": "ALLOW",
+        "submit_enabled": False,
+        "reasons": ["paper preview generated"],
+    }
+
+
+def _portfolio_monitor() -> dict[str, object]:
+    return {
+        "schema_version": "0.1.0",
+        "generated_at": "2026-05-07T09:34:00Z",
+        "mode": "READ_ONLY",
+        "positions": [],
+        "summary": {
+            "position_count": 0,
+            "hold_count": 0,
+            "review_count": 0,
+            "close_candidate_count": 0,
+        },
+    }
+
+
+def _learning_outcome() -> dict[str, object]:
+    return {
+        "schema_version": "0.1.0",
+        "generated_at": "2026-05-07T09:35:00Z",
+        "status": "PREMATURE",
+        "sample_count": 0,
+        "required_sample_count": 50,
+        "message": "Sample size is below threshold.",
+        "requirements": [
+            {"name": "closed_trade_samples", "status": "WARN", "reason": "0 of 50"}
+        ],
     }
 
 

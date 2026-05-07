@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trading-agency.local/schemas/risk-decision.schema.json",
+  "title": "RiskDecision",
+  "x-version": "0.1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "cycle_id",
+    "ticker",
+    "as_of",
+    "generated_at",
+    "decision",
+    "final_action",
+    "final_conviction",
+    "position_size_pct",
+    "projected_gross_exposure_pct",
+    "checks",
+    "reasons",
+    "risk_flags",
+    "source_health"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "0.1.0"
+    },
+    "cycle_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ticker": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9.-]{0,9}$"
+    },
+    "as_of": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "decision": {
+      "type": "string",
+      "enum": ["ALLOW", "WARN", "BLOCK"]
+    },
+    "final_action": {
+      "type": "string"
+    },
+    "final_conviction": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "position_size_pct": {
+      "type": "number",
+      "minimum": 0
+    },
+    "projected_gross_exposure_pct": {
+      "type": "number",
+      "minimum": 0
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Check"
+      }
+    },
+    "reasons": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "risk_flags": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "source_health": {
+      "$ref": "#/$defs/SourceHealthSummary"
+    }
+  },
+  "$defs": {
+    "Check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "status", "reason"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "type": "string",
+          "enum": ["PASS", "WARN", "BLOCK"]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "SourceHealthSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_count", "degraded_source_count"],
+      "properties": {
+        "source_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "degraded_source_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

@@ -8,6 +8,7 @@ from agency.persistence import (
     candidate_lifecycle_events,
     data_source_health,
     metadata,
+    risk_decisions,
     selection_reports,
 )
 
@@ -16,6 +17,7 @@ def test_metadata_includes_data_source_health_table() -> None:
     assert metadata.tables["data_source_health"] is data_source_health
     assert metadata.tables["selection_reports"] is selection_reports
     assert metadata.tables["candidate_lifecycle_events"] is candidate_lifecycle_events
+    assert metadata.tables["risk_decisions"] is risk_decisions
 
 
 def test_data_source_health_table_has_runtime_status_columns() -> None:
@@ -75,6 +77,20 @@ def test_candidate_lifecycle_events_migration_links_to_selection_report_revision
 
     assert migration.revision == "0004_candidate_lifecycle_events"
     assert migration.down_revision == "0003_selection_reports"
+
+
+def test_risk_decisions_table_has_audit_key_columns() -> None:
+    columns = set(risk_decisions.c.keys())
+
+    assert {"cycle_id", "ticker", "as_of", "decision", "payload"}.issubset(columns)
+    assert risk_decisions.primary_key.columns.keys() == ["cycle_id", "ticker", "as_of"]
+
+
+def test_risk_decisions_migration_links_to_lifecycle_revision() -> None:
+    migration = _load_migration("0005_risk_decisions.py")
+
+    assert migration.revision == "0005_risk_decisions"
+    assert migration.down_revision == "0004_candidate_lifecycle_events"
 
 
 def _load_migration(filename: str) -> ModuleType:

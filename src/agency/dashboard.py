@@ -12,6 +12,12 @@ from fastapi.templating import Jinja2Templates
 from agency.api.candidates import runtime_candidate_timeline
 from agency.api.health import contract_summaries, runtime_data_source_status
 from agency.api.reports import runtime_selection_reports
+from agency.services import (
+    build_execution_previews,
+    build_learning_outcome,
+    build_portfolio_monitor,
+    build_risk_decisions,
+)
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent / "templates"))
@@ -96,7 +102,7 @@ async def risk(request: Request) -> Response:
     return templates.TemplateResponse(
         request,
         "risk.html",
-        await disabled_workflow_context("risk"),
+        await risk_context(),
     )
 
 
@@ -105,7 +111,7 @@ async def execution_preview(request: Request) -> Response:
     return templates.TemplateResponse(
         request,
         "execution_preview.html",
-        await disabled_workflow_context("execution"),
+        await execution_preview_context(),
     )
 
 
@@ -121,16 +127,68 @@ async def policy(request: Request) -> Response:
     )
 
 
-async def disabled_workflow_context(workflow: str) -> dict[str, object]:
+@router.get("/portfolio-monitor")
+async def portfolio_monitor(request: Request) -> Response:
+    return templates.TemplateResponse(
+        request,
+        "portfolio_monitor.html",
+        await portfolio_monitor_context(),
+    )
+
+
+@router.get("/learning")
+async def learning(request: Request) -> Response:
+    return templates.TemplateResponse(
+        request,
+        "learning.html",
+        learning_context(),
+    )
+
+
+async def risk_context() -> dict[str, object]:
     reports, data_sources = await asyncio.gather(
         runtime_selection_reports(limit=10),
         runtime_data_source_status(),
     )
-    candidates = candidate_rows(reports)
+    risk_results = build_risk_decisions(reports, data_sources)
+    risk_rows = risk_decision_rows([result.risk_decision for result in risk_results])
     return {
-        "candidates": candidates,
+        "risk_rows": risk_rows,
         "data_sources": source_status_rows(data_sources),
-        "summary": disabled_workflow_summary(workflow, candidates, data_sources),
+        "summary": risk_summary(risk_rows, data_sources),
+    }
+
+
+async def execution_preview_context() -> dict[str, object]:
+    reports, data_sources = await asyncio.gather(
+        runtime_selection_reports(limit=10),
+        runtime_data_source_status(),
+    )
+    risk_results = build_risk_decisions(reports, data_sources)
+    preview_results = build_execution_previews(
+        [result.risk_decision for result in risk_results]
+    )
+    preview_rows = execution_preview_rows([result.preview for result in preview_results])
+    return {
+        "preview_rows": preview_rows,
+        "summary": execution_preview_summary(preview_rows),
+    }
+
+
+async def portfolio_monitor_context() -> dict[str, object]:
+    reports = await runtime_selection_reports(limit=25)
+    snapshot = build_portfolio_monitor(reports)
+    return {
+        "positions": snapshot["positions"],
+        "summary": portfolio_monitor_summary(snapshot),
+    }
+
+
+def learning_context() -> dict[str, object]:
+    outcome = build_learning_outcome()
+    return {
+        "outcome": outcome,
+        "summary": learning_summary(outcome),
     }
 
 
@@ -191,6 +249,14 @@ def final_selection_rows(reports: Sequence[Mapping[str, object]]) -> list[dict[s
     return [_final_selection_row(report) for report in reports]
 
 
+def risk_decision_rows(decisions: Sequence[Mapping[str, object]]) -> list[dict[str, object]]:
+    return [_risk_decision_row(decision) for decision in decisions]
+
+
+def execution_preview_rows(previews: Sequence[Mapping[str, object]]) -> list[dict[str, object]]:
+    return [_execution_preview_row(preview) for preview in previews]
+
+
 def final_selection_summary(rows: Sequence[Mapping[str, object]]) -> dict[str, object]:
     actionable_count = sum(1 for row in rows if _is_actionable_candidate(row))
     blocked_count = sum(1 for row in rows if row["gate_status"] == "BLOCK")
@@ -218,19 +284,58 @@ def candidate_detail_summary(
     }
 
 
-def disabled_workflow_summary(
-    workflow: str,
-    candidates: Sequence[Mapping[str, object]],
+def risk_summary(
+    rows: Sequence[Mapping[str, object]],
     data_sources: Sequence[Mapping[str, object]],
 ) -> dict[str, object]:
     degraded_source_count = sum(1 for source in data_sources if _source_is_degraded(source))
-    title = "Risk aggregation" if workflow == "risk" else "Execution preview"
+    allow_count = sum(1 for row in rows if row["decision"] == "ALLOW")
+    warn_count = sum(1 for row in rows if row["decision"] == "WARN")
+    block_count = sum(1 for row in rows if row["decision"] == "BLOCK")
     return {
-        "title": title,
-        "candidate_count": len(candidates),
+        "decision_count": len(rows),
+        "allow_count": allow_count,
+        "warn_count": warn_count,
+        "block_count": block_count,
         "degraded_source_count": degraded_source_count,
-        "headline": f"{title} is read-only until its backend service exists.",
-        "detail": "No broker, order, or risk decision is generated from this page.",
+        "headline": _risk_headline(len(rows), allow_count, warn_count, block_count),
+        "detail": "V0 risk checks use final selection, policy defaults, and runtime health.",
+    }
+
+
+def execution_preview_summary(rows: Sequence[Mapping[str, object]]) -> dict[str, object]:
+    ready_count = sum(1 for row in rows if row["preview_state"] == "READY")
+    blocked_count = sum(1 for row in rows if row["preview_state"] == "BLOCKED")
+    disabled_count = sum(1 for row in rows if row["preview_state"] == "DISABLED")
+    return {
+        "preview_count": len(rows),
+        "ready_count": ready_count,
+        "blocked_count": blocked_count,
+        "disabled_count": disabled_count,
+        "headline": _execution_headline(len(rows), ready_count),
+        "detail": "Previews are paper-only artifacts; broker submission remains gated.",
+    }
+
+
+def portfolio_monitor_summary(snapshot: Mapping[str, object]) -> dict[str, object]:
+    summary = _mapping_field(snapshot, "summary")
+    position_count = _int_field(summary, "position_count")
+    return {
+        **dict(summary),
+        "headline": _portfolio_headline(position_count),
+        "detail": "Monitor output is read-only and never closes positions automatically.",
+    }
+
+
+def learning_summary(outcome: Mapping[str, object]) -> dict[str, object]:
+    sample_count = _int_field(outcome, "sample_count")
+    required_count = _int_field(outcome, "required_sample_count")
+    return {
+        "status": str(outcome["status"]),
+        "sample_count": sample_count,
+        "required_sample_count": required_count,
+        "headline": str(outcome["message"]),
+        "detail": "Learning feedback is advisory until audit persistence and review exist.",
     }
 
 
@@ -322,6 +427,39 @@ def _final_selection_row(report: Mapping[str, object]) -> dict[str, object]:
     }
 
 
+def _risk_decision_row(decision: Mapping[str, object]) -> dict[str, object]:
+    reasons = _string_list(decision, "reasons")
+    return {
+        "ticker": str(decision["ticker"]),
+        "decision": str(decision["decision"]),
+        "decision_class": _decision_class(str(decision["decision"])),
+        "final_action": str(decision["final_action"]),
+        "conviction_pct": _percent(decision, "final_conviction"),
+        "position_size_pct": _float_field(decision, "position_size_pct"),
+        "projected_gross_exposure_pct": _float_field(
+            decision,
+            "projected_gross_exposure_pct",
+        ),
+        "reason": reasons[0] if reasons else "risk decision recorded",
+        "checks": _check_rows(decision, "checks"),
+    }
+
+
+def _execution_preview_row(preview: Mapping[str, object]) -> dict[str, object]:
+    reasons = _string_list(preview, "reasons")
+    return {
+        "ticker": str(preview["ticker"]),
+        "preview_state": str(preview["preview_state"]),
+        "state_class": _preview_state_class(str(preview["preview_state"])),
+        "side": str(preview["side"]),
+        "risk_decision": str(preview["risk_decision"]),
+        "submit_enabled": preview["submit_enabled"],
+        "position_size_pct": _float_field(preview, "position_size_pct"),
+        "time_in_force": preview["time_in_force"] or "None",
+        "reason": reasons[0] if reasons else "preview recorded",
+    }
+
+
 def _candidate_row(report: Mapping[str, object]) -> dict[str, object]:
     conviction = _float_field(report, "final_conviction")
     return {
@@ -351,15 +489,19 @@ def _gate_status(report: Mapping[str, object]) -> str:
 
 
 def _gate_rows(report: Mapping[str, object]) -> list[dict[str, str]]:
+    return _check_rows(report, "policy_gates")
+
+
+def _check_rows(payload: Mapping[str, object], key: str) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
-    for gate in _list_field(report, "policy_gates"):
-        gate_payload = cast(Mapping[str, object], gate)
+    for item in _list_field(payload, key):
+        item_payload = cast(Mapping[str, object], item)
         rows.append(
             {
-                "name": str(gate_payload["name"]),
-                "status": str(gate_payload["status"]),
-                "reason": str(gate_payload["reason"]),
-                "status_class": str(gate_payload["status"]).lower(),
+                "name": str(item_payload["name"]),
+                "status": str(item_payload["status"]),
+                "reason": str(item_payload["reason"]),
+                "status_class": str(item_payload["status"]).lower(),
             }
         )
     return rows
@@ -416,6 +558,45 @@ def _candidate_detail_headline(ticker: str, latest_action: str) -> str:
     if latest_action == "None":
         return f"{ticker} has no persisted selection reports yet."
     return f"{ticker} latest action: {latest_action}."
+
+
+def _risk_headline(
+    decision_count: int,
+    allow_count: int,
+    warn_count: int,
+    block_count: int,
+) -> str:
+    if decision_count == 0:
+        return "No risk decisions yet."
+    return f"{allow_count} allowed, {warn_count} warned, {block_count} blocked."
+
+
+def _execution_headline(preview_count: int, ready_count: int) -> str:
+    if preview_count == 0:
+        return "No execution previews yet."
+    return f"{ready_count} paper previews are ready."
+
+
+def _portfolio_headline(position_count: int) -> str:
+    if position_count == 0:
+        return "No portfolio positions are tracked yet."
+    return f"{position_count} positions reviewed."
+
+
+def _decision_class(decision: str) -> str:
+    if decision == "ALLOW":
+        return "pass"
+    if decision == "WARN":
+        return "warn"
+    return "block"
+
+
+def _preview_state_class(state: str) -> str:
+    if state == "READY":
+        return "pass"
+    if state == "DISABLED":
+        return "neutral"
+    return "block"
 
 
 def _reason_text(payload: Mapping[str, object]) -> str:

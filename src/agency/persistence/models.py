@@ -49,6 +49,19 @@ selection_reports = Table(
     Col("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
 
+risk_decisions = Table(
+    "risk_decisions",
+    metadata,
+    Col("cycle_id", String(length=120), primary_key=True),
+    Col("ticker", String(length=16), primary_key=True),
+    Col("as_of", DateTime(timezone=True), primary_key=True),
+    Col("generated_at", DateTime(timezone=True), nullable=False),
+    Col("decision", String(length=40), nullable=False),
+    Col("payload", JSON, nullable=False),
+    Col("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Col("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
 candidate_lifecycle_events = Table(
     "candidate_lifecycle_events",
     metadata,
