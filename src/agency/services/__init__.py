@@ -1,5 +1,6 @@
 """Service-layer orchestration helpers for agency runtime flows."""
 
+from .demo_cycle import DemoRuntimeSeed, build_demo_runtime_seed, persist_demo_runtime_seed
 from .deterministic_rules import (
     DeterministicRuleConfig,
     DeterministicRuleResult,
@@ -46,6 +47,7 @@ __all__ = [
     "DeterministicSelectionResult",
     "DeterministicRuleConfig",
     "DeterministicRuleResult",
+    "DemoRuntimeSeed",
     "FinalSelectionResult",
     "ExecutionPreviewResult",
     "LlmReviewProvider",
@@ -57,6 +59,7 @@ __all__ = [
     "SignalActionabilityConfig",
     "build_and_persist_deterministic_selection",
     "build_context_only_llm_review",
+    "build_demo_runtime_seed",
     "build_deterministic_selection",
     "build_evidence_pack",
     "build_execution_preview",
@@ -71,5 +74,6 @@ __all__ = [
     "build_signal_results_from_scores",
     "evaluate_deterministic_rules",
     "persist_risk_result",
+    "persist_demo_runtime_seed",
     "persist_selection_result",
 ]
