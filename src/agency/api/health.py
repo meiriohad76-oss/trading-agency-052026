@@ -22,6 +22,10 @@ CONTRACT_NAMES: tuple[ContractName, ...] = (
     "selection-report",
     "data-source-health",
     "candidate-lifecycle-event",
+    "risk-decision",
+    "execution-preview",
+    "portfolio-monitor",
+    "learning-outcome",
 )
 
 

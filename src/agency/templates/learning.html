@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+
+{% set active_nav = "learning" %}
+
+{% block title %}Learning | Trading Agency v2{% endblock %}
+{% block eyebrow %}Feedback{% endblock %}
+{% block page_title %}Learning{% endblock %}
+{% block topbar_meta %}{{ summary.sample_count }} samples &middot; advisory{% endblock %}
+
+{% block content %}
+  <section class="hero hero-watch" aria-label="Learning state">
+    <h2>{{ summary.headline }}</h2>
+    <p>{{ summary.detail }}</p>
+  </section>
+
+  <section class="summary-band" aria-label="Learning metrics">
+    <div>
+      <span class="metric-label">Status</span>
+      <strong>{{ summary.status }}</strong>
+    </div>
+    <div>
+      <span class="metric-label">Samples</span>
+      <strong>{{ summary.sample_count }}</strong>
+    </div>
+    <div>
+      <span class="metric-label">Required</span>
+      <strong>{{ summary.required_sample_count }}</strong>
+    </div>
+    <div>
+      <span class="metric-label">Mode</span>
+      <strong>Advisory</strong>
+    </div>
+  </section>
+
+  <section class="panel" aria-labelledby="learning-requirements-heading">
+    <div class="section-heading">
+      <h2 id="learning-requirements-heading">Learning Requirements</h2>
+      <span class="tag tag-warn">No auto-tuning</span>
+    </div>
+    <div class="gate-list">
+      {% for requirement in outcome.requirements %}
+      <div class="gate-row gate-{{ requirement.status | lower }}">
+        <span class="gate-indicator" aria-hidden="true"></span>
+        <span>{{ requirement.name }}</span>
+        <strong>{{ requirement.status }}</strong>
+        <em>{{ requirement.reason }}</em>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+{% endblock %}

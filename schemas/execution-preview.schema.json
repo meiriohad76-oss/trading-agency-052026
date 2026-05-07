@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trading-agency.local/schemas/execution-preview.schema.json",
+  "title": "ExecutionPreview",
+  "x-version": "0.1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "cycle_id",
+    "ticker",
+    "as_of",
+    "generated_at",
+    "preview_state",
+    "side",
+    "quantity",
+    "entry",
+    "stop_loss",
+    "take_profit",
+    "notional",
+    "position_size_pct",
+    "time_in_force",
+    "risk_decision",
+    "submit_enabled",
+    "reasons"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "0.1.0"
+    },
+    "cycle_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ticker": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9.-]{0,9}$"
+    },
+    "as_of": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "preview_state": {
+      "type": "string",
+      "enum": ["READY", "BLOCKED", "DISABLED"]
+    },
+    "side": {
+      "type": "string",
+      "enum": ["BUY", "SELL", "SHORT", "COVER", "NONE"]
+    },
+    "quantity": {
+      "type": ["number", "null"],
+      "minimum": 0
+    },
+    "entry": {
+      "type": ["number", "null"]
+    },
+    "stop_loss": {
+      "type": ["number", "null"]
+    },
+    "take_profit": {
+      "type": ["number", "null"]
+    },
+    "notional": {
+      "type": ["number", "null"],
+      "minimum": 0
+    },
+    "position_size_pct": {
+      "type": "number",
+      "minimum": 0
+    },
+    "time_in_force": {
+      "type": ["string", "null"],
+      "minLength": 1
+    },
+    "risk_decision": {
+      "type": "string",
+      "enum": ["ALLOW", "WARN", "BLOCK"]
+    },
+    "submit_enabled": {
+      "type": "boolean"
+    },
+    "reasons": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  }
+}

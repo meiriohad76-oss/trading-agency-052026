@@ -8,27 +8,27 @@
 {% block topbar_meta %}paper mode &middot; submit gate closed{% endblock %}
 
 {% block content %}
-  <section class="hero hero-disabled" aria-label="Execution state">
+  <section class="hero hero-info" aria-label="Execution state">
     <h2>{{ summary.headline }}</h2>
     <p>{{ summary.detail }}</p>
   </section>
 
-  <section class="summary-band" aria-label="Execution placeholder metrics">
-    <div>
-      <span class="metric-label">Candidate Inputs</span>
-      <strong>{{ summary.candidate_count }}</strong>
-    </div>
+  <section class="summary-band" aria-label="Execution metrics">
     <div>
       <span class="metric-label">Previews</span>
-      <strong>0</strong>
+      <strong>{{ summary.preview_count }}</strong>
+    </div>
+    <div>
+      <span class="metric-label">Ready</span>
+      <strong>{{ summary.ready_count }}</strong>
+    </div>
+    <div>
+      <span class="metric-label">Blocked</span>
+      <strong>{{ summary.blocked_count }}</strong>
     </div>
     <div>
       <span class="metric-label">Submit Gate</span>
       <strong>Closed</strong>
-    </div>
-    <div>
-      <span class="metric-label">Mode</span>
-      <strong>Paper</strong>
     </div>
   </section>
 
@@ -42,22 +42,28 @@
         <thead>
           <tr>
             <th>Ticker</th>
-            <th>Action</th>
-            <th>Preview State</th>
+            <th>State</th>
+            <th>Side</th>
+            <th>Risk</th>
+            <th>Size</th>
             <th>Submit</th>
+            <th>Reason</th>
           </tr>
         </thead>
         <tbody>
-          {% for candidate in candidates %}
+          {% for row in preview_rows %}
           <tr>
-            <td><a class="text-link" href="/candidates/{{ candidate.ticker }}">{{ candidate.ticker }}</a></td>
-            <td>{{ candidate.action }}</td>
-            <td><span class="tag tag-block">Not generated</span></td>
-            <td><button class="disabled-button" type="button" disabled>Disabled</button></td>
+            <td><a class="text-link" href="/candidates/{{ row.ticker }}">{{ row.ticker }}</a></td>
+            <td><span class="tag tag-{{ row.state_class }}">{{ row.preview_state }}</span></td>
+            <td>{{ row.side }}</td>
+            <td>{{ row.risk_decision }}</td>
+            <td>{{ "%.0f"|format(row.position_size_pct) }}%</td>
+            <td><button class="disabled-button" type="button" disabled>Closed</button></td>
+            <td>{{ row.reason }}</td>
           </tr>
           {% else %}
           <tr>
-            <td class="empty-row" colspan="4">No execution previews yet</td>
+            <td class="empty-row" colspan="7">No execution previews yet</td>
           </tr>
           {% endfor %}
         </tbody>
@@ -68,19 +74,20 @@
   <section class="panel" aria-labelledby="submission-heading">
     <div class="section-heading">
       <h2 id="submission-heading">Submission Gate</h2>
+      <span class="tag tag-block">Closed</span>
     </div>
     <div class="gate-list">
       <div class="gate-row gate-block">
         <span class="gate-indicator" aria-hidden="true"></span>
         <span>Broker submit enabled</span>
         <strong>false</strong>
-        <em>Order submission remains closed.</em>
+        <em>Order submission remains closed regardless of preview state.</em>
       </div>
-      <div class="gate-row gate-block">
+      <div class="gate-row gate-warn">
         <span class="gate-indicator" aria-hidden="true"></span>
         <span>Execution service</span>
-        <strong>Pending</strong>
-        <em>Preview generation arrives after risk aggregation.</em>
+        <strong>Preview only</strong>
+        <em>Quantities and prices remain null until broker and market-data inputs exist.</em>
       </div>
     </div>
   </section>

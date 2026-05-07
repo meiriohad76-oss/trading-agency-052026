@@ -11,12 +11,25 @@ from agency.dashboard import (
     candidate_detail_summary,
     candidate_rows,
     command_summary,
+    execution_preview_rows,
     final_selection_rows,
+    learning_summary,
     policy_sections,
+    portfolio_monitor_summary,
+    risk_decision_rows,
+    risk_summary,
     source_status_rows,
     timeline_rows,
 )
-from agency.services import build_evidence_pack, build_final_selection, build_signal_result
+from agency.services import (
+    build_evidence_pack,
+    build_execution_preview,
+    build_final_selection,
+    build_learning_outcome,
+    build_portfolio_monitor,
+    build_risk_decision,
+    build_signal_result,
+)
 
 HTTP_OK = 200
 HTTP_NOT_FOUND = 404
@@ -59,18 +72,32 @@ def test_final_selection_page_renders_empty_state() -> None:
     assert "Read-only" in response.text
 
 
-def test_risk_and_execution_pages_are_disabled() -> None:
+def test_risk_and_execution_pages_render_runtime_states() -> None:
     client = TestClient(create_app())
 
     risk_response = client.get("/risk")
     execution_response = client.get("/execution-preview")
 
     assert risk_response.status_code == HTTP_OK
-    assert "Risk aggregation is read-only" in risk_response.text
-    assert "No risk page action can approve an order" in risk_response.text
+    assert "Risk Decisions" in risk_response.text
+    assert "No risk decisions yet" in risk_response.text
     assert execution_response.status_code == HTTP_OK
-    assert "Execution preview is read-only" in execution_response.text
+    assert "No execution previews yet" in execution_response.text
     assert "Submission disabled" in execution_response.text
+
+
+def test_portfolio_and_learning_pages_render_empty_states() -> None:
+    client = TestClient(create_app())
+
+    portfolio_response = client.get("/portfolio-monitor")
+    learning_response = client.get("/learning")
+
+    assert portfolio_response.status_code == HTTP_OK
+    assert "Portfolio Monitor" in portfolio_response.text
+    assert "No portfolio positions are tracked yet" in portfolio_response.text
+    assert learning_response.status_code == HTTP_OK
+    assert "Learning Requirements" in learning_response.text
+    assert "No auto-tuning" in learning_response.text
 
 
 def test_policy_page_is_read_only() -> None:
@@ -156,6 +183,35 @@ def test_final_selection_rows_follow_service_contract() -> None:
     assert rows[0]["policy_gates"][0]["status"] == "PASS"
 
 
+def test_risk_decision_rows_summarize_risk_contract() -> None:
+    decision = _risk_decision()
+
+    rows = risk_decision_rows([decision])
+    summary = risk_summary(rows, [_source_health("sec-edgar")])
+
+    assert rows[0]["decision"] == "ALLOW"
+    assert rows[0]["decision_class"] == "pass"
+    assert summary["allow_count"] == 1
+
+
+def test_execution_preview_rows_summarize_preview_contract() -> None:
+    preview = build_execution_preview(_risk_decision()).preview
+
+    rows = execution_preview_rows([preview])
+
+    assert rows[0]["preview_state"] == "READY"
+    assert rows[0]["state_class"] == "pass"
+    assert rows[0]["side"] == "BUY"
+
+
+def test_portfolio_and_learning_summaries_use_contract_payloads() -> None:
+    portfolio = build_portfolio_monitor([], generated_at="2026-05-07T09:34:00Z")
+    learning = build_learning_outcome(generated_at="2026-05-07T09:35:00Z")
+
+    assert portfolio_monitor_summary(portfolio)["position_count"] == 0
+    assert learning_summary(learning)["status"] == "PREMATURE"
+
+
 def test_candidate_detail_summary_uses_latest_report() -> None:
     reports = final_selection_rows([build_final_selection(_evidence_pack()).selection_report])
     summary = candidate_detail_summary("AAPL", reports, [_lifecycle_event()])
@@ -192,7 +248,13 @@ def test_contracts_endpoint_lists_contracts() -> None:
 
     assert response.status_code == HTTP_OK
     names = {item["name"] for item in response.json()}
-    assert {"selection-report", "evidence-pack", "data-source-health"}.issubset(names)
+    assert {
+        "selection-report",
+        "evidence-pack",
+        "data-source-health",
+        "risk-decision",
+        "execution-preview",
+    }.issubset(names)
 
 
 def test_contract_schema_endpoint_returns_json_schema() -> None:
@@ -330,6 +392,16 @@ def _evidence_pack() -> dict[str, object]:
             )
         ],
     )
+
+
+def _risk_decision() -> dict[str, object]:
+    report = build_final_selection(_evidence_pack()).selection_report
+    report["final_action"] = "BUY"
+    return build_risk_decision(
+        report,
+        {"source_count": 1, "degraded_source_count": 0},
+        generated_at="2026-05-07T09:32:00Z",
+    ).risk_decision
 
 
 def _provenance() -> dict[str, object]:

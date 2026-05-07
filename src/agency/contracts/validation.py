@@ -15,6 +15,10 @@ ContractName = Literal[
     "selection-report",
     "data-source-health",
     "candidate-lifecycle-event",
+    "risk-decision",
+    "execution-preview",
+    "portfolio-monitor",
+    "learning-outcome",
 ]
 
 _SCHEMA_FILES: dict[ContractName, str] = {
@@ -24,6 +28,10 @@ _SCHEMA_FILES: dict[ContractName, str] = {
     "selection-report": "selection-report.schema.json",
     "data-source-health": "data-source-health.schema.json",
     "candidate-lifecycle-event": "candidate-lifecycle-event.schema.json",
+    "risk-decision": "risk-decision.schema.json",
+    "execution-preview": "execution-preview.schema.json",
+    "portfolio-monitor": "portfolio-monitor.schema.json",
+    "learning-outcome": "learning-outcome.schema.json",
 }
 
 

@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trading-agency.local/schemas/portfolio-monitor.schema.json",
+  "title": "PortfolioMonitor",
+  "x-version": "0.1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generated_at",
+    "mode",
+    "positions",
+    "summary"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "0.1.0"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["READ_ONLY", "PAPER"]
+    },
+    "positions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/PositionReview"
+      }
+    },
+    "summary": {
+      "$ref": "#/$defs/Summary"
+    }
+  },
+  "$defs": {
+    "PositionReview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ticker", "classification", "reason", "current_action", "conviction"],
+      "properties": {
+        "ticker": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9.-]{0,9}$"
+        },
+        "classification": {
+          "type": "string",
+          "enum": ["HOLD", "REVIEW", "CLOSE_CANDIDATE", "NO_CURRENT_SETUP"]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "current_action": {
+          "type": ["string", "null"]
+        },
+        "conviction": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "Summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["position_count", "hold_count", "review_count", "close_candidate_count"],
+      "properties": {
+        "position_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "hold_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "review_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "close_candidate_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}
