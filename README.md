@@ -56,3 +56,4 @@ Run the FastAPI shell:
 ```
 
 The initial API exposes `/health`, `/contracts`, `/contracts/{name}`, and `/status/data-sources`.
+The root path `/` renders the first server-side dashboard shell.

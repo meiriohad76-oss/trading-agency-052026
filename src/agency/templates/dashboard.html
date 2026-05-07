@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Trading Agency v2</title>
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Trading Agency v2</p>
+        <h1>Agency Status</h1>
+      </div>
+      <span class="status-pill">Bootstrap</span>
+    </header>
+
+    <main class="layout">
+      <section class="summary-band" aria-label="Current state">
+        <div>
+          <span class="metric-label">Service</span>
+          <strong>Online</strong>
+        </div>
+        <div>
+          <span class="metric-label">Contracts</span>
+          <strong>{{ contracts | length }}</strong>
+        </div>
+        <div>
+          <span class="metric-label">Sources</span>
+          <strong>{{ data_sources | length }}</strong>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="source-heading">
+        <div class="section-heading">
+          <h2 id="source-heading">Data Sources</h2>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Source</th>
+                <th>Status</th>
+                <th>Freshness</th>
+                <th>Reliability</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for source in data_sources %}
+              <tr>
+                <td>{{ source.source }}</td>
+                <td><span class="tag tag-warn">{{ source.status }}</span></td>
+                <td>{{ source.freshness }}</td>
+                <td>{{ "%.0f"|format(source.reliability_score * 100) }}%</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="contracts-heading">
+        <div class="section-heading">
+          <h2 id="contracts-heading">Contracts</h2>
+        </div>
+        <div class="contract-grid">
+          {% for contract in contracts %}
+          <article class="contract">
+            <span>{{ contract.version }}</span>
+            <strong>{{ contract.title }}</strong>
+            <code>{{ contract.name }}</code>
+          </article>
+          {% endfor %}
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

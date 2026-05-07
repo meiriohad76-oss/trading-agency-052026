@@ -13,6 +13,7 @@ dependencies = [
   "asyncpg>=0.30",
   "fastapi>=0.115",
   "httpx>=0.28",
+  "jinja2>=3.1",
   "jsonschema>=4.25",
   "lxml>=6.0",
   "numpy>=2.4",
@@ -47,6 +48,9 @@ web = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+agency = ["static/*.css", "templates/*.html"]
 
 [tool.ruff]
 line-length = 100
