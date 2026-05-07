@@ -70,6 +70,16 @@ h2 {
   background: var(--blue);
 }
 
+.text-link {
+  color: var(--blue);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.text-link:hover {
+  text-decoration: underline;
+}
+
 .tag-warn {
   color: #3b2200;
   background: #ffd88a;
@@ -186,6 +196,29 @@ th {
   color: var(--muted);
   font-size: 0.85rem;
   overflow-wrap: anywhere;
+}
+
+.timeline {
+  display: grid;
+  gap: 12px;
+}
+
+.timeline-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px 12px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+
+.timeline-item span,
+.timeline-item p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.timeline-item p {
+  grid-column: 1 / -1;
 }
 
 @media (max-width: 640px) {

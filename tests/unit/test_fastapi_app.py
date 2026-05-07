@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from agency.api.health import runtime_data_source_status
 from agency.app import create_app
-from agency.dashboard import candidate_rows
+from agency.dashboard import candidate_rows, timeline_rows
 
 HTTP_OK = 200
 HTTP_NOT_FOUND = 404
@@ -43,6 +43,17 @@ def test_static_styles_are_served() -> None:
     assert "summary-band" in response.text
 
 
+def test_candidate_detail_renders_audit_empty_state() -> None:
+    client = TestClient(create_app())
+
+    response = client.get("/candidates/AAPL")
+
+    assert response.status_code == HTTP_OK
+    assert "Candidate" in response.text
+    assert "AAPL" in response.text
+    assert "No lifecycle events yet" in response.text
+
+
 def test_candidate_rows_summarize_selection_reports() -> None:
     rows = candidate_rows([_selection_report()])
 
@@ -54,6 +65,19 @@ def test_candidate_rows_summarize_selection_reports() -> None:
             "gate_status": "WARN",
             "as_of": "2026-05-07T09:30:00Z",
             "risk_flag_count": 1,
+        }
+    ]
+
+
+def test_timeline_rows_summarize_lifecycle_events() -> None:
+    rows = timeline_rows([_lifecycle_event()])
+
+    assert rows == [
+        {
+            "event_type": "DETERMINISTIC_ACTION",
+            "event_time": "2026-05-07T09:31:00Z",
+            "status": "ACTIONABLE",
+            "reason": "quality_positive",
         }
     ]
 
@@ -165,4 +189,13 @@ def _selection_report() -> dict[str, object]:
         "as_of": "2026-05-07T09:30:00Z",
         "policy_gates": [{"name": "evidence_breadth", "status": "WARN", "reason": "one source"}],
         "risk_flags": ["news_breadth_low"],
+    }
+
+
+def _lifecycle_event() -> dict[str, object]:
+    return {
+        "event_type": "DETERMINISTIC_ACTION",
+        "event_time": "2026-05-07T09:31:00Z",
+        "status": "ACTIONABLE",
+        "reason": "quality_positive",
     }

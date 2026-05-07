@@ -8,6 +8,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import Response
 from fastapi.templating import Jinja2Templates
 
+from agency.api.candidates import runtime_candidate_timeline
 from agency.api.health import contract_summaries, runtime_data_source_status
 from agency.api.reports import runtime_selection_reports
 
@@ -33,8 +34,40 @@ async def dashboard_context() -> dict[str, object]:
     }
 
 
+@router.get("/candidates/{ticker}")
+async def candidate_detail(request: Request, ticker: str) -> Response:
+    return templates.TemplateResponse(
+        request,
+        "candidate_detail.html",
+        await candidate_detail_context(ticker),
+    )
+
+
+async def candidate_detail_context(ticker: str) -> dict[str, object]:
+    normalized_ticker = ticker.upper()
+    reports = await runtime_selection_reports(ticker=normalized_ticker, limit=5)
+    timeline = await runtime_candidate_timeline(ticker=normalized_ticker, limit=25)
+    return {
+        "ticker": normalized_ticker,
+        "reports": candidate_rows(reports),
+        "timeline": timeline_rows(timeline),
+    }
+
+
 def candidate_rows(reports: Sequence[Mapping[str, object]]) -> list[dict[str, object]]:
     return [_candidate_row(report) for report in reports]
+
+
+def timeline_rows(events: Sequence[Mapping[str, object]]) -> list[dict[str, object]]:
+    return [
+        {
+            "event_type": str(event["event_type"]),
+            "event_time": str(event["event_time"]),
+            "status": str(event["status"]),
+            "reason": event["reason"],
+        }
+        for event in events
+    ]
 
 
 def _candidate_row(report: Mapping[str, object]) -> dict[str, object]:
