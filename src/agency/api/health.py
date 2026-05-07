@@ -24,7 +24,7 @@ def health() -> dict[str, str]:
 
 @router.get("/contracts")
 def contracts() -> list[dict[str, str]]:
-    return [_contract_summary(name) for name in CONTRACT_NAMES]
+    return contract_summaries()
 
 
 @router.get("/contracts/{contract_name}")
@@ -36,6 +36,14 @@ def contract_schema(contract_name: str) -> dict[str, Any]:
 
 @router.get("/status/data-sources")
 def data_source_status() -> list[dict[str, object]]:
+    return bootstrap_data_source_status()
+
+
+def contract_summaries() -> list[dict[str, str]]:
+    return [_contract_summary(name) for name in CONTRACT_NAMES]
+
+
+def bootstrap_data_source_status() -> list[dict[str, object]]:
     payload: dict[str, object] = {
         "schema_version": "0.1.0",
         "source": "bootstrap",

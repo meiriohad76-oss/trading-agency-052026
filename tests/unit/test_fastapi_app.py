@@ -17,6 +17,25 @@ def test_health_endpoint_reports_service_status() -> None:
     assert response.json() == {"status": "ok", "service": "trading-agency-v2"}
 
 
+def test_dashboard_renders_status_overview() -> None:
+    client = TestClient(create_app())
+
+    response = client.get("/")
+
+    assert response.status_code == HTTP_OK
+    assert "Agency Status" in response.text
+    assert "SelectionReport" in response.text
+
+
+def test_static_styles_are_served() -> None:
+    client = TestClient(create_app())
+
+    response = client.get("/static/styles.css")
+
+    assert response.status_code == HTTP_OK
+    assert "summary-band" in response.text
+
+
 def test_contracts_endpoint_lists_contracts() -> None:
     client = TestClient(create_app())
 
