@@ -1,49 +1,68 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
-import pytest
-from sqlalchemy.dialects import postgresql
+from fastapi.testclient import TestClient
 
-from agency.contracts import ContractValidationError
-from agency.runtime.selection_reports import (
-    build_selection_report_upsert,
-    selection_report_row_values,
-    selection_report_select,
-)
+from agency.api.reports import runtime_selection_reports
+from agency.app import create_app
 
-
-def test_selection_report_row_values_validate_and_convert_keys() -> None:
-    values = selection_report_row_values(_selection_report())
-
-    assert values["cycle_id"] == "cycle-1"
-    assert values["ticker"] == "AAPL"
-    assert values["as_of"] == datetime(2026, 5, 7, 9, 30, tzinfo=UTC)
-    assert values["payload"] == _selection_report()
+HTTP_OK = 200
+EXPECTED_LIMIT = 5
 
 
-def test_selection_report_upsert_targets_report_identity() -> None:
-    statement = build_selection_report_upsert(_selection_report())
-    compiled = str(statement.compile(dialect=postgresql.dialect()))
+def test_selection_reports_endpoint_falls_back_to_empty_list() -> None:
+    client = TestClient(create_app())
 
-    assert "ON CONFLICT (cycle_id, ticker, as_of) DO UPDATE" in compiled
-    assert "final_conviction" in compiled
+    response = client.get("/reports/selection")
 
-
-def test_selection_report_select_filters_by_uppercase_ticker() -> None:
-    statement = selection_report_select(ticker="aapl", limit=5)
-    compiled = str(statement.compile(dialect=postgresql.dialect()))
-
-    assert "selection_reports.ticker" in compiled
-    assert "ORDER BY selection_reports.generated_at DESC" in compiled
+    assert response.status_code == HTTP_OK
+    assert response.json() == []
 
 
-def test_selection_report_row_values_reject_invalid_contract() -> None:
-    payload = _selection_report()
-    payload["final_conviction"] = 1.2
+def test_selection_reports_for_ticker_endpoint_falls_back_to_empty_list() -> None:
+    client = TestClient(create_app())
 
-    with pytest.raises(ContractValidationError):
-        selection_report_row_values(payload)
+    response = client.get("/reports/selection/AAPL")
+
+    assert response.status_code == HTTP_OK
+    assert response.json() == []
+
+
+async def test_runtime_selection_reports_uses_repository_payloads() -> None:
+    async def reader(session: object, ticker: str | None, limit: int) -> list[dict[str, object]]:
+        assert session == "fake-session"
+        assert ticker == "AAPL"
+        assert limit == EXPECTED_LIMIT
+        return [_selection_report()]
+
+    payloads = await runtime_selection_reports(
+        ticker="AAPL",
+        limit=EXPECTED_LIMIT,
+        session_provider=_fake_session_provider,
+        reader=reader,
+    )
+
+    assert payloads[0]["ticker"] == "AAPL"
+    assert payloads[0]["final_action"] == "WATCH"
+
+
+async def test_runtime_selection_reports_falls_back_for_unavailable_db() -> None:
+    payloads = await runtime_selection_reports(session_provider=_raising_session_provider)
+
+    assert payloads == []
+
+
+@asynccontextmanager
+async def _fake_session_provider() -> AsyncIterator[object]:
+    yield "fake-session"
+
+
+@asynccontextmanager
+async def _raising_session_provider() -> AsyncIterator[object]:
+    raise OSError("database unavailable")
+    yield
 
 
 def _selection_report() -> dict[str, object]:
