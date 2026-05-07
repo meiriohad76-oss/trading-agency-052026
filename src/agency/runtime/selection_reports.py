@@ -52,9 +52,10 @@ async def upsert_selection_report(
 async def list_recent_selection_reports(
     session: AsyncSession,
     *,
+    ticker: str | None = None,
     limit: int = 50,
 ) -> list[dict[str, object]]:
-    result = await session.execute(selection_report_select(limit=limit))
+    result = await session.execute(selection_report_select(ticker=ticker, limit=limit))
     payloads: list[dict[str, object]] = []
     for payload in result.scalars().all():
         if not isinstance(payload, Mapping):
@@ -63,11 +64,14 @@ async def list_recent_selection_reports(
     return payloads
 
 
-def selection_report_select(*, limit: int = 50) -> Select[tuple[object]]:
+def selection_report_select(
+    *,
+    ticker: str | None = None,
+    limit: int = 50,
+) -> Select[tuple[object]]:
     if limit < 1:
         raise ValueError("limit must be positive")
-    return (
-        select(selection_reports.c.payload)
-        .order_by(selection_reports.c.generated_at.desc())
-        .limit(limit)
-    )
+    statement = select(selection_reports.c.payload)
+    if ticker is not None:
+        statement = statement.where(selection_reports.c.ticker == ticker.upper())
+    return statement.order_by(selection_reports.c.generated_at.desc()).limit(limit)
