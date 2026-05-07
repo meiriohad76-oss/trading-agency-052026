@@ -48,3 +48,17 @@ selection_reports = Table(
     Col("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Col("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
+
+candidate_lifecycle_events = Table(
+    "candidate_lifecycle_events",
+    metadata,
+    Col("event_id", String(length=64), primary_key=True),
+    Col("cycle_id", String(length=120), nullable=False),
+    Col("ticker", String(length=16), nullable=False),
+    Col("event_type", String(length=60), nullable=False),
+    Col("event_time", DateTime(timezone=True), nullable=False),
+    Col("status", String(length=60), nullable=False),
+    Col("reason", Text),
+    Col("payload", JSON, nullable=False),
+    Col("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)

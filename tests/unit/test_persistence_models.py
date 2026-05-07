@@ -4,12 +4,18 @@ import importlib.util
 from pathlib import Path
 from types import ModuleType
 
-from agency.persistence import data_source_health, metadata, selection_reports
+from agency.persistence import (
+    candidate_lifecycle_events,
+    data_source_health,
+    metadata,
+    selection_reports,
+)
 
 
 def test_metadata_includes_data_source_health_table() -> None:
     assert metadata.tables["data_source_health"] is data_source_health
     assert metadata.tables["selection_reports"] is selection_reports
+    assert metadata.tables["candidate_lifecycle_events"] is candidate_lifecycle_events
 
 
 def test_data_source_health_table_has_runtime_status_columns() -> None:
@@ -47,6 +53,28 @@ def test_selection_reports_migration_links_to_source_health_revision() -> None:
 
     assert migration.revision == "0003_selection_reports"
     assert migration.down_revision == "0002_data_source_health"
+
+
+def test_candidate_lifecycle_events_table_has_audit_columns() -> None:
+    columns = set(candidate_lifecycle_events.c.keys())
+
+    assert {
+        "event_id",
+        "cycle_id",
+        "ticker",
+        "event_type",
+        "event_time",
+        "status",
+        "payload",
+    }.issubset(columns)
+    assert candidate_lifecycle_events.primary_key.columns.keys() == ["event_id"]
+
+
+def test_candidate_lifecycle_events_migration_links_to_selection_report_revision() -> None:
+    migration = _load_migration("0004_candidate_lifecycle_events.py")
+
+    assert migration.revision == "0004_candidate_lifecycle_events"
+    assert migration.down_revision == "0003_selection_reports"
 
 
 def _load_migration(filename: str) -> ModuleType:
