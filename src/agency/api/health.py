@@ -1,12 +1,19 @@
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
+from contextlib import AbstractAsyncContextManager
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
+from sqlalchemy.exc import SQLAlchemyError
 
 from agency.contracts import ContractName, load_contract_schema, validate_contract
+from agency.db import MissingDatabaseConfigurationError, get_session
+from agency.runtime import list_source_health
 
 router = APIRouter()
+SourceHealthReader = Callable[[Any], Awaitable[list[dict[str, object]]]]
+SessionProvider = Callable[[], AbstractAsyncContextManager[Any]]
 
 CONTRACT_NAMES: tuple[ContractName, ...] = (
     "provenance",
@@ -36,8 +43,8 @@ def contract_schema(contract_name: str) -> dict[str, Any]:
 
 
 @router.get("/status/data-sources")
-def data_source_status() -> list[dict[str, object]]:
-    return bootstrap_data_source_status()
+async def data_source_status() -> list[dict[str, object]]:
+    return await runtime_data_source_status()
 
 
 def contract_summaries() -> list[dict[str, str]]:
@@ -61,6 +68,23 @@ def bootstrap_data_source_status() -> list[dict[str, object]]:
     }
     validate_contract("data-source-health", payload)
     return [payload]
+
+
+async def runtime_data_source_status(
+    *,
+    session_provider: SessionProvider = get_session,
+    reader: SourceHealthReader = list_source_health,
+) -> list[dict[str, object]]:
+    try:
+        async with session_provider() as session:
+            payloads = await reader(session)
+    except (MissingDatabaseConfigurationError, OSError, SQLAlchemyError):
+        return bootstrap_data_source_status()
+    if not payloads:
+        return bootstrap_data_source_status()
+    for payload in payloads:
+        validate_contract("data-source-health", payload)
+    return payloads
 
 
 def _contract_summary(contract: ContractName) -> dict[str, str]:
