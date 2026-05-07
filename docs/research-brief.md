@@ -3,11 +3,11 @@
 **Status:** Draft v0.2
 **Owner:** Ohad Meiri
 **Last updated:** 2026-05-06
-**Companion documents:** `v2-plan.md`, `working-model.md`, `tickets/README.md`
+**Companion documents:** `v2-plan.md`, `working-model.md`, `tickets/README.md`, `phase-status.md`
 
 This is the operational plan for the v2 research phase (Phase 1 in the v2 Plan). The research phase exists to answer one question honestly: **which signals from v1 actually have edge, and what realistic return profile is achievable from a disciplined combination of them?** Until those answers exist, we don't know which v2 to build.
 
-This document is expected to evolve as findings accrue. The `v2-plan.md` companion stays relatively stable, and `findings.md` records phase-gate conclusions. Execution is split between OpenAI Codex (heavy lifting) and Claude Code (architecture + safety-critical) per `working-model.md`; current ticket queue is in `tickets/`.
+This document is expected to evolve as findings accrue. The `v2-plan.md` companion stays relatively stable, `findings.md` records phase-gate conclusions, and `phase-status.md` records the current implementation-vs-gate truth. Execution is split between OpenAI Codex (heavy lifting) and Claude Code (architecture + safety-critical) per `working-model.md`; current ticket queue is in `tickets/`.
 
 ---
 
@@ -315,6 +315,9 @@ The compression vs. the original 8 weeks comes from three sources: Codex paralle
 
 These need resolution to start cleanly. Most map to open questions in `v2-plan.md`.
 
+T65 note: implementation scaffolding has moved ahead of the empirical research gate.
+The items below still matter before any signal lane becomes action-weighted.
+
 1. **Universe revision authority** (Q10 in v2-plan). Confirmed open: research can revise lanes. Can it also revise the universe (e.g., S&P 100 → Russell 1000)?
 2. **Cloud VM for heavy backtests** (Q11). Recommendation: a Hetzner CPX31 (~€10/mo) or AWS spot for week-5/6 backtests if the Pi struggles. Confirm budget.
 3. **Paid-sub emails — research mailbox** (Q6). Need a dedicated email address for forwarding, with IMAP/Gmail API access for the ingest scripts.
@@ -340,6 +343,8 @@ Once Phase 1 is done, the deliverables feed into Phase 2 (Design). At that point
 This document updates as findings come in. After each hypothesis is tested, append the result, verdict, and architecture implications to `docs/findings.md`, then update the relevant hypothesis section here only if the operating plan changes.
 
 When the research phase ends, `docs/findings.md`, this document, and the results folder are the input to Phase 2.
+Until then, `docs/phase-status.md` should be used to distinguish provisional build
+work from accepted phase-gate work.
 
 ---
 

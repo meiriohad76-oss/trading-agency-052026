@@ -3,7 +3,7 @@
 **Status:** Draft v0.2
 **Owner:** Ohad Meiri
 **Last updated:** 2026-05-07
-**Companion documents:** `research-brief.md`, `findings.md`
+**Companion documents:** `research-brief.md`, `findings.md`, `phase-status.md`
 
 This document is the strategic anchor for v2 of the autonomous stock trading agency. It captures the locked decisions, non-negotiable requirements, architectural direction, agent topology, data sources catalog, signals taxonomy, and phase structure. It is intended to stay relatively stable; the operational research plan lives separately in `research-brief.md`, and phase-gate conclusions live in `findings.md`.
 
@@ -319,6 +319,11 @@ The Signals Engine emits a structured `EvidencePack` per ticker and per cycle, c
 
 v2 is a sequential project with explicit phase gates. Each phase produces deliverables; the next phase doesn't start until those are accepted.
 
+**T65 status note:** this repository now contains provisional Phase 2 and early Phase 3
+scaffolding through T64. That scaffolding is useful for local paper/demo workflows,
+but it does not mark Phase 1 or Phase 2 accepted. `docs/phase-status.md` is the
+current source of truth for what is complete, provisional, and next.
+
 ### Phase 0 — Setup (1 week)
 
 - Workspace, repo, tooling. Postgres, FastAPI scaffold, Docker Compose.
@@ -402,6 +407,7 @@ This document is a living artifact. Update when:
 - Open questions are resolved.
 
 Companion `research-brief.md` updates more frequently as research findings accrue.
+Companion `phase-status.md` records the current implementation-vs-phase-gate truth.
 
 ---
 
