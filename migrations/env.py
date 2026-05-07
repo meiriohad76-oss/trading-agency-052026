@@ -9,13 +9,14 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from agency.db import DatabaseSettings, build_database_url
+from agency.persistence import metadata
 
 config = context.config
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-target_metadata = None
+target_metadata = metadata
 
 
 def get_url() -> str:
