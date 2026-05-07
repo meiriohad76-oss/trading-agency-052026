@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from agency.api.health import runtime_data_source_status
 from agency.app import create_app
+from agency.dashboard import candidate_rows
 
 HTTP_OK = 200
 HTTP_NOT_FOUND = 404
@@ -28,6 +29,8 @@ def test_dashboard_renders_status_overview() -> None:
 
     assert response.status_code == HTTP_OK
     assert "Agency Status" in response.text
+    assert "Candidates" in response.text
+    assert "No candidates yet" in response.text
     assert "SelectionReport" in response.text
 
 
@@ -38,6 +41,21 @@ def test_static_styles_are_served() -> None:
 
     assert response.status_code == HTTP_OK
     assert "summary-band" in response.text
+
+
+def test_candidate_rows_summarize_selection_reports() -> None:
+    rows = candidate_rows([_selection_report()])
+
+    assert rows == [
+        {
+            "ticker": "AAPL",
+            "action": "WATCH",
+            "conviction_pct": 62,
+            "gate_status": "WARN",
+            "as_of": "2026-05-07T09:30:00Z",
+            "risk_flag_count": 1,
+        }
+    ]
 
 
 def test_contracts_endpoint_lists_contracts() -> None:
@@ -136,4 +154,15 @@ def _source_health(source: str) -> dict[str, object]:
         "reliability_score": 1.0,
         "rate_limit_reset_at": None,
         "notes": [],
+    }
+
+
+def _selection_report() -> dict[str, object]:
+    return {
+        "ticker": "AAPL",
+        "final_action": "WATCH",
+        "final_conviction": 0.62,
+        "as_of": "2026-05-07T09:30:00Z",
+        "policy_gates": [{"name": "evidence_breadth", "status": "WARN", "reason": "one source"}],
+        "risk_flags": ["news_breadth_low"],
     }
