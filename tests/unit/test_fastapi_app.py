@@ -28,7 +28,8 @@ def test_dashboard_renders_status_overview() -> None:
     response = client.get("/")
 
     assert response.status_code == HTTP_OK
-    assert "Agency Status" in response.text
+    assert "Command" in response.text
+    assert "Paper trading" in response.text
     assert "Candidates" in response.text
     assert "No candidates yet" in response.text
     assert "SelectionReport" in response.text
