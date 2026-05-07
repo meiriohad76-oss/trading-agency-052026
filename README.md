@@ -46,3 +46,13 @@ The default development connection settings are in [.env.example](.env.example).
 ```powershell
 docker compose -f docker/docker-compose.yml down -v
 ```
+
+## Local API
+
+Run the FastAPI shell:
+
+```powershell
+.\.venv\Scripts\python -m uvicorn agency.app:app --reload
+```
+
+The initial API exposes `/health`, `/contracts`, `/contracts/{name}`, and `/status/data-sources`.
