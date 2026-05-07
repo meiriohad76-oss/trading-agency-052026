@@ -24,6 +24,7 @@ replace the empirical verdicts required here.
 | Public web/RSS | RSS ingestion plus optional Scrapling adapter | Use only for public, forward-observed sources. No paid-sub scraping. |
 | Signal lanes | Fundamentals, insider, institutional, sector, volume, pre/post, news, options | Deterministic functions implemented; empirical IC pending. |
 | Evaluation | H1 IC, H1 verdicts, walk-forward, profile, sweep, combination, LLM A/B | Reusable utilities implemented and unit-tested. |
+| Research batch | `research/scripts/run_research_batch.py` | Ready to run; T66 status is blocked by missing PIT manifests beyond universe membership. |
 
 ---
 
@@ -99,9 +100,11 @@ schema priorities are:
 ## Current Phase-Gate Status
 
 Phase 1 implementation scaffolding is substantially complete. Empirical validation is
-not complete. The next highest-value work is to run the data refresh and H1/H2/H3/H4
-result jobs, commit compact result summaries, and then revise `docs/v2-plan.md` with
-validated lane weights or documented simplifications.
+not complete. T66 added a repeatable result runner, but the current committed data only
+contains universe membership. The next highest-value work is to refresh prices, SEC
+facts/Form 4/13F, RSS, and options manifests, rerun the batch, commit compact result
+summaries, and then revise `docs/v2-plan.md` with validated lane weights or documented
+simplifications.
 
 See `docs/phase-status.md` for the current implementation-vs-phase-gate truth table
 and next ticket candidates.

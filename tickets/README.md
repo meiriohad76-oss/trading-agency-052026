@@ -13,12 +13,13 @@ Current project status is tracked in `docs/phase-status.md`.
 
 ## Current Queue
 
-There are no active open ticket specs after T65.
+There are no active open ticket specs after T66.
 
 Completed archive:
 
 - T01-T64: merged implementation tickets.
 - T65: planning/status reconciliation.
+- T66: research result runner batch.
 
 ## Next Ticket Candidates
 
@@ -28,11 +29,11 @@ Recommended next batch:
 
 | Ticket | Purpose |
 | --- | --- |
-| T66 | Research result runner batch for H1/H2/H3/H4/H5 artifacts. |
-| T67 | Actionability gate v1 with per-lane thresholds and corroboration. |
-| T68 | Runtime audit tables for agent runs, prompt audit, execution state, risk snapshots. |
-| T69 | Scheduler, `/metrics`, and structured runtime logging. |
-| T70 | Deployment/backups checkpoint for Pi-oriented reproducibility. |
+| T67 | Data refresh batch for prices, SEC facts/Form 4/13F, RSS, and options manifests. |
+| T68 | Actionability gate v1 with per-lane thresholds and corroboration. |
+| T69 | Runtime audit tables for agent runs, prompt audit, execution state, risk snapshots. |
+| T70 | Scheduler, `/metrics`, and structured runtime logging. |
+| T71 | Deployment/backups checkpoint for Pi-oriented reproducibility. |
 
 ## How To Assign A Ticket
 
