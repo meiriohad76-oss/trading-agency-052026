@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+
+{% set active_nav = "policy" %}
+
+{% block title %}Policy | Trading Agency v2{% endblock %}
+{% block eyebrow %}Configuration{% endblock %}
+{% block page_title %}Policy{% endblock %}
+{% block topbar_meta %}read-only &middot; audit pending{% endblock %}
+
+{% block content %}
+  <section class="hero hero-disabled" aria-label="Policy state">
+    <h2>{{ summary.headline }}</h2>
+    <p>{{ summary.detail }}</p>
+  </section>
+
+  <section class="summary-band" aria-label="Policy metrics">
+    <div>
+      <span class="metric-label">Policy Version</span>
+      <strong>v0</strong>
+    </div>
+    <div>
+      <span class="metric-label">Persistence</span>
+      <strong>Pending</strong>
+    </div>
+    <div>
+      <span class="metric-label">Audit Log</span>
+      <strong>Pending</strong>
+    </div>
+    <div>
+      <span class="metric-label">Editing</span>
+      <strong>Disabled</strong>
+    </div>
+  </section>
+
+  <section class="policy-grid" aria-label="Read-only policy">
+    {% for section in policy_sections %}
+    <article class="panel">
+      <div class="section-heading">
+        <h2>{{ section.title }}</h2>
+        <span class="tag tag-neutral">Read-only</span>
+      </div>
+      <div class="readonly-grid">
+        {% for item in section["items"] %}
+        <div class="readonly-field">
+          <span>{{ item.label }}</span>
+          <strong>{{ item.value }}</strong>
+        </div>
+        {% endfor %}
+      </div>
+    </article>
+    {% endfor %}
+  </section>
+
+  <section class="panel" aria-labelledby="policy-actions-heading">
+    <div class="section-heading">
+      <h2 id="policy-actions-heading">Policy Actions</h2>
+      <span class="tag tag-block">Disabled</span>
+    </div>
+    <div class="button-row">
+      <button class="disabled-button" type="button" disabled>Save disabled</button>
+      <button class="disabled-button" type="button" disabled>Reset disabled</button>
+      <button class="disabled-button" type="button" disabled>Audit disabled</button>
+    </div>
+  </section>
+{% endblock %}

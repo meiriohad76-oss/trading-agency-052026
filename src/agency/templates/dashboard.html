@@ -5,12 +5,21 @@
 {% block title %}Command | Trading Agency v2{% endblock %}
 {% block eyebrow %}Cockpit{% endblock %}
 {% block page_title %}Command{% endblock %}
-{% block topbar_meta %}{{ data_sources | length }} sources · {{ candidates | length }} candidates{% endblock %}
+{% block topbar_meta %}{{ summary.source_count }} sources &middot; {{ summary.candidate_count }} candidates{% endblock %}
 
 {% block content %}
-  <section class="hero hero-info" aria-label="Current state">
-    <h2>Runtime online. {{ candidates | length }} candidates available.</h2>
-    <p>Dashboard data uses the API runtime readers.</p>
+  <section class="hero {{ summary.hero_class }}" aria-label="Current state">
+    <h2>{{ summary.headline }}</h2>
+    <p>{{ summary.detail }}</p>
+  </section>
+
+  <section class="action-ribbon" aria-label="Next actions">
+    {% for action in actions %}
+    <a class="action-link" href="{{ action.href }}">
+      <span>{{ action.label }}</span>
+      <span aria-hidden="true">&rsaquo;</span>
+    </a>
+    {% endfor %}
   </section>
 
   <section class="summary-band" aria-label="Current metrics">
@@ -20,15 +29,23 @@
     </div>
     <div>
       <span class="metric-label">Contracts</span>
-      <strong>{{ contracts | length }}</strong>
+      <strong>{{ summary.contract_count }}</strong>
     </div>
     <div>
       <span class="metric-label">Sources</span>
-      <strong>{{ data_sources | length }}</strong>
+      <strong>{{ summary.source_count }}</strong>
+    </div>
+    <div>
+      <span class="metric-label">Degraded Sources</span>
+      <strong>{{ summary.degraded_source_count }}</strong>
     </div>
     <div>
       <span class="metric-label">Candidates</span>
-      <strong>{{ candidates | length }}</strong>
+      <strong>{{ summary.candidate_count }}</strong>
+    </div>
+    <div>
+      <span class="metric-label">Actionable</span>
+      <strong>{{ summary.actionable_candidate_count }}</strong>
     </div>
   </section>
 
@@ -86,9 +103,9 @@
           {% for source in data_sources %}
           <tr>
             <td>{{ source.source }}</td>
-            <td><span class="tag tag-warn">{{ source.status }}</span></td>
+            <td><span class="tag tag-{{ source.status_class }}">{{ source.status }}</span></td>
             <td>{{ source.freshness }}</td>
-            <td>{{ "%.0f"|format(source.reliability_score * 100) }}%</td>
+            <td>{{ source.reliability_pct }}%</td>
           </tr>
           {% endfor %}
         </tbody>
