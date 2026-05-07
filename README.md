@@ -53,6 +53,16 @@ To populate the local dashboard with deterministic paper/demo data:
 .\.venv\Scripts\python scripts\seed_demo_runtime.py
 ```
 
+To run one local paper cycle from schema-valid JSON inputs:
+
+```powershell
+.\.venv\Scripts\python scripts\run_agency_cycle.py --input .\path\to\runtime-cycle.json
+```
+
+The cycle input must include `cycle_id`, `as_of`, `generated_at`, and optional `tickers`,
+`source_health`, `signals`, and `current_gross_exposure_pct` fields. `source_health`
+entries must match `data-source-health`; `signals` entries must match `signal-result`.
+
 ## Local API
 
 Run the FastAPI shell:

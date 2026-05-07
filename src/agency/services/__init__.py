@@ -1,5 +1,11 @@
 """Service-layer orchestration helpers for agency runtime flows."""
 
+from .cycle import (
+    RuntimeCycleResult,
+    build_runtime_cycle,
+    persist_runtime_cycle,
+)
+from .cycle_payload import build_runtime_cycle_from_payload
 from .demo_cycle import DemoRuntimeSeed, build_demo_runtime_seed, persist_demo_runtime_seed
 from .deterministic_rules import (
     DeterministicRuleConfig,
@@ -55,6 +61,7 @@ __all__ = [
     "PortfolioPolicy",
     "RiskDecisionResult",
     "RiskPayloadWriter",
+    "RuntimeCycleResult",
     "SelectionPayloadWriter",
     "SignalActionabilityConfig",
     "build_and_persist_deterministic_selection",
@@ -70,10 +77,13 @@ __all__ = [
     "build_portfolio_monitor",
     "build_risk_decision",
     "build_risk_decisions",
+    "build_runtime_cycle",
+    "build_runtime_cycle_from_payload",
     "build_signal_result",
     "build_signal_results_from_scores",
     "evaluate_deterministic_rules",
     "persist_risk_result",
     "persist_demo_runtime_seed",
+    "persist_runtime_cycle",
     "persist_selection_result",
 ]
