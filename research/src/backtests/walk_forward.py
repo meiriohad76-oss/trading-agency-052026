@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Protocol, cast
+from typing import cast
 
 import pandas as pd
 import polars as pl
@@ -15,18 +14,9 @@ from backtests.portfolio import (
     target_weights,
     turnover_between,
 )
-from pit.exceptions import LookaheadRequested
+from backtests.scoped_loader import LoaderLike, ScopedPITLoader, SignalFn
 
 INITIAL_EQUITY = 1.0
-
-
-class LoaderLike(Protocol):
-    def universe_members(self, as_of: date) -> set[str]: ...
-
-    def prices(self, tickers: list[str], as_of: date, lookback_days: int) -> pl.DataFrame: ...
-
-
-SignalFn = Callable[[date, set[str], LoaderLike], dict[str, float]]
 
 
 @dataclass(frozen=True)
@@ -140,26 +130,6 @@ class WalkForward:
             equity_points.append((cast(pd.Timestamp, timestamp), equity))
             return_points.append((cast(pd.Timestamp, timestamp), float(period_return)))
         return equity
-
-
-@dataclass(frozen=True)
-class ScopedPITLoader:
-    """Loader wrapper that rejects signal-time requests after the scoped date."""
-
-    loader: LoaderLike
-    as_of: date
-
-    def universe_members(self, as_of: date) -> set[str]:
-        self._ensure_in_scope(as_of)
-        return self.loader.universe_members(as_of)
-
-    def prices(self, tickers: list[str], as_of: date, lookback_days: int) -> pl.DataFrame:
-        self._ensure_in_scope(as_of)
-        return self.loader.prices(tickers, as_of, lookback_days)
-
-    def _ensure_in_scope(self, requested: date) -> None:
-        if requested > self.as_of:
-            raise LookaheadRequested(requested, self.as_of)
 
 
 def _rebalance_dates(start: date, end: date, step_size_days: int) -> list[date]:
