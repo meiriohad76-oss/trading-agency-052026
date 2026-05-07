@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+
+{% set active_nav = "final" %}
+
+{% block title %}Final Selection | Trading Agency v2{% endblock %}
+{% block eyebrow %}Decision{% endblock %}
+{% block page_title %}Final Selection{% endblock %}
+{% block topbar_meta %}{{ summary.report_count }} reports &middot; read-only{% endblock %}
+
+{% block content %}
+  <section class="hero hero-info" aria-label="Final selection state">
+    <h2>{{ summary.headline }}</h2>
+    <p>{{ summary.detail }}</p>
+  </section>
+
+  <section class="summary-band" aria-label="Final selection metrics">
+    <div>
+      <span class="metric-label">Reports</span>
+      <strong>{{ summary.report_count }}</strong>
+    </div>
+    <div>
+      <span class="metric-label">Actionable</span>
+      <strong>{{ summary.actionable_count }}</strong>
+    </div>
+    <div>
+      <span class="metric-label">Blocked</span>
+      <strong>{{ summary.blocked_count }}</strong>
+    </div>
+    <div>
+      <span class="metric-label">Mode</span>
+      <strong>Read-only</strong>
+    </div>
+  </section>
+
+  <section class="panel" aria-labelledby="final-heading">
+    <div class="section-heading">
+      <h2 id="final-heading">Selection Reports</h2>
+    </div>
+    <div class="report-stack">
+      {% for row in final_rows %}
+      <article class="report-card">
+        <div class="report-head">
+          <div>
+            <strong><a class="text-link" href="/candidates/{{ row.ticker }}">{{ row.ticker }}</a> - {{ row.action }}</strong>
+            <span>{{ row.generated_at }} / cycle {{ row.cycle_id }}</span>
+          </div>
+          <span class="tag tag-{{ row.gate_status | lower }}">{{ row.gate_status }}</span>
+        </div>
+
+        <div class="decision-grid">
+          <div>
+            <span class="metric-label">Final Conviction</span>
+            <strong>{{ row.conviction_pct }}%</strong>
+          </div>
+          <div>
+            <span class="metric-label">Deterministic</span>
+            <strong>{{ row.deterministic_action }} / {{ row.deterministic_conviction_pct }}%</strong>
+          </div>
+          <div>
+            <span class="metric-label">LLM Review</span>
+            <strong>{{ row.llm_action }} / {{ row.llm_confidence_pct }}%</strong>
+          </div>
+          <div>
+            <span class="metric-label">Evidence</span>
+            <strong>{{ row.confirmed_signal_count }} confirmed</strong>
+          </div>
+        </div>
+
+        <div class="split-panel">
+          <div>
+            <h3>Policy Gates</h3>
+            <div class="gate-list">
+              {% for gate in row.policy_gates %}
+              <div class="gate-row gate-{{ gate.status_class }}">
+                <span class="gate-indicator" aria-hidden="true"></span>
+                <span>{{ gate.name }}</span>
+                <strong>{{ gate.status }}</strong>
+                <em>{{ gate.reason }}</em>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+          <div>
+            <h3>Rationale</h3>
+            <p>{{ row.llm_rationale }}</p>
+            <p class="muted-line">Reasons: {{ row.deterministic_reason }}. Risk flags: {{ row.risk_flag_text }}.</p>
+          </div>
+        </div>
+      </article>
+      {% else %}
+      <p class="empty-block">No final selection reports yet</p>
+      {% endfor %}
+    </div>
+  </section>
+{% endblock %}
