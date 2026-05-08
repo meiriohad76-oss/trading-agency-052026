@@ -62,6 +62,15 @@ After live refresh outputs exist, run a PIT-backed paper cycle:
 Get-Content research\results\t83-live-runtime-cycle\live-runtime-cycle-summary.md
 ```
 
+For the first stocks-only replay test, use:
+
+```powershell
+.\.venv\Scripts\python scripts\run_live_runtime_cycle.py `
+  --as-of 2025-12-31 `
+  --replay-freshness `
+  --output-root research\results\t85-stocks-only-replay
+```
+
 Then rerun the local runtime check and inspect the Command, Final Selection,
 Risk, Execution Preview, and Audit pages. The summary can show `WATCH`
 candidates while risk still blocks or warns them if source health is stale,
@@ -85,7 +94,7 @@ verdict and blocker count.
 - Live research unblock: configure `SEC_USER_AGENT`, RSS feeds, 13F filer CIKs,
   and CUSIP mapping, then run T72/T73.
 - Live runtime unblock: refresh PIT datasets close to the test date and add the
-  provider feed for unusual activity alerts before treating candidates as
-  paper-testable.
+  provider feed for unusual activity alerts before enabling the options/activity
+  lane.
 - Runtime hardening: improve seeded scenarios, audit drill-downs, and failure-state
   explanations.

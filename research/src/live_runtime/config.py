@@ -127,12 +127,15 @@ DATASET_CONFIGS: dict[DatasetName, RuntimeDatasetConfig] = {
     ),
 }
 
-DEFAULT_RUNTIME_SIGNALS = (
+STOCKS_ONLY_RUNTIME_SIGNALS = (
     "fundamentals",
     "insider",
     "institutional",
     "abnormal_volume",
     "sector_momentum",
     "news",
-    "activity_alerts",
 )
+
+OPTIONAL_RUNTIME_SIGNALS = ("activity_alerts",)
+
+DEFAULT_RUNTIME_SIGNALS = STOCKS_ONLY_RUNTIME_SIGNALS

@@ -39,7 +39,7 @@ def write_live_runtime_summary(summary: dict[str, Any], output_root: Path) -> No
 
 def summary_to_markdown(summary: dict[str, Any]) -> str:
     lines = [
-        "# T83 Live Runtime Cycle Summary",
+        "# Live Runtime Cycle Summary",
         "",
         f"Cycle: `{summary['cycle_id']}`",
         f"As-of: {summary['as_of']}",

@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, time
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -31,6 +31,7 @@ async def main() -> int:
     tickers = _tickers(args, config)
     as_of = args.as_of or (config.end if config and config.end else date.today())
     generated_at = datetime.now(UTC)
+    freshness_checked_at = _freshness_checked_at(as_of, replay=args.replay_freshness)
     cycle = build_live_pit_runtime_cycle(
         cycle_id=args.cycle_id or _cycle_id(as_of, generated_at),
         as_of=as_of,
@@ -39,6 +40,7 @@ async def main() -> int:
         parquet_root=args.parquet_root,
         lanes=tuple(args.signal or DEFAULT_RUNTIME_SIGNALS),
         generated_at=generated_at,
+        freshness_checked_at=freshness_checked_at,
     )
     persisted = False
     if args.persist:
@@ -62,6 +64,11 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--ticker", action="append", default=[])
     parser.add_argument("--signal", choices=sorted(LANE_CONFIGS), action="append")
     parser.add_argument("--as-of", type=_date)
+    parser.add_argument(
+        "--replay-freshness",
+        action="store_true",
+        help="Evaluate source freshness at the as-of date for PIT replay testing.",
+    )
     parser.add_argument("--cycle-id")
     parser.add_argument(
         "--audit-trigger",
@@ -100,6 +107,12 @@ def _tickers(args: argparse.Namespace, config: object | None) -> list[str]:
 def _cycle_id(as_of: date, generated_at: datetime) -> str:
     stamp = generated_at.strftime("%Y%m%dT%H%M%SZ")
     return f"live-pit-{as_of.isoformat()}-{stamp}"
+
+
+def _freshness_checked_at(as_of: date, *, replay: bool) -> datetime | None:
+    if not replay:
+        return None
+    return datetime.combine(as_of, time.min, tzinfo=UTC)
 
 
 def _date(value: str) -> date:

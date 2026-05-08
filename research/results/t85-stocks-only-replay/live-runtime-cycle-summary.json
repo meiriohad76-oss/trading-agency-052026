@@ -1,0 +1,36 @@
+{
+  "as_of": "2025-12-31T00:00:00+00:00",
+  "cycle_id": "live-pit-2025-12-31-20260508T105059Z",
+  "evidence_pack_count": 10,
+  "execution_state_counts": {
+    "BLOCKED": 9,
+    "DISABLED": 1
+  },
+  "generated_at": "2026-05-08T10:50:59.518736+00:00",
+  "persisted": true,
+  "risk_decision_counts": {
+    "BLOCK": 9,
+    "WARN": 1
+  },
+  "selection_action_counts": {
+    "NO_TRADE": 8,
+    "WATCH": 2
+  },
+  "signal_count": 38,
+  "source_status_counts": {
+    "HEALTHY": 5
+  },
+  "tickers": [
+    "AAPL",
+    "AMZN",
+    "GOOGL",
+    "HD",
+    "JPM",
+    "META",
+    "MSFT",
+    "NVDA",
+    "TSLA",
+    "UNH"
+  ],
+  "verdict": "watch_candidates_available"
+}

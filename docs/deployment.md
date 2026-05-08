@@ -39,6 +39,16 @@ paper cycle from those research artifacts:
   --output-root research\results\t83-live-runtime-cycle
 ```
 
+For the first stocks-only PIT replay, keep options/unusual-activity providers out
+of the gate and evaluate freshness at the replay date:
+
+```powershell
+.\.venv\Scripts\python scripts\run_live_runtime_cycle.py `
+  --as-of 2025-12-31 `
+  --replay-freshness `
+  --output-root research\results\t85-stocks-only-replay
+```
+
 Use `--no-persist` for a dry run that only writes the compact summary files.
 When persisted, the cycle flows through the same evidence, final-selection,
 risk, execution-preview, audit, dashboard, and metrics path as the seeded
