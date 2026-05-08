@@ -13,7 +13,7 @@ Current project status is tracked in `docs/phase-status.md`.
 
 ## Current Queue
 
-There are no active open ticket specs after T77.
+There are no active open ticket specs after T78.
 
 Completed archive:
 
@@ -29,6 +29,7 @@ Completed archive:
 - T75: runtime audit API and dashboard visibility.
 - T76: first-version user-test checklist and e2e smoke.
 - T77: live research refresh readiness config.
+- T78: demo audit seed wiring.
 
 ## Next Ticket Candidates
 

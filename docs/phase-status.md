@@ -1,6 +1,6 @@
 # Phase Status
 
-**Status:** reconciled after T77
+**Status:** reconciled after T78
 **Owner:** Ohad Meiri
 **Last updated:** 2026-05-08
 
@@ -9,7 +9,7 @@ implementation scaffolding from accepted phase gates.
 
 ## Current Truth
 
-- T01-T71 and T74-T77 are archived under `tickets/done/`.
+- T01-T71 and T74-T78 are archived under `tickets/done/`.
 - The repo contains Phase 0 foundation, Phase 1 research machinery, Phase 2
   contracts/dashboard scaffolding, and early Phase 3 runtime orchestration through T70.
 - T29-T64 are provisional build scaffolding until empirical H1-H5 results exist.
@@ -35,7 +35,8 @@ implementation scaffolding from accepted phase gates.
 2. Actionability gates are implemented as v1 service rules; thresholds still need
    calibration after empirical result artifacts exist.
 3. Runtime audit persistence and read-only visibility are wired for manual/scheduled
-   paper cycles; prompt audit capture waits for live LLM calls.
+   paper cycles and the deterministic demo seed; prompt audit capture waits for
+   live LLM calls.
 4. Lightweight scheduler, `/metrics`, structured JSON logging, local deployment
    commands, and backup/restore scripts exist.
 5. First-version manual inspection checklist and server-side e2e smoke coverage exist.
