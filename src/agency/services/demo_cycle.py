@@ -8,6 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from agency.contracts import validate_contract
 from agency.runtime import (
     record_candidate_lifecycle_event,
+    record_execution_state,
+    record_risk_snapshot,
+    upsert_agent_run,
     upsert_risk_decision,
     upsert_selection_report,
     upsert_source_health,
@@ -16,6 +19,7 @@ from agency.services.evidence_pack import build_evidence_pack
 from agency.services.execution_preview import build_execution_previews
 from agency.services.final_selection import build_final_selection
 from agency.services.risk import build_risk_decisions
+from agency.services.runtime_audit import build_runtime_audit_artifacts
 from agency.services.selection_events import build_report_lifecycle_event, status_for_action
 from agency.services.signal_adapters import build_signal_result
 
@@ -32,6 +36,7 @@ class DemoRuntimeSeed:
     """Schema-valid runtime artifacts for local dashboard demos."""
 
     source_health: list[dict[str, object]]
+    evidence_packs: list[dict[str, object]]
     selection_reports: list[dict[str, object]]
     selection_lifecycle_events: list[dict[str, object]]
     risk_decisions: list[dict[str, object]]
@@ -56,9 +61,27 @@ async def persist_demo_runtime_seed(
     report_writer: RuntimePayloadWriter = upsert_selection_report,
     risk_writer: RuntimePayloadWriter = upsert_risk_decision,
     lifecycle_writer: RuntimePayloadWriter = record_candidate_lifecycle_event,
+    agent_run_writer: RuntimePayloadWriter = upsert_agent_run,
+    risk_snapshot_writer: RuntimePayloadWriter = record_risk_snapshot,
+    execution_state_writer: RuntimePayloadWriter = record_execution_state,
 ) -> DemoRuntimeSeed:
     """Persist a deterministic paper/demo runtime cycle for local development."""
     runtime_seed = build_demo_runtime_seed() if seed is None else seed
+    _validate_seed(runtime_seed)
+    audit = build_runtime_audit_artifacts(
+        cycle_id=DEMO_CYCLE_ID,
+        as_of=DEMO_AS_OF,
+        generated_at=DEMO_GENERATED_AT,
+        source_health=runtime_seed.source_health,
+        evidence_packs=runtime_seed.evidence_packs,
+        selection_reports=runtime_seed.selection_reports,
+        risk_decisions=runtime_seed.risk_decisions,
+        execution_previews=runtime_seed.execution_previews,
+        trigger="SYSTEM",
+        started_at=DEMO_GENERATED_AT,
+        finished_at=DEMO_GENERATED_AT,
+    )
+    await agent_run_writer(session, audit.agent_run)
     for source in runtime_seed.source_health:
         await source_writer(session, source)
     for report in runtime_seed.selection_reports:
@@ -67,6 +90,10 @@ async def persist_demo_runtime_seed(
         await risk_writer(session, decision)
     for event in runtime_seed.all_lifecycle_events:
         await lifecycle_writer(session, event)
+    for snapshot in audit.risk_snapshots:
+        await risk_snapshot_writer(session, snapshot)
+    for state in audit.execution_states:
+        await execution_state_writer(session, state)
     return runtime_seed
 
 
@@ -120,6 +147,7 @@ def build_demo_runtime_seed() -> DemoRuntimeSeed:
     )
     seed = DemoRuntimeSeed(
         source_health=source_health,
+        evidence_packs=_evidence_packs_from_reports(selection_reports),
         selection_reports=selection_reports,
         selection_lifecycle_events=selection_lifecycle_events,
         risk_decisions=[result.risk_decision for result in risk_results],
@@ -260,6 +288,8 @@ def _provenance(ticker: str) -> dict[str, object]:
 def _validate_seed(seed: DemoRuntimeSeed) -> None:
     for source in seed.source_health:
         validate_contract("data-source-health", source)
+    for pack in seed.evidence_packs:
+        validate_contract("evidence-pack", pack)
     for report in seed.selection_reports:
         validate_contract("selection-report", report)
     for decision in seed.risk_decisions:
@@ -275,3 +305,9 @@ def _mapping_field(payload: Mapping[str, object], key: str) -> dict[str, object]
     if not isinstance(value, dict):
         raise TypeError(f"{key} must be a dict")
     return value
+
+
+def _evidence_packs_from_reports(
+    reports: Sequence[Mapping[str, object]],
+) -> list[dict[str, object]]:
+    return [_mapping_field(report, "evidence_pack") for report in reports]

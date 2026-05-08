@@ -15,7 +15,8 @@ async def main() -> None:
         f"{len(seed.source_health)} sources, "
         f"{len(seed.selection_reports)} selection reports, "
         f"{len(seed.risk_decisions)} risk decisions, "
-        f"{len(seed.execution_previews)} execution previews."
+        f"{len(seed.execution_previews)} execution previews, "
+        "and audit trail rows."
     )
 
 
