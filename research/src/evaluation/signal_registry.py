@@ -7,6 +7,7 @@ from signals.fundamentals import fundamental_score
 from signals.insider import insider_score
 from signals.institutional import institutional_score
 from signals.news import news_score
+from signals.options_anomaly import options_anomaly_score
 from signals.options_flow import options_flow_score
 from signals.sector_momentum import sector_momentum_score
 
@@ -17,6 +18,7 @@ SIGNALS: dict[str, SignalFn] = {
     "insider": insider_score,
     "institutional": institutional_score,
     "news": news_score,
+    "options_anomaly": options_anomaly_score,
     "options_flow": options_flow_score,
     "sector_momentum": sector_momentum_score,
 }

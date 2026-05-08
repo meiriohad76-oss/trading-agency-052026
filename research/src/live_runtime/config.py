@@ -77,6 +77,24 @@ LANE_CONFIGS: dict[str, RuntimeLaneConfig] = {
         FreshnessDomain.NEWS,
         0.6,
     ),
+    "options_anomaly": RuntimeLaneConfig(
+        "options_anomaly",
+        DatasetName.OPTIONS_CHAINS,
+        "options-chain-anomaly",
+        "MARKET_DATA",
+        "INFERRED",
+        FreshnessDomain.PRICING,
+        0.55,
+    ),
+    "options_flow": RuntimeLaneConfig(
+        "options_flow",
+        DatasetName.OPTIONS_CHAINS,
+        "options-chain-flow",
+        "MARKET_DATA",
+        "INFERRED",
+        FreshnessDomain.PRICING,
+        0.55,
+    ),
     "sector_momentum": RuntimeLaneConfig(
         "sector_momentum",
         DatasetName.PRICES_DAILY,
@@ -119,6 +137,12 @@ DATASET_CONFIGS: dict[DatasetName, RuntimeDatasetConfig] = {
         "RSS_HEADLINE",
         FreshnessDomain.NEWS,
     ),
+    DatasetName.OPTIONS_CHAINS: RuntimeDatasetConfig(
+        DatasetName.OPTIONS_CHAINS,
+        "options-chains",
+        "MARKET_DATA",
+        FreshnessDomain.PRICING,
+    ),
     DatasetName.UNUSUAL_ACTIVITY_ALERTS: RuntimeDatasetConfig(
         DatasetName.UNUSUAL_ACTIVITY_ALERTS,
         "activity-alerts",
@@ -136,6 +160,6 @@ STOCKS_ONLY_RUNTIME_SIGNALS = (
     "news",
 )
 
-OPTIONAL_RUNTIME_SIGNALS = ("activity_alerts",)
+OPTIONAL_RUNTIME_SIGNALS = ("activity_alerts", "options_anomaly", "options_flow")
 
 DEFAULT_RUNTIME_SIGNALS = STOCKS_ONLY_RUNTIME_SIGNALS

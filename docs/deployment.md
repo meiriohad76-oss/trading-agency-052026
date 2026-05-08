@@ -45,7 +45,9 @@ Set local-only secrets in `.env`; do not commit real values.
 
 Non-secret refresh settings live in `research/config/live-refresh.local.json`,
 including `rss_feeds`, `filer_ciks`, `cusip_map`, ticker universe, and the
-selected market-data provider.
+selected market-data provider. Options/dark-pool provider keys are not required
+until a provider is selected; current unusual-activity ingestion uses a local
+provider/export CSV.
 
 ## Live PIT Paper Cycle
 
@@ -71,6 +73,11 @@ Use `--no-persist` for a dry run that only writes the compact summary files.
 When persisted, the cycle flows through the same evidence, final-selection,
 risk, execution-preview, audit, dashboard, and metrics path as the seeded
 runtime.
+
+To opt into the options/activity lanes after importing coverage, add
+`options_chains` and/or `unusual_activity_alerts` to `datasets`, then set
+`runtime_signals` in `research/config/live-refresh.local.json` or pass repeated
+`--signal` flags to `scripts/run_live_runtime_cycle.py`.
 
 Then verify the runtime can see the persisted rows:
 

@@ -83,6 +83,28 @@ def test_live_config_readiness_warns_for_yfinance_current_date_provider(
     assert _check(readiness, "Market data")["status"] == "WARN"
 
 
+def test_live_config_readiness_warns_for_inferred_options_chains(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _blank_env(monkeypatch)
+    config_path = _write_config(
+        tmp_path,
+        {
+            "datasets": ["options_chains"],
+            "tickers": ["AAPL"],
+            "market_data_provider": "alpaca",
+        },
+    )
+    monkeypatch.setenv("ALPACA_API_KEY", "key")
+    monkeypatch.setenv("ALPACA_SECRET_KEY", "secret")
+
+    readiness = load_live_config_readiness(config_path)
+
+    assert readiness["runtime_signal_count"] == 0
+    assert _check(readiness, "Options chains")["status"] == "WARN"
+
+
 def test_live_config_status_endpoint_reads_configured_path(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

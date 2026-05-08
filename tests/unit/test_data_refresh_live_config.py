@@ -33,6 +33,7 @@ def test_load_refresh_config_parses_live_inputs(tmp_path: Path) -> None:
                 "market_data_feed": "iex",
                 "market_data_adjustment": "all",
                 "market_data_base_url": "https://data.alpaca.markets",
+                "runtime_signals": ["options_anomaly", "activity_alerts"],
             }
         ),
         encoding="utf-8",
@@ -52,6 +53,7 @@ def test_load_refresh_config_parses_live_inputs(tmp_path: Path) -> None:
     assert config.dry_run is True
     assert config.market_data_provider == "alpaca"
     assert config.market_data_feed == "iex"
+    assert config.runtime_signals == ("options_anomaly", "activity_alerts")
 
 
 def test_load_refresh_config_rejects_unknown_dataset(tmp_path: Path) -> None:

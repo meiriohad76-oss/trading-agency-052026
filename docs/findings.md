@@ -22,7 +22,7 @@ replace the empirical verdicts required here.
 | Free market data | yfinance daily bars, sector ETFs, options forward collector | Ready for refresh; historical options remain forward-only on free tier. |
 | Official filings | SEC company facts, Form 4, 13F pullers | Ready for PIT-scoped lane evaluation. |
 | Public web/RSS | RSS ingestion plus optional Scrapling adapter | Use only for public, forward-observed sources. No paid-sub scraping. |
-| Signal lanes | Fundamentals, insider, institutional, sector, volume, pre/post, news, options, activity alerts | First live H1 run is inconclusive for tested lanes; activity alerts are newly scaffolded and need provider coverage. |
+| Signal lanes | Fundamentals, insider, institutional, sector, volume, pre/post, news, options anomaly/flow, activity alerts | First live H1 run is inconclusive for tested lanes; options/activity lanes need provider or forward coverage. |
 | Actionability gate | `src/agency/services/actionability_gate.py` | V1 rules enforce lane source counts, freshness, dedupe, and inferred corroboration. |
 | Evaluation | H1 IC, H1 verdicts, walk-forward, profile, sweep, combination, LLM A/B | Reusable utilities implemented and unit-tested. |
 | Data refresh batch | `research/scripts/run_data_refresh_batch.py` | Live refresh summary committed under `research/results/t72-live-summary/`; raw/parquet data remains local-only. |
@@ -41,8 +41,8 @@ replace the empirical verdicts required here.
 | Abnormal volume | Daily bars | Inconclusive; best 5d IC 0.1080, t 2.6284, Bonferroni p 0.0858 | Keep as corroborating context. |
 | Pre/post | Extended-hours-capable source | Pending data coverage check | Keep context-only if free coverage is sparse. |
 | News | RSS-forward corpus | Not evaluated in H1 output; insufficient ticker-tagged observations | Improve ticker tagging and accumulate held-out coverage. |
-| Options flow | yfinance forward chains | Forward-only preliminary | Accumulate forward observations or buy historical data. |
-| Activity alerts | Local paid/confirmed CSV import | Forward-only scaffold; no empirical verdict yet | Import TradeVision/block-trade exports and run H1 once coverage exists. |
+| Options anomaly/flow | yfinance forward chains | Forward-only preliminary; inferred from chain snapshots | Accumulate forward observations or buy historical options/trade data. |
+| Activity alerts | Local paid/confirmed CSV import | Forward-only scaffold; no empirical verdict yet | Import provider block-trade, dark-pool, and unusual-options exports and run H1 once coverage exists. |
 
 **Architecture implication:** no tested lane is research-validated as a standalone
 action trigger. T73 therefore keeps the actionability bar conservative: deterministic
@@ -110,10 +110,12 @@ orchestrator, and T68 added v1 actionability gates. T72 records the first compac
 live-refresh summary; raw/parquet outputs remain intentionally local-only. T73 records
 the first live H1 calibration result and keeps runtime thresholds conservative because
 no lane survived the Bonferroni-adjusted H1 bar. T81 adds a confirmed activity-alert
-lane for provider/email block trades, dark-pool prints, and unusual-activity exports,
-but it remains context-only until enough forward or historical coverage is tested. The
-next highest-value work is to test the first version with the conservative gate and
-decide whether to widen H1 coverage or add stronger ticker-tagged sources.
+lane for provider/email block trades, dark-pool prints, and unusual-activity exports.
+T99 adds an inferred options-anomaly lane plus explicit optional runtime wiring for
+options/activity signals. These lanes remain context-only until enough forward or
+historical coverage is tested. The next highest-value work is to test the first
+version with the conservative gate and decide whether to widen H1 coverage or add
+stronger ticker-tagged sources.
 
 See `docs/phase-status.md` for the current implementation-vs-phase-gate truth table
 and next ticket candidates.

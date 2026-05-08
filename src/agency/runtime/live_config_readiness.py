@@ -30,6 +30,7 @@ def load_live_config_readiness(path: Path | None = None) -> dict[str, object]:
         "config_path": _display_path(config_path),
         "provider": _market_provider(payload),
         "dataset_count": len(_datasets(payload)),
+        "runtime_signal_count": len(_strings(payload, "runtime_signals")) if payload else 0,
         "ticker_count": len(_strings(payload, "tickers")) if payload is not None else 0,
         "blocker_count": blocker_count,
         "warning_count": warning_count,
@@ -57,6 +58,8 @@ def _checks(config_path: Path, payload: Mapping[str, object] | None) -> list[dic
         checks.append(_sec_user_agent_check(payload))
     if _uses(datasets, "news_rss"):
         checks.append(_list_check(payload, "RSS feeds", "rss_feeds"))
+    if _uses(datasets, "options_chains"):
+        checks.append(_check("Options chains", "WARN", "Forward-chain anomalies are inferred"))
     if _uses(datasets, "sec_13f"):
         checks.extend([
             _list_check(payload, "13F filers", "filer_ciks"),
