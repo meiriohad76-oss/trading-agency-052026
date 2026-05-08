@@ -1,15 +1,15 @@
 # Phase Status
 
-**Status:** reconciled after T67
+**Status:** reconciled after T68
 **Owner:** Ohad Meiri
-**Last updated:** 2026-05-07
+**Last updated:** 2026-05-08
 
 This document is the operational truth table for the repo. It separates merged
 implementation scaffolding from accepted phase gates.
 
 ## Current Truth
 
-- T01-T67 are archived under `tickets/done/`.
+- T01-T68 are archived under `tickets/done/`.
 - The repo contains Phase 0 foundation, Phase 1 research machinery, Phase 2
   contracts/dashboard scaffolding, and early Phase 3 runtime orchestration.
 - T29-T64 are provisional build scaffolding until empirical H1-H5 results exist.
@@ -31,8 +31,8 @@ implementation scaffolding from accepted phase gates.
 
 1. Empirical result artifacts under `research/results/` are blocked until the T67
    refresh batch is run locally with SEC/RSS/13F configuration.
-2. Actionability gates need per-lane source count, freshness, deduplication, and
-   inferred-signal corroboration rules.
+2. Actionability gates are implemented as v1 service rules; thresholds still need
+   calibration after empirical result artifacts exist.
 3. Runtime audit persistence lacks agent-run rows, prompt/response audit, execution
    state history, and richer risk snapshots.
 4. Scheduler, `/metrics`, structured JSON logging, deployment, and backups are not
@@ -44,11 +44,11 @@ implementation scaffolding from accepted phase gates.
 
 | Ticket | Purpose |
 | --- | --- |
-| T68 | Actionability gate v1 with per-lane thresholds and corroboration. |
 | T69 | Runtime audit tables for agent runs, prompt audit, execution state, risk snapshots. |
 | T70 | Scheduler, `/metrics`, and structured runtime logging. |
 | T71 | Deployment/backups checkpoint for Pi-oriented reproducibility. |
 | T72 | Live data-refresh execution and compact empirical result commit. |
+| T73 | Actionability threshold calibration after empirical H1-H5 results. |
 
 ## Operating Rule
 

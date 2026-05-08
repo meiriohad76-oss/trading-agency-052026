@@ -18,7 +18,7 @@ def test_deterministic_rules_weight_actionable_signals() -> None:
         generated_at="2026-05-07T09:31:00Z",
         signals=[
             _signal("fundamentals", 0.8),
-            _signal("news", -0.2),
+            _signal("insider", -0.2),
         ],
     )
 
@@ -26,7 +26,7 @@ def test_deterministic_rules_weight_actionable_signals() -> None:
         pack,
         config=DeterministicRuleConfig(
             watch_threshold=0.45,
-            lane_weights={"fundamentals": 2.0, "news": 1.0},
+            lane_weights={"fundamentals": 2.0, "insider": 1.0},
         ),
     )
 
@@ -50,7 +50,7 @@ def test_deterministic_rules_block_when_data_quality_blocks() -> None:
     assert "no_signal_results" in result.decision["blockers"]
 
 
-def test_deterministic_rules_warn_on_stale_but_allow_watch() -> None:
+def test_deterministic_rules_demote_stale_signal_before_selection() -> None:
     pack = build_evidence_pack(
         cycle_id="cycle-1",
         ticker="AAPL",
@@ -61,7 +61,8 @@ def test_deterministic_rules_warn_on_stale_but_allow_watch() -> None:
 
     result = evaluate_deterministic_rules(pack)
 
-    assert result.decision["action"] == "WATCH"
+    assert result.decision["action"] == "NO_TRADE"
+    assert result.decision["reason_codes"] == ["no_actionable_signals"]
     assert {"name": "freshness", "status": "WARN", "reason": "stale"} in result.policy_gates
 
 

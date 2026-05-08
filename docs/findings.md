@@ -2,7 +2,7 @@
 
 **Status:** Preliminary scaffold
 **Owner:** Ohad Meiri
-**Last updated:** 2026-05-07
+**Last updated:** 2026-05-08
 
 This document is the phase-gate record for the v2 research phase. It separates
 implemented research machinery from empirical findings. Until result files exist under
@@ -23,6 +23,7 @@ replace the empirical verdicts required here.
 | Official filings | SEC company facts, Form 4, 13F pullers | Ready for PIT-scoped lane evaluation. |
 | Public web/RSS | RSS ingestion plus optional Scrapling adapter | Use only for public, forward-observed sources. No paid-sub scraping. |
 | Signal lanes | Fundamentals, insider, institutional, sector, volume, pre/post, news, options | Deterministic functions implemented; empirical IC pending. |
+| Actionability gate | `src/agency/services/actionability_gate.py` | V1 rules enforce lane source counts, freshness, dedupe, and inferred corroboration. |
 | Evaluation | H1 IC, H1 verdicts, walk-forward, profile, sweep, combination, LLM A/B | Reusable utilities implemented and unit-tested. |
 | Data refresh batch | `research/scripts/run_data_refresh_batch.py` | Dry-run status committed; live SEC/RSS/13F inputs must be supplied locally. |
 | Research batch | `research/scripts/run_research_batch.py` | Ready to run; T66 status is blocked by missing PIT manifests beyond universe membership. |
@@ -101,12 +102,12 @@ schema priorities are:
 ## Current Phase-Gate Status
 
 Phase 1 implementation scaffolding is substantially complete. Empirical validation is
-not complete. T66 added a repeatable result runner and T67 added the local data-refresh
-orchestrator. The current committed data still only contains universe membership because
-raw/parquet outputs are intentionally local-only. The next highest-value work is to run
-the refresh with real SEC/RSS/13F configuration, rerun the result batch, commit compact
-result summaries, and then revise `docs/v2-plan.md` with validated lane weights or
-documented simplifications.
+not complete. T66 added a repeatable result runner, T67 added the local data-refresh
+orchestrator, and T68 added v1 actionability gates. The current committed data still
+only contains universe membership because raw/parquet outputs are intentionally
+local-only. The next highest-value research work is to run the refresh with real
+SEC/RSS/13F configuration, rerun the result batch, commit compact result summaries, and
+then revise `docs/v2-plan.md` with validated lane weights or documented simplifications.
 
 See `docs/phase-status.md` for the current implementation-vs-phase-gate truth table
 and next ticket candidates.
