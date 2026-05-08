@@ -1,6 +1,6 @@
 # Phase Status
 
-**Status:** reconciled after T68
+**Status:** reconciled after T69
 **Owner:** Ohad Meiri
 **Last updated:** 2026-05-08
 
@@ -9,7 +9,7 @@ implementation scaffolding from accepted phase gates.
 
 ## Current Truth
 
-- T01-T68 are archived under `tickets/done/`.
+- T01-T69 are archived under `tickets/done/`.
 - The repo contains Phase 0 foundation, Phase 1 research machinery, Phase 2
   contracts/dashboard scaffolding, and early Phase 3 runtime orchestration.
 - T29-T64 are provisional build scaffolding until empirical H1-H5 results exist.
@@ -33,8 +33,8 @@ implementation scaffolding from accepted phase gates.
    refresh batch is run locally with SEC/RSS/13F configuration.
 2. Actionability gates are implemented as v1 service rules; thresholds still need
    calibration after empirical result artifacts exist.
-3. Runtime audit persistence lacks agent-run rows, prompt/response audit, execution
-   state history, and richer risk snapshots.
+3. Runtime audit persistence has table/contracts/repositories; scheduler and runtime
+   cycle wiring still need to record those rows automatically.
 4. Scheduler, `/metrics`, structured JSON logging, deployment, and backups are not
    implemented yet.
 5. Portfolio policy is still static/read-only, not persisted or user-editable.
@@ -44,11 +44,11 @@ implementation scaffolding from accepted phase gates.
 
 | Ticket | Purpose |
 | --- | --- |
-| T69 | Runtime audit tables for agent runs, prompt audit, execution state, risk snapshots. |
 | T70 | Scheduler, `/metrics`, and structured runtime logging. |
 | T71 | Deployment/backups checkpoint for Pi-oriented reproducibility. |
 | T72 | Live data-refresh execution and compact empirical result commit. |
 | T73 | Actionability threshold calibration after empirical H1-H5 results. |
+| T74 | Runtime audit wiring for scheduled/manual cycles. |
 
 ## Operating Rule
 

@@ -17,6 +17,10 @@ SCHEMA_NAMES = [
     "data-source-health.schema.json",
     "candidate-lifecycle-event.schema.json",
     "risk-decision.schema.json",
+    "agent-run.schema.json",
+    "prompt-audit.schema.json",
+    "execution-state.schema.json",
+    "risk-snapshot.schema.json",
     "execution-preview.schema.json",
     "portfolio-monitor.schema.json",
     "learning-outcome.schema.json",
@@ -57,6 +61,13 @@ def test_candidate_lifecycle_event_validates_audit_payload() -> None:
 
 def test_risk_decision_validates_runtime_payload() -> None:
     _validator("risk-decision.schema.json").validate(_risk_decision())
+
+
+def test_runtime_audit_contracts_validate_payloads() -> None:
+    _validator("agent-run.schema.json").validate(_agent_run())
+    _validator("prompt-audit.schema.json").validate(_prompt_audit())
+    _validator("execution-state.schema.json").validate(_execution_state())
+    _validator("risk-snapshot.schema.json").validate(_risk_snapshot())
 
 
 def test_execution_preview_validates_no_submit_payload() -> None:
@@ -209,6 +220,64 @@ def _risk_decision() -> dict[str, object]:
         "reasons": ["AAPL passed v0 risk checks"],
         "risk_flags": [],
         "source_health": {"source_count": 1, "degraded_source_count": 0},
+    }
+
+
+def _agent_run() -> dict[str, object]:
+    return {
+        "schema_version": "0.1.0",
+        "run_id": "run-1",
+        "cycle_id": "cycle-1",
+        "agent_name": "deterministic-selection",
+        "status": "SUCCEEDED",
+        "trigger": "MANUAL",
+        "started_at": "2026-05-07T09:30:00Z",
+        "finished_at": "2026-05-07T09:31:00Z",
+        "payload": {"selection_count": 1},
+    }
+
+
+def _prompt_audit() -> dict[str, object]:
+    return {
+        "schema_version": "0.1.0",
+        "prompt_id": "prompt-1",
+        "run_id": "run-1",
+        "cycle_id": "cycle-1",
+        "agent_name": "llm-review",
+        "model": "gpt-test",
+        "prompt_class": "candidate-review",
+        "prompt_hash": "a" * 64,
+        "created_at": "2026-05-07T09:31:00Z",
+        "redaction_status": "NO_SECRETS",
+        "payload": {"template": "candidate-review-v1"},
+    }
+
+
+def _execution_state() -> dict[str, object]:
+    return {
+        "schema_version": "0.1.0",
+        "state_id": "state-1",
+        "cycle_id": "cycle-1",
+        "ticker": "AAPL",
+        "execution_id": "exec-1",
+        "state": "READY",
+        "event_time": "2026-05-07T09:33:00Z",
+        "reason": "paper preview ready",
+        "payload": {"submit_enabled": False},
+    }
+
+
+def _risk_snapshot() -> dict[str, object]:
+    return {
+        "schema_version": "0.1.0",
+        "snapshot_id": "risk-snap-1",
+        "cycle_id": "cycle-1",
+        "ticker": "AAPL",
+        "as_of": "2026-05-07T09:30:00Z",
+        "generated_at": "2026-05-07T09:32:00Z",
+        "gross_exposure_pct": 30.0,
+        "risk_level": "LOW",
+        "payload": {"source_count": 1},
     }
 
 
