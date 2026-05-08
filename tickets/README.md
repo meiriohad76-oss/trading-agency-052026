@@ -13,7 +13,7 @@ Current project status is tracked in `docs/phase-status.md`.
 
 ## Current Queue
 
-There are no active open ticket specs after T73/T80.
+There are no active open ticket specs after T83.
 
 Completed archive:
 
@@ -34,6 +34,9 @@ Completed archive:
 - T78: demo audit seed wiring.
 - T79: SEC Form 4 live refresh tolerance.
 - T80: live data refresh validation hardening.
+- T81: unusual activity alert lane.
+- T82: isolated activity-alert CSV smoke test.
+- T83: PIT-backed local paper runtime cycle.
 
 ## Next Ticket Candidates
 
@@ -42,7 +45,8 @@ Use `docs/phase-status.md` as the source of truth before drafting the next ticke
 Recommended next batch:
 
 No numbered ticket is selected. Use the first-version testing checklist next, then
-open a ticket for wider H1 coverage or stronger ticker-tagged source ingestion.
+open a ticket for operator-facing live-cycle readiness or stronger ticker-tagged
+source ingestion.
 
 ## How To Assign A Ticket
 

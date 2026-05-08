@@ -1,0 +1,111 @@
+from __future__ import annotations
+
+from datetime import UTC, date, datetime
+
+from live_runtime.config import DATASET_CONFIGS, RuntimeDatasetConfig
+from pit.exceptions import DataNotAvailableAt
+from pit.manifest import DataManifest, DatasetName, ManifestRegistry
+
+from agency.contracts import validate_contract
+from agency.provenance import FreshnessStatus, compute_freshness
+
+
+def source_health_from_manifests(
+    datasets: set[DatasetName],
+    *,
+    registry: ManifestRegistry,
+    as_of: date,
+    checked_at: datetime,
+) -> list[dict[str, object]]:
+    return [
+        _source_health(dataset, registry=registry, as_of=as_of, checked_at=checked_at)
+        for dataset in sorted(datasets, key=lambda item: item.value)
+    ]
+
+
+def _source_health(
+    dataset: DatasetName,
+    *,
+    registry: ManifestRegistry,
+    as_of: date,
+    checked_at: datetime,
+) -> dict[str, object]:
+    config = DATASET_CONFIGS[dataset]
+    try:
+        manifest = registry.require(dataset, as_of=as_of)
+    except DataNotAvailableAt as exc:
+        payload = _unavailable(config, checked_at=checked_at, reason=exc.reason)
+    else:
+        payload = _available(config, manifest=manifest, checked_at=checked_at)
+    validate_contract("data-source-health", payload)
+    return payload
+
+
+def _available(
+    config: RuntimeDatasetConfig,
+    *,
+    manifest: DataManifest,
+    checked_at: datetime,
+) -> dict[str, object]:
+    freshness = compute_freshness(
+        manifest.max_timestamp_as_of,
+        config.freshness_domain,
+        now=checked_at,
+    )
+    lag = max((checked_at - manifest.max_timestamp_as_of).total_seconds(), 0.0)
+    return {
+        "schema_version": "0.1.0",
+        "source": config.source,
+        "source_tier": config.source_tier,
+        "status": _status(freshness),
+        "checked_at": checked_at.isoformat(),
+        "freshness": freshness.value,
+        "last_success_at": manifest.max_timestamp_as_of.isoformat(),
+        "observed_lag_seconds": round(lag, 3),
+        "error_count": 0,
+        "reliability_score": _reliability(freshness),
+        "rate_limit_reset_at": None,
+        "notes": [f"{manifest.dataset.value}: {manifest.row_count} rows"],
+    }
+
+
+def _unavailable(
+    config: RuntimeDatasetConfig,
+    *,
+    checked_at: datetime,
+    reason: str,
+) -> dict[str, object]:
+    return {
+        "schema_version": "0.1.0",
+        "source": config.source,
+        "source_tier": config.source_tier,
+        "status": "UNAVAILABLE",
+        "checked_at": checked_at.isoformat(),
+        "freshness": "UNAVAILABLE",
+        "last_success_at": None,
+        "observed_lag_seconds": None,
+        "error_count": 1,
+        "reliability_score": 0.0,
+        "rate_limit_reset_at": None,
+        "notes": [reason],
+    }
+
+
+def _status(freshness: FreshnessStatus) -> str:
+    if freshness is FreshnessStatus.FRESH:
+        return "HEALTHY"
+    if freshness is FreshnessStatus.AGING:
+        return "DEGRADED"
+    return "STALE"
+
+
+def _reliability(freshness: FreshnessStatus) -> float:
+    if freshness is FreshnessStatus.FRESH:
+        return 1.0
+    if freshness is FreshnessStatus.AGING:
+        return 0.75
+    return 0.4
+
+
+def utc_now() -> datetime:
+    return datetime.now(UTC)
