@@ -20,7 +20,7 @@ def main() -> None:
             start=date.fromisoformat(args.start),
             end=date.fromisoformat(args.end),
             signals=tuple(args.signal),
-            horizons=tuple(args.horizon),
+            horizons=tuple(args.horizon or (5, 20)),
             step_size_days=args.step_days,
             static_universe=(
                 None if args.ticker is None else frozenset(ticker.upper() for ticker in args.ticker)
@@ -39,7 +39,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--start", required=True)
     parser.add_argument("--end", required=True)
     parser.add_argument("--signal", choices=sorted(SIGNALS), action="append", required=True)
-    parser.add_argument("--horizon", type=int, action="append", default=[5, 20])
+    parser.add_argument("--horizon", type=int, action="append")
     parser.add_argument("--step-days", type=int, default=21)
     parser.add_argument("--ticker", action="append", help="Static universe ticker; repeatable.")
     parser.add_argument(
