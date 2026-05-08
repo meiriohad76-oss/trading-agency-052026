@@ -1,0 +1,37 @@
+{
+  "alert_type_counts": {
+    "block_trade": 1,
+    "dark_pool": 1
+  },
+  "dataset": "unusual_activity_alerts",
+  "direction_counts": {
+    "BEARISH": 1,
+    "BULLISH": 1
+  },
+  "issues": [],
+  "max_timestamp_as_of": "2026-05-07T13:05:00+00:00",
+  "min_timestamp_as_of": "2026-05-07T13:00:00+00:00",
+  "paths": {
+    "input": "research/config/activity-alerts.example.csv",
+    "manifest": "research/results/t82-activity-alert-import/manifests/unusual_activity_alerts.json",
+    "parquet": "research/results/t82-activity-alert-import/parquet/unusual_activity_alerts.parquet"
+  },
+  "row_count": 2,
+  "rows_written": 2,
+  "source_count": 1,
+  "source_tier_counts": {
+    "PAID_SUB_EMAIL": 2
+  },
+  "ticker_count": 2,
+  "tickers": [
+    "AAPL",
+    "MSFT"
+  ],
+  "total_notional": 17925000.0,
+  "total_premium": 0.0,
+  "verdict": "ready_for_research_batch",
+  "verification_counts": {
+    "CONFIRMED": 2
+  },
+  "warnings": []
+}
