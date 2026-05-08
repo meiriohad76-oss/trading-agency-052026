@@ -50,6 +50,23 @@ curl.exe http://127.0.0.1:8000/metrics
 curl.exe http://127.0.0.1:8000/audit/agent-runs
 ```
 
+## Live PIT Cycle Inspection
+
+After live refresh outputs exist, run a PIT-backed paper cycle:
+
+```powershell
+.\.venv\Scripts\python scripts\run_live_runtime_cycle.py `
+  --output-root research\results\t83-live-runtime-cycle
+
+Get-Content research\results\t83-live-runtime-cycle\live-runtime-cycle-summary.md
+```
+
+Then rerun the local runtime check and inspect the Command, Final Selection,
+Risk, Execution Preview, and Audit pages. The summary can show `WATCH`
+candidates while risk still blocks or warns them if source health is stale,
+unavailable, or missing paid-provider activity data; that is expected until the
+refresh is current enough for paper validation.
+
 ## Pass Criteria
 
 - The app clearly says paper/demo mode.
@@ -61,5 +78,8 @@ curl.exe http://127.0.0.1:8000/audit/agent-runs
 
 - Live research unblock: configure `SEC_USER_AGENT`, RSS feeds, 13F filer CIKs,
   and CUSIP mapping, then run T72/T73.
+- Live runtime unblock: refresh PIT datasets close to the test date and add the
+  provider feed for unusual activity alerts before treating candidates as
+  paper-testable.
 - Runtime hardening: improve seeded scenarios, audit drill-downs, and failure-state
   explanations.

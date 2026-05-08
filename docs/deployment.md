@@ -29,6 +29,32 @@ Smoke-check a seeded runtime:
   --min-selection-reports 1 --min-risk-decisions 1
 ```
 
+## Live PIT Paper Cycle
+
+After a live refresh has written local PIT manifests and parquet files, run a
+paper cycle from those research artifacts:
+
+```powershell
+.\.venv\Scripts\python scripts\run_live_runtime_cycle.py `
+  --output-root research\results\t83-live-runtime-cycle
+```
+
+Use `--no-persist` for a dry run that only writes the compact summary files.
+When persisted, the cycle flows through the same evidence, final-selection,
+risk, execution-preview, audit, dashboard, and metrics path as the seeded
+runtime.
+
+Then verify the runtime can see the persisted rows:
+
+```powershell
+.\.venv\Scripts\python scripts\check_local_runtime.py `
+  --min-selection-reports 1 --min-risk-decisions 1
+```
+
+This remains paper-only. Stale or missing local PIT datasets intentionally
+degrade source health and can leave candidates blocked or context-only until a
+fresh refresh and required provider feeds are available.
+
 ## Compose App Image
 
 The app image is defined in `docker/app.Dockerfile`. Build and run it with the
