@@ -22,6 +22,7 @@ from agency.dashboard import (
     live_config_view,
     paper_review_progress,
     paper_review_queue,
+    paper_review_status_from_runtime,
     policy_sections,
     portfolio_monitor_summary,
     readiness_view,
@@ -148,6 +149,18 @@ def test_static_progress_script_is_served() -> None:
 
     assert response.status_code == HTTP_OK
     assert "data-progress-panel" in response.text
+
+
+def test_paper_review_status_endpoint_renders_empty_state() -> None:
+    client = TestClient(create_app())
+
+    response = client.get("/status/paper-review")
+
+    assert response.status_code == HTTP_OK
+    payload = response.json()
+    assert payload["schema_version"] == "0.1.0"
+    assert payload["progress"]["total_count"] == 0
+    assert payload["queue"] == []
 
 
 def test_candidate_review_post_records_human_review(monkeypatch: MonkeyPatch) -> None:
@@ -409,6 +422,42 @@ async def test_human_review_events_for_reports_filters_latest_cycle(
     events = await human_review_events_for_reports([report], {"cycle_id": "cycle-1"})
 
     assert events == [_human_review_event()]
+
+
+async def test_paper_review_status_from_runtime_exposes_progress(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    report = build_final_selection(_evidence_pack()).selection_report
+    decision = build_risk_decision(
+        report,
+        {"source_count": 1, "degraded_source_count": 0},
+        generated_at="2026-05-07T09:32:00Z",
+    ).risk_decision
+
+    async def fake_review_events(
+        reports: object,
+        readiness: object,
+    ) -> list[dict[str, object]]:
+        del reports, readiness
+        return [_human_review_event()]
+
+    monkeypatch.setattr(
+        dashboard_module,
+        "human_review_events_for_reports",
+        fake_review_events,
+    )
+
+    status = await paper_review_status_from_runtime(
+        reports=[report],
+        risk_decisions=[decision],
+        readiness={"cycle_id": "cycle-1", "ready": True, "verdict": "ready"},
+    )
+
+    progress = status["progress"]
+    assert status["schema_version"] == "0.1.0"
+    assert status["cycle_id"] == "cycle-1"
+    assert progress["reviewed_label"] == "1/1"
+    assert status["queue"][0]["human_review_decision"] == "Defer"
 
 
 def test_execution_preview_rows_summarize_preview_contract() -> None:

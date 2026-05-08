@@ -13,7 +13,7 @@ Current project status is tracked in `docs/phase-status.md`.
 
 ## Current Queue
 
-There are no active open ticket specs after T95.
+There are no active open ticket specs after T96.
 
 Completed archive:
 
@@ -49,6 +49,7 @@ Completed archive:
 - T93: Command human-review state visibility.
 - T94: Command review progress summary.
 - T95: candidate detail review workspace.
+- T96: paper review status API.
 
 ## Next Ticket Candidates
 
@@ -57,7 +58,7 @@ Use `docs/phase-status.md` as the source of truth before drafting the next ticke
 Recommended next batch:
 
 No numbered ticket is selected. Use the Command review queue, candidate detail
-review workspace, review progress summary, and first-version testing checklist
+review workspace, `/status/paper-review`, and first-version testing checklist
 against the latest current-date paper cycle. Keep the deferred options activity
 provider lane in the backlog.
 
