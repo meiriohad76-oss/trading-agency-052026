@@ -13,6 +13,7 @@ Trading Agency v2 is a supervised, Python-first equity research and paper-tradin
 - [working model](docs/working-model.md)
 - [deployment and backups](docs/deployment.md)
 - [first version test checklist](docs/testing-first-version.md)
+- [live research readiness](docs/live-research-readiness.md)
 
 ## First-Time Setup
 

@@ -1,6 +1,6 @@
 # Phase Status
 
-**Status:** reconciled after T76
+**Status:** reconciled after T77
 **Owner:** Ohad Meiri
 **Last updated:** 2026-05-08
 
@@ -9,7 +9,7 @@ implementation scaffolding from accepted phase gates.
 
 ## Current Truth
 
-- T01-T71 and T74-T76 are archived under `tickets/done/`.
+- T01-T71 and T74-T77 are archived under `tickets/done/`.
 - The repo contains Phase 0 foundation, Phase 1 research machinery, Phase 2
   contracts/dashboard scaffolding, and early Phase 3 runtime orchestration through T70.
 - T29-T64 are provisional build scaffolding until empirical H1-H5 results exist.
@@ -30,7 +30,8 @@ implementation scaffolding from accepted phase gates.
 ## High-Priority Gaps
 
 1. Empirical result artifacts under `research/results/` are blocked until the T67
-   refresh batch is run locally with SEC/RSS/13F configuration.
+   refresh batch is run locally with SEC/RSS/13F configuration. T77 adds the
+   config template and readiness checklist for that handoff.
 2. Actionability gates are implemented as v1 service rules; thresholds still need
    calibration after empirical result artifacts exist.
 3. Runtime audit persistence and read-only visibility are wired for manual/scheduled

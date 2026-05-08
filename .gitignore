@@ -14,6 +14,7 @@ __pycache__/
 .pre-commit-cache/
 
 # Research data
+research/config/*.local.json
 research/data/raw/**
 !research/data/raw/.gitkeep
 research/data/parquet/**
