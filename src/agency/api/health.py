@@ -4,16 +4,19 @@ from collections.abc import Awaitable, Callable
 from contextlib import AbstractAsyncContextManager
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
 from sqlalchemy.exc import SQLAlchemyError
 
+from agency.api.reports import runtime_selection_reports
+from agency.api.risk import runtime_risk_decisions
 from agency.contracts import ContractName, load_contract_schema, validate_contract
 from agency.db import MissingDatabaseConfigurationError, get_session
-from agency.runtime import list_source_health
+from agency.runtime import list_source_health, runtime_metrics_text
 
 router = APIRouter()
 SourceHealthReader = Callable[[Any], Awaitable[list[dict[str, object]]]]
 SessionProvider = Callable[[], AbstractAsyncContextManager[Any]]
+MetricsPayloadProvider = Callable[[], Awaitable[list[dict[str, object]]]]
 
 CONTRACT_NAMES: tuple[ContractName, ...] = (
     "provenance",
@@ -49,6 +52,14 @@ def contract_schema(contract_name: str) -> dict[str, Any]:
 @router.get("/status/data-sources")
 async def data_source_status() -> list[dict[str, object]]:
     return await runtime_data_source_status()
+
+
+@router.get("/metrics")
+async def metrics() -> Response:
+    return Response(
+        content=await runtime_metrics(),
+        media_type="text/plain; version=0.0.4",
+    )
 
 
 def contract_summaries() -> list[dict[str, str]]:
@@ -89,6 +100,44 @@ async def runtime_data_source_status(
     for payload in payloads:
         validate_contract("data-source-health", payload)
     return payloads
+
+
+async def runtime_metrics(
+    *,
+    source_status_provider: MetricsPayloadProvider | None = None,
+    selection_report_provider: MetricsPayloadProvider | None = None,
+    risk_decision_provider: MetricsPayloadProvider | None = None,
+) -> str:
+    source_provider = (
+        _default_source_status if source_status_provider is None else source_status_provider
+    )
+    selection_provider = (
+        _default_selection_reports
+        if selection_report_provider is None
+        else selection_report_provider
+    )
+    risk_provider = (
+        _default_risk_decisions
+        if risk_decision_provider is None
+        else risk_decision_provider
+    )
+    return runtime_metrics_text(
+        source_health=await source_provider(),
+        selection_reports=await selection_provider(),
+        risk_decisions=await risk_provider(),
+    )
+
+
+async def _default_source_status() -> list[dict[str, object]]:
+    return await runtime_data_source_status()
+
+
+async def _default_selection_reports() -> list[dict[str, object]]:
+    return await runtime_selection_reports()
+
+
+async def _default_risk_decisions() -> list[dict[str, object]]:
+    return await runtime_risk_decisions()
 
 
 def _contract_summary(contract: ContractName) -> dict[str, str]:

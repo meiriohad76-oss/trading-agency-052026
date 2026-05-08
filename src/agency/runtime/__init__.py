@@ -23,12 +23,14 @@ from .candidate_lifecycle import (
     make_lifecycle_event_id,
     record_candidate_lifecycle_event,
 )
+from .metrics import runtime_metrics_text
 from .risk_decisions import (
     build_risk_decision_upsert,
     list_recent_risk_decisions,
     risk_decision_row_values,
     upsert_risk_decision,
 )
+from .scheduler import ScheduledJob, SchedulerJobResult, is_due, run_due_jobs
 from .selection_reports import (
     build_selection_report_upsert,
     list_recent_selection_reports,
@@ -41,8 +43,11 @@ from .source_health import (
     source_health_row_values,
     upsert_source_health,
 )
+from .structured_logging import structured_log
 
 __all__ = [
+    "ScheduledJob",
+    "SchedulerJobResult",
     "agent_run_row_values",
     "build_agent_run_upsert",
     "build_candidate_lifecycle_insert",
@@ -68,8 +73,12 @@ __all__ = [
     "record_risk_snapshot",
     "risk_decision_row_values",
     "risk_snapshot_row_values",
+    "runtime_metrics_text",
     "selection_report_row_values",
     "source_health_row_values",
+    "structured_log",
+    "is_due",
+    "run_due_jobs",
     "upsert_agent_run",
     "upsert_risk_decision",
     "upsert_selection_report",

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import cast
 
 from agency.db import get_session
+from agency.runtime import structured_log
 from agency.services import build_runtime_cycle_from_payload, persist_runtime_cycle
 
 
@@ -18,12 +19,14 @@ async def main() -> None:
         await persist_runtime_cycle(session, cycle)
         await session.commit()
     print(
-        "Ran paper agency cycle "
-        f"{cycle.cycle_id}: "
-        f"{len(cycle.evidence_packs)} evidence packs, "
-        f"{len(cycle.selection_reports)} selection reports, "
-        f"{len(cycle.risk_decisions)} risk decisions, "
-        f"{len(cycle.execution_previews)} execution previews."
+        structured_log(
+            "agency_cycle_completed",
+            cycle_id=cycle.cycle_id,
+            evidence_pack_count=len(cycle.evidence_packs),
+            selection_report_count=len(cycle.selection_reports),
+            risk_decision_count=len(cycle.risk_decisions),
+            execution_preview_count=len(cycle.execution_previews),
+        )
     )
 
 

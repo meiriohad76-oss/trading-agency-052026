@@ -63,6 +63,7 @@ To run one local paper cycle from schema-valid JSON inputs:
 The cycle input must include `cycle_id`, `as_of`, `generated_at`, and optional `tickers`,
 `source_health`, `signals`, and `current_gross_exposure_pct` fields. `source_health`
 entries must match `data-source-health`; `signals` entries must match `signal-result`.
+The runner emits one structured JSON log line with persisted artifact counts.
 
 To preview the local PIT data refresh plan without calling external services:
 
@@ -91,5 +92,6 @@ Run the FastAPI shell:
 .\.venv\Scripts\python -m uvicorn agency.app:app --reload
 ```
 
-The initial API exposes `/health`, `/contracts`, `/contracts/{name}`, and `/status/data-sources`.
-The root path `/` renders the first server-side dashboard shell.
+The local API exposes `/health`, `/contracts`, `/contracts/{name}`, `/status/data-sources`,
+`/reports/selection`, `/risk/decisions`, and `/metrics`. The root path `/` renders the
+server-side dashboard shell.
