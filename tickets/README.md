@@ -13,7 +13,7 @@ Current project status is tracked in `docs/phase-status.md`.
 
 ## Current Queue
 
-There are no active open ticket specs after T74.
+There are no active open ticket specs after T75.
 
 Completed archive:
 
@@ -26,6 +26,7 @@ Completed archive:
 - T70: scheduler, metrics, and structured logging.
 - T71: deployment and backup checkpoint.
 - T74: runtime audit wiring for manual/scheduled cycles.
+- T75: runtime audit API and dashboard visibility.
 
 ## Next Ticket Candidates
 

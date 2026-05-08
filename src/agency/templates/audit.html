@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+
+{% set active_nav = "audit" %}
+
+{% block title %}Audit | Trading Agency v2{% endblock %}
+{% block eyebrow %}Trace{% endblock %}
+{% block page_title %}Runtime Audit{% endblock %}
+{% block topbar_meta %}{{ summary.run_count }} runs &middot; read-only{% endblock %}
+
+{% block content %}
+  <section class="hero hero-info" aria-label="Audit state">
+    <h2>{{ summary.headline }}</h2>
+    <p>{{ summary.detail }}</p>
+  </section>
+
+  <section class="summary-band" aria-label="Audit metrics">
+    <div>
+      <span class="metric-label">Runs</span>
+      <strong>{{ summary.run_count }}</strong>
+    </div>
+    <div>
+      <span class="metric-label">Risk Snapshots</span>
+      <strong>{{ summary.risk_snapshot_count }}</strong>
+    </div>
+    <div>
+      <span class="metric-label">Execution States</span>
+      <strong>{{ summary.execution_state_count }}</strong>
+    </div>
+    <div>
+      <span class="metric-label">Prompts</span>
+      <strong>{{ summary.prompt_count }}</strong>
+    </div>
+  </section>
+
+  <section class="panel" aria-labelledby="agent-runs-heading">
+    <div class="section-heading">
+      <h2 id="agent-runs-heading">Agent Runs</h2>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Cycle</th>
+            <th>Agent</th>
+            <th>Status</th>
+            <th>Trigger</th>
+            <th>Selection</th>
+            <th>Risk</th>
+            <th>Started</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for run in agent_runs %}
+          <tr>
+            <td>{{ run.cycle_id }}</td>
+            <td>{{ run.agent_name }}</td>
+            <td><span class="tag tag-{{ run.status_class }}">{{ run.status }}</span></td>
+            <td>{{ run.trigger }}</td>
+            <td>{{ run.selection_count }}</td>
+            <td>{{ run.risk_count }}</td>
+            <td>{{ run.started_at }}</td>
+          </tr>
+          {% else %}
+          <tr>
+            <td class="empty-row" colspan="7">No agent runs yet</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel" aria-labelledby="risk-snapshot-heading">
+    <div class="section-heading">
+      <h2 id="risk-snapshot-heading">Risk Snapshots</h2>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Cycle</th>
+            <th>Ticker</th>
+            <th>Risk</th>
+            <th>Gross Exposure</th>
+            <th>Generated</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for snapshot in risk_snapshots %}
+          <tr>
+            <td>{{ snapshot.cycle_id }}</td>
+            <td>{{ snapshot.ticker }}</td>
+            <td><span class="tag tag-{{ snapshot.risk_class }}">{{ snapshot.risk_level }}</span></td>
+            <td>{{ "%.0f"|format(snapshot.gross_exposure_pct) }}%</td>
+            <td>{{ snapshot.generated_at }}</td>
+          </tr>
+          {% else %}
+          <tr>
+            <td class="empty-row" colspan="5">No risk snapshots yet</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel" aria-labelledby="execution-state-heading">
+    <div class="section-heading">
+      <h2 id="execution-state-heading">Execution States</h2>
+      <span class="tag tag-block">Paper only</span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Cycle</th>
+            <th>Ticker</th>
+            <th>State</th>
+            <th>Reason</th>
+            <th>Event Time</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for state in execution_states %}
+          <tr>
+            <td>{{ state.cycle_id }}</td>
+            <td>{{ state.ticker }}</td>
+            <td><span class="tag tag-{{ state.state_class }}">{{ state.state }}</span></td>
+            <td>{{ state.reason }}</td>
+            <td>{{ state.event_time }}</td>
+          </tr>
+          {% else %}
+          <tr>
+            <td class="empty-row" colspan="5">No execution states yet</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel" aria-labelledby="prompt-audit-heading">
+    <div class="section-heading">
+      <h2 id="prompt-audit-heading">Prompt Audits</h2>
+      <span class="tag tag-neutral">Ready for later</span>
+    </div>
+    {% if prompt_audits %}
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Prompt</th>
+            <th>Cycle</th>
+            <th>Agent</th>
+            <th>Model</th>
+            <th>Redaction</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for prompt in prompt_audits %}
+          <tr>
+            <td>{{ prompt.prompt_id }}</td>
+            <td>{{ prompt.cycle_id }}</td>
+            <td>{{ prompt.agent_name }}</td>
+            <td>{{ prompt.model }}</td>
+            <td>{{ prompt.redaction_status }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="empty-block">No prompt audits yet</p>
+    {% endif %}
+  </section>
+{% endblock %}

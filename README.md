@@ -101,8 +101,9 @@ Run the FastAPI shell:
 ```
 
 The local API exposes `/health`, `/contracts`, `/contracts/{name}`, `/status/data-sources`,
-`/reports/selection`, `/risk/decisions`, and `/metrics`. The root path `/` renders the
-server-side dashboard shell.
+`/reports/selection`, `/risk/decisions`, `/audit/agent-runs`, `/audit/risk-snapshots`,
+`/audit/execution-states`, and `/metrics`. The root path `/` renders the server-side
+dashboard shell, with `/audit` for runtime trace review.
 
 To smoke-check a seeded local runtime:
 
