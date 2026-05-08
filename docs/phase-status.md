@@ -1,6 +1,6 @@
 # Phase Status
 
-**Status:** reconciled after T69
+**Status:** reconciled after T70
 **Owner:** Ohad Meiri
 **Last updated:** 2026-05-08
 
@@ -9,9 +9,9 @@ implementation scaffolding from accepted phase gates.
 
 ## Current Truth
 
-- T01-T69 are archived under `tickets/done/`.
+- T01-T70 are archived under `tickets/done/`.
 - The repo contains Phase 0 foundation, Phase 1 research machinery, Phase 2
-  contracts/dashboard scaffolding, and early Phase 3 runtime orchestration.
+  contracts/dashboard scaffolding, and early Phase 3 runtime orchestration through T70.
 - T29-T64 are provisional build scaffolding until empirical H1-H5 results exist.
 - The dashboard and cycle runner are local paper/demo tools. They are not a live
   trading system and do not submit broker orders.
@@ -33,10 +33,10 @@ implementation scaffolding from accepted phase gates.
    refresh batch is run locally with SEC/RSS/13F configuration.
 2. Actionability gates are implemented as v1 service rules; thresholds still need
    calibration after empirical result artifacts exist.
-3. Runtime audit persistence has table/contracts/repositories; scheduler and runtime
-   cycle wiring still need to record those rows automatically.
-4. Scheduler, `/metrics`, structured JSON logging, deployment, and backups are not
-   implemented yet.
+3. Runtime audit persistence has table/contracts/repositories; runtime cycle wiring
+   still needs to record those rows automatically.
+4. Lightweight scheduler, `/metrics`, and structured JSON logging exist; deployment
+   and backups are not implemented yet.
 5. Portfolio policy is still static/read-only, not persisted or user-editable.
 6. Paid-sub email ingestion and research mailbox decisions remain open.
 
@@ -44,7 +44,6 @@ implementation scaffolding from accepted phase gates.
 
 | Ticket | Purpose |
 | --- | --- |
-| T70 | Scheduler, `/metrics`, and structured runtime logging. |
 | T71 | Deployment/backups checkpoint for Pi-oriented reproducibility. |
 | T72 | Live data-refresh execution and compact empirical result commit. |
 | T73 | Actionability threshold calibration after empirical H1-H5 results. |
