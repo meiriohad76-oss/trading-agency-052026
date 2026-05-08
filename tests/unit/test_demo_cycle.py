@@ -8,6 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from agency.contracts import validate_contract
 from agency.services import build_demo_runtime_seed, persist_demo_runtime_seed
 
+EXPECTED_DEMO_SOURCE_COUNT = 2
+
 
 async def test_persist_demo_runtime_seed_writes_runtime_artifacts() -> None:
     writes: list[tuple[str, str]] = []
@@ -79,6 +81,12 @@ def test_demo_runtime_seed_exercises_dashboard_states() -> None:
     seed = build_demo_runtime_seed()
 
     assert {report["ticker"] for report in seed.selection_reports} == {"NVDA", "HD", "UNH"}
+    reports_by_ticker = {str(report["ticker"]): report for report in seed.selection_reports}
+    assert reports_by_ticker["HD"]["final_action"] == "NO_TRADE"
+    assert (
+        reports_by_ticker["NVDA"]["evidence_pack"]["data_quality"]["source_count"]
+        == EXPECTED_DEMO_SOURCE_COUNT
+    )
     assert {decision["decision"] for decision in seed.risk_decisions} == {
         "ALLOW",
         "BLOCK",

@@ -534,7 +534,15 @@ def _command_hero_class(candidate_count: int, degraded_source_count: int) -> str
 def _command_headline(candidate_count: int, actionable_candidate_count: int) -> str:
     if candidate_count == 0:
         return "Runtime online. No final candidates yet."
-    return f"Runtime online. {actionable_candidate_count} candidates ready to review."
+    return (
+        f"Runtime online. {actionable_candidate_count} "
+        f"{_plural('actionable candidate', actionable_candidate_count)} across "
+        f"{candidate_count} {_plural('report', candidate_count)}."
+    )
+
+
+def _plural(label: str, count: int) -> str:
+    return label if count == 1 else f"{label}s"
 
 
 def _command_detail(candidate_count: int, degraded_source_count: int) -> str:

@@ -160,6 +160,7 @@ def test_command_summary_counts_runtime_rows() -> None:
     assert summary["degraded_source_count"] == 1
     assert summary["source_count"] == EXPECTED_SOURCE_COUNT
     assert summary["contract_count"] == 1
+    assert summary["headline"] == "Runtime online. 1 actionable candidate across 1 report."
 
 
 def test_source_status_rows_add_status_classes() -> None:

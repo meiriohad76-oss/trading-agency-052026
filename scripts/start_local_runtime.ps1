@@ -39,4 +39,22 @@ if (-not $SkipSeed) {
     & $Python scripts\seed_demo_runtime.py
 }
 
+$health = $null
+try {
+    $health = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/health" -TimeoutSec 2
+} catch {
+    $connection = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
+    if ($null -ne $connection) {
+        throw "Port $Port is already in use, but the trading-agency health endpoint did not respond."
+    }
+}
+
+if ($null -ne $health) {
+    if ($health.status -eq "ok") {
+        Write-Host "Local runtime is already running at http://127.0.0.1:$Port/"
+        exit 0
+    }
+    throw "Port $Port responded, but the trading-agency health endpoint did not report ok."
+}
+
 & $Python -m uvicorn agency.app:app --host 127.0.0.1 --port $Port
