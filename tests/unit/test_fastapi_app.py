@@ -19,6 +19,7 @@ from agency.dashboard import (
     human_review_events_for_reports,
     learning_summary,
     live_config_view,
+    paper_review_progress,
     paper_review_queue,
     policy_sections,
     portfolio_monitor_summary,
@@ -45,6 +46,8 @@ EXPECTED_SOURCE_COUNT = 2
 EXPECTED_CONFIRMED_SIGNAL_COUNT = 2
 FULL_RELIABILITY_PERCENT = 100
 EXPECTED_TIMELINE_LIMIT = 50
+EXPECTED_REVIEW_QUEUE_COUNT = 4
+EXPECTED_REVIEWED_COUNT = 3
 
 
 def test_health_endpoint_reports_service_status() -> None:
@@ -346,6 +349,40 @@ def test_paper_review_queue_shows_latest_human_review_state() -> None:
     assert rows[0]["human_review_decision"] == "Defer"
     assert rows[0]["human_review_class"] == "warn"
     assert rows[0]["human_review_reason"] == "paper review deferred"
+
+
+def test_paper_review_progress_counts_review_states() -> None:
+    progress = paper_review_progress(
+        [
+            {"human_review_decision": "Pending"},
+            {"human_review_decision": "Approve"},
+            {"human_review_decision": "Defer"},
+            {"human_review_decision": "Reject"},
+        ]
+    )
+
+    assert progress["total_count"] == EXPECTED_REVIEW_QUEUE_COUNT
+    assert progress["reviewed_count"] == EXPECTED_REVIEWED_COUNT
+    assert progress["pending_count"] == 1
+    assert progress["approve_count"] == 1
+    assert progress["defer_count"] == 1
+    assert progress["reject_count"] == 1
+    assert progress["reviewed_label"] == "3/4"
+    assert progress["status_label"] == "1 Pending"
+    assert progress["status_class"] == "warn"
+
+
+def test_paper_review_progress_reports_complete_state() -> None:
+    progress = paper_review_progress(
+        [
+            {"human_review_decision": "Approve"},
+            {"human_review_decision": "Defer"},
+        ]
+    )
+
+    assert progress["reviewed_label"] == "2/2"
+    assert progress["status_label"] == "Review Complete"
+    assert progress["status_class"] == "pass"
 
 
 async def test_human_review_events_for_reports_filters_latest_cycle(

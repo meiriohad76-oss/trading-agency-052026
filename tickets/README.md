@@ -13,7 +13,7 @@ Current project status is tracked in `docs/phase-status.md`.
 
 ## Current Queue
 
-There are no active open ticket specs after T93.
+There are no active open ticket specs after T94.
 
 Completed archive:
 
@@ -47,6 +47,7 @@ Completed archive:
 - T91: Command paper review queue.
 - T92: paper review action audit capture.
 - T93: Command human-review state visibility.
+- T94: Command review progress summary.
 
 ## Next Ticket Candidates
 
@@ -55,9 +56,9 @@ Use `docs/phase-status.md` as the source of truth before drafting the next ticke
 Recommended next batch:
 
 No numbered ticket is selected. Use the Command review queue, paper review
-actions, visible review state, and first-version testing checklist against the
-latest current-date paper cycle. Keep the deferred options activity provider
-lane in the backlog.
+actions, visible review state, review progress summary, and first-version
+testing checklist against the latest current-date paper cycle. Keep the
+deferred options activity provider lane in the backlog.
 
 ## How To Assign A Ticket
 
