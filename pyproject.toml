@@ -81,7 +81,7 @@ ignore = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src", "research/src"]
+pythonpath = [".", "src", "research/src"]
 asyncio_mode = "auto"
 
 [tool.mypy]

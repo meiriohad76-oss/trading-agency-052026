@@ -11,6 +11,7 @@ Trading Agency v2 is a supervised, Python-first equity research and paper-tradin
 - [phase status](docs/phase-status.md)
 - [phase 1 findings](docs/findings.md)
 - [working model](docs/working-model.md)
+- [deployment and backups](docs/deployment.md)
 
 ## First-Time Setup
 
@@ -86,6 +87,12 @@ To run the research result batch after PIT data manifests are refreshed:
 
 ## Local API
 
+Fast local test runtime:
+
+```powershell
+.\scripts\start_local_runtime.ps1
+```
+
 Run the FastAPI shell:
 
 ```powershell
@@ -95,3 +102,10 @@ Run the FastAPI shell:
 The local API exposes `/health`, `/contracts`, `/contracts/{name}`, `/status/data-sources`,
 `/reports/selection`, `/risk/decisions`, and `/metrics`. The root path `/` renders the
 server-side dashboard shell.
+
+To smoke-check a seeded local runtime:
+
+```powershell
+.\.venv\Scripts\python scripts\check_local_runtime.py `
+  --min-selection-reports 1 --min-risk-decisions 1
+```
