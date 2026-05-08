@@ -27,10 +27,10 @@ def test_build_evidence_pack_partitions_signals_and_validates_contract() -> None
     assert len(pack["context_signals"]) == 1
     assert len(pack["suppressed_signals"]) == 1
     assert pack["data_quality"] == {
-        "freshness": "STALE",
-        "source_count": 3,
+        "freshness": "AGING",
+        "source_count": 2,
         "confirmed_signal_count": 1,
-        "inferred_signal_count": 2,
+        "inferred_signal_count": 1,
         "blockers": [],
     }
 

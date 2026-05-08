@@ -1,5 +1,10 @@
 """Service-layer orchestration helpers for agency runtime flows."""
 
+from .actionability_gate import (
+    ActionabilityGateConfig,
+    LaneActionabilityRule,
+    apply_actionability_gate,
+)
 from .cycle import (
     RuntimeCycleResult,
     build_runtime_cycle,
@@ -56,6 +61,8 @@ __all__ = [
     "DemoRuntimeSeed",
     "FinalSelectionResult",
     "ExecutionPreviewResult",
+    "ActionabilityGateConfig",
+    "LaneActionabilityRule",
     "LlmReviewProvider",
     "LlmReviewResult",
     "PortfolioPolicy",
@@ -65,6 +72,7 @@ __all__ = [
     "SelectionPayloadWriter",
     "SignalActionabilityConfig",
     "build_and_persist_deterministic_selection",
+    "apply_actionability_gate",
     "build_context_only_llm_review",
     "build_demo_runtime_seed",
     "build_deterministic_selection",
