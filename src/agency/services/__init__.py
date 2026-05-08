@@ -28,6 +28,12 @@ from .execution_preview import (
     build_execution_previews,
 )
 from .final_selection import FinalSelectionResult, build_final_selection
+from .human_review import (
+    HumanReviewWriter,
+    build_and_persist_human_review_event,
+    build_human_review_event,
+    persist_human_review_event,
+)
 from .learning import build_learning_outcome
 from .llm_review import (
     LlmReviewProvider,
@@ -65,6 +71,7 @@ __all__ = [
     "DeterministicRuleResult",
     "DemoRuntimeSeed",
     "FinalSelectionResult",
+    "HumanReviewWriter",
     "ExecutionPreviewResult",
     "ActionabilityGateConfig",
     "LaneActionabilityRule",
@@ -78,6 +85,7 @@ __all__ = [
     "SelectionPayloadWriter",
     "SignalActionabilityConfig",
     "build_and_persist_deterministic_selection",
+    "build_and_persist_human_review_event",
     "apply_actionability_gate",
     "build_context_only_llm_review",
     "build_demo_runtime_seed",
@@ -86,6 +94,7 @@ __all__ = [
     "build_execution_preview",
     "build_execution_previews",
     "build_final_selection",
+    "build_human_review_event",
     "build_learning_outcome",
     "build_llm_review_stub",
     "build_portfolio_monitor",
@@ -98,6 +107,7 @@ __all__ = [
     "build_signal_results_from_scores",
     "evaluate_deterministic_rules",
     "persist_risk_result",
+    "persist_human_review_event",
     "persist_demo_runtime_seed",
     "persist_runtime_cycle",
     "persist_selection_result",

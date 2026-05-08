@@ -172,10 +172,37 @@ h2 {
   text-decoration: underline;
 }
 
+.inline-actions,
 .inline-links {
   display: inline-flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.inline-actions form {
+  margin: 0;
+}
+
+.mini-button {
+  min-height: 30px;
+  padding: 5px 9px;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fbfcfd;
+  cursor: pointer;
+}
+
+.mini-button:hover {
+  border-color: #afbac7;
+}
+
+.danger-button {
+  color: #5c1414;
+  background: #fff0f0;
 }
 
 .tag-warn {

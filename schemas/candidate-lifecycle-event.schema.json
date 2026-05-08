@@ -40,6 +40,7 @@
         "DETERMINISTIC_ACTION",
         "LLM_ACTION",
         "FINAL_ACTION",
+        "HUMAN_REVIEW",
         "RISK_DECISION",
         "EXECUTION_PREVIEW",
         "EXECUTION_STATE",

@@ -4,7 +4,9 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi.testclient import TestClient
+from pytest import MonkeyPatch
 
+import agency.dashboard as dashboard_module
 from agency.api.health import runtime_data_source_status
 from agency.app import create_app
 from agency.dashboard import (
@@ -37,6 +39,7 @@ from agency.services import (
 
 HTTP_OK = 200
 HTTP_NOT_FOUND = 404
+HTTP_SEE_OTHER = 303
 EXPECTED_SOURCE_COUNT = 2
 EXPECTED_CONFIRMED_SIGNAL_COUNT = 2
 FULL_RELIABILITY_PERCENT = 100
@@ -139,6 +142,46 @@ def test_static_progress_script_is_served() -> None:
 
     assert response.status_code == HTTP_OK
     assert "data-progress-panel" in response.text
+
+
+def test_candidate_review_post_records_human_review(monkeypatch: MonkeyPatch) -> None:
+    writes: list[dict[str, object]] = []
+    session = _FakeSession()
+
+    @asynccontextmanager
+    async def fake_session_provider() -> AsyncIterator[_FakeSession]:
+        yield session
+
+    async def fake_persist(session_arg: object, **kwargs: object) -> dict[str, object]:
+        assert session_arg is session
+        writes.append(dict(kwargs))
+        return {"event_type": "HUMAN_REVIEW"}
+
+    monkeypatch.setattr(dashboard_module, "get_session", fake_session_provider)
+    monkeypatch.setattr(
+        dashboard_module,
+        "build_and_persist_human_review_event",
+        fake_persist,
+    )
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/candidates/aapl/reviews"
+        "?cycle_id=cycle-1&as_of=2026-05-07T09%3A30%3A00Z&decision=APPROVE",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == HTTP_SEE_OTHER
+    assert response.headers["location"] == "/candidates/AAPL"
+    assert session.committed is True
+    assert writes == [
+        {
+            "cycle_id": "cycle-1",
+            "ticker": "aapl",
+            "as_of": "2026-05-07T09:30:00Z",
+            "decision": "APPROVE",
+        }
+    ]
 
 
 def test_candidate_detail_renders_audit_empty_state() -> None:
@@ -281,6 +324,7 @@ def test_paper_review_queue_pairs_latest_cycle_with_risk_decision() -> None:
     assert rows[0]["review_state"] == "Ready"
     assert rows[0]["risk_decision"] == "WARN"
     assert rows[0]["candidate_href"] == "/candidates/AAPL"
+    assert "decision=APPROVE" in str(rows[0]["approve_review_action"])
     assert rows[0]["source_count"] == EXPECTED_SOURCE_COUNT
     assert rows[0]["confirmed_signal_count"] == EXPECTED_CONFIRMED_SIGNAL_COUNT
 
@@ -417,6 +461,14 @@ async def test_runtime_data_source_status_falls_back_for_missing_db() -> None:
     payloads = await runtime_data_source_status(session_provider=_raising_session_provider)
 
     assert payloads[0]["source"] == "bootstrap"
+
+
+class _FakeSession:
+    def __init__(self) -> None:
+        self.committed = False
+
+    async def commit(self) -> None:
+        self.committed = True
 
 
 @asynccontextmanager
