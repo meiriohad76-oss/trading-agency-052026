@@ -218,6 +218,7 @@
             <th>Action</th>
             <th>Conviction</th>
             <th>Risk</th>
+            <th>Human Review</th>
             <th>Evidence</th>
             <th>Reason</th>
             <th>Record</th>
@@ -232,6 +233,9 @@
             <td><span class="tag tag-neutral">{{ item.action }}</span></td>
             <td>{{ item.conviction_pct }}%</td>
             <td><span class="tag tag-{{ item.risk_class }}">{{ item.risk_decision }}</span></td>
+            <td>
+              <span class="tag tag-{{ item.human_review_class }}">{{ item.human_review_decision }}</span>
+            </td>
             <td>{{ item.source_count }} src / {{ item.confirmed_signal_count }} confirmed</td>
             <td>{{ item.reason }}</td>
             <td>
@@ -257,7 +261,7 @@
           </tr>
           {% else %}
           <tr>
-            <td class="empty-row" colspan="9">No reviewable paper candidates for the latest cycle</td>
+            <td class="empty-row" colspan="10">No reviewable paper candidates for the latest cycle</td>
           </tr>
           {% endfor %}
         </tbody>

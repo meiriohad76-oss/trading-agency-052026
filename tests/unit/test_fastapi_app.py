@@ -16,6 +16,7 @@ from agency.dashboard import (
     data_refresh_progress_view,
     execution_preview_rows,
     final_selection_rows,
+    human_review_events_for_reports,
     learning_summary,
     live_config_view,
     paper_review_queue,
@@ -43,6 +44,7 @@ HTTP_SEE_OTHER = 303
 EXPECTED_SOURCE_COUNT = 2
 EXPECTED_CONFIRMED_SIGNAL_COUNT = 2
 FULL_RELIABILITY_PERCENT = 100
+EXPECTED_TIMELINE_LIMIT = 50
 
 
 def test_health_endpoint_reports_service_status() -> None:
@@ -323,10 +325,50 @@ def test_paper_review_queue_pairs_latest_cycle_with_risk_decision() -> None:
     assert rows[0]["ticker"] == "AAPL"
     assert rows[0]["review_state"] == "Ready"
     assert rows[0]["risk_decision"] == "WARN"
+    assert rows[0]["human_review_decision"] == "Pending"
+    assert rows[0]["human_review_class"] == "neutral"
     assert rows[0]["candidate_href"] == "/candidates/AAPL"
     assert "decision=APPROVE" in str(rows[0]["approve_review_action"])
     assert rows[0]["source_count"] == EXPECTED_SOURCE_COUNT
     assert rows[0]["confirmed_signal_count"] == EXPECTED_CONFIRMED_SIGNAL_COUNT
+
+
+def test_paper_review_queue_shows_latest_human_review_state() -> None:
+    report = build_final_selection(_evidence_pack()).selection_report
+
+    rows = paper_review_queue(
+        [report],
+        [],
+        {"cycle_id": "cycle-1"},
+        review_events=[_human_review_event()],
+    )
+
+    assert rows[0]["human_review_decision"] == "Defer"
+    assert rows[0]["human_review_class"] == "warn"
+    assert rows[0]["human_review_reason"] == "paper review deferred"
+
+
+async def test_human_review_events_for_reports_filters_latest_cycle(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    report = build_final_selection(_evidence_pack()).selection_report
+
+    async def fake_timeline(
+        *,
+        ticker: str,
+        cycle_id: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, object]]:
+        assert ticker == "AAPL"
+        assert cycle_id == "cycle-1"
+        assert limit == EXPECTED_TIMELINE_LIMIT
+        return [_human_review_event(), _lifecycle_event()]
+
+    monkeypatch.setattr(dashboard_module, "runtime_candidate_timeline", fake_timeline)
+
+    events = await human_review_events_for_reports([report], {"cycle_id": "cycle-1"})
+
+    assert events == [_human_review_event()]
 
 
 def test_execution_preview_rows_summarize_preview_contract() -> None:
@@ -586,4 +628,23 @@ def _lifecycle_event() -> dict[str, object]:
         "event_time": "2026-05-07T09:31:00Z",
         "status": "ACTIONABLE",
         "reason": "quality_positive",
+    }
+
+
+def _human_review_event() -> dict[str, object]:
+    return {
+        "schema_version": "0.1.0",
+        "event_id": "d" * 64,
+        "cycle_id": "cycle-1",
+        "ticker": "AAPL",
+        "event_type": "HUMAN_REVIEW",
+        "event_time": "2026-05-07T10:00:00Z",
+        "status": "WARN",
+        "reason": "paper review deferred",
+        "payload": {
+            "review_decision": "DEFER",
+            "reviewed_by": "local-user",
+            "paper_only": True,
+            "as_of": "2026-05-07T09:30:00Z",
+        },
     }
