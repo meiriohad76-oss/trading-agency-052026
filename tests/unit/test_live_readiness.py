@@ -20,7 +20,7 @@ def test_live_readiness_ready_for_paper_validation() -> None:
 
 def test_live_readiness_marks_stale_sources_context_only() -> None:
     summary = build_live_readiness(
-        source_health=[_source("activity-alerts", status="UNAVAILABLE", freshness="UNAVAILABLE")],
+        source_health=[_source("sec-edgar", status="UNAVAILABLE", freshness="UNAVAILABLE")],
         selection_reports=[_report("cycle-new", "AAPL", "WATCH")],
         risk_decisions=[_risk("cycle-new", "AAPL", "WARN")],
     )
@@ -70,6 +70,21 @@ def test_live_readiness_prefers_live_pit_cycles() -> None:
     assert summary["ready"] is True
 
 
+def test_live_readiness_ignores_sources_not_used_by_latest_cycle() -> None:
+    summary = build_live_readiness(
+        source_health=[
+            _source("sec-edgar", status="HEALTHY", freshness="FRESH"),
+            _source("activity-alerts", status="UNAVAILABLE", freshness="UNAVAILABLE"),
+        ],
+        selection_reports=[_report("live-pit-2025-12-31", "AAPL", "WATCH")],
+        risk_decisions=[_risk("live-pit-2025-12-31", "AAPL", "WARN")],
+    )
+
+    assert summary["ready"] is True
+    assert summary["source_count"] == 1
+    assert summary["degraded_source_count"] == 0
+
+
 def test_live_readiness_reports_missing_cycle() -> None:
     summary = build_live_readiness(
         source_health=[],
@@ -92,8 +107,21 @@ def _source(source: str, *, status: str, freshness: str) -> dict[str, object]:
 
 
 def _report(cycle_id: str, ticker: str, action: str) -> dict[str, object]:
-    return {"cycle_id": cycle_id, "ticker": ticker, "final_action": action}
+    return {
+        "cycle_id": cycle_id,
+        "ticker": ticker,
+        "final_action": action,
+        "evidence_pack": {
+            "actionable_signals": [_signal(ticker, "sec-edgar")],
+            "context_signals": [],
+            "suppressed_signals": [],
+        },
+    }
 
 
 def _risk(cycle_id: str, ticker: str, decision: str) -> dict[str, object]:
     return {"cycle_id": cycle_id, "ticker": ticker, "decision": decision}
+
+
+def _signal(ticker: str, source: str) -> dict[str, object]:
+    return {"ticker": ticker, "provenance": {"source": source}}

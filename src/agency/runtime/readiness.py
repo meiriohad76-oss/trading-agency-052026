@@ -4,6 +4,8 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 from typing import cast
 
+from agency.runtime.readiness_sources import relevant_source_health, used_sources
+
 DEGRADED_SOURCE_STATUSES = {"DEGRADED", "STALE", "UNAVAILABLE", "RATE_LIMITED"}
 DEGRADED_FRESHNESS = {"AGING", "STALE", "UNAVAILABLE"}
 REVIEWABLE_ACTIONS = {"BUY", "SELL", "SHORT", "COVER", "WATCH", "HOLD"}
@@ -20,8 +22,12 @@ def build_live_readiness(
     cycle_id = _latest_cycle_id(selection_reports, risk_decisions)
     cycle_reports = _filter_cycle(selection_reports, cycle_id)
     cycle_risks = _filter_cycle(risk_decisions, cycle_id)
+    active_source_health = relevant_source_health(
+        source_health,
+        used_sources=used_sources(cycle_reports),
+    )
     blockers = _blockers(
-        source_health=source_health,
+        source_health=active_source_health,
         selection_reports=cycle_reports,
         risk_decisions=cycle_risks,
         cycle_id=cycle_id,
@@ -33,14 +39,14 @@ def build_live_readiness(
         "ready": ready,
         "verdict": verdict,
         "cycle_id": cycle_id,
-        "source_count": len(source_health),
-        "degraded_source_count": len(_source_blockers(source_health)),
+        "source_count": len(active_source_health),
+        "degraded_source_count": len(_source_blockers(active_source_health)),
         "selection_report_count": len(cycle_reports),
         "risk_decision_count": len(cycle_risks),
         "reviewable_candidate_count": _reviewable_count(cycle_reports),
         "open_risk_decision_count": _open_risk_count(cycle_risks),
         "blocked_risk_decision_count": _blocked_risk_count(cycle_risks),
-        "source_status_counts": _counter(source_health, "status"),
+        "source_status_counts": _counter(active_source_health, "status"),
         "final_action_counts": _counter(cycle_reports, "final_action"),
         "risk_decision_counts": _counter(cycle_risks, "decision"),
         "blockers": blockers,

@@ -16,9 +16,16 @@ def source_health_from_manifests(
     registry: ManifestRegistry,
     as_of: date,
     checked_at: datetime,
+    cap_timestamp_at_checked_at: bool = False,
 ) -> list[dict[str, object]]:
     return [
-        _source_health(dataset, registry=registry, as_of=as_of, checked_at=checked_at)
+        _source_health(
+            dataset,
+            registry=registry,
+            as_of=as_of,
+            checked_at=checked_at,
+            cap_timestamp_at_checked_at=cap_timestamp_at_checked_at,
+        )
         for dataset in sorted(datasets, key=lambda item: item.value)
     ]
 
@@ -29,6 +36,7 @@ def _source_health(
     registry: ManifestRegistry,
     as_of: date,
     checked_at: datetime,
+    cap_timestamp_at_checked_at: bool,
 ) -> dict[str, object]:
     config = DATASET_CONFIGS[dataset]
     try:
@@ -36,7 +44,12 @@ def _source_health(
     except DataNotAvailableAt as exc:
         payload = _unavailable(config, checked_at=checked_at, reason=exc.reason)
     else:
-        payload = _available(config, manifest=manifest, checked_at=checked_at)
+        payload = _available(
+            config,
+            manifest=manifest,
+            checked_at=checked_at,
+            cap_timestamp_at_checked_at=cap_timestamp_at_checked_at,
+        )
     validate_contract("data-source-health", payload)
     return payload
 
@@ -46,13 +59,19 @@ def _available(
     *,
     manifest: DataManifest,
     checked_at: datetime,
+    cap_timestamp_at_checked_at: bool,
 ) -> dict[str, object]:
+    timestamp_as_of = _timestamp_as_of(
+        manifest,
+        checked_at=checked_at,
+        cap_timestamp_at_checked_at=cap_timestamp_at_checked_at,
+    )
     freshness = compute_freshness(
-        manifest.max_timestamp_as_of,
+        timestamp_as_of,
         config.freshness_domain,
         now=checked_at,
     )
-    lag = max((checked_at - manifest.max_timestamp_as_of).total_seconds(), 0.0)
+    lag = max((checked_at - timestamp_as_of).total_seconds(), 0.0)
     return {
         "schema_version": "0.1.0",
         "source": config.source,
@@ -60,7 +79,7 @@ def _available(
         "status": _status(freshness),
         "checked_at": checked_at.isoformat(),
         "freshness": freshness.value,
-        "last_success_at": manifest.max_timestamp_as_of.isoformat(),
+        "last_success_at": timestamp_as_of.isoformat(),
         "observed_lag_seconds": round(lag, 3),
         "error_count": 0,
         "reliability_score": _reliability(freshness),
@@ -105,6 +124,17 @@ def _reliability(freshness: FreshnessStatus) -> float:
     if freshness is FreshnessStatus.AGING:
         return 0.75
     return 0.4
+
+
+def _timestamp_as_of(
+    manifest: DataManifest,
+    *,
+    checked_at: datetime,
+    cap_timestamp_at_checked_at: bool,
+) -> datetime:
+    if cap_timestamp_at_checked_at and manifest.max_timestamp_as_of > checked_at:
+        return checked_at
+    return manifest.max_timestamp_as_of
 
 
 def utc_now() -> datetime:

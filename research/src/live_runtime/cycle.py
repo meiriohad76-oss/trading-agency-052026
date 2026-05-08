@@ -21,11 +21,14 @@ def build_live_pit_runtime_cycle(
     parquet_root: Path,
     lanes: tuple[str, ...] = DEFAULT_RUNTIME_SIGNALS,
     generated_at: datetime | None = None,
+    freshness_checked_at: datetime | None = None,
 ) -> RuntimeCycleResult:
     """Build a paper runtime cycle from local PIT research data."""
     _validate_lanes(lanes)
     normalized_tickers = {ticker.upper() for ticker in tickers}
     checked_at = utc_now() if generated_at is None else generated_at.astimezone(UTC)
+    source_checked_at = checked_at if freshness_checked_at is None else freshness_checked_at
+    source_checked_at = source_checked_at.astimezone(UTC)
     registry = ManifestRegistry(manifest_root, parquet_root, clock=lambda: checked_at)
     loader = PITLoader(
         parquet_root=parquet_root,
@@ -37,7 +40,8 @@ def build_live_pit_runtime_cycle(
         datasets,
         registry=registry,
         as_of=as_of,
-        checked_at=checked_at,
+        checked_at=source_checked_at,
+        cap_timestamp_at_checked_at=freshness_checked_at is not None,
     )
     as_of_text = datetime.combine(as_of, time.min, tzinfo=UTC).isoformat()
     signals = build_runtime_signals(

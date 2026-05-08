@@ -4,7 +4,8 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 import polars as pl
-from live_runtime.cycle import build_live_pit_runtime_cycle
+from live_runtime.config import DEFAULT_RUNTIME_SIGNALS
+from live_runtime.cycle import build_live_pit_runtime_cycle, required_runtime_datasets
 from live_runtime.summary import build_live_runtime_summary, summary_to_markdown
 from pit.manifest import DatasetName
 from pit_fixtures import loader_with, price
@@ -92,3 +93,52 @@ def test_live_runtime_summary_marks_unhealthy_sources_blocked() -> None:
     assert summary["verdict"] == "blocked_or_context_only_due_to_source_health"
     assert summary["source_status_counts"] == {"UNAVAILABLE": 1}
     assert "| UNAVAILABLE | 1 |" in markdown
+
+
+def test_default_runtime_signals_are_stocks_only() -> None:
+    datasets = required_runtime_datasets(DEFAULT_RUNTIME_SIGNALS)
+
+    assert DatasetName.UNUSUAL_ACTIVITY_ALERTS not in datasets
+
+
+def test_replay_freshness_caps_future_manifest_timestamps(tmp_path: Path) -> None:
+    loader = loader_with(
+        tmp_path,
+        {
+            DatasetName.SEC_FORM4: pl.DataFrame(
+                [
+                    {
+                        "ticker": "AAPL",
+                        "transaction_date": date(2026, 1, 1),
+                        "security_title": "Common Stock",
+                        "transaction_code": "P",
+                        "shares": 10.0,
+                        "price": 100.0,
+                        "filing_url": "https://sec.test/form4",
+                        "source": "sec",
+                        "source_tier": "OFFICIAL_FILING",
+                        "source_id": "form4-a",
+                        "source_url": "https://sec.test",
+                        "timestamp_observed": GENERATED_AT,
+                        "timestamp_as_of": date(2026, 1, 1),
+                        "freshness": "FRESH",
+                        "confidence": 1.0,
+                        "verification_level": "CONFIRMED",
+                    }
+                ]
+            )
+        },
+    )
+
+    cycle = build_live_pit_runtime_cycle(
+        cycle_id="cycle-replay",
+        as_of=date(2025, 12, 31),
+        tickers={"AAPL"},
+        manifest_root=loader.manifest_root,
+        parquet_root=loader.parquet_root,
+        lanes=("insider",),
+        generated_at=GENERATED_AT,
+        freshness_checked_at=datetime(2025, 12, 31, tzinfo=UTC),
+    )
+
+    assert cycle.source_health[0]["status"] == "HEALTHY"
