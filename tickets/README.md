@@ -13,7 +13,7 @@ Current project status is tracked in `docs/phase-status.md`.
 
 ## Current Queue
 
-There are no active open ticket specs after T79.
+There are no active open ticket specs after T80.
 
 Completed archive:
 
@@ -31,6 +31,7 @@ Completed archive:
 - T77: live research refresh readiness config.
 - T78: demo audit seed wiring.
 - T79: SEC Form 4 live refresh tolerance.
+- T80: live data refresh validation hardening.
 
 ## Next Ticket Candidates
 

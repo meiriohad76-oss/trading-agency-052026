@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from datetime import datetime
+from pathlib import PurePosixPath
 from typing import Any, Protocol
 
 from sec.client import archive_url
@@ -33,10 +34,29 @@ async def info_table_documents(
             continue
         name = str(item.get("name", ""))
         item_type = str(item.get("type", "")).lower()
-        lowered = name.lower()
-        if name.endswith(".xml") and ("infotable" in lowered or "information" in item_type):
+        if _is_information_table_xml(
+            name=name,
+            item_type=item_type,
+            primary_document=filing.primary_document,
+        ):
             documents.append(name)
     return documents
+
+
+def _is_information_table_xml(
+    *,
+    name: str,
+    item_type: str,
+    primary_document: str,
+) -> bool:
+    document_name = PurePosixPath(name).name.lower()
+    primary_name = PurePosixPath(primary_document).name.lower()
+    if not document_name.endswith(".xml"):
+        return False
+    if document_name in {primary_name, "primary_doc.xml"}:
+        return False
+    del item_type
+    return True
 
 
 async def fetch_document(

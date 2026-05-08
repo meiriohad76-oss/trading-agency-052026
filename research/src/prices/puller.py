@@ -9,6 +9,7 @@ from pathlib import Path
 import pandas as pd
 from prices.storage import (
     DateRange,
+    existing_date_bounds,
     missing_ranges_for_ticker,
     write_empty_sentinel,
     write_manifest,
@@ -52,6 +53,8 @@ async def pull_prices(
             ranges_downloaded += 1
             normalized = normalize_history(ticker, raw, fetched_at=get_now())
             if normalized.empty:
+                if existing_date_bounds(price_root, ticker) is not None:
+                    continue
                 write_empty_sentinel(price_root, ticker)
                 issues.append({"ticker": ticker, "reason": "no rows returned"})
                 continue
