@@ -1,6 +1,6 @@
 # Phase Status
 
-**Status:** reconciled after T75
+**Status:** reconciled after T76
 **Owner:** Ohad Meiri
 **Last updated:** 2026-05-08
 
@@ -9,7 +9,7 @@ implementation scaffolding from accepted phase gates.
 
 ## Current Truth
 
-- T01-T71 and T74-T75 are archived under `tickets/done/`.
+- T01-T71 and T74-T76 are archived under `tickets/done/`.
 - The repo contains Phase 0 foundation, Phase 1 research machinery, Phase 2
   contracts/dashboard scaffolding, and early Phase 3 runtime orchestration through T70.
 - T29-T64 are provisional build scaffolding until empirical H1-H5 results exist.
@@ -37,8 +37,9 @@ implementation scaffolding from accepted phase gates.
    paper cycles; prompt audit capture waits for live LLM calls.
 4. Lightweight scheduler, `/metrics`, structured JSON logging, local deployment
    commands, and backup/restore scripts exist.
-5. Portfolio policy is still static/read-only, not persisted or user-editable.
-6. Paid-sub email ingestion and research mailbox decisions remain open.
+5. First-version manual inspection checklist and server-side e2e smoke coverage exist.
+6. Portfolio policy is still static/read-only, not persisted or user-editable.
+7. Paid-sub email ingestion and research mailbox decisions remain open.
 
 ## Next Ticket Candidates
 
