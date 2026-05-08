@@ -60,14 +60,13 @@ async def dashboard_context() -> dict[str, object]:
             risk_decisions=risk_decisions,
         )
     )
-    review_events = await human_review_events_for_reports(reports, readiness)
-    review_queue = paper_review_queue(
-        reports,
-        risk_decisions,
-        readiness,
-        review_events=review_events,
+    paper_status = await paper_review_status_from_runtime(
+        reports=reports,
+        risk_decisions=risk_decisions,
+        readiness=readiness,
     )
-    review_progress = paper_review_progress(review_queue)
+    review_queue = _mapping_list_field(paper_status, "queue")
+    review_progress = _mapping_field(paper_status, "progress")
     summary = command_summary(
         candidates=candidates,
         data_sources=data_sources,
@@ -86,6 +85,11 @@ async def dashboard_context() -> dict[str, object]:
         "review_queue": review_queue,
         "summary": summary,
     }
+
+
+@router.get("/status/paper-review")
+async def paper_review_status() -> dict[str, object]:
+    return await paper_review_status_context()
 
 
 @router.get("/candidates/{ticker}")
@@ -338,6 +342,49 @@ def live_config_view(readiness: Mapping[str, object]) -> dict[str, object]:
     view = dict(readiness)
     view["check_rows"] = _list_field(readiness, "checks")
     return view
+
+
+async def paper_review_status_context() -> dict[str, object]:
+    reports, data_sources, risk_decisions = await asyncio.gather(
+        runtime_selection_reports(limit=10),
+        runtime_data_source_status(),
+        runtime_risk_decisions(limit=25),
+    )
+    readiness = readiness_view(
+        build_live_readiness(
+            source_health=data_sources,
+            selection_reports=reports,
+            risk_decisions=risk_decisions,
+        )
+    )
+    return await paper_review_status_from_runtime(
+        reports=reports,
+        risk_decisions=risk_decisions,
+        readiness=readiness,
+    )
+
+
+async def paper_review_status_from_runtime(
+    *,
+    reports: Sequence[Mapping[str, object]],
+    risk_decisions: Sequence[Mapping[str, object]],
+    readiness: Mapping[str, object],
+) -> dict[str, object]:
+    review_events = await human_review_events_for_reports(reports, readiness)
+    queue = paper_review_queue(
+        reports,
+        risk_decisions,
+        readiness,
+        review_events=review_events,
+    )
+    return {
+        "schema_version": "0.1.0",
+        "cycle_id": readiness.get("cycle_id"),
+        "ready": readiness.get("ready"),
+        "verdict": readiness.get("verdict"),
+        "progress": paper_review_progress(queue),
+        "queue": queue,
+    }
 
 
 async def human_review_events_for_reports(
@@ -1059,6 +1106,10 @@ def _mapping_field(payload: Mapping[str, object], key: str) -> Mapping[str, obje
     if not isinstance(value, Mapping):
         raise TypeError(f"{key} must be a mapping")
     return cast(Mapping[str, object], value)
+
+
+def _mapping_list_field(payload: Mapping[str, object], key: str) -> list[Mapping[str, object]]:
+    return [cast(Mapping[str, object], item) for item in _list_field(payload, key)]
 
 
 def _float_field(payload: Mapping[str, object], key: str) -> float:
