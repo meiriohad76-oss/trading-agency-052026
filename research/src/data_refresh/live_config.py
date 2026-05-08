@@ -19,6 +19,7 @@ class RefreshConfigOverrides:
     rss_feeds: tuple[str, ...] = ()
     filer_ciks: tuple[str, ...] = ()
     cusip_map: Path | None = None
+    activity_alerts_csv: Path | None = None
     sec_user_agent: str | None = None
     workers: int | None = None
     include_etfs: bool | None = None
@@ -38,6 +39,7 @@ def load_refresh_config(path: Path, *, repo_root: Path) -> RefreshConfigOverride
         rss_feeds=_string_tuple(payload, "rss_feeds"),
         filer_ciks=_string_tuple(payload, "filer_ciks"),
         cusip_map=_optional_path(payload, "cusip_map", repo_root=repo_root),
+        activity_alerts_csv=_optional_path(payload, "activity_alerts_csv", repo_root=repo_root),
         sec_user_agent=_optional_string(payload, "sec_user_agent"),
         workers=_optional_int(payload, "workers"),
         include_etfs=_optional_bool(payload, "include_etfs"),

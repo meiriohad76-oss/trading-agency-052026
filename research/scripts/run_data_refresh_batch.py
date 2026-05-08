@@ -45,6 +45,11 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--filer-cik", action="append", help="13F filer CIK; repeatable.")
     parser.add_argument("--cusip-map", type=Path, help="JSON map of CUSIP to ticker for 13F rows.")
+    parser.add_argument(
+        "--activity-alerts-csv",
+        type=Path,
+        help="Local CSV of paid/confirmed alerts.",
+    )
     parser.add_argument("--sec-user-agent", help="SEC-compliant User-Agent override.")
     parser.add_argument("--workers", type=int)
     parser.add_argument("--include-etfs", action=argparse.BooleanOptionalAction)
@@ -82,6 +87,7 @@ def _batch_config(
         rss_feeds=tuple(args.rss_feed or overrides.rss_feeds),
         filer_ciks=tuple(args.filer_cik or overrides.filer_ciks),
         cusip_map=args.cusip_map or overrides.cusip_map,
+        activity_alerts_csv=args.activity_alerts_csv or overrides.activity_alerts_csv,
         sec_user_agent=sec_user_agent,
         python_executable=sys.executable,
         workers=args.workers or overrides.workers or 1,

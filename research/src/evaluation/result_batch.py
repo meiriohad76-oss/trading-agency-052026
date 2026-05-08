@@ -20,6 +20,7 @@ from pit.manifest import DatasetName, ManifestRegistry
 
 SIGNAL_DATASETS: Mapping[str, tuple[DatasetName, ...]] = {
     "abnormal_volume": (DatasetName.PRICES_DAILY,),
+    "activity_alerts": (DatasetName.UNUSUAL_ACTIVITY_ALERTS,),
     "fundamentals": (DatasetName.SEC_COMPANY_FACTS,),
     "insider": (DatasetName.SEC_FORM4,),
     "institutional": (DatasetName.SEC_13F,),

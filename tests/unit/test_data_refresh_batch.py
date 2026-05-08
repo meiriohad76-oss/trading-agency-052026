@@ -39,6 +39,20 @@ def test_build_refresh_jobs_uses_static_tickers_without_universe_file(tmp_path: 
     assert jobs[1].display_command[-4:] == ("--ticker", "AAPL", "--ticker", "MSFT")
 
 
+def test_build_refresh_jobs_accepts_local_activity_alert_csv(tmp_path: Path) -> None:
+    csv_path = tmp_path / "alerts.csv"
+    csv_path.write_text("ticker,alert_type,direction,observed_at\nAAPL,block,buy,2026-05-08\n")
+    missing = _config(tmp_path, datasets=("unusual_activity_alerts",))
+    ready = _config(tmp_path, datasets=("unusual_activity_alerts",), activity_alerts_csv=csv_path)
+
+    blocked_job = build_refresh_jobs(missing)[0]
+    ready_job = build_refresh_jobs(ready)[0]
+
+    assert blocked_job.blocked_reasons == ("missing unusual activity alerts CSV",)
+    assert ready_job.blocked_reasons == ()
+    assert ready_job.display_command[-2:] == ("--input", "alerts.csv")
+
+
 def test_run_refresh_batch_dry_run_writes_status(tmp_path: Path) -> None:
     cusip_map = tmp_path / "cusips.json"
     cusip_map.write_text('{"037833100": "AAPL"}', encoding="utf-8")
@@ -96,6 +110,7 @@ def _config(
     filer_ciks: tuple[str, ...] = (),
     cusip_map: Path | None = None,
     sec_user_agent: str | None = None,
+    activity_alerts_csv: Path | None = None,
     dry_run: bool = False,
 ) -> RefreshBatchConfig:
     return RefreshBatchConfig(
@@ -108,6 +123,7 @@ def _config(
         rss_feeds=rss_feeds,
         filer_ciks=filer_ciks,
         cusip_map=cusip_map,
+        activity_alerts_csv=activity_alerts_csv,
         sec_user_agent=sec_user_agent,
         dry_run=dry_run,
     )

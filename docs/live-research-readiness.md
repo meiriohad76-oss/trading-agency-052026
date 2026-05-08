@@ -13,6 +13,12 @@ Use this checklist to make those inputs explicit.
   - Pass one or more institutional filer CIKs.
 - CUSIP map
   - JSON object mapping CUSIP strings to tickers.
+- Unusual activity alerts CSV, optional
+  - Use for paid/confirmed provider alerts such as block trades, dark-pool prints,
+    and unusual stock activity.
+  - Required columns: `ticker`, `alert_type`, `direction`, `observed_at`.
+  - Optional useful columns: `event_time`, `summary`, `price`, `volume`,
+    `notional`, `premium`, `source`, `source_id`, `source_url`, `confidence`.
 
 ## Dry Run
 
@@ -60,6 +66,17 @@ Validate the live outputs:
 
 The command exits nonzero if the batch failed, any job did not pass, a manifest
 has zero rows, or a manifest reports issues.
+
+Import a local unusual-activity export directly when you have one:
+
+```powershell
+.\.venv\Scripts\python research\scripts\import_activity_alerts.py `
+  --input research\config\activity-alerts.example.csv
+```
+
+For a refresh batch, set `activity_alerts_csv` in
+`research\config\live-refresh.local.json` and include
+`unusual_activity_alerts` in `datasets`.
 
 Write the compact summary artifact:
 

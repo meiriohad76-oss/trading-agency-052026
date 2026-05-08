@@ -10,7 +10,7 @@ from prices.sector_etfs import SECTOR_ETF_TICKERS
 from agency.provenance import Provenanced
 
 from .exceptions import DataNotAvailableAt, LookaheadRequested
-from .forward_views import news_from_loader, option_chains_from_loader
+from .forward_views import activity_alerts_from_loader, news_from_loader, option_chains_from_loader
 from .manifest import DatasetName, ManifestRegistry
 from .records import (
     ProvenancedTickerSet,
@@ -159,8 +159,15 @@ class PITLoader:
         return news_from_loader(self, as_of, lookback_days, tickers)
 
     def option_chains(self, tickers: list[str], as_of: date, lookback_days: int) -> pl.DataFrame:
-        """Forward option-chain snapshots observed on or before `as_of`."""
         return option_chains_from_loader(self, tickers, as_of, lookback_days)
+
+    def activity_alerts(
+        self,
+        tickers: list[str],
+        as_of: date,
+        lookback_days: int,
+    ) -> list[Provenanced[dict[str, object]]]:
+        return activity_alerts_from_loader(self, tickers, as_of, lookback_days)
 
     def prepost_bars(self, tickers: list[str], as_of: date, lookback_days: int) -> pl.DataFrame:
         """Extended-hours bars placeholder until the pre/post puller lands."""

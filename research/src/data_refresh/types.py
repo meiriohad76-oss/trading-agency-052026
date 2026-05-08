@@ -13,6 +13,7 @@ DATASETS = (
     "sec_13f",
     "news_rss",
     "options_chains",
+    "unusual_activity_alerts",
 )
 JobStatus = Literal["planned", "passed", "failed", "blocked"]
 
@@ -28,6 +29,7 @@ class RefreshBatchConfig:
     rss_feeds: tuple[str, ...] = ()
     filer_ciks: tuple[str, ...] = ()
     cusip_map: Path | None = None
+    activity_alerts_csv: Path | None = None
     sec_user_agent: str | None = None
     python_executable: str = "python"
     workers: int = 1
