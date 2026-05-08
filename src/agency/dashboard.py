@@ -60,7 +60,13 @@ async def dashboard_context() -> dict[str, object]:
             risk_decisions=risk_decisions,
         )
     )
-    review_queue = paper_review_queue(reports, risk_decisions, readiness)
+    review_events = await human_review_events_for_reports(reports, readiness)
+    review_queue = paper_review_queue(
+        reports,
+        risk_decisions,
+        readiness,
+        review_events=review_events,
+    )
     summary = command_summary(
         candidates=candidates,
         data_sources=data_sources,
@@ -331,17 +337,52 @@ def live_config_view(readiness: Mapping[str, object]) -> dict[str, object]:
     return view
 
 
-def paper_review_queue(
+async def human_review_events_for_reports(
     reports: Sequence[Mapping[str, object]],
-    risk_decisions: Sequence[Mapping[str, object]],
     readiness: Mapping[str, object],
 ) -> list[dict[str, object]]:
     cycle_id = readiness.get("cycle_id")
     if not isinstance(cycle_id, str) or not cycle_id:
         return []
+    tickers = sorted(
+        {
+            str(report["ticker"])
+            for report in reports
+            if report.get("cycle_id") == cycle_id
+        }
+    )
+    timelines = await asyncio.gather(
+        *(
+            runtime_candidate_timeline(ticker=ticker, cycle_id=cycle_id, limit=50)
+            for ticker in tickers
+        )
+    )
+    return [
+        event
+        for timeline in timelines
+        for event in timeline
+        if event.get("event_type") == "HUMAN_REVIEW"
+    ]
+
+
+def paper_review_queue(
+    reports: Sequence[Mapping[str, object]],
+    risk_decisions: Sequence[Mapping[str, object]],
+    readiness: Mapping[str, object],
+    *,
+    review_events: Sequence[Mapping[str, object]] = (),
+) -> list[dict[str, object]]:
+    cycle_id = readiness.get("cycle_id")
+    if not isinstance(cycle_id, str) or not cycle_id:
+        return []
     risks = _risk_decision_index(risk_decisions)
+    reviews = _human_review_index(review_events)
     rows = [
-        _paper_review_row(report, risks.get(_runtime_payload_key(report)))
+        _paper_review_row(
+            report,
+            risks.get(_runtime_payload_key(report)),
+            reviews.get(_runtime_payload_key(report)),
+        )
         for report in reports
         if report.get("cycle_id") == cycle_id
         and str(report.get("final_action")) in ACTIONABLE_ACTIONS
@@ -541,6 +582,7 @@ def _risk_decision_row(decision: Mapping[str, object]) -> dict[str, object]:
 def _paper_review_row(
     report: Mapping[str, object],
     risk_decision: Mapping[str, object] | None,
+    human_review_event: Mapping[str, object] | None,
 ) -> dict[str, object]:
     candidate = _candidate_row(report)
     evidence_pack = _mapping_field(report, "evidence_pack")
@@ -554,6 +596,7 @@ def _paper_review_row(
         reasons = _string_list(risk_decision, "reasons")
         reason = reasons[0] if reasons else "risk decision recorded"
     ticker = str(candidate["ticker"])
+    human_review = _human_review_summary(human_review_event)
     return {
         **candidate,
         "cycle_id": str(report["cycle_id"]),
@@ -582,6 +625,10 @@ def _paper_review_row(
         "risk_class": decision_class,
         "review_state": _paper_review_state(decision),
         "review_class": _paper_review_class(decision),
+        "human_review_decision": human_review["decision"],
+        "human_review_class": human_review["status_class"],
+        "human_review_reason": human_review["reason"],
+        "human_review_time": human_review["event_time"],
         "reason": reason,
         "source_count": _int_field(data_quality, "source_count"),
         "confirmed_signal_count": _int_field(data_quality, "confirmed_signal_count"),
@@ -665,12 +712,54 @@ def _risk_decision_index(
     return indexed
 
 
+def _human_review_index(
+    review_events: Sequence[Mapping[str, object]],
+) -> dict[tuple[str, str, str], Mapping[str, object]]:
+    indexed: dict[tuple[str, str, str], Mapping[str, object]] = {}
+    for event in review_events:
+        key = _human_review_key(event)
+        if all(key) and key not in indexed:
+            indexed[key] = event
+    return indexed
+
+
 def _runtime_payload_key(payload: Mapping[str, object]) -> tuple[str, str, str]:
     return (
         str(payload.get("cycle_id", "")),
         str(payload.get("ticker", "")),
         str(payload.get("as_of", "")),
     )
+
+
+def _human_review_key(event: Mapping[str, object]) -> tuple[str, str, str]:
+    payload = event.get("payload", {})
+    as_of = ""
+    if isinstance(payload, Mapping):
+        as_of = str(payload.get("as_of", ""))
+    return (
+        str(event.get("cycle_id", "")),
+        str(event.get("ticker", "")),
+        as_of,
+    )
+
+
+def _human_review_summary(event: Mapping[str, object] | None) -> dict[str, str]:
+    if event is None:
+        return {
+            "decision": "Pending",
+            "status_class": "neutral",
+            "reason": "no human review recorded",
+            "event_time": "None",
+        }
+    payload = _mapping_field(event, "payload")
+    decision = str(payload.get("review_decision", "RECORDED"))
+    status = str(event["status"])
+    return {
+        "decision": _label_text(decision),
+        "status_class": _human_review_status_class(status),
+        "reason": str(event["reason"]),
+        "event_time": str(event["event_time"]),
+    }
 
 
 def _review_action_url(*, ticker: str, cycle_id: str, as_of: str, decision: str) -> str:
@@ -819,6 +908,16 @@ def _paper_review_class(decision: str) -> str:
     if decision == "PENDING":
         return "neutral"
     return "block"
+
+
+def _human_review_status_class(status: str) -> str:
+    if status == "PASSED":
+        return "pass"
+    if status == "WARN":
+        return "warn"
+    if status == "BLOCKED":
+        return "block"
+    return "neutral"
 
 
 def _preview_state_class(state: str) -> str:
