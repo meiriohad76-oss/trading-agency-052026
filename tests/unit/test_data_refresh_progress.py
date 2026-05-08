@@ -16,6 +16,7 @@ COMPLETE_PERCENT = 100
 EXPECTED_COMPLETED_JOBS = 2
 EXPECTED_ETA_SECONDS = 180
 MAX_PRICE_ETA_SECONDS = 90
+MIN_FORM4_ETA_SECONDS = 500
 RUNNING_ELAPSED_SECONDS = 30
 
 
@@ -95,6 +96,35 @@ def test_load_data_refresh_progress_recomputes_running_eta(tmp_path: Path) -> No
 
     assert progress["state"] == "running"
     assert 0 < progress["eta_seconds"] <= MAX_PRICE_ETA_SECONDS
+
+
+def test_load_data_refresh_progress_keeps_slow_dataset_eta_baseline(tmp_path: Path) -> None:
+    status_path = tmp_path / "data-refresh-status.json"
+    started_at = datetime.now(UTC) - timedelta(seconds=RUNNING_ELAPSED_SECONDS)
+    status_path.write_text(
+        json.dumps(
+            {
+                "progress": {"state": "running"},
+                "jobs": [
+                    {
+                        "dataset": "prices_daily",
+                        "status": "passed",
+                        "duration_seconds": 3,
+                    },
+                    {
+                        "dataset": "sec_form4",
+                        "status": "running",
+                        "started_at": started_at.isoformat(),
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    progress = load_data_refresh_progress(status_path)
+
+    assert progress["eta_seconds"] >= MIN_FORM4_ETA_SECONDS
 
 
 def test_data_refresh_status_endpoint_reads_configured_path(

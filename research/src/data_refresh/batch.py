@@ -61,7 +61,7 @@ def run_refresh_batch(
                 config.repo_root,
                 run_command,
                 started_at=job_started_at,
-                finished_at=get_now(),
+                clock=get_now,
             )
         _write_progress(
             config,
@@ -86,9 +86,10 @@ def _run_job(
     runner: Runner,
     *,
     started_at: datetime,
-    finished_at: datetime,
+    clock: Callable[[], datetime],
 ) -> RefreshJobResult:
     completed = runner(job.command, repo_root)
+    finished_at = clock()
     duration_seconds = round((finished_at - started_at).total_seconds(), 3)
     if completed.returncode == 0:
         return RefreshJobResult(

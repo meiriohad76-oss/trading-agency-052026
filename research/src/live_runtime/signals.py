@@ -5,6 +5,7 @@ from typing import Any
 
 from evaluation.signal_registry import SIGNALS
 from live_runtime.config import LANE_CONFIGS, RuntimeLaneConfig
+from live_runtime.freshness import effective_freshness_timestamp
 from pit.manifest import DataManifest, ManifestRegistry
 
 from agency.provenance import compute_freshness
@@ -55,7 +56,11 @@ def _provenance(
     generated_at: datetime,
 ) -> dict[str, object]:
     freshness = compute_freshness(
-        manifest.max_timestamp_as_of,
+        effective_freshness_timestamp(
+            config.dataset,
+            manifest.max_timestamp_as_of,
+            generated_at,
+        ),
         config.freshness_domain,
         now=generated_at,
     )

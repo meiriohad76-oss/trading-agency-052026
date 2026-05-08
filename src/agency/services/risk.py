@@ -45,20 +45,24 @@ def build_risk_decisions(
     normalized_policy = policy or PortfolioPolicy()
     source_summary = _source_health_summary(source_health)
     results: list[RiskDecisionResult] = []
-    for index, report in enumerate(selection_reports):
-        projected_exposure = (
-            current_gross_exposure_pct + (index + 1) * normalized_policy.default_position_pct
-        )
+    trade_index = 0
+    for report in selection_reports:
+        is_trade = _is_trade_action(report)
+        projected_exposure = current_gross_exposure_pct
+        if is_trade:
+            projected_exposure += (trade_index + 1) * normalized_policy.default_position_pct
         results.append(
             build_risk_decision(
                 report,
                 source_summary,
                 generated_at=generated_at,
                 policy=normalized_policy,
-                candidate_index=index,
+                candidate_index=trade_index,
                 projected_gross_exposure_pct=projected_exposure,
             )
         )
+        if is_trade:
+            trade_index += 1
     return results
 
 
@@ -129,8 +133,8 @@ def _risk_checks(
         _policy_gate_check(selection_report),
         _conviction_check(selection_report, policy),
         _runtime_source_check(source_health_summary),
-        _capacity_check(candidate_index, policy),
-        _gross_exposure_check(projected_gross_exposure_pct, policy),
+        _capacity_check(selection_report, candidate_index, policy),
+        _gross_exposure_check(selection_report, projected_gross_exposure_pct, policy),
         _risk_flag_check(selection_report),
     ]
 
@@ -176,16 +180,25 @@ def _runtime_source_check(source_health_summary: Mapping[str, object]) -> dict[s
     return _check("runtime_sources", "PASS", "runtime sources healthy")
 
 
-def _capacity_check(candidate_index: int, policy: PortfolioPolicy) -> dict[str, str]:
+def _capacity_check(
+    selection_report: Mapping[str, object],
+    candidate_index: int,
+    policy: PortfolioPolicy,
+) -> dict[str, str]:
+    if not _is_trade_action(selection_report):
+        return _check("cycle_capacity", "PASS", "no trade capacity required")
     if candidate_index >= policy.max_new_positions_per_cycle:
         return _check("cycle_capacity", "BLOCK", "new candidate capacity exceeded")
     return _check("cycle_capacity", "PASS", "within new candidate capacity")
 
 
 def _gross_exposure_check(
+    selection_report: Mapping[str, object],
     projected_gross_exposure_pct: float,
     policy: PortfolioPolicy,
 ) -> dict[str, str]:
+    if not _is_trade_action(selection_report):
+        return _check("gross_exposure", "PASS", "no trade exposure added")
     if projected_gross_exposure_pct > policy.max_gross_exposure_pct:
         return _check("gross_exposure", "BLOCK", "projected gross exposure exceeds cap")
     return _check("gross_exposure", "PASS", "projected gross exposure within cap")
@@ -212,6 +225,10 @@ def _source_is_degraded(source: Mapping[str, object]) -> bool:
         str(source["status"]) in DEGRADED_SOURCE_STATUSES
         or str(source["freshness"]) in DEGRADED_FRESHNESS
     )
+
+
+def _is_trade_action(selection_report: Mapping[str, object]) -> bool:
+    return str(selection_report["final_action"]) in TRADE_ACTIONS
 
 
 def _decision_from_checks(

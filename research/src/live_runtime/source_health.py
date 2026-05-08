@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 
 from live_runtime.config import DATASET_CONFIGS, RuntimeDatasetConfig
+from live_runtime.freshness import effective_freshness_timestamp
 from pit.exceptions import DataNotAvailableAt
 from pit.manifest import DataManifest, DatasetName, ManifestRegistry
 
@@ -66,12 +67,17 @@ def _available(
         checked_at=checked_at,
         cap_timestamp_at_checked_at=cap_timestamp_at_checked_at,
     )
-    freshness = compute_freshness(
+    freshness_timestamp = effective_freshness_timestamp(
+        config.dataset,
         timestamp_as_of,
+        checked_at,
+    )
+    freshness = compute_freshness(
+        freshness_timestamp,
         config.freshness_domain,
         now=checked_at,
     )
-    lag = max((checked_at - timestamp_as_of).total_seconds(), 0.0)
+    lag = max((checked_at - freshness_timestamp).total_seconds(), 0.0)
     return {
         "schema_version": "0.1.0",
         "source": config.source,

@@ -12,6 +12,7 @@ from pit_fixtures import loader_with, price
 
 GENERATED_AT = datetime(2026, 5, 6, 0, 1, tzinfo=UTC)
 EXPECTED_PRICE_SIGNAL_COUNT = 2
+MIDDAY_GENERATED_AT = datetime(2026, 5, 6, 14, 30, tzinfo=UTC)
 
 
 def test_build_live_pit_runtime_cycle_from_price_manifest(tmp_path: Path) -> None:
@@ -45,6 +46,40 @@ def test_build_live_pit_runtime_cycle_from_price_manifest(tmp_path: Path) -> Non
         build_live_runtime_summary(cycle, persisted=False)["signal_count"]
         == EXPECTED_PRICE_SIGNAL_COUNT
     )
+
+
+def test_current_date_daily_price_manifest_stays_fresh_through_day(tmp_path: Path) -> None:
+    loader = loader_with(
+        tmp_path,
+        {
+            DatasetName.PRICES_DAILY: pl.DataFrame(
+                [
+                    price("AAPL", date(2026, 5, 5), 100.0, date(2026, 5, 5), "a1"),
+                    price("AAPL", date(2026, 5, 6), 110.0, date(2026, 5, 6), "a2"),
+                ]
+            )
+        },
+    )
+
+    cycle = build_live_pit_runtime_cycle(
+        cycle_id="cycle-live",
+        as_of=date(2026, 5, 6),
+        tickers={"AAPL"},
+        manifest_root=loader.manifest_root,
+        parquet_root=loader.parquet_root,
+        lanes=("abnormal_volume",),
+        generated_at=MIDDAY_GENERATED_AT,
+    )
+    signals = [
+        signal
+        for pack in cycle.evidence_packs
+        for bucket in ("actionable_signals", "context_signals", "suppressed_signals")
+        for signal in pack[bucket]
+    ]
+
+    assert cycle.source_health[0]["status"] == "HEALTHY"
+    assert signals
+    assert {signal["freshness"] for signal in signals} == {"FRESH"}
 
 
 def test_live_pit_runtime_cycle_does_not_add_sector_etfs_as_candidates(tmp_path: Path) -> None:

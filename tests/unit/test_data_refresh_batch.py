@@ -7,10 +7,18 @@ from pathlib import Path
 
 import pytest
 from data_refresh.batch import build_refresh_jobs, run_refresh_batch
-from data_refresh.types import CommandResult, RefreshBatchConfig
+from data_refresh.status import result_progress
+from data_refresh.types import (
+    CommandResult,
+    RefreshBatchConfig,
+    RefreshBatchResult,
+    RefreshJobResult,
+)
 
 FAILURE_CODE = 7
 COMPLETE_PERCENT = 100
+EXPECTED_COMMAND_DURATION_SECONDS = 3.0
+EXPECTED_FORM4_ETA_SECONDS = 570
 
 
 def test_build_refresh_jobs_blocks_missing_optional_source_config(tmp_path: Path) -> None:
@@ -150,6 +158,50 @@ def test_run_refresh_batch_writes_running_progress_before_job_finishes(tmp_path:
     assert status["progress"]["state"] == "complete"
     assert status["progress"]["percent_complete"] == COMPLETE_PERCENT
     assert status["jobs"][0]["duration_seconds"] is not None
+
+
+def test_run_refresh_batch_records_elapsed_command_duration(tmp_path: Path) -> None:
+    config = _config(tmp_path, datasets=("prices_daily",), tickers=("AAPL",))
+    clock = _clock()
+
+    def runner(command: Sequence[str], cwd: Path) -> CommandResult:
+        del command, cwd
+        clock()
+        clock()
+        return CommandResult(0)
+
+    result = run_refresh_batch(config, runner=runner, clock=clock)
+
+    assert result.jobs[0].duration_seconds == EXPECTED_COMMAND_DURATION_SECONDS
+
+
+def test_result_progress_keeps_slow_dataset_eta_baseline(tmp_path: Path) -> None:
+    started_at = datetime(2026, 5, 8, 12, 0, tzinfo=UTC)
+    result = RefreshBatchResult(
+        config=_config(tmp_path, datasets=("prices_daily", "sec_form4")),
+        jobs=(
+            RefreshJobResult(
+                dataset="prices_daily",
+                status="passed",
+                reason="done",
+                command=("$PYTHON",),
+                duration_seconds=3.0,
+            ),
+            RefreshJobResult(
+                dataset="sec_form4",
+                status="running",
+                reason="running",
+                command=("$PYTHON",),
+                started_at=started_at.isoformat(),
+            ),
+        ),
+        written_paths=(),
+        updated_at=(started_at + timedelta(seconds=30)).isoformat(),
+    )
+
+    progress = result_progress(result)
+
+    assert progress["eta_seconds"] == EXPECTED_FORM4_ETA_SECONDS
 
 
 def test_build_refresh_jobs_rejects_unknown_dataset(tmp_path: Path) -> None:
