@@ -338,6 +338,63 @@ h2 {
   overflow-wrap: anywhere;
 }
 
+.progress-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.progress-track {
+  width: 100%;
+  height: 14px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #e8edf2;
+}
+
+.progress-fill {
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--blue);
+  transition: width 180ms ease-out;
+}
+
+.progress-panel[data-loading-state="running"] .progress-fill {
+  background: var(--amber);
+}
+
+.progress-panel[data-loading-state="complete"] .progress-fill,
+.progress-panel[data-loading-state="planned"] .progress-fill {
+  background: var(--green);
+}
+
+.progress-panel[data-loading-state="failed"] .progress-fill,
+.progress-panel[data-loading-state="blocked"] .progress-fill {
+  background: #8b1d1d;
+}
+
+.progress-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--line);
+}
+
+.progress-grid > div {
+  min-width: 0;
+  padding: 12px;
+  background: #fbfcfd;
+}
+
+.progress-grid strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
 .panel-note {
   margin: 0 0 12px;
   color: var(--muted);

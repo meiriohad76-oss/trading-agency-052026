@@ -51,7 +51,7 @@ web = [
 where = ["src"]
 
 [tool.setuptools.package-data]
-agency = ["static/*.css", "templates/*.html"]
+agency = ["static/*.css", "static/*.js", "templates/*.html"]
 
 [tool.ruff]
 line-length = 100

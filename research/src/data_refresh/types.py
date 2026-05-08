@@ -15,7 +15,7 @@ DATASETS = (
     "options_chains",
     "unusual_activity_alerts",
 )
-JobStatus = Literal["planned", "passed", "failed", "blocked"]
+JobStatus = Literal["pending", "running", "planned", "passed", "failed", "blocked"]
 
 
 @dataclass(frozen=True)
@@ -67,6 +67,9 @@ class RefreshJobResult:
     returncode: int | None = None
     stdout: str = ""
     stderr: str = ""
+    started_at: str | None = None
+    finished_at: str | None = None
+    duration_seconds: float | None = None
 
 
 @dataclass(frozen=True)
@@ -74,6 +77,8 @@ class RefreshBatchResult:
     config: RefreshBatchConfig
     jobs: tuple[RefreshJobResult, ...]
     written_paths: tuple[str, ...]
+    started_at: str | None = None
+    updated_at: str | None = None
 
     @property
     def failed(self) -> bool:
@@ -82,6 +87,10 @@ class RefreshBatchResult:
     @property
     def blocked(self) -> bool:
         return any(job.status == "blocked" for job in self.jobs)
+
+    @property
+    def in_progress(self) -> bool:
+        return any(job.status in {"pending", "running"} for job in self.jobs)
 
 
 Runner = Callable[[Sequence[str], Path], CommandResult]

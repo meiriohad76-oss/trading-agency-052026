@@ -91,6 +91,11 @@ ALPACA_DATA_BASE_URL=https://data.alpaca.markets
 The refresh batch will block `prices_daily` with a credential message if Alpaca
 is selected without keys.
 
+The default refresh output is `research/results/latest-data-refresh/`. During a
+long run, the Command page polls that status file through `/status/data-refresh`
+and shows percent complete, current dataset, and ETA. If you use a custom output
+root, set `DATA_REFRESH_STATUS_PATH` to that run's `data-refresh-status.json`.
+
 ## Compose App Image
 
 The app image is defined in `docker/app.Dockerfile`. Build and run it with the

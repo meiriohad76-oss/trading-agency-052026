@@ -53,6 +53,52 @@
     </div>
   </section>
 
+  <section
+    class="panel progress-panel"
+    aria-labelledby="data-refresh-heading"
+    data-progress-panel
+    data-progress-endpoint="/status/data-refresh"
+    data-loading-state="{{ data_refresh.state }}"
+  >
+    <div class="section-heading">
+      <h2 id="data-refresh-heading">Data Loading</h2>
+      <span class="tag tag-{{ data_refresh.status_class }}" data-progress-status>
+        {{ data_refresh.status_label }}
+      </span>
+    </div>
+    <div
+      class="progress-track"
+      role="progressbar"
+      aria-valuemin="0"
+      aria-valuemax="100"
+      aria-valuenow="{{ data_refresh.percent_complete }}"
+      aria-label="Data loading progress"
+      data-progress-track
+    >
+      <div class="progress-fill" style="{{ data_refresh.progress_style }}" data-progress-fill></div>
+    </div>
+    <div class="progress-grid">
+      <div>
+        <span class="metric-label">Progress</span>
+        <strong data-progress-percent>{{ data_refresh.percent_complete }}%</strong>
+      </div>
+      <div>
+        <span class="metric-label">Dataset</span>
+        <strong data-progress-current>{{ data_refresh.current_dataset }}</strong>
+      </div>
+      <div>
+        <span class="metric-label">Jobs</span>
+        <strong data-progress-jobs>{{ data_refresh.completed_jobs }}/{{ data_refresh.total_jobs }}</strong>
+      </div>
+      <div>
+        <span class="metric-label">ETA</span>
+        <strong data-progress-eta>{{ data_refresh.eta_label }}</strong>
+      </div>
+    </div>
+    <p class="panel-note" data-progress-detail>{{ data_refresh.detail }}</p>
+    <p class="muted-line">Updated: <span data-progress-updated>{{ data_refresh.updated_at }}</span></p>
+  </section>
+
   <section class="panel" aria-labelledby="readiness-heading">
     <div class="section-heading">
       <h2 id="readiness-heading">Live Readiness</h2>

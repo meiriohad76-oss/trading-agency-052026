@@ -54,6 +54,12 @@ After the dry run is unblocked:
   --output-root research\results\t72-live
 ```
 
+To watch that custom output root on the Command page, set:
+
+```powershell
+$env:DATA_REFRESH_STATUS_PATH="research/results/t72-live/data-refresh-status.json"
+```
+
 Raw and parquet outputs stay local-only. Commit only compact status/result
 artifacts that are small enough to review.
 

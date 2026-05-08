@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import subprocess
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 
 from data_refresh.jobs import build_refresh_jobs
@@ -33,58 +34,143 @@ def run_refresh_batch(
     config: RefreshBatchConfig,
     *,
     runner: Runner | None = None,
+    clock: Callable[[], datetime] | None = None,
 ) -> RefreshBatchResult:
     jobs = build_refresh_jobs(config)
     run_command = runner or _subprocess_runner
-    results: list[RefreshJobResult] = []
-    for job in jobs:
+    get_now = clock or (lambda: datetime.now(UTC))
+    started_at = get_now().isoformat()
+    results = [_pending_result(job) for job in jobs]
+    _write_progress(config, results, started_at=started_at, updated_at=started_at)
+    for index, job in enumerate(jobs):
         if job.blocked_reasons:
-            results.append(_blocked_result(job))
+            results[index] = _blocked_result(job, updated_at=get_now().isoformat())
         elif config.dry_run:
-            results.append(_planned_result(job))
+            results[index] = _planned_result(job, updated_at=get_now().isoformat())
         else:
-            results.append(_run_job(job, config.repo_root, run_command))
+            job_started_at = get_now()
+            results[index] = _running_result(job, started_at=job_started_at.isoformat())
+            _write_progress(
+                config,
+                results,
+                started_at=started_at,
+                updated_at=job_started_at.isoformat(),
+            )
+            results[index] = _run_job(
+                job,
+                config.repo_root,
+                run_command,
+                started_at=job_started_at,
+                finished_at=get_now(),
+            )
+        _write_progress(
+            config,
+            results,
+            started_at=started_at,
+            updated_at=get_now().isoformat(),
+        )
     result = RefreshBatchResult(
         config=config,
         jobs=tuple(results),
         written_paths=("data-refresh-status.json", "data-refresh-status.md"),
+        started_at=started_at,
+        updated_at=get_now().isoformat(),
     )
     write_status_files(result, config.output_root)
     return result
 
 
-def _run_job(job: RefreshJob, repo_root: Path, runner: Runner) -> RefreshJobResult:
+def _run_job(
+    job: RefreshJob,
+    repo_root: Path,
+    runner: Runner,
+    *,
+    started_at: datetime,
+    finished_at: datetime,
+) -> RefreshJobResult:
     completed = runner(job.command, repo_root)
+    duration_seconds = round((finished_at - started_at).total_seconds(), 3)
     if completed.returncode == 0:
         return RefreshJobResult(
-            job.dataset,
-            "passed",
-            "refresh command completed",
-            job.display_command,
-            0,
+            dataset=job.dataset,
+            status="passed",
+            reason="refresh command completed",
+            command=job.display_command,
+            returncode=0,
+            started_at=started_at.isoformat(),
+            finished_at=finished_at.isoformat(),
+            duration_seconds=duration_seconds,
         )
     return RefreshJobResult(
-        job.dataset,
-        "failed",
-        "refresh command failed",
-        job.display_command,
-        completed.returncode,
-        _tail(completed.stdout),
-        _tail(completed.stderr),
+        dataset=job.dataset,
+        status="failed",
+        reason="refresh command failed",
+        command=job.display_command,
+        returncode=completed.returncode,
+        stdout=_tail(completed.stdout),
+        stderr=_tail(completed.stderr),
+        started_at=started_at.isoformat(),
+        finished_at=finished_at.isoformat(),
+        duration_seconds=duration_seconds,
     )
 
 
-def _blocked_result(job: RefreshJob) -> RefreshJobResult:
+def _pending_result(job: RefreshJob) -> RefreshJobResult:
     return RefreshJobResult(
-        job.dataset,
-        "blocked",
-        "; ".join(job.blocked_reasons),
-        job.display_command,
+        dataset=job.dataset,
+        status="pending",
+        reason="waiting for previous refresh jobs",
+        command=job.display_command,
     )
 
 
-def _planned_result(job: RefreshJob) -> RefreshJobResult:
-    return RefreshJobResult(job.dataset, "planned", "dry-run only", job.display_command)
+def _running_result(job: RefreshJob, *, started_at: str) -> RefreshJobResult:
+    return RefreshJobResult(
+        dataset=job.dataset,
+        status="running",
+        reason="refresh command running",
+        command=job.display_command,
+        started_at=started_at,
+    )
+
+
+def _blocked_result(job: RefreshJob, *, updated_at: str) -> RefreshJobResult:
+    return RefreshJobResult(
+        dataset=job.dataset,
+        status="blocked",
+        reason="; ".join(job.blocked_reasons),
+        command=job.display_command,
+        finished_at=updated_at,
+        duration_seconds=0.0,
+    )
+
+
+def _planned_result(job: RefreshJob, *, updated_at: str) -> RefreshJobResult:
+    return RefreshJobResult(
+        dataset=job.dataset,
+        status="planned",
+        reason="dry-run only",
+        command=job.display_command,
+        finished_at=updated_at,
+        duration_seconds=0.0,
+    )
+
+
+def _write_progress(
+    config: RefreshBatchConfig,
+    results: list[RefreshJobResult],
+    *,
+    started_at: str,
+    updated_at: str,
+) -> None:
+    result = RefreshBatchResult(
+        config=config,
+        jobs=tuple(results),
+        written_paths=("data-refresh-status.json", "data-refresh-status.md"),
+        started_at=started_at,
+        updated_at=updated_at,
+    )
+    write_status_files(result, config.output_root)
 
 
 def _subprocess_runner(command: Sequence[str], cwd: Path) -> CommandResult:

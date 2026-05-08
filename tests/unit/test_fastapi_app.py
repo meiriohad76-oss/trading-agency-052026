@@ -11,6 +11,7 @@ from agency.dashboard import (
     candidate_detail_summary,
     candidate_rows,
     command_summary,
+    data_refresh_progress_view,
     execution_preview_rows,
     final_selection_rows,
     learning_summary,
@@ -58,6 +59,7 @@ def test_dashboard_renders_status_overview() -> None:
     assert "Paper trading" in response.text
     assert "Candidates" in response.text
     assert "Live Readiness" in response.text
+    assert "Data Loading" in response.text
     assert "Review data sources" in response.text
     assert "Degraded Sources" in response.text
     assert "No candidates yet" in response.text
@@ -122,6 +124,15 @@ def test_static_styles_are_served() -> None:
     assert response.status_code == HTTP_OK
     assert "summary-band" in response.text
     assert "action-ribbon" in response.text
+
+
+def test_static_progress_script_is_served() -> None:
+    client = TestClient(create_app())
+
+    response = client.get("/static/data-refresh-progress.js")
+
+    assert response.status_code == HTTP_OK
+    assert "data-progress-panel" in response.text
 
 
 def test_candidate_detail_renders_audit_empty_state() -> None:
@@ -199,6 +210,19 @@ def test_readiness_view_adds_status_classes() -> None:
             "status_class": "warn",
         }
     ]
+
+
+def test_data_refresh_progress_view_adds_width_style() -> None:
+    view = data_refresh_progress_view(
+        {
+            "percent_complete": 42,
+            "state": "running",
+            "status_label": "Loading",
+            "status_class": "warn",
+        }
+    )
+
+    assert view["progress_style"] == "width: 42%"
 
 
 def test_final_selection_rows_follow_service_contract() -> None:

@@ -13,7 +13,7 @@ Current project status is tracked in `docs/phase-status.md`.
 
 ## Current Queue
 
-There are no active open ticket specs after T86.
+There are no active open ticket specs after T87.
 
 Completed archive:
 
@@ -40,6 +40,7 @@ Completed archive:
 - T84: live paper readiness gate.
 - T85: stocks-only paper mode with options deferred.
 - T86: market-data provider slot for daily bars.
+- T87: data loading progress and ETA visibility.
 
 ## Next Ticket Candidates
 
@@ -48,8 +49,9 @@ Use `docs/phase-status.md` as the source of truth before drafting the next ticke
 Recommended next batch:
 
 No numbered ticket is selected. Use the first-version testing checklist next,
-then run a current-date refresh with local Alpaca credentials. Keep the deferred
-options activity provider lane in the backlog.
+then run a current-date refresh with local Alpaca credentials while watching the
+Command-page Data Loading panel. Keep the deferred options activity provider lane
+in the backlog.
 
 ## How To Assign A Ticket
 
