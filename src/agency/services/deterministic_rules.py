@@ -16,15 +16,18 @@ DEFAULT_LANE_WEIGHTS: Mapping[str, float] = {
     "news": 0.6,
     "prepost": 0.5,
 }
+DEFAULT_WATCH_THRESHOLD = 0.5
+DEFAULT_MINIMUM_SOURCE_COUNT = 2
+DEFAULT_MINIMUM_CONFIRMED_SIGNALS = 1
 
 
 @dataclass(frozen=True)
 class DeterministicRuleConfig:
     """Configurable thresholds for deterministic selection v0."""
 
-    watch_threshold: float = 0.5
-    minimum_source_count: int = 1
-    minimum_confirmed_signals: int = 1
+    watch_threshold: float = DEFAULT_WATCH_THRESHOLD
+    minimum_source_count: int = DEFAULT_MINIMUM_SOURCE_COUNT
+    minimum_confirmed_signals: int = DEFAULT_MINIMUM_CONFIRMED_SIGNALS
     lane_weights: Mapping[str, float] | None = None
 
 
@@ -91,7 +94,8 @@ def _evidence_breadth_gate(
     if blockers:
         return {"name": "evidence_breadth", "status": "BLOCK", "reason": blockers[0]}
     if source_count < config.minimum_source_count:
-        return {"name": "evidence_breadth", "status": "BLOCK", "reason": "no sources"}
+        reason = "no sources" if source_count == 0 else "insufficient independent sources"
+        return {"name": "evidence_breadth", "status": "BLOCK", "reason": reason}
     if confirmed_count < config.minimum_confirmed_signals:
         return {
             "name": "evidence_breadth",

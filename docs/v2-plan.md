@@ -289,6 +289,11 @@ Every signal lane has explicit thresholds before it can fire as actionable:
 - **Deduplication.** A Zacks Rank change, a Seeking Alpha article, and an X post about the same earnings beat is *one* event — collapsed at ingestion based on (ticker, event-type, ~24h window) key. The aggregated event carries all source URLs.
 - **Inferred signals are never sole basis for action.** The deterministic engine's evidence-breadth gate requires at least one confirmed-verification-level signal in addition to any inferred ones.
 
+**T73 calibration note:** the first live H1 run did not produce a standalone surviving
+lane after multiple-comparison correction. Until a wider retest changes that, the
+runtime deterministic gate requires at least two usable independent sources and one
+confirmed signal before it can emit `WATCH`; inferred lanes remain corroboration-only.
+
 ### 7.3 Lanes (v1 + the additions you specified)
 
 | Lane | Source(s) | Tier | Verification | Actionable threshold |

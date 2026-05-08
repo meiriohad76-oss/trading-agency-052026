@@ -94,18 +94,27 @@ def _evidence_pack() -> dict[str, object]:
                 as_of="2026-05-07T09:30:00Z",
                 lane="fundamentals",
                 score=0.7,
-                provenance=_provenance(),
+                provenance=_provenance("fundamentals"),
+                confidence=0.9,
+            ),
+            build_signal_result(
+                cycle_id="cycle-1",
+                ticker="AAPL",
+                as_of="2026-05-07T09:30:00Z",
+                lane="insider",
+                score=0.7,
+                provenance=_provenance("insider"),
                 confidence=0.9,
             )
         ],
     )
 
 
-def _provenance() -> dict[str, object]:
+def _provenance(source_id: str) -> dict[str, object]:
     return {
         "source": "sec-edgar",
         "source_tier": "OFFICIAL_FILING",
-        "source_id": "CIK0000320193",
+        "source_id": source_id,
         "source_url": None,
         "timestamp_observed": "2026-05-07T09:00:00Z",
         "timestamp_as_of": "2026-05-07T08:59:00Z",

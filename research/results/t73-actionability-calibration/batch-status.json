@@ -1,0 +1,66 @@
+{
+  "config": {
+    "end": "2025-12-31",
+    "horizons": [
+      5,
+      20
+    ],
+    "signals": [
+      "fundamentals",
+      "insider",
+      "institutional",
+      "sector_momentum",
+      "abnormal_volume",
+      "news"
+    ],
+    "start": "2021-01-01",
+    "static_universe": [
+      "AAPL",
+      "AMZN",
+      "GOOGL",
+      "HD",
+      "JPM",
+      "META",
+      "MSFT",
+      "NVDA",
+      "TSLA",
+      "UNH"
+    ],
+    "step_size_days": 21
+  },
+  "dataset_checks": [
+    {
+      "available": true,
+      "dataset": "news_rss",
+      "reason": "news signal inputs; 80 row(s)"
+    },
+    {
+      "available": true,
+      "dataset": "prices_daily",
+      "reason": "forward returns, H4 profile, and H5 sweep; 31375 row(s)"
+    },
+    {
+      "available": true,
+      "dataset": "sec_13f",
+      "reason": "institutional signal inputs; 624 row(s)"
+    },
+    {
+      "available": true,
+      "dataset": "sec_company_facts",
+      "reason": "fundamentals signal inputs; 9843 row(s)"
+    },
+    {
+      "available": true,
+      "dataset": "sec_form4",
+      "reason": "insider signal inputs; 4163 row(s)"
+    }
+  ],
+  "h1_ran": true,
+  "written_paths": [
+    "h1-ic.csv",
+    "h1-verdicts.csv",
+    "h1-verdicts.md",
+    "batch-status.json",
+    "batch-status.md"
+  ]
+}

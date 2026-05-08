@@ -64,7 +64,17 @@ def _evidence_pack(score: float, actionability: str | None = None) -> dict[str, 
                 as_of="2026-05-07T09:30:00Z",
                 lane="fundamentals",
                 score=score,
-                provenance=_provenance(),
+                provenance=_provenance("fundamentals"),
+                confidence=0.9,
+                actionability=actionability,
+            ),
+            build_signal_result(
+                cycle_id="cycle-1",
+                ticker="AAPL",
+                as_of="2026-05-07T09:30:00Z",
+                lane="insider",
+                score=score,
+                provenance=_provenance("insider"),
                 confidence=0.9,
                 actionability=actionability,
             )
@@ -92,11 +102,11 @@ def _llm_review(action: str) -> dict[str, object]:
     }
 
 
-def _provenance() -> dict[str, object]:
+def _provenance(source_id: str) -> dict[str, object]:
     return {
         "source": "sec-edgar",
         "source_tier": "OFFICIAL_FILING",
-        "source_id": "CIK0000320193",
+        "source_id": source_id,
         "source_url": None,
         "timestamp_observed": "2026-05-07T09:00:00Z",
         "timestamp_as_of": "2026-05-07T08:59:00Z",

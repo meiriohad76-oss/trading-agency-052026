@@ -34,6 +34,7 @@ from agency.services import (
 HTTP_OK = 200
 HTTP_NOT_FOUND = 404
 EXPECTED_SOURCE_COUNT = 2
+EXPECTED_CONFIRMED_SIGNAL_COUNT = 2
 FULL_RELIABILITY_PERCENT = 100
 
 
@@ -179,7 +180,7 @@ def test_final_selection_rows_follow_service_contract() -> None:
     assert rows[0]["action"] == "WATCH"
     assert rows[0]["deterministic_action"] == "WATCH"
     assert rows[0]["llm_action"] == "NO_REVIEW"
-    assert rows[0]["confirmed_signal_count"] == 1
+    assert rows[0]["confirmed_signal_count"] == EXPECTED_CONFIRMED_SIGNAL_COUNT
     assert rows[0]["policy_gates"][0]["status"] == "PASS"
 
 
@@ -387,7 +388,16 @@ def _evidence_pack() -> dict[str, object]:
                 as_of="2026-05-07T09:30:00Z",
                 lane="fundamentals",
                 score=0.7,
-                provenance=_provenance(),
+                provenance=_provenance("fundamentals"),
+                confidence=0.9,
+            ),
+            build_signal_result(
+                cycle_id="cycle-1",
+                ticker="AAPL",
+                as_of="2026-05-07T09:30:00Z",
+                lane="insider",
+                score=0.7,
+                provenance=_provenance("insider"),
                 confidence=0.9,
             )
         ],
@@ -404,11 +414,11 @@ def _risk_decision() -> dict[str, object]:
     ).risk_decision
 
 
-def _provenance() -> dict[str, object]:
+def _provenance(source_id: str) -> dict[str, object]:
     return {
         "source": "sec-edgar",
         "source_tier": "OFFICIAL_FILING",
-        "source_id": "CIK0000320193",
+        "source_id": source_id,
         "source_url": None,
         "timestamp_observed": "2026-05-07T09:00:00Z",
         "timestamp_as_of": "2026-05-07T08:59:00Z",

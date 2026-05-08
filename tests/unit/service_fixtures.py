@@ -62,11 +62,11 @@ def source_health(
     }
 
 
-def provenance() -> dict[str, object]:
+def provenance(source_id: str = "CIK0000320193") -> dict[str, object]:
     return {
         "source": "sec-edgar",
         "source_tier": "OFFICIAL_FILING",
-        "source_id": "CIK0000320193",
+        "source_id": source_id,
         "source_url": None,
         "timestamp_observed": "2026-05-07T09:00:00Z",
         "timestamp_as_of": "2026-05-07T08:59:00Z",
