@@ -16,6 +16,7 @@ from .audit import (
     risk_snapshot_row_values,
     upsert_agent_run,
 )
+from .audit_readers import list_execution_states, list_risk_snapshots
 from .candidate_lifecycle import (
     build_candidate_lifecycle_insert,
     candidate_lifecycle_row_values,
@@ -61,9 +62,11 @@ __all__ = [
     "execution_state_row_values",
     "list_agent_runs",
     "list_candidate_lifecycle_events",
+    "list_execution_states",
     "list_prompt_audits",
     "list_recent_selection_reports",
     "list_recent_risk_decisions",
+    "list_risk_snapshots",
     "list_source_health",
     "make_lifecycle_event_id",
     "prompt_audit_row_values",
