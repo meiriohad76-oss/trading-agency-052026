@@ -65,7 +65,8 @@ def _fetch_text(base_url: str, path: str) -> str:
         with urlopen(f"{base_url}{path}", timeout=10) as response:
             if response.status != HTTP_OK:
                 raise RuntimeError(f"{path} returned HTTP {response.status}")
-            return response.read().decode("utf-8")
+            text: str = response.read().decode("utf-8")
+            return text
     except URLError as exc:
         raise RuntimeError(f"{path} is unavailable") from exc
 
