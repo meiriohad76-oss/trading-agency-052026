@@ -16,6 +16,7 @@ from agency.dashboard import (
     final_selection_rows,
     learning_summary,
     live_config_view,
+    paper_review_queue,
     policy_sections,
     portfolio_monitor_summary,
     readiness_view,
@@ -61,10 +62,12 @@ def test_dashboard_renders_status_overview() -> None:
     assert "Candidates" in response.text
     assert "Live Readiness" in response.text
     assert "Live Config" in response.text
+    assert "Review Queue" in response.text
     assert "Review config" in response.text
     assert "Data Loading" in response.text
     assert "Review data sources" in response.text
     assert "Degraded Sources" in response.text
+    assert "No reviewable paper candidates" in response.text
     assert "No candidates yet" in response.text
     assert "SelectionReport" in response.text
 
@@ -258,9 +261,28 @@ def test_risk_decision_rows_summarize_risk_contract() -> None:
     rows = risk_decision_rows([decision])
     summary = risk_summary(rows, [_source_health("sec-edgar")])
 
+    assert rows[0]["cycle_id"] == "cycle-1"
     assert rows[0]["decision"] == "ALLOW"
     assert rows[0]["decision_class"] == "pass"
     assert summary["allow_count"] == 1
+
+
+def test_paper_review_queue_pairs_latest_cycle_with_risk_decision() -> None:
+    report = build_final_selection(_evidence_pack()).selection_report
+    decision = build_risk_decision(
+        report,
+        {"source_count": 1, "degraded_source_count": 0},
+        generated_at="2026-05-07T09:32:00Z",
+    ).risk_decision
+
+    rows = paper_review_queue([report], [decision], {"cycle_id": "cycle-1"})
+
+    assert rows[0]["ticker"] == "AAPL"
+    assert rows[0]["review_state"] == "Ready"
+    assert rows[0]["risk_decision"] == "WARN"
+    assert rows[0]["candidate_href"] == "/candidates/AAPL"
+    assert rows[0]["source_count"] == EXPECTED_SOURCE_COUNT
+    assert rows[0]["confirmed_signal_count"] == EXPECTED_CONFIRMED_SIGNAL_COUNT
 
 
 def test_execution_preview_rows_summarize_preview_contract() -> None:
