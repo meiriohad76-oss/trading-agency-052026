@@ -10,13 +10,21 @@ from typing import cast
 from agency.db import get_session
 from agency.runtime import structured_log
 from agency.services import build_runtime_cycle_from_payload, persist_runtime_cycle
+from agency.services.runtime_audit import now_utc_text
 
 
 async def main() -> None:
     args = _parse_args()
+    started_at = now_utc_text()
     cycle = build_runtime_cycle_from_payload(_load_payload(args.input))
     async with get_session() as session:
-        await persist_runtime_cycle(session, cycle)
+        await persist_runtime_cycle(
+            session,
+            cycle,
+            audit_trigger="MANUAL",
+            audit_started_at=started_at,
+            audit_finished_at=now_utc_text(),
+        )
         await session.commit()
     print(
         structured_log(

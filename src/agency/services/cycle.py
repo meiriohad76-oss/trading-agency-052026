@@ -9,6 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from agency.contracts import validate_contract
 from agency.runtime import (
     record_candidate_lifecycle_event,
+    record_execution_state,
+    record_risk_snapshot,
+    upsert_agent_run,
     upsert_risk_decision,
     upsert_selection_report,
     upsert_source_health,
@@ -17,14 +20,13 @@ from agency.services.evidence_pack import build_evidence_pack
 from agency.services.execution_preview import build_execution_previews
 from agency.services.final_selection import build_final_selection
 from agency.services.risk import PortfolioPolicy, build_risk_decisions
+from agency.services.runtime_audit import build_runtime_audit_artifacts
 
 RuntimePayloadWriter = Callable[[AsyncSession, Mapping[str, object]], Awaitable[None]]
 
 
 @dataclass(frozen=True)
 class RuntimeCycleResult:
-    """Schema-valid artifacts from one paper runtime cycle."""
-
     cycle_id: str
     as_of: str
     generated_at: str
@@ -110,9 +112,28 @@ async def persist_runtime_cycle(
     report_writer: RuntimePayloadWriter = upsert_selection_report,
     risk_writer: RuntimePayloadWriter = upsert_risk_decision,
     lifecycle_writer: RuntimePayloadWriter = record_candidate_lifecycle_event,
+    agent_run_writer: RuntimePayloadWriter = upsert_agent_run,
+    risk_snapshot_writer: RuntimePayloadWriter = record_risk_snapshot,
+    execution_state_writer: RuntimePayloadWriter = record_execution_state,
+    audit_trigger: str = "MANUAL",
+    audit_started_at: str | None = None,
+    audit_finished_at: str | None = None,
 ) -> RuntimeCycleResult:
-    """Persist DB-backed artifacts and audit events from one paper cycle."""
     _validate_cycle(cycle)
+    audit = build_runtime_audit_artifacts(
+        cycle_id=cycle.cycle_id,
+        as_of=cycle.as_of,
+        generated_at=cycle.generated_at,
+        source_health=cycle.source_health,
+        evidence_packs=cycle.evidence_packs,
+        selection_reports=cycle.selection_reports,
+        risk_decisions=cycle.risk_decisions,
+        execution_previews=cycle.execution_previews,
+        trigger=audit_trigger,
+        started_at=audit_started_at,
+        finished_at=audit_finished_at,
+    )
+    await agent_run_writer(session, audit.agent_run)
     for source in cycle.source_health:
         await source_writer(session, source)
     for report in cycle.selection_reports:
@@ -121,6 +142,10 @@ async def persist_runtime_cycle(
         await risk_writer(session, decision)
     for event in cycle.all_lifecycle_events:
         await lifecycle_writer(session, event)
+    for snapshot in audit.risk_snapshots:
+        await risk_snapshot_writer(session, snapshot)
+    for state in audit.execution_states:
+        await execution_state_writer(session, state)
     return cycle
 
 

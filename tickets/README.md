@@ -13,7 +13,7 @@ Current project status is tracked in `docs/phase-status.md`.
 
 ## Current Queue
 
-There are no active open ticket specs after T71.
+There are no active open ticket specs after T74.
 
 Completed archive:
 
@@ -25,6 +25,7 @@ Completed archive:
 - T69: runtime audit tables.
 - T70: scheduler, metrics, and structured logging.
 - T71: deployment and backup checkpoint.
+- T74: runtime audit wiring for manual/scheduled cycles.
 
 ## Next Ticket Candidates
 
@@ -36,7 +37,6 @@ Recommended next batch:
 | --- | --- |
 | T72 | Live data-refresh execution and compact empirical result commit. |
 | T73 | Actionability threshold calibration after empirical H1-H5 results. |
-| T74 | Runtime audit wiring for scheduled/manual cycles. |
 
 ## How To Assign A Ticket
 
