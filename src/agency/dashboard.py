@@ -15,6 +15,7 @@ from agency.api.reports import runtime_selection_reports
 from agency.api.risk import runtime_risk_decisions
 from agency.runtime import build_live_readiness
 from agency.runtime.data_refresh_progress import load_data_refresh_progress
+from agency.runtime.live_config_readiness import load_live_config_readiness
 from agency.services import (
     build_execution_previews,
     build_learning_outcome,
@@ -65,6 +66,7 @@ async def dashboard_context() -> dict[str, object]:
         "data_sources": source_status_rows(data_sources),
         "candidates": candidates,
         "data_refresh": data_refresh_progress_view(load_data_refresh_progress()),
+        "live_config": live_config_view(load_live_config_readiness()),
         "readiness": readiness,
         "summary": summary,
     }
@@ -235,6 +237,7 @@ def command_summary(
 
 def command_actions() -> list[dict[str, str]]:
     return [
+        {"label": "Review config", "href": "#live-config-heading"},
         {"label": "Review readiness", "href": "#readiness-heading"},
         {"label": "Review candidates", "href": "#candidates-heading"},
         {"label": "Review data sources", "href": "#source-heading"},
@@ -284,6 +287,12 @@ def readiness_view(summary: Mapping[str, object]) -> dict[str, object]:
 def data_refresh_progress_view(progress: Mapping[str, object]) -> dict[str, object]:
     view = dict(progress)
     view["progress_style"] = f"width: {_int_field(progress, 'percent_complete')}%"
+    return view
+
+
+def live_config_view(readiness: Mapping[str, object]) -> dict[str, object]:
+    view = dict(readiness)
+    view["check_rows"] = _list_field(readiness, "checks")
     return view
 
 

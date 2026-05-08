@@ -1,0 +1,132 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+from fastapi.testclient import TestClient
+
+from agency.app import create_app
+from agency.runtime.live_config_readiness import load_live_config_readiness
+
+HTTP_OK = 200
+
+
+def test_live_config_readiness_blocks_missing_alpaca_keys(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _blank_env(monkeypatch)
+    config_path = _write_config(
+        tmp_path,
+        {
+            "datasets": ["prices_daily"],
+            "tickers": ["AAPL"],
+            "market_data_provider": "alpaca",
+        },
+    )
+
+    readiness = load_live_config_readiness(config_path)
+
+    assert readiness["state"] == "blocked"
+    assert readiness["blocker_count"] == 1
+    assert _check(readiness, "Market data")["status"] == "BLOCK"
+
+
+def test_live_config_readiness_passes_configured_live_inputs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _blank_env(monkeypatch)
+    monkeypatch.setenv("ALPACA_API_KEY", "key")
+    monkeypatch.setenv("ALPACA_SECRET_KEY", "secret")
+    cusip_map = tmp_path / "cusips.json"
+    cusip_map.write_text('{"037833100": "AAPL"}', encoding="utf-8")
+    config_path = _write_config(
+        tmp_path,
+        {
+            "datasets": ["prices_daily", "sec_13f", "news_rss"],
+            "tickers": ["AAPL"],
+            "rss_feeds": ["SEC,https://example.test/rss"],
+            "filer_ciks": ["0001067983"],
+            "cusip_map": str(cusip_map),
+            "sec_user_agent": "Trading Agency test@example.com",
+            "market_data_provider": "alpaca",
+        },
+    )
+
+    readiness = load_live_config_readiness(config_path)
+
+    assert readiness["state"] == "ready"
+    assert readiness["ready"] is True
+    assert readiness["blocker_count"] == 0
+
+
+def test_live_config_readiness_warns_for_yfinance_current_date_provider(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _blank_env(monkeypatch)
+    config_path = _write_config(
+        tmp_path,
+        {
+            "datasets": ["prices_daily"],
+            "tickers": ["AAPL"],
+            "market_data_provider": "yfinance",
+        },
+    )
+
+    readiness = load_live_config_readiness(config_path)
+
+    assert readiness["state"] == "warning"
+    assert readiness["warning_count"] == 1
+    assert _check(readiness, "Market data")["status"] == "WARN"
+
+
+def test_live_config_status_endpoint_reads_configured_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _blank_env(monkeypatch)
+    config_path = _write_config(
+        tmp_path,
+        {
+            "datasets": ["prices_daily"],
+            "tickers": ["AAPL"],
+            "market_data_provider": "yfinance",
+        },
+    )
+    monkeypatch.setenv("LIVE_REFRESH_CONFIG_PATH", str(config_path))
+    client = TestClient(create_app())
+
+    response = client.get("/status/live-config")
+
+    assert response.status_code == HTTP_OK
+    assert response.json()["state"] == "warning"
+
+
+def _write_config(tmp_path: Path, payload: dict[str, object]) -> Path:
+    path = tmp_path / "live-refresh.local.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
+
+
+def _blank_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    for key in (
+        "ALPACA_API_KEY",
+        "ALPACA_SECRET_KEY",
+        "MARKET_DATA_PROVIDER",
+        "SEC_USER_AGENT",
+        "LIVE_REFRESH_CONFIG_PATH",
+    ):
+        monkeypatch.setenv(key, "")
+
+
+def _check(readiness: dict[str, object], label: str) -> dict[str, str]:
+    checks = readiness["checks"]
+    if not isinstance(checks, list):
+        raise TypeError("checks must be a list")
+    for item in checks:
+        if isinstance(item, dict) and item.get("label") == label:
+            return {str(key): str(value) for key, value in item.items()}
+    raise AssertionError(f"missing check: {label}")

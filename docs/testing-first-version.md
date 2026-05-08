@@ -16,6 +16,7 @@ Open `http://127.0.0.1:8000/` and inspect the app in this order.
 
 1. Command
    - Candidate count is visible.
+   - Live Config shows whether credentials and refresh inputs are ready.
    - Data source status is visible.
    - Candidate ticker links open detail pages.
 
@@ -46,6 +47,7 @@ Open `http://127.0.0.1:8000/` and inspect the app in this order.
   --min-selection-reports 1 --min-risk-decisions 1
 
 curl.exe http://127.0.0.1:8000/health
+curl.exe http://127.0.0.1:8000/status/live-config
 curl.exe http://127.0.0.1:8000/status/live-readiness
 curl.exe http://127.0.0.1:8000/metrics
 curl.exe http://127.0.0.1:8000/audit/agent-runs
@@ -81,6 +83,15 @@ The Command page and `/status/live-readiness` should agree on the live-readiness
 verdict and blocker count.
 
 ## Current-Date Market Data
+
+Before a refresh, check the Command page Live Config panel or:
+
+```powershell
+curl.exe http://127.0.0.1:8000/status/live-config
+```
+
+There should be no `BLOCK` checks. A yfinance `WARN` is acceptable for historical
+replay, but switch to Alpaca before current-date validation if yfinance is stale.
 
 If yfinance remains stale, switch the local refresh config to Alpaca and set
 credentials in `.env`:
@@ -124,6 +135,8 @@ While the refresh runs, the Command page shows Data Loading progress by polling
 - The main path from candidate to risk to execution preview to audit is traceable.
 - Live readiness explains whether the latest persisted cycle is reviewable or
   context-only.
+- Live Config identifies missing credentials or refresh inputs without showing
+  secret values.
 - Long data refreshes show progress, current dataset, and ETA.
 - Any confusing label, missing count, or overloaded table gets a follow-up ticket.
 

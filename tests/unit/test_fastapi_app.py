@@ -15,6 +15,7 @@ from agency.dashboard import (
     execution_preview_rows,
     final_selection_rows,
     learning_summary,
+    live_config_view,
     policy_sections,
     portfolio_monitor_summary,
     readiness_view,
@@ -59,6 +60,8 @@ def test_dashboard_renders_status_overview() -> None:
     assert "Paper trading" in response.text
     assert "Candidates" in response.text
     assert "Live Readiness" in response.text
+    assert "Live Config" in response.text
+    assert "Review config" in response.text
     assert "Data Loading" in response.text
     assert "Review data sources" in response.text
     assert "Degraded Sources" in response.text
@@ -223,6 +226,17 @@ def test_data_refresh_progress_view_adds_width_style() -> None:
     )
 
     assert view["progress_style"] == "width: 42%"
+
+
+def test_live_config_view_exposes_check_rows() -> None:
+    view = live_config_view(
+        {
+            "state": "blocked",
+            "checks": [{"label": "Market data", "status": "BLOCK"}],
+        }
+    )
+
+    assert view["check_rows"] == [{"label": "Market data", "status": "BLOCK"}]
 
 
 def test_final_selection_rows_follow_service_contract() -> None:

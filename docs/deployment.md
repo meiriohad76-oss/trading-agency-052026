@@ -60,6 +60,7 @@ Then verify the runtime can see the persisted rows:
 .\.venv\Scripts\python scripts\check_local_runtime.py `
   --min-selection-reports 1 --min-risk-decisions 1
 
+curl.exe http://127.0.0.1:8000/status/live-config
 curl.exe http://127.0.0.1:8000/status/live-readiness
 ```
 
@@ -90,6 +91,11 @@ ALPACA_DATA_BASE_URL=https://data.alpaca.markets
 
 The refresh batch will block `prices_daily` with a credential message if Alpaca
 is selected without keys.
+
+The Command page Live Config panel and `/status/live-config` show whether the
+local refresh config, selected provider, credentials, ticker universe, SEC
+User-Agent, RSS feeds, 13F filers, CUSIP map, and activity-alert CSV are ready.
+They report missing secret names only, never secret values.
 
 The default refresh output is `research/results/latest-data-refresh/`. During a
 long run, the Command page polls that status file through `/status/data-refresh`

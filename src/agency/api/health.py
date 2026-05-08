@@ -13,6 +13,7 @@ from agency.contracts import ContractName, load_contract_schema, validate_contra
 from agency.db import MissingDatabaseConfigurationError, get_session
 from agency.runtime import build_live_readiness, list_source_health, runtime_metrics_text
 from agency.runtime.data_refresh_progress import load_data_refresh_progress
+from agency.runtime.live_config_readiness import load_live_config_readiness
 
 router = APIRouter()
 SourceHealthReader = Callable[[Any], Awaitable[list[dict[str, object]]]]
@@ -63,6 +64,11 @@ async def live_readiness_status() -> dict[str, object]:
 @router.get("/status/data-refresh")
 def data_refresh_progress() -> dict[str, object]:
     return load_data_refresh_progress()
+
+
+@router.get("/status/live-config")
+def live_config_readiness() -> dict[str, object]:
+    return load_live_config_readiness()
 
 
 @router.get("/metrics")
