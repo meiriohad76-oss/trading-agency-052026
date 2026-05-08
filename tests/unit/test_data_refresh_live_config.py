@@ -29,6 +29,10 @@ def test_load_refresh_config_parses_live_inputs(tmp_path: Path) -> None:
                 "include_etfs": False,
                 "refresh": True,
                 "dry_run": True,
+                "market_data_provider": "alpaca",
+                "market_data_feed": "iex",
+                "market_data_adjustment": "all",
+                "market_data_base_url": "https://data.alpaca.markets",
             }
         ),
         encoding="utf-8",
@@ -46,6 +50,8 @@ def test_load_refresh_config_parses_live_inputs(tmp_path: Path) -> None:
     assert config.include_etfs is False
     assert config.refresh is True
     assert config.dry_run is True
+    assert config.market_data_provider == "alpaca"
+    assert config.market_data_feed == "iex"
 
 
 def test_load_refresh_config_rejects_unknown_dataset(tmp_path: Path) -> None:

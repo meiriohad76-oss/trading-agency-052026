@@ -1,6 +1,6 @@
 # Phase Status
 
-**Status:** reconciled after T85
+**Status:** reconciled after T86
 **Owner:** Ohad Meiri
 **Last updated:** 2026-05-08
 
@@ -9,7 +9,7 @@ implementation scaffolding from accepted phase gates.
 
 ## Current Truth
 
-- T01-T85 are archived under `tickets/done/`.
+- T01-T86 are archived under `tickets/done/`.
 - The repo contains Phase 0 foundation, Phase 1 research machinery, Phase 2
   contracts/dashboard scaffolding, and Phase 3 runtime orchestration through a
   PIT-backed local paper cycle.
@@ -25,7 +25,7 @@ implementation scaffolding from accepted phase gates.
 | Phase 1 research | Validated lanes, realistic profile, thresholds, plan revision. | Live H1 calibration is inconclusive; conservative thresholds are active. | Test first version, then widen H1 coverage or improve ticker-tagged sources. |
 | Phase 2 design | Design doc, finalized schemas, UX prototype, test plan. | Partially implemented ahead of gate with provisional contracts. | Reconcile after findings; write explicit design/test plan. |
 | Phase 3 build | Components built with all three test layers green. | Runtime can persist seeded, PIT-backed, and stocks-only replay paper cycles. | Keep first-version path stable during testing. |
-| Phase 4 validate | Paper-test against live data; user testing; threshold adjustment. | Stocks-only PIT replay is ready for user inspection; current-date live validation still waits on market data. | Test the first version, then choose current market-data provider. |
+| Phase 4 validate | Paper-test against live data; user testing; threshold adjustment. | Stocks-only PIT replay is ready for user inspection; current-date live validation has an Alpaca provider slot but still needs local credentials. | Configure Alpaca credentials, run a current-date refresh, then run a persisted live paper cycle. |
 | Phase 5 operate | Production paper trading and learning loop. | Not started. | Wait for Phase 4 validation. |
 
 ## High-Priority Gaps
@@ -46,14 +46,14 @@ implementation scaffolding from accepted phase gates.
 7. Portfolio policy is still static/read-only, not persisted or user-editable.
 8. Options/unusual-activity providers are explicitly deferred to backlog; the
    default runtime lane set is stocks-only.
-9. Current-date live validation still needs a market-data source that returns
-   bars past `2025-12-31` in this environment.
+9. Current-date live validation can now select `market_data_provider="alpaca"`,
+   but it still needs local Alpaca credentials before bars past `2025-12-31`
+   can be tested in this environment.
 
 ## Next Ticket Candidates
 
-No active numbered ticket is selected. Recommended next work is first-version user
-testing against the stocks-only replay, followed by current market-data provider
-wiring for true live validation.
+No active numbered ticket is selected. Recommended next work is configuring local
+Alpaca credentials and running a current-date live refresh/cycle smoke.
 
 ## Operating Rule
 

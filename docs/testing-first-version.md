@@ -80,6 +80,40 @@ refresh is current enough for paper validation.
 The Command page and `/status/live-readiness` should agree on the live-readiness
 verdict and blocker count.
 
+## Current-Date Market Data
+
+If yfinance remains stale, switch the local refresh config to Alpaca and set
+credentials in `.env`:
+
+```powershell
+notepad .env
+notepad research\config\live-refresh.local.json
+```
+
+Use these local settings:
+
+```json
+"market_data_provider": "alpaca",
+"market_data_feed": "iex",
+"market_data_adjustment": "all",
+"market_data_base_url": "https://data.alpaca.markets"
+```
+
+Then run a current-date refresh and a persisted paper cycle:
+
+```powershell
+.\.venv\Scripts\python research\scripts\run_data_refresh_batch.py `
+  --config research\config\live-refresh.local.json `
+  --end 2026-05-08 `
+  --no-dry-run `
+  --output-root research\results\t86-current-refresh
+
+.\.venv\Scripts\python scripts\run_live_runtime_cycle.py `
+  --config research\config\live-refresh.local.json `
+  --as-of 2026-05-08 `
+  --output-root research\results\t86-current-live-cycle
+```
+
 ## Pass Criteria
 
 - The app clearly says paper/demo mode.

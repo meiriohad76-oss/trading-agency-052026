@@ -67,6 +67,30 @@ This remains paper-only. Stale or missing local PIT datasets intentionally
 degrade source health and can leave candidates blocked or context-only until a
 fresh refresh and required provider feeds are available.
 
+### Current-Date Price Refresh
+
+The daily price puller defaults to yfinance. For current-date validation when
+yfinance is stale, configure Alpaca in `.env` and
+`research\config\live-refresh.local.json`:
+
+```powershell
+ALPACA_API_KEY=<local key>
+ALPACA_SECRET_KEY=<local secret>
+ALPACA_DATA_FEED=iex
+ALPACA_DATA_ADJUSTMENT=all
+ALPACA_DATA_BASE_URL=https://data.alpaca.markets
+```
+
+```json
+"market_data_provider": "alpaca",
+"market_data_feed": "iex",
+"market_data_adjustment": "all",
+"market_data_base_url": "https://data.alpaca.markets"
+```
+
+The refresh batch will block `prices_daily` with a credential message if Alpaca
+is selected without keys.
+
 ## Compose App Image
 
 The app image is defined in `docker/app.Dockerfile`. Build and run it with the

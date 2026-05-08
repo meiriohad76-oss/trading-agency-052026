@@ -24,6 +24,18 @@ def build_refresh_jobs(config: RefreshBatchConfig) -> tuple[RefreshJob, ...]:
 
 def _prices_job(config: RefreshBatchConfig) -> RefreshJob:
     command = _base_command(config, "pull_yfinance_daily.py")
+    command.extend(["--provider", config.market_data_provider])
+    if config.market_data_provider == "alpaca":
+        command.extend(
+            [
+                "--alpaca-feed",
+                config.market_data_feed,
+                "--alpaca-adjustment",
+                config.market_data_adjustment,
+                "--alpaca-data-base-url",
+                config.market_data_base_url,
+            ]
+        )
     command.extend(["--start", config.start.isoformat(), "--end", config.end.isoformat()])
     command.extend(["--workers", str(config.workers)])
     if config.include_etfs:
@@ -31,7 +43,8 @@ def _prices_job(config: RefreshBatchConfig) -> RefreshJob:
     if config.refresh:
         command.append("--refresh")
     _extend_tickers(command, config.tickers, "--tickers")
-    return _job(config, "prices_daily", command, _universe_reasons(config))
+    reasons = _universe_reasons(config) + _market_data_reasons(config)
+    return _job(config, "prices_daily", command, reasons)
 
 
 def _company_facts_job(config: RefreshBatchConfig) -> RefreshJob:
@@ -141,6 +154,14 @@ def _sec_reasons(config: RefreshBatchConfig) -> tuple[str, ...]:
     return ("missing SEC_USER_AGENT",)
 
 
+def _market_data_reasons(config: RefreshBatchConfig) -> tuple[str, ...]:
+    if config.market_data_provider != "alpaca":
+        return ()
+    if config.market_data_credentials_present:
+        return ()
+    return ("missing Alpaca market data credentials",)
+
+
 def _display_command(
     command: Sequence[str],
     repo_root: Path,
@@ -175,3 +196,12 @@ def _validate_config(config: RefreshBatchConfig) -> None:
         raise ValueError("end must be on or after start")
     if config.workers < 1:
         raise ValueError("workers must be >= 1")
+    if config.market_data_provider not in {"yfinance", "alpaca"}:
+        raise ValueError(f"unknown market data provider: {config.market_data_provider}")
+    for label, value in (
+        ("market_data_feed", config.market_data_feed),
+        ("market_data_adjustment", config.market_data_adjustment),
+        ("market_data_base_url", config.market_data_base_url),
+    ):
+        if value.strip() == "":
+            raise ValueError(f"{label} must not be blank")
