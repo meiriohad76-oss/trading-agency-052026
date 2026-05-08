@@ -64,7 +64,8 @@ To run one local paper cycle from schema-valid JSON inputs:
 The cycle input must include `cycle_id`, `as_of`, `generated_at`, and optional `tickers`,
 `source_health`, `signals`, and `current_gross_exposure_pct` fields. `source_health`
 entries must match `data-source-health`; `signals` entries must match `signal-result`.
-The runner emits one structured JSON log line with persisted artifact counts.
+The runner writes runtime audit rows and emits one structured JSON log line with
+persisted artifact counts.
 
 To preview the local PIT data refresh plan without calling external services:
 

@@ -94,6 +94,18 @@ async def test_persist_runtime_cycle_writes_persistent_artifacts_and_audit_event
         assert session is _session()
         writes.append(("event", str(payload["event_type"])))
 
+    async def agent_run_writer(session: AsyncSession, payload: Mapping[str, object]) -> None:
+        assert session is _session()
+        writes.append(("agent-run", str(payload["trigger"])))
+
+    async def risk_snapshot_writer(session: AsyncSession, payload: Mapping[str, object]) -> None:
+        assert session is _session()
+        writes.append(("risk-snapshot", str(payload["risk_level"])))
+
+    async def execution_state_writer(session: AsyncSession, payload: Mapping[str, object]) -> None:
+        assert session is _session()
+        writes.append(("execution-state", str(payload["state"])))
+
     cycle = build_runtime_cycle(
         cycle_id=CYCLE_ID,
         as_of=AS_OF,
@@ -109,6 +121,10 @@ async def test_persist_runtime_cycle_writes_persistent_artifacts_and_audit_event
         report_writer=report_writer,
         risk_writer=risk_writer,
         lifecycle_writer=lifecycle_writer,
+        agent_run_writer=agent_run_writer,
+        risk_snapshot_writer=risk_snapshot_writer,
+        execution_state_writer=execution_state_writer,
+        audit_trigger="TEST",
     )
 
     assert persisted is cycle
@@ -117,6 +133,13 @@ async def test_persist_runtime_cycle_writes_persistent_artifacts_and_audit_event
     assert len([kind for kind, _value in writes if kind == "risk"]) == 1
     assert len([kind for kind, _value in writes if kind == "event"]) == len(
         cycle.all_lifecycle_events
+    )
+    assert len([kind for kind, _value in writes if kind == "agent-run"]) == 1
+    assert len([kind for kind, _value in writes if kind == "risk-snapshot"]) == len(
+        cycle.risk_decisions
+    )
+    assert len([kind for kind, _value in writes if kind == "execution-state"]) == len(
+        cycle.execution_previews
     )
 
 

@@ -43,6 +43,11 @@ from .risk import (
     build_risk_decisions,
 )
 from .risk_persistence import RiskPayloadWriter, persist_risk_result
+from .runtime_audit import (
+    RuntimeAuditArtifacts,
+    build_runtime_audit_artifacts,
+    runtime_run_id,
+)
 from .selection_persistence import (
     SelectionPayloadWriter,
     build_and_persist_deterministic_selection,
@@ -68,6 +73,7 @@ __all__ = [
     "PortfolioPolicy",
     "RiskDecisionResult",
     "RiskPayloadWriter",
+    "RuntimeAuditArtifacts",
     "RuntimeCycleResult",
     "SelectionPayloadWriter",
     "SignalActionabilityConfig",
@@ -86,6 +92,7 @@ __all__ = [
     "build_risk_decision",
     "build_risk_decisions",
     "build_runtime_cycle",
+    "build_runtime_audit_artifacts",
     "build_runtime_cycle_from_payload",
     "build_signal_result",
     "build_signal_results_from_scores",
@@ -94,4 +101,5 @@ __all__ = [
     "persist_demo_runtime_seed",
     "persist_runtime_cycle",
     "persist_selection_result",
+    "runtime_run_id",
 ]
