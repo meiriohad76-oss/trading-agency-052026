@@ -1,6 +1,6 @@
 # Phase Status
 
-**Status:** reconciled after T78
+**Status:** reconciled after T79
 **Owner:** Ohad Meiri
 **Last updated:** 2026-05-08
 
@@ -9,7 +9,7 @@ implementation scaffolding from accepted phase gates.
 
 ## Current Truth
 
-- T01-T71 and T74-T78 are archived under `tickets/done/`.
+- T01-T71 and T74-T79 are archived under `tickets/done/`.
 - The repo contains Phase 0 foundation, Phase 1 research machinery, Phase 2
   contracts/dashboard scaffolding, and early Phase 3 runtime orchestration through T70.
 - T29-T64 are provisional build scaffolding until empirical H1-H5 results exist.
@@ -31,7 +31,8 @@ implementation scaffolding from accepted phase gates.
 
 1. Empirical result artifacts under `research/results/` are blocked until the T67
    refresh batch is run locally with SEC/RSS/13F configuration. T77 adds the
-   config template and readiness checklist for that handoff.
+   config template and readiness checklist for that handoff. T79 fixes the live
+   SEC Form 4 document path used by newer EDGAR submissions.
 2. Actionability gates are implemented as v1 service rules; thresholds still need
    calibration after empirical result artifacts exist.
 3. Runtime audit persistence and read-only visibility are wired for manual/scheduled

@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import ssl
+import sys
 import time
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
+from importlib import import_module
 from typing import Any, cast
 
 import httpx
@@ -61,7 +64,7 @@ class SecClient:
     ) -> None:
         if config.user_agent.strip() == "":
             raise ValueError("SEC_USER_AGENT must identify the app and contact email")
-        self._client = client or httpx.AsyncClient(timeout=30.0)
+        self._client = client or httpx.AsyncClient(timeout=30.0, verify=_verify_context())
         self._client.headers["User-Agent"] = config.user_agent
         self._client.headers["Accept-Encoding"] = "gzip, deflate"
         self._owns_client = client is None
@@ -122,3 +125,14 @@ def archive_url(cik: str, accession_number: str, document: str) -> str:
 
 def json_dumps(payload: Mapping[str, Any]) -> str:
     return json.dumps(payload, indent=2, sort_keys=True) + "\n"
+
+
+def _verify_context() -> ssl.SSLContext | bool:
+    if sys.platform != "win32":
+        return True
+    try:
+        truststore = import_module("truststore")
+    except ModuleNotFoundError:
+        return True
+    context_factory = cast(type[ssl.SSLContext], truststore.SSLContext)
+    return context_factory(ssl.PROTOCOL_TLS_CLIENT)

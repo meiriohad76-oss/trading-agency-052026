@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
+import pandas as pd
 import pytest
 from backtests.portfolio import CostModel
 from backtests.walk_forward import WalkForward, WalkForwardConfig
@@ -26,7 +27,8 @@ def test_walk_forward_buy_and_hold_spy_when_real_prices_exist() -> None:
     spy_prices = loader.prices(["SPY"], date(2022, 3, 31), lookback_days=120).to_pandas()
     spy_prices = spy_prices.sort_values("date")
     window = spy_prices[
-        (spy_prices["date"] >= date(2022, 1, 3)) & (spy_prices["date"] <= date(2022, 3, 31))
+        (spy_prices["date"] >= pd.Timestamp(date(2022, 1, 3)))
+        & (spy_prices["date"] <= pd.Timestamp(date(2022, 3, 31)))
     ]
     expected = window["adj_close"].iloc[-1] / window["adj_close"].iloc[0] - 1.0
 
