@@ -21,6 +21,7 @@ def test_metrics_endpoint_returns_prometheus_text() -> None:
     assert response.headers["content-type"].startswith("text/plain; version=0.0.4")
     assert "agency_source_health_total 1" in response.text
     assert "agency_source_degraded_total 1" in response.text
+    assert "agency_live_readiness_ready 0" in response.text
 
 
 async def test_runtime_metrics_uses_payload_providers() -> None:
@@ -34,6 +35,8 @@ async def test_runtime_metrics_uses_payload_providers() -> None:
     assert "agency_source_degraded_total 1" in text
     assert 'agency_final_action_total{value="WATCH"} 1' in text
     assert 'agency_risk_decision_total{value="ALLOW"} 1' in text
+    assert "agency_live_readiness_ready 0" in text
+    assert "agency_live_readiness_blockers_total 1" in text
 
 
 def test_runtime_metrics_text_escapes_labels() -> None:
@@ -61,12 +64,12 @@ def test_structured_log_renders_compact_json_line() -> None:
 
 
 async def _source_status_provider() -> list[dict[str, object]]:
-    return [{"status": "HEALTHY"}, {"status": "STALE"}]
+    return [{"status": "HEALTHY", "freshness": "FRESH"}, {"status": "STALE", "freshness": "STALE"}]
 
 
 async def _selection_report_provider() -> list[dict[str, object]]:
-    return [{"final_action": "WATCH"}]
+    return [{"cycle_id": "cycle-1", "final_action": "WATCH"}]
 
 
 async def _risk_decision_provider() -> list[dict[str, object]]:
-    return [{"decision": "ALLOW"}]
+    return [{"cycle_id": "cycle-1", "decision": "ALLOW"}]

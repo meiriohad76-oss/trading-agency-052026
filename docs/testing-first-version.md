@@ -46,6 +46,7 @@ Open `http://127.0.0.1:8000/` and inspect the app in this order.
   --min-selection-reports 1 --min-risk-decisions 1
 
 curl.exe http://127.0.0.1:8000/health
+curl.exe http://127.0.0.1:8000/status/live-readiness
 curl.exe http://127.0.0.1:8000/metrics
 curl.exe http://127.0.0.1:8000/audit/agent-runs
 ```
@@ -67,11 +68,16 @@ candidates while risk still blocks or warns them if source health is stale,
 unavailable, or missing paid-provider activity data; that is expected until the
 refresh is current enough for paper validation.
 
+The Command page and `/status/live-readiness` should agree on the live-readiness
+verdict and blocker count.
+
 ## Pass Criteria
 
 - The app clearly says paper/demo mode.
 - No screen offers real order submission.
 - The main path from candidate to risk to execution preview to audit is traceable.
+- Live readiness explains whether the latest persisted cycle is reviewable or
+  context-only.
 - Any confusing label, missing count, or overloaded table gets a follow-up ticket.
 
 ## Follow-Up Tracks

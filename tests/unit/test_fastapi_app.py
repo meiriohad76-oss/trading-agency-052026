@@ -16,6 +16,7 @@ from agency.dashboard import (
     learning_summary,
     policy_sections,
     portfolio_monitor_summary,
+    readiness_view,
     risk_decision_rows,
     risk_summary,
     source_status_rows,
@@ -56,6 +57,7 @@ def test_dashboard_renders_status_overview() -> None:
     assert "Command" in response.text
     assert "Paper trading" in response.text
     assert "Candidates" in response.text
+    assert "Live Readiness" in response.text
     assert "Review data sources" in response.text
     assert "Degraded Sources" in response.text
     assert "No candidates yet" in response.text
@@ -172,6 +174,33 @@ def test_source_status_rows_add_status_classes() -> None:
     assert rows[1]["reliability_pct"] == 0
 
 
+def test_readiness_view_adds_status_classes() -> None:
+    view = readiness_view(
+        {
+            "ready": False,
+            "verdict": "context_only_source_health",
+            "blockers": [
+                {
+                    "kind": "source_health",
+                    "item": "activity-alerts",
+                    "reason": "UNAVAILABLE",
+                }
+            ],
+        }
+    )
+
+    assert view["verdict_label"] == "Context Only Source Health"
+    assert view["status_class"] == "warn"
+    assert view["blocker_rows"] == [
+        {
+            "kind": "Source Health",
+            "item": "activity-alerts",
+            "reason": "UNAVAILABLE",
+            "status_class": "warn",
+        }
+    ]
+
+
 def test_final_selection_rows_follow_service_contract() -> None:
     report = build_final_selection(_evidence_pack()).selection_report
 
@@ -285,6 +314,16 @@ def test_data_source_status_endpoint_returns_valid_status_payload() -> None:
     payload = response.json()
     assert payload[0]["source"] == "bootstrap"
     assert payload[0]["status"] == "DEGRADED"
+
+
+def test_live_readiness_status_endpoint_returns_gate() -> None:
+    client = TestClient(create_app())
+
+    response = client.get("/status/live-readiness")
+
+    assert response.status_code == HTTP_OK
+    assert response.json()["ready"] is False
+    assert "verdict" in response.json()
 
 
 async def test_runtime_data_source_status_uses_repository_payloads() -> None:

@@ -25,6 +25,7 @@ from .candidate_lifecycle import (
     record_candidate_lifecycle_event,
 )
 from .metrics import runtime_metrics_text
+from .readiness import build_live_readiness
 from .risk_decisions import (
     build_risk_decision_upsert,
     list_recent_risk_decisions,
@@ -54,6 +55,7 @@ __all__ = [
     "build_candidate_lifecycle_insert",
     "build_execution_state_insert",
     "build_prompt_audit_insert",
+    "build_live_readiness",
     "build_risk_decision_upsert",
     "build_risk_snapshot_insert",
     "build_selection_report_upsert",

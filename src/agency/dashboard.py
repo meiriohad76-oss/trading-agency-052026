@@ -12,6 +12,8 @@ from fastapi.templating import Jinja2Templates
 from agency.api.candidates import runtime_candidate_timeline
 from agency.api.health import contract_summaries, runtime_data_source_status
 from agency.api.reports import runtime_selection_reports
+from agency.api.risk import runtime_risk_decisions
+from agency.runtime import build_live_readiness
 from agency.services import (
     build_execution_previews,
     build_learning_outcome,
@@ -37,12 +39,20 @@ async def dashboard(request: Request) -> Response:
 
 
 async def dashboard_context() -> dict[str, object]:
-    reports, data_sources = await asyncio.gather(
+    reports, data_sources, risk_decisions = await asyncio.gather(
         runtime_selection_reports(limit=10),
         runtime_data_source_status(),
+        runtime_risk_decisions(limit=25),
     )
     candidates = candidate_rows(reports)
     contracts = contract_summaries()
+    readiness = readiness_view(
+        build_live_readiness(
+            source_health=data_sources,
+            selection_reports=reports,
+            risk_decisions=risk_decisions,
+        )
+    )
     summary = command_summary(
         candidates=candidates,
         data_sources=data_sources,
@@ -53,6 +63,7 @@ async def dashboard_context() -> dict[str, object]:
         "contracts": contracts,
         "data_sources": source_status_rows(data_sources),
         "candidates": candidates,
+        "readiness": readiness,
         "summary": summary,
     }
 
@@ -222,6 +233,7 @@ def command_summary(
 
 def command_actions() -> list[dict[str, str]]:
     return [
+        {"label": "Review readiness", "href": "#readiness-heading"},
         {"label": "Review candidates", "href": "#candidates-heading"},
         {"label": "Review data sources", "href": "#source-heading"},
         {"label": "Review contracts", "href": "#contracts-heading"},
@@ -256,6 +268,15 @@ def risk_decision_rows(decisions: Sequence[Mapping[str, object]]) -> list[dict[s
 
 def execution_preview_rows(previews: Sequence[Mapping[str, object]]) -> list[dict[str, object]]:
     return [_execution_preview_row(preview) for preview in previews]
+
+
+def readiness_view(summary: Mapping[str, object]) -> dict[str, object]:
+    view = dict(summary)
+    verdict = str(summary["verdict"])
+    view["verdict_label"] = _label_text(verdict)
+    view["status_class"] = _readiness_status_class(verdict)
+    view["blocker_rows"] = _readiness_blocker_rows(summary)
+    return view
 
 
 def final_selection_summary(rows: Sequence[Mapping[str, object]]) -> dict[str, object]:
@@ -521,6 +542,34 @@ def _source_is_degraded(source: Mapping[str, object]) -> bool:
 
 def _source_status_class(source: Mapping[str, object]) -> str:
     return "warn" if _source_is_degraded(source) else "pass"
+
+
+def _readiness_status_class(verdict: str) -> str:
+    if verdict == "ready_for_paper_validation":
+        return "pass"
+    if verdict == "context_only_source_health":
+        return "warn"
+    return "block"
+
+
+def _readiness_blocker_rows(summary: Mapping[str, object]) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for blocker in _list_field(summary, "blockers"):
+        payload = cast(Mapping[str, object], blocker)
+        kind = str(payload["kind"])
+        rows.append(
+            {
+                "kind": _label_text(kind),
+                "item": str(payload["item"]),
+                "reason": str(payload["reason"]),
+                "status_class": "warn" if kind == "source_health" else "block",
+            }
+        )
+    return rows
+
+
+def _label_text(value: str) -> str:
+    return value.replace("_", " ").title()
 
 
 def _command_hero_class(candidate_count: int, degraded_source_count: int) -> str:

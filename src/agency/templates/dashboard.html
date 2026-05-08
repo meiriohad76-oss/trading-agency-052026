@@ -28,6 +28,10 @@
       <strong>Online</strong>
     </div>
     <div>
+      <span class="metric-label">Readiness</span>
+      <strong>{{ readiness.verdict_label }}</strong>
+    </div>
+    <div>
       <span class="metric-label">Contracts</span>
       <strong>{{ summary.contract_count }}</strong>
     </div>
@@ -46,6 +50,56 @@
     <div>
       <span class="metric-label">Actionable</span>
       <strong>{{ summary.actionable_candidate_count }}</strong>
+    </div>
+  </section>
+
+  <section class="panel" aria-labelledby="readiness-heading">
+    <div class="section-heading">
+      <h2 id="readiness-heading">Live Readiness</h2>
+      <span class="tag tag-{{ readiness.status_class }}">{{ readiness.verdict_label }}</span>
+    </div>
+    <div class="readiness-grid">
+      <div>
+        <span class="metric-label">Cycle</span>
+        <strong>{{ readiness.cycle_id or "None" }}</strong>
+      </div>
+      <div>
+        <span class="metric-label">Reviewable</span>
+        <strong>{{ readiness.reviewable_candidate_count }}</strong>
+      </div>
+      <div>
+        <span class="metric-label">Open Risk</span>
+        <strong>{{ readiness.open_risk_decision_count }}</strong>
+      </div>
+      <div>
+        <span class="metric-label">Blockers</span>
+        <strong>{{ readiness.blockers | length }}</strong>
+      </div>
+    </div>
+    <p class="panel-note">{{ readiness.detail }}</p>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Blocker</th>
+            <th>Item</th>
+            <th>Reason</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for blocker in readiness.blocker_rows %}
+          <tr>
+            <td><span class="tag tag-{{ blocker.status_class }}">{{ blocker.kind }}</span></td>
+            <td>{{ blocker.item }}</td>
+            <td>{{ blocker.reason }}</td>
+          </tr>
+          {% else %}
+          <tr>
+            <td class="empty-row" colspan="3">No readiness blockers</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
   </section>
 

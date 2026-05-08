@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.pool import NullPool
 
 REQUIRED_DB_ENV = ("DB_HOST", "DB_PORT", "DB_NAME", "DB_USER", "DB_PASSWORD")
 DEFAULT_CONNECT_TIMEOUT_SECONDS = 1.0
@@ -85,6 +86,7 @@ def create_engine(settings: DatabaseSettings | None = None) -> AsyncEngine:
     return create_async_engine(
         build_database_url(db_settings),
         echo=db_settings.echo,
+        poolclass=NullPool,
         pool_pre_ping=True,
         connect_args={"timeout": db_settings.connect_timeout_seconds},
     )
