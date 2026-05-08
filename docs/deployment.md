@@ -49,6 +49,8 @@ Then verify the runtime can see the persisted rows:
 ```powershell
 .\.venv\Scripts\python scripts\check_local_runtime.py `
   --min-selection-reports 1 --min-risk-decisions 1
+
+curl.exe http://127.0.0.1:8000/status/live-readiness
 ```
 
 This remains paper-only. Stale or missing local PIT datasets intentionally

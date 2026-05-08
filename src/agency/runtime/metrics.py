@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Mapping, Sequence
 
+from .readiness import build_live_readiness
+
 DEGRADED_SOURCE_STATUSES = {"DEGRADED", "STALE", "UNAVAILABLE", "RATE_LIMITED"}
 
 
@@ -13,6 +15,11 @@ def runtime_metrics_text(
     risk_decisions: Sequence[Mapping[str, object]],
 ) -> str:
     """Render runtime counters and gauges in Prometheus text format."""
+    readiness = build_live_readiness(
+        source_health=source_health,
+        selection_reports=selection_reports,
+        risk_decisions=risk_decisions,
+    )
     lines = [
         "# HELP agency_source_health_total Runtime data-source health rows.",
         "# TYPE agency_source_health_total gauge",
@@ -26,6 +33,12 @@ def runtime_metrics_text(
         "# HELP agency_risk_decisions_total Recent risk decisions visible to runtime.",
         "# TYPE agency_risk_decisions_total gauge",
         f"agency_risk_decisions_total {len(risk_decisions)}",
+        "# HELP agency_live_readiness_ready Live paper readiness gate.",
+        "# TYPE agency_live_readiness_ready gauge",
+        f"agency_live_readiness_ready {_ready_gauge(readiness)}",
+        "# HELP agency_live_readiness_blockers_total Live paper readiness blockers.",
+        "# TYPE agency_live_readiness_blockers_total gauge",
+        f"agency_live_readiness_blockers_total {len(_blockers(readiness))}",
     ]
     lines.extend(
         _labeled_counter("agency_final_action_total", _counter(selection_reports, "final_action"))
@@ -57,3 +70,14 @@ def _labeled_counter(metric: str, values: Counter[str]) -> list[str]:
 
 def _escape_label(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _ready_gauge(readiness: Mapping[str, object]) -> int:
+    return 1 if readiness["ready"] is True else 0
+
+
+def _blockers(readiness: Mapping[str, object]) -> list[object]:
+    value = readiness["blockers"]
+    if not isinstance(value, list):
+        raise TypeError("readiness blockers must be a list")
+    return value

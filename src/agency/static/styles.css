@@ -316,6 +316,33 @@ h2 {
   background: var(--panel);
 }
 
+.readiness-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  margin-bottom: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--line);
+}
+
+.readiness-grid > div {
+  min-width: 0;
+  padding: 12px;
+  background: #fbfcfd;
+}
+
+.readiness-grid strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.panel-note {
+  margin: 0 0 12px;
+  color: var(--muted);
+}
+
 .section-heading {
   display: flex;
   align-items: center;

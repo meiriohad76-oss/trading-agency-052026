@@ -1,6 +1,6 @@
 # Phase Status
 
-**Status:** reconciled after T83
+**Status:** reconciled after T84
 **Owner:** Ohad Meiri
 **Last updated:** 2026-05-08
 
@@ -9,7 +9,7 @@ implementation scaffolding from accepted phase gates.
 
 ## Current Truth
 
-- T01-T83 are archived under `tickets/done/`.
+- T01-T84 are archived under `tickets/done/`.
 - The repo contains Phase 0 foundation, Phase 1 research machinery, Phase 2
   contracts/dashboard scaffolding, and Phase 3 runtime orchestration through a
   PIT-backed local paper cycle.
@@ -24,8 +24,8 @@ implementation scaffolding from accepted phase gates.
 | Phase 0 setup | Repo runnable; provenance-wrapped values persist end to end. | Complete for local development. | Keep Docker/Python setup green. |
 | Phase 1 research | Validated lanes, realistic profile, thresholds, plan revision. | Live H1 calibration is inconclusive; conservative thresholds are active. | Test first version, then widen H1 coverage or improve ticker-tagged sources. |
 | Phase 2 design | Design doc, finalized schemas, UX prototype, test plan. | Partially implemented ahead of gate with provisional contracts. | Reconcile after findings; write explicit design/test plan. |
-| Phase 3 build | Components built with all three test layers green. | Runtime can persist seeded and PIT-backed paper cycles. | Surface live-cycle readiness and blockers in the operator path. |
-| Phase 4 validate | Paper-test against live data; user testing; threshold adjustment. | Not started; local PIT cycles can now feed the paper runtime. | Refresh current datasets and inspect blocked/warned candidates. |
+| Phase 3 build | Components built with all three test layers green. | Runtime can persist seeded and PIT-backed paper cycles and expose readiness. | Wire remaining provider inputs before paper validation. |
+| Phase 4 validate | Paper-test against live data; user testing; threshold adjustment. | Not started; local PIT cycles can now feed the paper runtime. | Refresh current datasets and inspect live-readiness blockers. |
 | Phase 5 operate | Production paper trading and learning loop. | Not started. | Wait for Phase 4 validation. |
 
 ## High-Priority Gaps
@@ -41,15 +41,17 @@ implementation scaffolding from accepted phase gates.
 4. Lightweight scheduler, `/metrics`, structured JSON logging, local deployment
    commands, and backup/restore scripts exist.
 5. First-version manual inspection checklist and server-side e2e smoke coverage exist.
-6. Portfolio policy is still static/read-only, not persisted or user-editable.
-7. Paid-sub email ingestion and research mailbox decisions remain open; missing
+6. `/status/live-readiness`, Command-page readiness, and readiness metrics explain
+   whether the latest cycle is reviewable or context-only.
+7. Portfolio policy is still static/read-only, not persisted or user-editable.
+8. Paid-sub email ingestion and research mailbox decisions remain open; missing
    unusual-activity provider data currently appears as unavailable source health.
 
 ## Next Ticket Candidates
 
-No active numbered ticket is selected. Recommended next work is an operator-facing
-live-readiness gate or dashboard view that explains why a PIT-backed paper cycle is
-or is not ready for paper validation.
+No active numbered ticket is selected. Recommended next work is wiring the missing
+provider/freshness inputs that prevent the live-readiness gate from reaching paper
+validation.
 
 ## Operating Rule
 

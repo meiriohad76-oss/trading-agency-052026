@@ -11,7 +11,7 @@ from agency.api.reports import runtime_selection_reports
 from agency.api.risk import runtime_risk_decisions
 from agency.contracts import ContractName, load_contract_schema, validate_contract
 from agency.db import MissingDatabaseConfigurationError, get_session
-from agency.runtime import list_source_health, runtime_metrics_text
+from agency.runtime import build_live_readiness, list_source_health, runtime_metrics_text
 
 router = APIRouter()
 SourceHealthReader = Callable[[Any], Awaitable[list[dict[str, object]]]]
@@ -52,6 +52,11 @@ def contract_schema(contract_name: str) -> dict[str, Any]:
 @router.get("/status/data-sources")
 async def data_source_status() -> list[dict[str, object]]:
     return await runtime_data_source_status()
+
+
+@router.get("/status/live-readiness")
+async def live_readiness_status() -> dict[str, object]:
+    return await runtime_live_readiness()
 
 
 @router.get("/metrics")
@@ -122,6 +127,32 @@ async def runtime_metrics(
         else risk_decision_provider
     )
     return runtime_metrics_text(
+        source_health=await source_provider(),
+        selection_reports=await selection_provider(),
+        risk_decisions=await risk_provider(),
+    )
+
+
+async def runtime_live_readiness(
+    *,
+    source_status_provider: MetricsPayloadProvider | None = None,
+    selection_report_provider: MetricsPayloadProvider | None = None,
+    risk_decision_provider: MetricsPayloadProvider | None = None,
+) -> dict[str, object]:
+    source_provider = (
+        _default_source_status if source_status_provider is None else source_status_provider
+    )
+    selection_provider = (
+        _default_selection_reports
+        if selection_report_provider is None
+        else selection_report_provider
+    )
+    risk_provider = (
+        _default_risk_decisions
+        if risk_decision_provider is None
+        else risk_decision_provider
+    )
+    return build_live_readiness(
         source_health=await source_provider(),
         selection_reports=await selection_provider(),
         risk_decisions=await risk_provider(),
