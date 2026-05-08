@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
-from datetime import date
+from collections.abc import Callable, Sequence
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -10,6 +10,7 @@ from data_refresh.batch import build_refresh_jobs, run_refresh_batch
 from data_refresh.types import CommandResult, RefreshBatchConfig
 
 FAILURE_CODE = 7
+COMPLETE_PERCENT = 100
 
 
 def test_build_refresh_jobs_blocks_missing_optional_source_config(tmp_path: Path) -> None:
@@ -125,6 +126,32 @@ def test_run_refresh_batch_records_fake_command_failure(tmp_path: Path) -> None:
     assert result.jobs[0].stderr == "network failed"
 
 
+def test_run_refresh_batch_writes_running_progress_before_job_finishes(tmp_path: Path) -> None:
+    config = _config(tmp_path, datasets=("prices_daily",), tickers=("AAPL",))
+    clock = _clock()
+
+    def runner(command: Sequence[str], cwd: Path) -> CommandResult:
+        del command, cwd
+        status = json.loads(
+            (config.output_root / "data-refresh-status.json").read_text(encoding="utf-8")
+        )
+        assert status["progress"]["state"] == "running"
+        assert status["jobs"][0]["status"] == "running"
+        assert status["progress"]["current_dataset"] == "prices_daily"
+        assert status["progress"]["eta_seconds"] > 0
+        return CommandResult(0)
+
+    result = run_refresh_batch(config, runner=runner, clock=clock)
+    status = json.loads(
+        (config.output_root / "data-refresh-status.json").read_text(encoding="utf-8")
+    )
+
+    assert result.in_progress is False
+    assert status["progress"]["state"] == "complete"
+    assert status["progress"]["percent_complete"] == COMPLETE_PERCENT
+    assert status["jobs"][0]["duration_seconds"] is not None
+
+
 def test_build_refresh_jobs_rejects_unknown_dataset(tmp_path: Path) -> None:
     config = _config(tmp_path, datasets=("not_a_dataset",))
 
@@ -162,3 +189,15 @@ def _config(
         market_data_provider=market_data_provider,
         market_data_credentials_present=market_data_credentials_present,
     )
+
+
+def _clock() -> Callable[[], datetime]:
+    base = datetime(2026, 5, 8, 12, 0, tzinfo=UTC)
+    ticks = {"count": 0}
+
+    def now() -> datetime:
+        value = base + timedelta(seconds=ticks["count"])
+        ticks["count"] += 1
+        return value
+
+    return now

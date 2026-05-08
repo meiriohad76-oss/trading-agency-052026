@@ -14,6 +14,7 @@ from agency.api.health import contract_summaries, runtime_data_source_status
 from agency.api.reports import runtime_selection_reports
 from agency.api.risk import runtime_risk_decisions
 from agency.runtime import build_live_readiness
+from agency.runtime.data_refresh_progress import load_data_refresh_progress
 from agency.services import (
     build_execution_previews,
     build_learning_outcome,
@@ -63,6 +64,7 @@ async def dashboard_context() -> dict[str, object]:
         "contracts": contracts,
         "data_sources": source_status_rows(data_sources),
         "candidates": candidates,
+        "data_refresh": data_refresh_progress_view(load_data_refresh_progress()),
         "readiness": readiness,
         "summary": summary,
     }
@@ -276,6 +278,12 @@ def readiness_view(summary: Mapping[str, object]) -> dict[str, object]:
     view["verdict_label"] = _label_text(verdict)
     view["status_class"] = _readiness_status_class(verdict)
     view["blocker_rows"] = _readiness_blocker_rows(summary)
+    return view
+
+
+def data_refresh_progress_view(progress: Mapping[str, object]) -> dict[str, object]:
+    view = dict(progress)
+    view["progress_style"] = f"width: {_int_field(progress, 'percent_complete')}%"
     return view
 
 

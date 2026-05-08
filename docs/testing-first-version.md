@@ -105,14 +105,17 @@ Then run a current-date refresh and a persisted paper cycle:
 .\.venv\Scripts\python research\scripts\run_data_refresh_batch.py `
   --config research\config\live-refresh.local.json `
   --end 2026-05-08 `
-  --no-dry-run `
-  --output-root research\results\t86-current-refresh
+  --no-dry-run
 
 .\.venv\Scripts\python scripts\run_live_runtime_cycle.py `
   --config research\config\live-refresh.local.json `
   --as-of 2026-05-08 `
   --output-root research\results\t86-current-live-cycle
 ```
+
+While the refresh runs, the Command page shows Data Loading progress by polling
+`research/results/latest-data-refresh/data-refresh-status.json`. Set
+`DATA_REFRESH_STATUS_PATH` if you write the batch status to another location.
 
 ## Pass Criteria
 
@@ -121,6 +124,7 @@ Then run a current-date refresh and a persisted paper cycle:
 - The main path from candidate to risk to execution preview to audit is traceable.
 - Live readiness explains whether the latest persisted cycle is reviewable or
   context-only.
+- Long data refreshes show progress, current dataset, and ETA.
 - Any confusing label, missing count, or overloaded table gets a follow-up ticket.
 
 ## Follow-Up Tracks

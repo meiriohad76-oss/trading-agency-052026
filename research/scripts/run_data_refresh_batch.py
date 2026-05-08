@@ -89,7 +89,7 @@ def _batch_config(
     ).lower()
     return RefreshBatchConfig(
         repo_root=ROOT,
-        output_root=args.output_root or ROOT / "research" / "results" / "t67",
+        output_root=args.output_root or ROOT / "research" / "results" / "latest-data-refresh",
         start=args.start or overrides.start or date(2019, 1, 1),
         end=args.end or overrides.end or date.today(),
         datasets=tuple(args.dataset or overrides.datasets or DATASETS),
