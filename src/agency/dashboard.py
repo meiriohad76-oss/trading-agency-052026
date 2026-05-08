@@ -4,19 +4,23 @@ import asyncio
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import cast
+from urllib.parse import urlencode
 
-from fastapi import APIRouter, Request
-from fastapi.responses import Response
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
+from sqlalchemy.exc import SQLAlchemyError
 
 from agency.api.candidates import runtime_candidate_timeline
 from agency.api.health import contract_summaries, runtime_data_source_status
 from agency.api.reports import runtime_selection_reports
 from agency.api.risk import runtime_risk_decisions
+from agency.db import MissingDatabaseConfigurationError, get_session
 from agency.runtime import build_live_readiness
 from agency.runtime.data_refresh_progress import load_data_refresh_progress
 from agency.runtime.live_config_readiness import load_live_config_readiness
 from agency.services import (
+    build_and_persist_human_review_event,
     build_execution_previews,
     build_learning_outcome,
     build_portfolio_monitor,
@@ -83,6 +87,30 @@ async def candidate_detail(request: Request, ticker: str) -> Response:
         "candidate_detail.html",
         await candidate_detail_context(ticker),
     )
+
+
+@router.post("/candidates/{ticker}/reviews")
+async def record_candidate_review(
+    ticker: str,
+    cycle_id: str,
+    as_of: str,
+    decision: str,
+) -> Response:
+    try:
+        async with get_session() as session:
+            await build_and_persist_human_review_event(
+                session,
+                cycle_id=cycle_id,
+                ticker=ticker,
+                as_of=as_of,
+                decision=decision,
+            )
+            await session.commit()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (MissingDatabaseConfigurationError, OSError, SQLAlchemyError) as exc:
+        raise HTTPException(status_code=503, detail="review persistence unavailable") from exc
+    return RedirectResponse(url=f"/candidates/{ticker.upper()}", status_code=303)
 
 
 async def candidate_detail_context(ticker: str) -> dict[str, object]:
@@ -532,6 +560,24 @@ def _paper_review_row(
         "candidate_href": f"/candidates/{ticker}",
         "risk_href": "/risk",
         "final_selection_href": "/final-selection",
+        "approve_review_action": _review_action_url(
+            ticker=ticker,
+            cycle_id=str(report["cycle_id"]),
+            as_of=str(report["as_of"]),
+            decision="APPROVE",
+        ),
+        "defer_review_action": _review_action_url(
+            ticker=ticker,
+            cycle_id=str(report["cycle_id"]),
+            as_of=str(report["as_of"]),
+            decision="DEFER",
+        ),
+        "reject_review_action": _review_action_url(
+            ticker=ticker,
+            cycle_id=str(report["cycle_id"]),
+            as_of=str(report["as_of"]),
+            decision="REJECT",
+        ),
         "risk_decision": decision,
         "risk_class": decision_class,
         "review_state": _paper_review_state(decision),
@@ -625,6 +671,11 @@ def _runtime_payload_key(payload: Mapping[str, object]) -> tuple[str, str, str]:
         str(payload.get("ticker", "")),
         str(payload.get("as_of", "")),
     )
+
+
+def _review_action_url(*, ticker: str, cycle_id: str, as_of: str, decision: str) -> str:
+    query = urlencode({"cycle_id": cycle_id, "as_of": as_of, "decision": decision})
+    return f"/candidates/{ticker}/reviews?{query}"
 
 
 def _paper_review_sort_key(row: Mapping[str, object]) -> tuple[int, int, str]:

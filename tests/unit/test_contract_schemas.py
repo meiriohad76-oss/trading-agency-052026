@@ -57,6 +57,7 @@ def test_data_source_health_validates_dashboard_status_payload() -> None:
 
 def test_candidate_lifecycle_event_validates_audit_payload() -> None:
     _validator("candidate-lifecycle-event.schema.json").validate(_candidate_lifecycle_event())
+    _validator("candidate-lifecycle-event.schema.json").validate(_human_review_event())
 
 
 def test_risk_decision_validates_runtime_payload() -> None:
@@ -201,6 +202,25 @@ def _candidate_lifecycle_event() -> dict[str, object]:
         "status": "RECORDED",
         "reason": "selection report persisted",
         "payload": {"final_action": "WATCH"},
+    }
+
+
+def _human_review_event() -> dict[str, object]:
+    return {
+        "schema_version": "0.1.0",
+        "event_id": "c" * 64,
+        "cycle_id": "cycle-1",
+        "ticker": "AAPL",
+        "event_type": "HUMAN_REVIEW",
+        "event_time": "2026-05-07T10:00:00Z",
+        "status": "PASSED",
+        "reason": "paper review approved",
+        "payload": {
+            "review_decision": "APPROVE",
+            "reviewed_by": "local-user",
+            "paper_only": True,
+            "as_of": "2026-05-07T09:30:00Z",
+        },
     }
 
 

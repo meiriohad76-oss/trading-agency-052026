@@ -220,6 +220,7 @@
             <th>Risk</th>
             <th>Evidence</th>
             <th>Reason</th>
+            <th>Record</th>
             <th>Links</th>
           </tr>
         </thead>
@@ -234,6 +235,19 @@
             <td>{{ item.source_count }} src / {{ item.confirmed_signal_count }} confirmed</td>
             <td>{{ item.reason }}</td>
             <td>
+              <span class="inline-actions">
+                <form method="post" action="{{ item.approve_review_action }}">
+                  <button class="mini-button" type="submit">Approve</button>
+                </form>
+                <form method="post" action="{{ item.defer_review_action }}">
+                  <button class="mini-button" type="submit">Defer</button>
+                </form>
+                <form method="post" action="{{ item.reject_review_action }}">
+                  <button class="mini-button danger-button" type="submit">Reject</button>
+                </form>
+              </span>
+            </td>
+            <td>
               <span class="inline-links">
                 <a class="text-link" href="{{ item.candidate_href }}">Candidate</a>
                 <a class="text-link" href="{{ item.risk_href }}">Risk</a>
@@ -243,7 +257,7 @@
           </tr>
           {% else %}
           <tr>
-            <td class="empty-row" colspan="8">No reviewable paper candidates for the latest cycle</td>
+            <td class="empty-row" colspan="9">No reviewable paper candidates for the latest cycle</td>
           </tr>
           {% endfor %}
         </tbody>
