@@ -51,6 +51,16 @@ After the dry run is unblocked:
 Raw and parquet outputs stay local-only. Commit only compact status/result
 artifacts that are small enough to review.
 
+Validate the live outputs:
+
+```powershell
+.\.venv\Scripts\python research\scripts\check_live_refresh_outputs.py `
+  --status-path research\results\t72-live\data-refresh-status.json
+```
+
+The command exits nonzero if the batch failed, any job did not pass, a manifest
+has zero rows, or a manifest reports issues.
+
 ## Calibration
 
 Once T72 writes usable PIT data, run the research result batch and use the output
