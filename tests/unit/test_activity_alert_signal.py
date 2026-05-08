@@ -8,6 +8,7 @@ from signals.activity_alerts import activity_alert_frame, activity_alert_score
 AS_OF = date(2026, 5, 8)
 LOOKBACK_DAYS = 5
 EXPECTED_SOURCE_COUNT = 2
+EXPECTED_OPTIONS_ACTIVITY_COUNT = 1
 
 
 def test_activity_alert_score_rewards_bullish_block_prints_and_penalizes_bearish() -> None:
@@ -36,7 +37,23 @@ def test_activity_alert_frame_tracks_sources_and_block_trade_counts() -> None:
 
     assert frame.iloc[0]["source_count"] == EXPECTED_SOURCE_COUNT
     assert frame.iloc[0]["block_trade_count"] == 1
+    assert frame.iloc[0]["options_activity_count"] == EXPECTED_OPTIONS_ACTIVITY_COUNT
     assert frame.iloc[0]["activity_alert_score"] == pytest.approx(0.0)
+
+
+def test_activity_alert_frame_tracks_dark_pool_and_sweep_counts() -> None:
+    loader = _FakeActivityLoader(
+        [
+            _alert("MSFT", "dark_pool", "BEARISH"),
+            _alert("MSFT", "options_sweep", "BULLISH", premium=120_000.0),
+        ]
+    )
+
+    frame = activity_alert_frame(AS_OF, {"MSFT"}, loader)
+
+    assert frame.iloc[0]["dark_pool_count"] == 1
+    assert frame.iloc[0]["sweep_count"] == 1
+    assert frame.iloc[0]["options_activity_count"] == 1
 
 
 def test_activity_alert_score_is_empty_when_loader_has_no_coverage() -> None:

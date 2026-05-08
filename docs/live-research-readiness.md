@@ -15,10 +15,13 @@ Use this checklist to make those inputs explicit.
   - JSON object mapping CUSIP strings to tickers.
 - Unusual activity alerts CSV, optional
   - Use for paid/confirmed provider alerts such as block trades, dark-pool prints,
-    and unusual stock activity.
+    unusual options activity, options sweeps, and unusual stock activity.
   - Required columns: `ticker`, `alert_type`, `direction`, `observed_at`.
   - Optional useful columns: `event_time`, `summary`, `price`, `volume`,
     `notional`, `premium`, `source`, `source_id`, `source_url`, `confidence`.
+  - Supported useful `alert_type` values include `block_trade`, `dark_pool`,
+    `large_print`, `unusual_stock_activity`, `unusual_options_activity`,
+    `options_sweep`, `call_sweep`, and `put_sweep`.
 
 ## Dry Run
 
@@ -100,6 +103,36 @@ dataset:
 For a refresh batch, set `activity_alerts_csv` in
 `research\config\live-refresh.local.json` and include
 `unusual_activity_alerts` in `datasets`.
+
+To enable the optional options/activity lanes in a paper cycle, include the
+datasets and runtime signals explicitly:
+
+```json
+"datasets": [
+  "prices_daily",
+  "sec_company_facts",
+  "sec_form4",
+  "sec_13f",
+  "news_rss",
+  "options_chains",
+  "unusual_activity_alerts"
+],
+"runtime_signals": [
+  "fundamentals",
+  "insider",
+  "institutional",
+  "abnormal_volume",
+  "sector_momentum",
+  "news",
+  "options_anomaly",
+  "options_flow",
+  "activity_alerts"
+]
+```
+
+`options_anomaly` and `options_flow` are inferred from forward option-chain
+snapshots. `activity_alerts` is the confirmed lane for provider-sourced dark-pool,
+block-trade, and unusual-options alerts.
 
 Write the compact summary artifact:
 

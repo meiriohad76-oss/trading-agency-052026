@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "research" / "src"))
 sys.path.insert(0, str(ROOT / "src"))
 
-from data_refresh.live_config import load_refresh_config  # noqa: E402
+from data_refresh.live_config import RefreshConfigOverrides, load_refresh_config  # noqa: E402
 from live_runtime.config import DEFAULT_RUNTIME_SIGNALS, LANE_CONFIGS  # noqa: E402
 from live_runtime.cycle import build_live_pit_runtime_cycle  # noqa: E402
 from live_runtime.summary import (  # noqa: E402
@@ -38,7 +38,7 @@ async def main() -> int:
         tickers=set(tickers[: args.max_tickers]),
         manifest_root=args.manifest_root,
         parquet_root=args.parquet_root,
-        lanes=tuple(args.signal or DEFAULT_RUNTIME_SIGNALS),
+        lanes=_runtime_signals(args, config),
         generated_at=generated_at,
         freshness_checked_at=freshness_checked_at,
     )
@@ -95,13 +95,24 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _tickers(args: argparse.Namespace, config: object | None) -> list[str]:
+def _tickers(args: argparse.Namespace, config: RefreshConfigOverrides | None) -> list[str]:
     values = list(args.ticker)
     if not values and config is not None:
         values = list(config.tickers)
     if not values:
         raise ValueError("provide --ticker or a config file with tickers")
     return [ticker.upper() for ticker in values]
+
+
+def _runtime_signals(
+    args: argparse.Namespace,
+    config: RefreshConfigOverrides | None,
+) -> tuple[str, ...]:
+    if args.signal:
+        return tuple(args.signal)
+    if config is not None and config.runtime_signals:
+        return tuple(config.runtime_signals)
+    return DEFAULT_RUNTIME_SIGNALS
 
 
 def _cycle_id(as_of: date, generated_at: datetime) -> str:

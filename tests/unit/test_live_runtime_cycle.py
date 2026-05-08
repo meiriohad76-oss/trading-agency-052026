@@ -134,6 +134,13 @@ def test_default_runtime_signals_are_stocks_only() -> None:
     datasets = required_runtime_datasets(DEFAULT_RUNTIME_SIGNALS)
 
     assert DatasetName.UNUSUAL_ACTIVITY_ALERTS not in datasets
+    assert DatasetName.OPTIONS_CHAINS not in datasets
+
+
+def test_optional_options_lanes_require_options_chain_dataset() -> None:
+    datasets = required_runtime_datasets(("options_anomaly", "options_flow"))
+
+    assert datasets == {DatasetName.OPTIONS_CHAINS}
 
 
 def test_replay_freshness_caps_future_manifest_timestamps(tmp_path: Path) -> None:

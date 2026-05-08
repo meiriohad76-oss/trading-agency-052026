@@ -11,6 +11,7 @@ from signals._common import float_or_none, payload_dict, score_dict, zscore
 DEFAULT_LOOKBACK_DAYS = 10
 BLOCK_TRADE_TYPES = frozenset(
     {
+        "block",
         "block_trade",
         "dark_pool",
         "large_print",
@@ -19,6 +20,18 @@ BLOCK_TRADE_TYPES = frozenset(
         "sweep",
     }
 )
+OPTIONS_ACTIVITY_TYPES = frozenset(
+    {
+        "call_sweep",
+        "option_sweep",
+        "options_block",
+        "options_flow",
+        "options_sweep",
+        "put_sweep",
+        "unusual_options_activity",
+    }
+)
+DARK_POOL_TYPES = frozenset({"dark_pool", "dark_pool_print"})
 BULLISH_DIRECTIONS = frozenset({"BULLISH", "BUY", "CALL", "LONG"})
 BEARISH_DIRECTIONS = frozenset({"BEARISH", "SELL", "PUT", "SHORT"})
 
@@ -90,6 +103,10 @@ def _factor_row(ticker: str, alerts: list[dict[str, object]]) -> dict[str, objec
         "alert_count": len(alerts),
         "source_count": len(sources),
         "block_trade_count": sum(1 for item in alert_types if item in BLOCK_TRADE_TYPES),
+        "dark_pool_count": sum(1 for item in alert_types if item in DARK_POOL_TYPES),
+        "options_activity_count": sum(1 for item in alert_types if item in OPTIONS_ACTIVITY_TYPES),
+        "sweep_count": sum(1 for item in alert_types if "sweep" in item),
+        "confirmed_count": sum(1 for alert in alerts if _verification(alert) == "CONFIRMED"),
         "bullish_count": sum(1 for alert in alerts if _direction(alert) > 0),
         "bearish_count": sum(1 for alert in alerts if _direction(alert) < 0),
         "gross_activity": float(sum(abs(item) for item in pressures)),
@@ -102,7 +119,12 @@ def _alert_pressure(alert: dict[str, object]) -> float:
     if direction == 0:
         return 0.0
     confidence = _confidence(alert)
-    type_weight = 1.25 if _alert_type(alert) in BLOCK_TRADE_TYPES else 1.0
+    alert_type = _alert_type(alert)
+    type_weight = 1.0
+    if alert_type in BLOCK_TRADE_TYPES:
+        type_weight += 0.25
+    if alert_type in OPTIONS_ACTIVITY_TYPES:
+        type_weight += 0.2
     return direction * confidence * type_weight * math.log1p(_magnitude(alert))
 
 
@@ -140,6 +162,10 @@ def _confidence(alert: dict[str, object]) -> float:
     return min(1.0, max(0.0, value))
 
 
+def _verification(alert: dict[str, object]) -> str:
+    return str(alert.get("verification_level", "")).upper().strip()
+
+
 def _empty_frame() -> pd.DataFrame:
     return pd.DataFrame(
         columns=[
@@ -147,6 +173,10 @@ def _empty_frame() -> pd.DataFrame:
             "alert_count",
             "source_count",
             "block_trade_count",
+            "dark_pool_count",
+            "options_activity_count",
+            "sweep_count",
+            "confirmed_count",
             "bullish_count",
             "bearish_count",
             "gross_activity",

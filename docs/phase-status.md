@@ -1,6 +1,6 @@
 # Phase Status
 
-**Status:** reconciled after T98
+**Status:** reconciled after T99
 **Owner:** Ohad Meiri
 **Last updated:** 2026-05-08
 
@@ -9,7 +9,7 @@ implementation scaffolding from accepted phase gates.
 
 ## Current Truth
 
-- T01-T98 are archived under `tickets/done/`.
+- T01-T99 are archived under `tickets/done/`.
 - The repo contains Phase 0 foundation, Phase 1 research machinery, Phase 2
   contracts/dashboard scaffolding, and Phase 3 runtime orchestration through a
   PIT-backed local paper cycle.
@@ -44,8 +44,9 @@ implementation scaffolding from accepted phase gates.
 6. `/status/live-readiness`, Command-page readiness, and readiness metrics explain
    whether the latest cycle is reviewable or context-only.
 7. Portfolio policy is still static/read-only, not persisted or user-editable.
-8. Options/unusual-activity providers are explicitly deferred to backlog; the
-   default runtime lane set is stocks-only.
+8. Options/unusual-activity lanes are implemented and opt-in:
+   `options_anomaly`, `options_flow`, and `activity_alerts`. Provider selection
+   is still deferred; the default runtime lane set remains stocks-only.
 9. Current-date live validation can now select `market_data_provider="alpaca"`;
    local credentials are required and are checked by Live Config before refresh.
 10. Data refresh batches now write incremental progress and ETA status; the
@@ -73,6 +74,9 @@ implementation scaffolding from accepted phase gates.
     `scripts/check_operational_readiness.py` combine health, live config, data
     refresh, live runtime, paper review, and key-presence checks into one local
     first-version readiness gate.
+21. Optional options/activity runtime wiring now supports forward option-chain
+    anomaly scoring plus confirmed provider/export alerts for dark-pool,
+    block-trade, and unusual-options activity.
 
 ## Next Ticket Candidates
 

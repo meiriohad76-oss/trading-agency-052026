@@ -7,7 +7,19 @@
     "sec_form4",
     "sec_13f",
     "news_rss",
-    "options_chains"
+    "options_chains",
+    "unusual_activity_alerts"
+  ],
+  "runtime_signals": [
+    "fundamentals",
+    "insider",
+    "institutional",
+    "abnormal_volume",
+    "sector_momentum",
+    "news",
+    "options_anomaly",
+    "options_flow",
+    "activity_alerts"
   ],
   "tickers": [
     "AAPL",
