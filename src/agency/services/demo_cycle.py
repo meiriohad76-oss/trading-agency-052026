@@ -113,8 +113,8 @@ def build_demo_runtime_seed() -> DemoRuntimeSeed:
         _selection_report(
             ticker="HD",
             score=0.71,
-            final_action="BUY",
-            final_conviction=0.71,
+            final_action="NO_TRADE",
+            final_conviction=0.0,
             policy_status="BLOCK",
             policy_reason="sector exposure cap reached",
             risk_flags=["sector_exposure_cap"],
@@ -245,9 +245,18 @@ def _evidence_pack(*, ticker: str, score: float) -> dict[str, object]:
                 as_of=DEMO_AS_OF,
                 lane="fundamentals",
                 score=score,
-                provenance=_provenance(ticker),
+                provenance=_provenance(ticker, "fundamentals"),
                 confidence=0.9,
-            )
+            ),
+            build_signal_result(
+                cycle_id=DEMO_CYCLE_ID,
+                ticker=ticker,
+                as_of=DEMO_AS_OF,
+                lane="insider",
+                score=score,
+                provenance=_provenance(ticker, "insider"),
+                confidence=0.9,
+            ),
         ],
     )
 
@@ -271,11 +280,11 @@ def _source_health(source: str) -> dict[str, object]:
     return payload
 
 
-def _provenance(ticker: str) -> dict[str, object]:
+def _provenance(ticker: str, lane: str) -> dict[str, object]:
     return {
         "source": "demo-runtime-seed",
         "source_tier": "MARKET_DATA",
-        "source_id": ticker,
+        "source_id": f"{ticker}-{lane}",
         "source_url": None,
         "timestamp_observed": DEMO_GENERATED_AT,
         "timestamp_as_of": DEMO_AS_OF,

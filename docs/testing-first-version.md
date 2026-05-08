@@ -6,6 +6,10 @@ Use this checklist after starting the local paper runtime with:
 .\scripts\start_local_runtime.ps1
 ```
 
+If the script reports that the local runtime is already running on port 8000,
+keep using the existing browser session. Stop that server and rerun the script only
+when you need to load newly changed Python or template code.
+
 Open `http://127.0.0.1:8000/` and inspect the app in this order.
 
 ## Manual Page Walk
