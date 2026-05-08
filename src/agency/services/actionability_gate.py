@@ -38,6 +38,7 @@ DEFAULT_LANE_RULES: Mapping[str, LaneActionabilityRule] = {
     "institutional": LaneActionabilityRule(),
     "sector_momentum": LaneActionabilityRule(),
     "news": LaneActionabilityRule(min_sources=2, min_confirmed_sources=1),
+    "activity_alerts": LaneActionabilityRule(),
     "abnormal_volume": LaneActionabilityRule(min_confirmed_sources=0),
     "prepost": LaneActionabilityRule(min_confirmed_sources=0),
     "options_flow": LaneActionabilityRule(min_confirmed_sources=0),

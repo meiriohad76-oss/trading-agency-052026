@@ -21,6 +21,7 @@
     "0001067983"
   ],
   "cusip_map": "research/config/cusip-map.example.json",
+  "activity_alerts_csv": null,
   "sec_user_agent": null,
   "workers": 1,
   "include_etfs": true,

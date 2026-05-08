@@ -70,3 +70,24 @@ def option_chains_from_loader(
     if filtered.is_empty():
         raise DataNotAvailableAt(dataset.value, as_of, "no option rows matched")
     return filtered.sort(["ticker", "snapshot_date", "expiration", "option_type", "strike"])
+
+
+def activity_alerts_from_loader(
+    loader: ForwardLoaderSupport,
+    tickers: list[str],
+    as_of: date,
+    lookback_days: int,
+) -> list[Provenanced[dict[str, object]]]:
+    loader._ensure_not_future(as_of)
+    loader._ensure_positive_lookback(lookback_days)
+    dataset = DatasetName.UNUSUAL_ACTIVITY_ALERTS
+    frame = loader._read(dataset, as_of)
+    frame = loader._with_date(frame, "timestamp_as_of", "__as_of", dataset, as_of)
+    start = as_of - timedelta(days=lookback_days - 1)
+    filtered = frame.filter(
+        pl.col("ticker").is_in([ticker.upper() for ticker in tickers]),
+        pl.col("__as_of").is_between(start, as_of),
+    )
+    if filtered.is_empty():
+        raise DataNotAvailableAt(dataset.value, as_of, "no activity alert rows matched")
+    return [row_to_provenanced(row, exclude=set()) for row in rows(filtered.sort("__as_of"))]

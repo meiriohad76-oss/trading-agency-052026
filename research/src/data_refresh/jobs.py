@@ -17,6 +17,7 @@ def build_refresh_jobs(config: RefreshBatchConfig) -> tuple[RefreshJob, ...]:
         "sec_13f": _form13f_job,
         "news_rss": _news_job,
         "options_chains": _options_job,
+        "unusual_activity_alerts": _activity_alerts_job,
     }
     return tuple(builders[dataset](config) for dataset in config.datasets)
 
@@ -82,6 +83,19 @@ def _options_job(config: RefreshBatchConfig) -> RefreshJob:
     for ticker in config.tickers:
         command.extend(["--ticker", ticker.upper()])
     return _job(config, "options_chains", command, _universe_reasons(config))
+
+
+def _activity_alerts_job(config: RefreshBatchConfig) -> RefreshJob:
+    command = _base_command(config, "import_activity_alerts.py")
+    reasons = []
+    if config.activity_alerts_csv is None:
+        reasons.append("missing unusual activity alerts CSV")
+    else:
+        command.extend(["--input", str(config.activity_alerts_csv)])
+        if not config.activity_alerts_csv.is_file():
+            display_path = _display_path(config.activity_alerts_csv, config.repo_root)
+            reasons.append(f"missing unusual activity alerts CSV: {display_path}")
+    return _job(config, "unusual_activity_alerts", command, reasons)
 
 
 def _base_command(config: RefreshBatchConfig, script_name: str) -> list[str]:

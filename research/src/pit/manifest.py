@@ -23,6 +23,7 @@ class DatasetName(StrEnum):
     SECTOR_ETFS = "sector_etfs"
     NEWS_RSS = "news_rss"
     OPTIONS_CHAINS = "options_chains"
+    UNUSUAL_ACTIVITY_ALERTS = "unusual_activity_alerts"
 
 
 @dataclass(frozen=True)

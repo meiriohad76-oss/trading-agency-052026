@@ -50,6 +50,7 @@ def result_to_json(result: RefreshBatchResult) -> str:
             "rss_feed_count": len(result.config.rss_feeds),
             "filer_ciks": list(result.config.filer_ciks),
             "cusip_map": _optional_path(result),
+            "activity_alerts_csv": _optional_activity_alerts_path(result),
             "workers": result.config.workers,
             "include_etfs": result.config.include_etfs,
             "refresh": result.config.refresh,
@@ -77,5 +78,20 @@ def _optional_path(result: RefreshBatchResult) -> str | None:
         return path.resolve(strict=False).relative_to(
             result.config.repo_root.resolve(strict=False)
         ).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
+def _optional_activity_alerts_path(result: RefreshBatchResult) -> str | None:
+    if result.config.activity_alerts_csv is None:
+        return None
+    return _portable_path(result.config.activity_alerts_csv, result.config.repo_root)
+
+
+def _portable_path(path: Path, repo_root: Path) -> str:
+    if not path.is_absolute():
+        return path.as_posix()
+    try:
+        return path.resolve(strict=False).relative_to(repo_root.resolve(strict=False)).as_posix()
     except ValueError:
         return path.as_posix()

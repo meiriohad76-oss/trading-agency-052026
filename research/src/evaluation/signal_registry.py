@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from backtests.scoped_loader import SignalFn
 from signals.abnormal_volume import abnormal_volume_score
+from signals.activity_alerts import activity_alert_score
 from signals.fundamentals import fundamental_score
 from signals.insider import insider_score
 from signals.institutional import institutional_score
@@ -11,6 +12,7 @@ from signals.sector_momentum import sector_momentum_score
 
 SIGNALS: dict[str, SignalFn] = {
     "abnormal_volume": abnormal_volume_score,
+    "activity_alerts": activity_alert_score,
     "fundamentals": fundamental_score,
     "insider": insider_score,
     "institutional": institutional_score,

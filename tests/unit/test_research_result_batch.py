@@ -33,6 +33,12 @@ def test_required_datasets_skip_universe_when_static_universe_is_used() -> None:
     assert DatasetName.UNIVERSE_MEMBERSHIP not in requirements
 
 
+def test_required_datasets_include_activity_alert_manifest() -> None:
+    requirements = required_datasets(["activity_alerts"], uses_static_universe=True)
+
+    assert requirements[DatasetName.UNUSUAL_ACTIVITY_ALERTS] == "activity_alerts signal inputs"
+
+
 def test_inspect_datasets_reports_missing_and_ready_manifests(tmp_path) -> None:
     manifest_root = tmp_path / "manifests"
     parquet_root = tmp_path / "parquet"

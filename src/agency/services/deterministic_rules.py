@@ -10,6 +10,7 @@ DEFAULT_LANE_WEIGHTS: Mapping[str, float] = {
     "fundamentals": 1.2,
     "institutional": 1.0,
     "insider": 0.9,
+    "activity_alerts": 0.9,
     "sector_momentum": 0.8,
     "abnormal_volume": 0.7,
     "options_flow": 0.7,
