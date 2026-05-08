@@ -27,7 +27,25 @@ Smoke-check a seeded runtime:
 ```powershell
 .\.venv\Scripts\python scripts\check_local_runtime.py `
   --min-selection-reports 1 --min-risk-decisions 1
+
+.\.venv\Scripts\python scripts\check_operational_readiness.py `
+  --min-queue 1
 ```
+
+## Credential Checklist
+
+Set local-only secrets in `.env`; do not commit real values.
+
+- `ALPACA_API_KEY` and `ALPACA_SECRET_KEY` are required when the live refresh
+  config uses `market_data_provider="alpaca"`.
+- `SEC_USER_AGENT` is required for SEC EDGAR refreshes unless
+  `research/config/live-refresh.local.json` sets `sec_user_agent`.
+- `OPENAI_API_KEY` is optional in the current paper workflow and reserved for
+  future live LLM review calls.
+
+Non-secret refresh settings live in `research/config/live-refresh.local.json`,
+including `rss_feeds`, `filer_ciks`, `cusip_map`, ticker universe, and the
+selected market-data provider.
 
 ## Live PIT Paper Cycle
 
@@ -62,6 +80,7 @@ Then verify the runtime can see the persisted rows:
 
 curl.exe http://127.0.0.1:8000/status/live-config
 curl.exe http://127.0.0.1:8000/status/live-readiness
+curl.exe http://127.0.0.1:8000/status/operational-readiness
 ```
 
 This remains paper-only. Stale or missing local PIT datasets intentionally

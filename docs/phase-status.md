@@ -1,6 +1,6 @@
 # Phase Status
 
-**Status:** reconciled after T97
+**Status:** reconciled after T98
 **Owner:** Ohad Meiri
 **Last updated:** 2026-05-08
 
@@ -9,7 +9,7 @@ implementation scaffolding from accepted phase gates.
 
 ## Current Truth
 
-- T01-T97 are archived under `tickets/done/`.
+- T01-T98 are archived under `tickets/done/`.
 - The repo contains Phase 0 foundation, Phase 1 research machinery, Phase 2
   contracts/dashboard scaffolding, and Phase 3 runtime orchestration through a
   PIT-backed local paper cycle.
@@ -25,7 +25,7 @@ implementation scaffolding from accepted phase gates.
 | Phase 1 research | Validated lanes, realistic profile, thresholds, plan revision. | Live H1 calibration is inconclusive; conservative thresholds are active. | Test first version, then widen H1 coverage or improve ticker-tagged sources. |
 | Phase 2 design | Design doc, finalized schemas, UX prototype, test plan. | Partially implemented ahead of gate with provisional contracts. | Reconcile after findings; write explicit design/test plan. |
 | Phase 3 build | Components built with all three test layers green. | Runtime can persist seeded, PIT-backed, and stocks-only replay paper cycles. | Keep first-version path stable during testing. |
-| Phase 4 validate | Paper-test against live data; user testing; threshold adjustment. | Current-date live data refresh and a persisted stocks-only paper cycle are ready for user inspection. The Command dashboard, candidate detail pages, `/status/paper-review`, and CLI smoke checks now support paper-review inspection and audit capture. | Start inspection from the Command review queue, record paper review decisions, then drill into candidate detail, Final Selection, Risk, Execution Preview, and Audit pages. |
+| Phase 4 validate | Paper-test against live data; user testing; threshold adjustment. | Current-date live data refresh and a persisted stocks-only paper cycle are ready for user inspection. The Command dashboard, candidate detail pages, `/status/paper-review`, `/status/operational-readiness`, and CLI smoke checks now support paper-review inspection and audit capture. | Run the operational readiness smoke check, then start inspection from the Command review queue. |
 | Phase 5 operate | Production paper trading and learning loop. | Not started. | Wait for Phase 4 validation. |
 
 ## High-Priority Gaps
@@ -69,12 +69,16 @@ implementation scaffolding from accepted phase gates.
     summary for CLI checks and future automation.
 19. `scripts/check_paper_review_status.py` provides a one-command smoke check
     for paper-review queue and progress thresholds.
+20. `/status/operational-readiness` and
+    `scripts/check_operational_readiness.py` combine health, live config, data
+    refresh, live runtime, paper review, and key-presence checks into one local
+    first-version readiness gate.
 
 ## Next Ticket Candidates
 
 No active numbered ticket is selected. Recommended next work is user inspection
 of the Command review queue, candidate detail review workspace, and
-`/status/paper-review` smoke checks, then follow-up tickets for confusing UI,
+operational readiness smoke checks, then follow-up tickets for confusing UI,
 threshold tuning, or missing data sources found during that inspection.
 
 ## Operating Rule

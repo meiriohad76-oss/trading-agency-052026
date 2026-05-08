@@ -13,7 +13,7 @@ Current project status is tracked in `docs/phase-status.md`.
 
 ## Current Queue
 
-There are no active open ticket specs after T97.
+There are no active open ticket specs after T98.
 
 Completed archive:
 
@@ -51,6 +51,7 @@ Completed archive:
 - T95: candidate detail review workspace.
 - T96: paper review status API.
 - T97: paper review smoke-check script.
+- T98: operational readiness API and smoke-check script.
 
 ## Next Ticket Candidates
 
@@ -58,9 +59,9 @@ Use `docs/phase-status.md` as the source of truth before drafting the next ticke
 
 Recommended next batch:
 
-No numbered ticket is selected. Use the Command review queue, candidate detail
-review workspace, `/status/paper-review`, the paper-review smoke script, and
-first-version testing checklist against the latest current-date paper cycle.
+No numbered ticket is selected. Use the operational readiness smoke check,
+Command review queue, candidate detail review workspace, `/status/paper-review`,
+and first-version testing checklist against the latest current-date paper cycle.
 Keep the deferred options activity provider lane in the backlog.
 
 ## How To Assign A Ticket

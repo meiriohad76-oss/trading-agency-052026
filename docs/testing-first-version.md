@@ -49,10 +49,14 @@ Open `http://127.0.0.1:8000/` and inspect the app in this order.
 .\.venv\Scripts\python scripts\check_paper_review_status.py `
   --min-queue 1
 
+.\.venv\Scripts\python scripts\check_operational_readiness.py `
+  --min-queue 1
+
 curl.exe http://127.0.0.1:8000/health
 curl.exe http://127.0.0.1:8000/status/live-config
 curl.exe http://127.0.0.1:8000/status/live-readiness
 curl.exe http://127.0.0.1:8000/status/paper-review
+curl.exe http://127.0.0.1:8000/status/operational-readiness
 curl.exe http://127.0.0.1:8000/metrics
 curl.exe http://127.0.0.1:8000/audit/agent-runs
 ```
@@ -144,6 +148,8 @@ While the refresh runs, the Command page shows Data Loading progress by polling
 - Long data refreshes show progress, current dataset, and ETA.
 - Paper review status is visible on Command, candidate detail, and
   `/status/paper-review`.
+- `/status/operational-readiness` and `scripts/check_operational_readiness.py`
+  return `ready: true` before first-version paper testing starts.
 - Any confusing label, missing count, or overloaded table gets a follow-up ticket.
 
 ## Follow-Up Tracks
