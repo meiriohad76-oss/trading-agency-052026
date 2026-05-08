@@ -25,7 +25,7 @@ replace the empirical verdicts required here.
 | Signal lanes | Fundamentals, insider, institutional, sector, volume, pre/post, news, options | Deterministic functions implemented; empirical IC pending. |
 | Actionability gate | `src/agency/services/actionability_gate.py` | V1 rules enforce lane source counts, freshness, dedupe, and inferred corroboration. |
 | Evaluation | H1 IC, H1 verdicts, walk-forward, profile, sweep, combination, LLM A/B | Reusable utilities implemented and unit-tested. |
-| Data refresh batch | `research/scripts/run_data_refresh_batch.py` | Dry-run status committed; live SEC/RSS/13F inputs must be supplied locally. |
+| Data refresh batch | `research/scripts/run_data_refresh_batch.py` | Live refresh summary committed under `research/results/t72-live-summary/`; raw/parquet data remains local-only. |
 | Research batch | `research/scripts/run_research_batch.py` | Ready to run; T66 status is blocked by missing PIT manifests beyond universe membership. |
 
 ---
@@ -103,11 +103,11 @@ schema priorities are:
 
 Phase 1 implementation scaffolding is substantially complete. Empirical validation is
 not complete. T66 added a repeatable result runner, T67 added the local data-refresh
-orchestrator, and T68 added v1 actionability gates. The current committed data still
-only contains universe membership because raw/parquet outputs are intentionally
-local-only. The next highest-value research work is to run the refresh with real
-SEC/RSS/13F configuration, rerun the result batch, commit compact result summaries, and
-then revise `docs/v2-plan.md` with validated lane weights or documented simplifications.
+orchestrator, and T68 added v1 actionability gates. T72 records the first compact
+live-refresh summary; raw/parquet outputs remain intentionally local-only. The next
+highest-value research work is to calibrate actionability thresholds from the live H1
+preview and then revise `docs/v2-plan.md` with validated lane weights or documented
+simplifications.
 
 See `docs/phase-status.md` for the current implementation-vs-phase-gate truth table
 and next ticket candidates.

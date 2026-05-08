@@ -1,0 +1,82 @@
+{
+  "datasets": [
+    {
+      "checksum": "db7be4b84174bc4201be0ce95a8cb3fbb6a8ceea0dd8eab69067f5bfefbcd6af",
+      "dataset": "prices_daily",
+      "issue_count": 0,
+      "max_timestamp_as_of": "2025-12-31T00:00:00+00:00",
+      "row_count": 31375,
+      "source_url": "https://finance.yahoo.com"
+    },
+    {
+      "checksum": "a42c2d9d1ea0aa07fd546ec225a21c0bb95d0a53083446f9d2f832433efa3d8d",
+      "dataset": "sec_company_facts",
+      "issue_count": 0,
+      "max_timestamp_as_of": "2026-05-05T00:00:00+00:00",
+      "row_count": 9843,
+      "source_url": "https://data.sec.gov"
+    },
+    {
+      "checksum": "b79f29002ddaeacbb9c23da84ae985133f97dd5b7bb2f77be3eb4636a8ed8a23",
+      "dataset": "sec_form4",
+      "issue_count": 0,
+      "max_timestamp_as_of": "2025-12-31T00:00:00+00:00",
+      "row_count": 4163,
+      "source_url": "https://www.sec.gov"
+    },
+    {
+      "checksum": "76477928b34bdd9cf298430b26ff1cb8ebe426d7819e35ada19981af9dc3dfb9",
+      "dataset": "sec_13f",
+      "issue_count": 0,
+      "max_timestamp_as_of": "2025-11-14T00:00:00+00:00",
+      "row_count": 624,
+      "source_url": "https://www.sec.gov"
+    },
+    {
+      "checksum": "b4f0e482619bbd44461719049ee4f3f31f2b366b2328817f5ad393bb2a140117",
+      "dataset": "news_rss",
+      "issue_count": 0,
+      "max_timestamp_as_of": "2026-05-08T06:25:00+00:00",
+      "row_count": 80,
+      "source_url": null
+    }
+  ],
+  "input_counts": {
+    "filer_cik_count": 9,
+    "rss_feed_count": 9,
+    "ticker_count": 10
+  },
+  "jobs": [
+    {
+      "dataset": "prices_daily",
+      "reason": "refresh command completed",
+      "status": "passed"
+    },
+    {
+      "dataset": "sec_company_facts",
+      "reason": "refresh command completed",
+      "status": "passed"
+    },
+    {
+      "dataset": "sec_form4",
+      "reason": "refresh command completed",
+      "status": "passed"
+    },
+    {
+      "dataset": "sec_13f",
+      "reason": "refresh command completed",
+      "status": "passed"
+    },
+    {
+      "dataset": "news_rss",
+      "reason": "refresh command completed",
+      "status": "passed"
+    }
+  ],
+  "source_status": "research/results/t72-live/data-refresh-status.json",
+  "verdict": "ready_for_research_batch",
+  "window": {
+    "end": "2025-12-31",
+    "start": "2021-01-01"
+  }
+}

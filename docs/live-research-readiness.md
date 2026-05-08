@@ -61,6 +61,14 @@ Validate the live outputs:
 The command exits nonzero if the batch failed, any job did not pass, a manifest
 has zero rows, or a manifest reports issues.
 
+Write the compact summary artifact:
+
+```powershell
+.\.venv\Scripts\python research\scripts\write_live_refresh_summary.py `
+  --status-path research\results\t72-live\data-refresh-status.json `
+  --output-root research\results\t72-live-summary
+```
+
 ## Calibration
 
 Once T72 writes usable PIT data, run the research result batch and use the output
