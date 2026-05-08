@@ -15,7 +15,8 @@ from prices.storage import (
     write_manifest,
     write_price_frame,
 )
-from prices.yfinance_daily import Downloader, normalize_history, yfinance_downloader
+from prices.types import Downloader, HistoryNormalizer
+from prices.yfinance_daily import normalize_history, yfinance_downloader
 
 
 @dataclass(frozen=True)
@@ -35,6 +36,9 @@ async def pull_prices(
     refresh: bool = False,
     workers: int = 1,
     downloader: Downloader = yfinance_downloader,
+    normalizer: HistoryNormalizer = normalize_history,
+    source: str = "yfinance",
+    source_url: str = "https://finance.yahoo.com",
     clock: Callable[[], datetime] | None = None,
 ) -> PullSummary:
     get_now = clock or (lambda: datetime.now(UTC))
@@ -51,7 +55,7 @@ async def pull_prices(
             async with semaphore:
                 raw = await downloader(ticker, missing)
             ranges_downloaded += 1
-            normalized = normalize_history(ticker, raw, fetched_at=get_now())
+            normalized = normalizer(ticker, raw, fetched_at=get_now())
             if normalized.empty:
                 if existing_date_bounds(price_root, ticker) is not None:
                     continue
@@ -67,6 +71,8 @@ async def pull_prices(
         fetched_at=get_now(),
         requested=requested,
         issues=issues,
+        source=source,
+        source_url=source_url,
     )
     return PullSummary(
         tickers_requested=len(normalized_tickers),

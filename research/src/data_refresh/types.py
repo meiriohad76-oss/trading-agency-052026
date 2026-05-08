@@ -36,6 +36,11 @@ class RefreshBatchConfig:
     include_etfs: bool = True
     refresh: bool = False
     dry_run: bool = False
+    market_data_provider: str = "yfinance"
+    market_data_feed: str = "iex"
+    market_data_adjustment: str = "all"
+    market_data_base_url: str = "https://data.alpaca.markets"
+    market_data_credentials_present: bool = False
 
 
 @dataclass(frozen=True)

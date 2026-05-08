@@ -39,6 +39,37 @@ def test_build_refresh_jobs_uses_static_tickers_without_universe_file(tmp_path: 
     assert jobs[1].display_command[-4:] == ("--ticker", "AAPL", "--ticker", "MSFT")
 
 
+def test_build_refresh_jobs_blocks_alpaca_without_credentials(tmp_path: Path) -> None:
+    config = _config(
+        tmp_path,
+        datasets=("prices_daily",),
+        tickers=("AAPL",),
+        market_data_provider="alpaca",
+    )
+
+    job = build_refresh_jobs(config)[0]
+
+    assert job.blocked_reasons == ("missing Alpaca market data credentials",)
+    assert "--provider" in job.display_command
+    assert "alpaca" in job.display_command
+
+
+def test_build_refresh_jobs_passes_alpaca_market_data_options(tmp_path: Path) -> None:
+    config = _config(
+        tmp_path,
+        datasets=("prices_daily",),
+        tickers=("AAPL",),
+        market_data_provider="alpaca",
+        market_data_credentials_present=True,
+    )
+
+    job = build_refresh_jobs(config)[0]
+
+    assert job.blocked_reasons == ()
+    assert "--alpaca-feed" in job.display_command
+    assert "iex" in job.display_command
+
+
 def test_build_refresh_jobs_accepts_local_activity_alert_csv(tmp_path: Path) -> None:
     csv_path = tmp_path / "alerts.csv"
     csv_path.write_text("ticker,alert_type,direction,observed_at\nAAPL,block,buy,2026-05-08\n")
@@ -112,6 +143,8 @@ def _config(
     sec_user_agent: str | None = None,
     activity_alerts_csv: Path | None = None,
     dry_run: bool = False,
+    market_data_provider: str = "yfinance",
+    market_data_credentials_present: bool = False,
 ) -> RefreshBatchConfig:
     return RefreshBatchConfig(
         repo_root=tmp_path,
@@ -126,4 +159,6 @@ def _config(
         activity_alerts_csv=activity_alerts_csv,
         sec_user_agent=sec_user_agent,
         dry_run=dry_run,
+        market_data_provider=market_data_provider,
+        market_data_credentials_present=market_data_credentials_present,
     )

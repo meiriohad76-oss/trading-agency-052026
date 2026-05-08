@@ -25,6 +25,10 @@ class RefreshConfigOverrides:
     include_etfs: bool | None = None
     refresh: bool | None = None
     dry_run: bool | None = None
+    market_data_provider: str | None = None
+    market_data_feed: str | None = None
+    market_data_adjustment: str | None = None
+    market_data_base_url: str | None = None
 
 
 def load_refresh_config(path: Path, *, repo_root: Path) -> RefreshConfigOverrides:
@@ -45,6 +49,10 @@ def load_refresh_config(path: Path, *, repo_root: Path) -> RefreshConfigOverride
         include_etfs=_optional_bool(payload, "include_etfs"),
         refresh=_optional_bool(payload, "refresh"),
         dry_run=_optional_bool(payload, "dry_run"),
+        market_data_provider=_optional_string(payload, "market_data_provider"),
+        market_data_feed=_optional_string(payload, "market_data_feed"),
+        market_data_adjustment=_optional_string(payload, "market_data_adjustment"),
+        market_data_base_url=_optional_string(payload, "market_data_base_url"),
     )
 
 

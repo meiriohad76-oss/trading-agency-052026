@@ -117,10 +117,13 @@ def write_manifest(
     fetched_at: datetime,
     requested: DateRange,
     issues: list[dict[str, str]],
+    source: str = "yfinance",
+    source_url: str = "https://finance.yahoo.com",
 ) -> None:
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     stats = _price_stats(price_root)
     tickers = _price_tickers(price_root)
+    sources = _price_sources(price_root)
     manifest = {
         "dataset": "prices_daily",
         "path": price_root.name,
@@ -130,8 +133,9 @@ def write_manifest(
         "fetched_at": fetched_at.isoformat(),
         "max_timestamp_as_of": stats["max_timestamp_as_of"],
         "stale_after": "2099-01-01T00:00:00+00:00",
-        "source_url": "https://finance.yahoo.com",
-        "source": "yfinance",
+        "source_url": source_url,
+        "source": _manifest_source(sources, source),
+        "sources": sources or [source],
         "ticker_count": stats["ticker_count"],
         "tickers": tickers,
         "sector_etfs": covered_sector_etfs(tickers),
@@ -174,6 +178,23 @@ def _price_tickers(price_root: Path) -> list[str]:
         if not frame.empty:
             tickers.update(str(ticker).upper() for ticker in frame["ticker"].unique())
     return sorted(tickers)
+
+
+def _price_sources(price_root: Path) -> list[str]:
+    sources: set[str] = set()
+    for path in sorted(price_root.rglob("*.parquet")):
+        frame = pd.read_parquet(path, columns=["source"])
+        if not frame.empty:
+            sources.update(str(source) for source in frame["source"].dropna().unique())
+    return sorted(sources)
+
+
+def _manifest_source(sources: list[str], fallback: str) -> str:
+    if len(sources) == 1:
+        return sources[0]
+    if len(sources) > 1:
+        return "mixed"
+    return fallback
 
 
 def _tree_checksum(root: Path) -> str:

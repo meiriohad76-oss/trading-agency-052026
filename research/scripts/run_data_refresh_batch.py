@@ -55,6 +55,10 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--include-etfs", action=argparse.BooleanOptionalAction)
     parser.add_argument("--refresh", action=argparse.BooleanOptionalAction)
     parser.add_argument("--dry-run", action=argparse.BooleanOptionalAction)
+    parser.add_argument("--market-data-provider", choices=("yfinance", "alpaca"))
+    parser.add_argument("--market-data-feed")
+    parser.add_argument("--market-data-adjustment")
+    parser.add_argument("--market-data-base-url")
     parser.add_argument(
         "--output-root",
         type=Path,
@@ -77,6 +81,12 @@ def _batch_config(
     )
     if sec_user_agent:
         os.environ["SEC_USER_AGENT"] = sec_user_agent
+    provider = _setting(
+        args.market_data_provider,
+        overrides.market_data_provider,
+        os.environ.get("MARKET_DATA_PROVIDER"),
+        "yfinance",
+    ).lower()
     return RefreshBatchConfig(
         repo_root=ROOT,
         output_root=args.output_root or ROOT / "research" / "results" / "t67",
@@ -94,6 +104,26 @@ def _batch_config(
         include_etfs=_bool_value(args.include_etfs, overrides.include_etfs, default=True),
         refresh=_bool_value(args.refresh, overrides.refresh, default=False),
         dry_run=_bool_value(args.dry_run, overrides.dry_run, default=False),
+        market_data_provider=provider,
+        market_data_feed=_setting(
+            args.market_data_feed,
+            overrides.market_data_feed,
+            os.environ.get("ALPACA_DATA_FEED"),
+            "iex",
+        ),
+        market_data_adjustment=_setting(
+            args.market_data_adjustment,
+            overrides.market_data_adjustment,
+            os.environ.get("ALPACA_DATA_ADJUSTMENT"),
+            "all",
+        ),
+        market_data_base_url=_setting(
+            args.market_data_base_url,
+            overrides.market_data_base_url,
+            os.environ.get("ALPACA_DATA_BASE_URL"),
+            "https://data.alpaca.markets",
+        ),
+        market_data_credentials_present=_alpaca_credentials_present(),
     )
 
 
@@ -103,6 +133,25 @@ def _bool_value(value: bool | None, override: bool | None, *, default: bool) -> 
     if override is not None:
         return override
     return default
+
+
+def _setting(
+    cli_value: str | None,
+    config_value: str | None,
+    env_value: str | None,
+    default: str,
+) -> str:
+    for value in (cli_value, config_value, env_value):
+        if value is not None and value.strip() != "":
+            return value.strip()
+    return default
+
+
+def _alpaca_credentials_present() -> bool:
+    return bool(
+        os.environ.get("ALPACA_API_KEY", "").strip()
+        and os.environ.get("ALPACA_SECRET_KEY", "").strip()
+    )
 
 
 def _result_state(*, failed: bool, blocked: bool) -> str:

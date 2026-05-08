@@ -30,7 +30,7 @@ LANE_CONFIGS: dict[str, RuntimeLaneConfig] = {
     "abnormal_volume": RuntimeLaneConfig(
         "abnormal_volume",
         DatasetName.PRICES_DAILY,
-        "yfinance-daily",
+        "daily-market-bars",
         "INFERRED_FROM_BARS",
         "INFERRED",
         FreshnessDomain.PRICING,
@@ -80,7 +80,7 @@ LANE_CONFIGS: dict[str, RuntimeLaneConfig] = {
     "sector_momentum": RuntimeLaneConfig(
         "sector_momentum",
         DatasetName.PRICES_DAILY,
-        "yfinance-daily",
+        "daily-market-bars",
         "INFERRED_FROM_BARS",
         "INFERRED",
         FreshnessDomain.PRICING,
@@ -91,7 +91,7 @@ LANE_CONFIGS: dict[str, RuntimeLaneConfig] = {
 DATASET_CONFIGS: dict[DatasetName, RuntimeDatasetConfig] = {
     DatasetName.PRICES_DAILY: RuntimeDatasetConfig(
         DatasetName.PRICES_DAILY,
-        "yfinance-daily",
+        "daily-market-bars",
         "MARKET_DATA",
         FreshnessDomain.PRICING,
     ),

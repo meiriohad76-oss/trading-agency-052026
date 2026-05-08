@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import importlib
-from collections.abc import Awaitable, Callable
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, cast
 
@@ -11,12 +10,10 @@ from prices.storage import DateRange
 
 from agency.provenance import FreshnessDomain, SourceTier, VerificationLevel, instrumented_call
 
-Downloader = Callable[[str, DateRange], Awaitable[pd.DataFrame]]
-
 
 async def yfinance_downloader(ticker: str, requested: DateRange) -> pd.DataFrame:
     async def call() -> pd.DataFrame:
-        return await asyncio.to_thread(_download_history, ticker, requested)
+        return await _download_history(ticker, requested)
 
     wrapped = await instrumented_call(
         call,
@@ -71,9 +68,10 @@ def normalize_history(ticker: str, raw: pd.DataFrame, *, fetched_at: datetime) -
     return frame
 
 
-def _download_history(ticker: str, requested: DateRange) -> pd.DataFrame:
+async def _download_history(ticker: str, requested: DateRange) -> pd.DataFrame:
     yfinance = cast(Any, importlib.import_module("yfinance"))
-    history = yfinance.Ticker(ticker).history(
+    history = await asyncio.to_thread(
+        yfinance.Ticker(ticker).history,
         start=requested.start.isoformat(),
         end=(requested.end + timedelta(days=1)).isoformat(),
         interval="1d",
