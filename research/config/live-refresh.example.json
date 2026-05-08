@@ -1,0 +1,29 @@
+{
+  "start": "2021-01-01",
+  "end": "2025-12-31",
+  "datasets": [
+    "prices_daily",
+    "sec_company_facts",
+    "sec_form4",
+    "sec_13f",
+    "news_rss",
+    "options_chains"
+  ],
+  "tickers": [
+    "AAPL",
+    "MSFT",
+    "NVDA"
+  ],
+  "rss_feeds": [
+    "Example,AAPL,https://example.com/aapl.xml"
+  ],
+  "filer_ciks": [
+    "0001067983"
+  ],
+  "cusip_map": "research/config/cusip-map.example.json",
+  "sec_user_agent": null,
+  "workers": 1,
+  "include_etfs": true,
+  "refresh": false,
+  "dry_run": true
+}
