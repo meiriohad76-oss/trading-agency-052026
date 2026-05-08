@@ -55,6 +55,14 @@
       <span class="metric-label">Review Queue</span>
       <strong>{{ summary.review_queue_count }}</strong>
     </div>
+    <div>
+      <span class="metric-label">Reviewed</span>
+      <strong>{{ review_progress.reviewed_label }}</strong>
+    </div>
+    <div>
+      <span class="metric-label">Pending Review</span>
+      <strong>{{ review_progress.pending_count }}</strong>
+    </div>
   </section>
 
   <section
@@ -202,13 +210,32 @@
   <section class="panel" aria-labelledby="review-queue-heading">
     <div class="section-heading">
       <h2 id="review-queue-heading">Review Queue</h2>
-      {% if review_queue %}
-      <span class="tag tag-{{ review_queue[0].review_class }}">{{ review_queue | length }} queued</span>
-      {% else %}
-      <span class="tag tag-neutral">Empty</span>
-      {% endif %}
+      <span class="tag tag-{{ review_progress.status_class }}">{{ review_progress.status_label }}</span>
     </div>
     <p class="panel-note">Latest cycle: {{ readiness.cycle_id or "None" }}</p>
+    <div class="progress-grid">
+      <div>
+        <span class="metric-label">Reviewed</span>
+        <strong>{{ review_progress.reviewed_label }}</strong>
+      </div>
+      <div>
+        <span class="metric-label">Pending</span>
+        <strong>{{ review_progress.pending_count }}</strong>
+      </div>
+      <div>
+        <span class="metric-label">Approved</span>
+        <strong>{{ review_progress.approve_count }}</strong>
+      </div>
+      <div>
+        <span class="metric-label">Deferred</span>
+        <strong>{{ review_progress.defer_count }}</strong>
+      </div>
+      <div>
+        <span class="metric-label">Rejected</span>
+        <strong>{{ review_progress.reject_count }}</strong>
+      </div>
+    </div>
+    <p class="panel-note">{{ review_progress.detail }}</p>
     <div class="table-wrap">
       <table>
         <thead>

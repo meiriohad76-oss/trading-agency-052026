@@ -67,6 +67,7 @@ async def dashboard_context() -> dict[str, object]:
         readiness,
         review_events=review_events,
     )
+    review_progress = paper_review_progress(review_queue)
     summary = command_summary(
         candidates=candidates,
         data_sources=data_sources,
@@ -81,6 +82,7 @@ async def dashboard_context() -> dict[str, object]:
         "data_refresh": data_refresh_progress_view(load_data_refresh_progress()),
         "live_config": live_config_view(load_live_config_readiness()),
         "readiness": readiness,
+        "review_progress": review_progress,
         "review_queue": review_queue,
         "summary": summary,
     }
@@ -388,6 +390,29 @@ def paper_review_queue(
         and str(report.get("final_action")) in ACTIONABLE_ACTIONS
     ]
     return sorted(rows, key=_paper_review_sort_key)
+
+
+def paper_review_progress(
+    review_queue: Sequence[Mapping[str, object]],
+) -> dict[str, object]:
+    total_count = len(review_queue)
+    pending_count = sum(1 for row in review_queue if row["human_review_decision"] == "Pending")
+    approve_count = sum(1 for row in review_queue if row["human_review_decision"] == "Approve")
+    defer_count = sum(1 for row in review_queue if row["human_review_decision"] == "Defer")
+    reject_count = sum(1 for row in review_queue if row["human_review_decision"] == "Reject")
+    reviewed_count = total_count - pending_count
+    return {
+        "total_count": total_count,
+        "reviewed_count": reviewed_count,
+        "pending_count": pending_count,
+        "approve_count": approve_count,
+        "defer_count": defer_count,
+        "reject_count": reject_count,
+        "reviewed_label": f"{reviewed_count}/{total_count}" if total_count else "0/0",
+        "status_label": _review_progress_status_label(total_count, pending_count),
+        "status_class": _review_progress_status_class(total_count, pending_count),
+        "detail": _review_progress_detail(total_count, pending_count),
+    }
 
 
 def final_selection_summary(rows: Sequence[Mapping[str, object]]) -> dict[str, object]:
@@ -918,6 +943,34 @@ def _human_review_status_class(status: str) -> str:
     if status == "BLOCKED":
         return "block"
     return "neutral"
+
+
+def _review_progress_status_label(total_count: int, pending_count: int) -> str:
+    if total_count == 0:
+        return "No Queue"
+    if pending_count == 0:
+        return "Review Complete"
+    return f"{pending_count} Pending"
+
+
+def _review_progress_status_class(total_count: int, pending_count: int) -> str:
+    if total_count == 0:
+        return "neutral"
+    if pending_count == 0:
+        return "pass"
+    return "warn"
+
+
+def _review_progress_detail(total_count: int, pending_count: int) -> str:
+    if total_count == 0:
+        return "No latest-cycle paper candidates are waiting for review."
+    reviewed_count = total_count - pending_count
+    if pending_count == 0:
+        return f"All {total_count} queued paper candidates have a recorded review state."
+    return (
+        f"{reviewed_count} of {total_count} queued paper candidates have a recorded "
+        "review state."
+    )
 
 
 def _preview_state_class(state: str) -> str:

@@ -1,6 +1,6 @@
 # Phase Status
 
-**Status:** reconciled after T93
+**Status:** reconciled after T94
 **Owner:** Ohad Meiri
 **Last updated:** 2026-05-08
 
@@ -9,7 +9,7 @@ implementation scaffolding from accepted phase gates.
 
 ## Current Truth
 
-- T01-T93 are archived under `tickets/done/`.
+- T01-T94 are archived under `tickets/done/`.
 - The repo contains Phase 0 foundation, Phase 1 research machinery, Phase 2
   contracts/dashboard scaffolding, and Phase 3 runtime orchestration through a
   PIT-backed local paper cycle.
@@ -25,7 +25,7 @@ implementation scaffolding from accepted phase gates.
 | Phase 1 research | Validated lanes, realistic profile, thresholds, plan revision. | Live H1 calibration is inconclusive; conservative thresholds are active. | Test first version, then widen H1 coverage or improve ticker-tagged sources. |
 | Phase 2 design | Design doc, finalized schemas, UX prototype, test plan. | Partially implemented ahead of gate with provisional contracts. | Reconcile after findings; write explicit design/test plan. |
 | Phase 3 build | Components built with all three test layers green. | Runtime can persist seeded, PIT-backed, and stocks-only replay paper cycles. | Keep first-version path stable during testing. |
-| Phase 4 validate | Paper-test against live data; user testing; threshold adjustment. | Current-date live data refresh and a persisted stocks-only paper cycle are ready for user inspection. The Command dashboard now surfaces the latest paper review queue, records paper review decisions, and shows recorded review state. | Start inspection from the Command review queue, record paper review decisions, then drill into candidate detail, Final Selection, Risk, Execution Preview, and Audit pages. |
+| Phase 4 validate | Paper-test against live data; user testing; threshold adjustment. | Current-date live data refresh and a persisted stocks-only paper cycle are ready for user inspection. The Command dashboard now surfaces the latest paper review queue, records paper review decisions, shows recorded review state, and summarizes review progress. | Start inspection from the Command review queue, record paper review decisions, then drill into candidate detail, Final Selection, Risk, Execution Preview, and Audit pages. |
 | Phase 5 operate | Production paper trading and learning loop. | Not started. | Wait for Phase 4 validation. |
 
 ## High-Priority Gaps
@@ -61,13 +61,15 @@ implementation scaffolding from accepted phase gates.
     events from the Command review queue.
 15. The Command review queue now shows the latest recorded human-review state
     for each current-cycle candidate.
+16. The Command dashboard now summarizes review progress for the latest paper
+    cycle, including pending, approved, deferred, and rejected counts.
 
 ## Next Ticket Candidates
 
 No active numbered ticket is selected. Recommended next work is user inspection
-of the Command review queue and recorded human-review state, then follow-up
-tickets for confusing UI, threshold tuning, or missing data sources found during
-that inspection.
+of the Command review queue, recorded human-review state, and review progress
+summary, then follow-up tickets for confusing UI, threshold tuning, or missing
+data sources found during that inspection.
 
 ## Operating Rule
 
