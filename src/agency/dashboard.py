@@ -129,6 +129,7 @@ async def candidate_detail_context(ticker: str) -> dict[str, object]:
     return {
         "ticker": normalized_ticker,
         "reports": report_rows,
+        "review": candidate_review_summary(report_rows, timeline),
         "timeline": timeline_rows(timeline),
         "summary": candidate_detail_summary(normalized_ticker, report_rows, timeline),
     }
@@ -439,6 +440,58 @@ def candidate_detail_summary(
         "event_count": len(timeline),
         "latest_action": latest_action,
         "headline": _candidate_detail_headline(ticker, latest_action),
+    }
+
+
+def candidate_review_summary(
+    reports: Sequence[Mapping[str, object]],
+    timeline: Sequence[Mapping[str, object]],
+) -> dict[str, object]:
+    if not reports:
+        return {
+            "can_record": False,
+            "cycle_id": "None",
+            "as_of": "None",
+            "decision": "No Report",
+            "status_class": "neutral",
+            "reason": "No selection report available for review.",
+            "event_time": "None",
+            "approve_action": "#",
+            "defer_action": "#",
+            "reject_action": "#",
+        }
+    report = reports[0]
+    ticker = str(report["ticker"])
+    cycle_id = str(report["cycle_id"])
+    as_of = str(report["as_of"])
+    review_event = _human_review_index(timeline).get((cycle_id, ticker, as_of))
+    review = _human_review_summary(review_event)
+    return {
+        "can_record": True,
+        "cycle_id": cycle_id,
+        "as_of": as_of,
+        "decision": review["decision"],
+        "status_class": review["status_class"],
+        "reason": review["reason"],
+        "event_time": review["event_time"],
+        "approve_action": _review_action_url(
+            ticker=ticker,
+            cycle_id=cycle_id,
+            as_of=as_of,
+            decision="APPROVE",
+        ),
+        "defer_action": _review_action_url(
+            ticker=ticker,
+            cycle_id=cycle_id,
+            as_of=as_of,
+            decision="DEFER",
+        ),
+        "reject_action": _review_action_url(
+            ticker=ticker,
+            cycle_id=cycle_id,
+            as_of=as_of,
+            decision="REJECT",
+        ),
     }
 
 

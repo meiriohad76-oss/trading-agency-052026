@@ -27,9 +27,50 @@
       <strong>{{ summary.latest_action }}</strong>
     </div>
     <div>
+      <span class="metric-label">Review State</span>
+      <strong>{{ review.decision }}</strong>
+    </div>
+    <div>
       <span class="metric-label">Ticker</span>
       <strong>{{ summary.ticker }}</strong>
     </div>
+  </section>
+
+  <section class="panel" aria-labelledby="paper-review-heading">
+    <div class="section-heading">
+      <h2 id="paper-review-heading">Paper Review</h2>
+      <span class="tag tag-{{ review.status_class }}">{{ review.decision }}</span>
+    </div>
+    <div class="readiness-grid">
+      <div>
+        <span class="metric-label">Cycle</span>
+        <strong>{{ review.cycle_id }}</strong>
+      </div>
+      <div>
+        <span class="metric-label">As Of</span>
+        <strong>{{ review.as_of }}</strong>
+      </div>
+      <div>
+        <span class="metric-label">Recorded</span>
+        <strong>{{ review.event_time }}</strong>
+      </div>
+    </div>
+    <p class="panel-note">{{ review.reason }}</p>
+    {% if review.can_record %}
+    <span class="inline-actions">
+      <form method="post" action="{{ review.approve_action }}">
+        <button class="mini-button" type="submit">Approve</button>
+      </form>
+      <form method="post" action="{{ review.defer_action }}">
+        <button class="mini-button" type="submit">Defer</button>
+      </form>
+      <form method="post" action="{{ review.reject_action }}">
+        <button class="mini-button danger-button" type="submit">Reject</button>
+      </form>
+    </span>
+    {% else %}
+    <p class="empty-block">No selection report available for review</p>
+    {% endif %}
   </section>
 
   <section class="panel" aria-labelledby="reports-heading">

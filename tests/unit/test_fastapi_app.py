@@ -11,6 +11,7 @@ from agency.api.health import runtime_data_source_status
 from agency.app import create_app
 from agency.dashboard import (
     candidate_detail_summary,
+    candidate_review_summary,
     candidate_rows,
     command_summary,
     data_refresh_progress_view,
@@ -197,6 +198,8 @@ def test_candidate_detail_renders_audit_empty_state() -> None:
     assert response.status_code == HTTP_OK
     assert "Candidate Audit" in response.text
     assert "AAPL" in response.text
+    assert "Paper Review" in response.text
+    assert "No selection report available for review" in response.text
     assert "No lifecycle events yet" in response.text
 
 
@@ -433,6 +436,28 @@ def test_candidate_detail_summary_uses_latest_report() -> None:
     assert summary["report_count"] == 1
     assert summary["event_count"] == 1
     assert summary["latest_action"] == "WATCH"
+
+
+def test_candidate_review_summary_uses_latest_human_review_event() -> None:
+    reports = final_selection_rows([build_final_selection(_evidence_pack()).selection_report])
+
+    review = candidate_review_summary(reports, [_human_review_event()])
+
+    assert review["can_record"] is True
+    assert review["decision"] == "Defer"
+    assert review["status_class"] == "warn"
+    assert review["reason"] == "paper review deferred"
+    assert "decision=APPROVE" in str(review["approve_action"])
+    assert "decision=DEFER" in str(review["defer_action"])
+    assert "decision=REJECT" in str(review["reject_action"])
+
+
+def test_candidate_review_summary_handles_missing_report() -> None:
+    review = candidate_review_summary([], [])
+
+    assert review["can_record"] is False
+    assert review["decision"] == "No Report"
+    assert review["status_class"] == "neutral"
 
 
 def test_policy_sections_are_read_only_groups() -> None:
