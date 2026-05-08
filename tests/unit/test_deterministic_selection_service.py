@@ -67,26 +67,26 @@ def _evidence_pack() -> dict[str, object]:
         "ticker": "AAPL",
         "as_of": "2026-05-07T09:30:00Z",
         "generated_at": "2026-05-07T09:31:00Z",
-        "actionable_signals": [_signal_result()],
+        "actionable_signals": [_signal_result("fundamentals"), _signal_result("insider")],
         "context_signals": [],
         "suppressed_signals": [],
         "data_quality": {
             "freshness": "FRESH",
-            "source_count": 1,
-            "confirmed_signal_count": 1,
+            "source_count": 2,
+            "confirmed_signal_count": 2,
             "inferred_signal_count": 0,
             "blockers": [],
         },
     }
 
 
-def _signal_result() -> dict[str, object]:
+def _signal_result(lane: str) -> dict[str, object]:
     return {
         "schema_version": "0.1.0",
         "cycle_id": "cycle-1",
         "ticker": "AAPL",
         "as_of": "2026-05-07T09:30:00Z",
-        "lane": "fundamentals",
+        "lane": lane,
         "score": 0.7,
         "direction": "BULLISH",
         "actionability": "ACTIONABLE",
@@ -94,17 +94,17 @@ def _signal_result() -> dict[str, object]:
         "verification_level": "CONFIRMED",
         "freshness": "FRESH",
         "confidence": 0.9,
-        "provenance": _provenance(),
-        "reason_codes": ["quality_positive"],
+        "provenance": _provenance(lane),
+        "reason_codes": [f"{lane}_positive"],
         "suppression_reason": None,
     }
 
 
-def _provenance() -> dict[str, object]:
+def _provenance(source_id: str) -> dict[str, object]:
     return {
         "source": "sec-edgar",
         "source_tier": "OFFICIAL_FILING",
-        "source_id": "CIK0000320193",
+        "source_id": source_id,
         "source_url": None,
         "timestamp_observed": "2026-05-07T09:00:00Z",
         "timestamp_as_of": "2026-05-07T08:59:00Z",

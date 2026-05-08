@@ -73,3 +73,12 @@ Write the compact summary artifact:
 
 Once T72 writes usable PIT data, run the research result batch and use the output
 to calibrate actionability thresholds for T73.
+
+Write the compact T73 calibration artifact after the H1 batch:
+
+```powershell
+.\.venv\Scripts\python research\scripts\write_actionability_calibration.py `
+  --h1-verdicts research\results\t73-actionability-calibration\h1-verdicts.csv `
+  --batch-status research\results\t73-actionability-calibration\batch-status.json `
+  --output-root research\results\t73-actionability-calibration
+```

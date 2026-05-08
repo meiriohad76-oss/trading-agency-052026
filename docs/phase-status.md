@@ -1,6 +1,6 @@
 # Phase Status
 
-**Status:** reconciled after T72/T80
+**Status:** reconciled after T73/T80
 **Owner:** Ohad Meiri
 **Last updated:** 2026-05-08
 
@@ -9,7 +9,7 @@ implementation scaffolding from accepted phase gates.
 
 ## Current Truth
 
-- T01-T72 and T74-T80 are archived under `tickets/done/`.
+- T01-T80 are archived under `tickets/done/`.
 - The repo contains Phase 0 foundation, Phase 1 research machinery, Phase 2
   contracts/dashboard scaffolding, and early Phase 3 runtime orchestration through T70.
 - T29-T64 are provisional build scaffolding until empirical H1-H5 results exist.
@@ -21,7 +21,7 @@ implementation scaffolding from accepted phase gates.
 | Phase | Planned gate | Current status | Next action |
 | --- | --- | --- | --- |
 | Phase 0 setup | Repo runnable; provenance-wrapped values persist end to end. | Complete for local development. | Keep Docker/Python setup green. |
-| Phase 1 research | Validated lanes, realistic profile, thresholds, plan revision. | Scaffolding complete; empirical results pending. | Run data refresh and H1/H2/H3/H4/H5 result jobs. |
+| Phase 1 research | Validated lanes, realistic profile, thresholds, plan revision. | Live H1 calibration is inconclusive; conservative thresholds are active. | Test first version, then widen H1 coverage or improve ticker-tagged sources. |
 | Phase 2 design | Design doc, finalized schemas, UX prototype, test plan. | Partially implemented ahead of gate with provisional contracts. | Reconcile after findings; write explicit design/test plan. |
 | Phase 3 build | Components built with all three test layers green. | Early scaffolding exists through T64. | Add missing services only after status stays explicit. |
 | Phase 4 validate | Paper-test against live data; user testing; threshold adjustment. | Not started. | Wait for Phase 3 readiness. |
@@ -32,8 +32,8 @@ implementation scaffolding from accepted phase gates.
 1. Live refresh inputs are configured locally and T72 has a compact committed
    summary under `research/results/t72-live-summary/`. Raw/parquet data remains
    local-only.
-2. Actionability gates are implemented as v1 service rules; thresholds still need
-   calibration after empirical result artifacts exist.
+2. T73 calibrated the deterministic `WATCH` gate to require two usable independent
+   sources and at least one confirmed signal. No tested H1 lane is standalone-validated.
 3. Runtime audit persistence and read-only visibility are wired for manual/scheduled
    paper cycles and the deterministic demo seed; prompt audit capture waits for
    live LLM calls.
@@ -45,9 +45,9 @@ implementation scaffolding from accepted phase gates.
 
 ## Next Ticket Candidates
 
-| Ticket | Purpose |
-| --- | --- |
-| T73 | Actionability threshold calibration after empirical H1-H5 results. |
+No active numbered ticket is selected. Recommended next work is manual first-version
+testing with the conservative T73 gate, followed by a ticket for wider H1 coverage or
+stronger ticker-tagged source ingestion.
 
 ## Operating Rule
 

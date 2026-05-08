@@ -27,7 +27,11 @@ def test_runtime_cycle_builds_contract_valid_artifacts() -> None:
         as_of=AS_OF,
         generated_at=GENERATED_AT,
         source_health=[source_health()],
-        signals=[_signal("AAPL", 0.7), _signal("MSFT", -0.8)],
+        signals=[
+            _signal("AAPL", 0.7, "fundamentals"),
+            _signal("AAPL", 0.7, "insider"),
+            _signal("MSFT", -0.8, "fundamentals"),
+        ],
     )
 
     assert [pack["ticker"] for pack in cycle.evidence_packs] == ["AAPL", "MSFT"]
@@ -143,14 +147,14 @@ async def test_persist_runtime_cycle_writes_persistent_artifacts_and_audit_event
     )
 
 
-def _signal(ticker: str, score: float) -> dict[str, object]:
+def _signal(ticker: str, score: float, lane: str = "fundamentals") -> dict[str, object]:
     return build_signal_result(
         cycle_id=CYCLE_ID,
         ticker=ticker,
         as_of=AS_OF,
-        lane="fundamentals",
+        lane=lane,
         score=score,
-        provenance=provenance(),
+        provenance=provenance(source_id=f"{ticker}-{lane}"),
         confidence=0.9,
     )
 

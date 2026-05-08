@@ -1,0 +1,82 @@
+{
+  "h1_recommendations": [
+    {
+      "best_horizon": 20,
+      "h1_verdict": "inconclusive",
+      "information_ratio": 0.12065455602324193,
+      "mean_ic": 0.052154195011337875,
+      "p_value_bonferroni": 1.0,
+      "recommendation": "context_only_until_retest",
+      "signal": "fundamentals",
+      "t_stat": 1.1058172718355925
+    },
+    {
+      "best_horizon": 5,
+      "h1_verdict": "inconclusive",
+      "information_ratio": 0.1499917936142562,
+      "mean_ic": 0.05254782086749842,
+      "p_value_bonferroni": 1.0,
+      "recommendation": "context_only_until_retest",
+      "signal": "insider",
+      "t_stat": 1.3828560094557345
+    },
+    {
+      "best_horizon": 5,
+      "h1_verdict": "inconclusive",
+      "information_ratio": 0.05407311603192551,
+      "mean_ic": 0.0162833150784958,
+      "p_value_bonferroni": 1.0,
+      "recommendation": "context_only_until_retest",
+      "signal": "institutional",
+      "t_stat": 0.4926295320262201
+    },
+    {
+      "best_horizon": 5,
+      "h1_verdict": "inconclusive",
+      "information_ratio": -0.27219803872184045,
+      "mean_ic": -0.09859546098338785,
+      "p_value_bonferroni": 0.12088786648567018,
+      "recommendation": "context_only_until_retest",
+      "signal": "sector_momentum",
+      "t_stat": -2.5095419191839388
+    },
+    {
+      "best_horizon": 5,
+      "h1_verdict": "inconclusive",
+      "information_ratio": 0.2902594229878442,
+      "mean_ic": 0.10799660212130738,
+      "p_value_bonferroni": 0.08578483388456293,
+      "recommendation": "context_only_until_retest",
+      "signal": "abnormal_volume",
+      "t_stat": 2.6284108651284663
+    },
+    {
+      "best_horizon": null,
+      "h1_verdict": "not_evaluated",
+      "information_ratio": null,
+      "mean_ic": null,
+      "p_value_bonferroni": null,
+      "recommendation": "context_only_until_ticker_tagged_coverage",
+      "signal": "news",
+      "t_stat": null
+    }
+  ],
+  "rationale": "No requested H1 lane survived the Bonferroni-adjusted significance bar; the deterministic engine therefore requires at least two usable independent sources before emitting WATCH.",
+  "runtime_thresholds": {
+    "inferred_requires_confirmed_corroboration": true,
+    "minimum_confirmed_signals": 1,
+    "minimum_source_count": 2,
+    "news_min_sources": 2,
+    "watch_threshold": 0.5
+  },
+  "source_artifacts": {
+    "batch_status": "research/results/t73-actionability-calibration/batch-status.json",
+    "h1_verdicts": "research/results/t73-actionability-calibration/h1-verdicts.csv"
+  },
+  "surviving_lanes": [],
+  "verdict": "keep_conservative_thresholds",
+  "window": {
+    "end": "2025-12-31",
+    "start": "2021-01-01"
+  }
+}

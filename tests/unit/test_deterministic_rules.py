@@ -34,6 +34,22 @@ def test_deterministic_rules_weight_actionable_signals() -> None:
     assert result.decision["score"] == EXPECTED_WEIGHTED_SCORE
 
 
+def test_deterministic_rules_require_two_usable_sources_by_default() -> None:
+    pack = build_evidence_pack(
+        cycle_id="cycle-1",
+        ticker="AAPL",
+        as_of="2026-05-07T09:30:00Z",
+        generated_at="2026-05-07T09:31:00Z",
+        signals=[_signal("fundamentals", 0.8)],
+    )
+
+    result = evaluate_deterministic_rules(pack)
+
+    assert result.decision["action"] == "NO_TRADE"
+    assert result.decision["reason_codes"] == ["policy_gate_blocked"]
+    assert "insufficient independent sources" in result.decision["blockers"]
+
+
 def test_deterministic_rules_block_when_data_quality_blocks() -> None:
     pack = build_evidence_pack(
         cycle_id="cycle-1",
@@ -62,7 +78,7 @@ def test_deterministic_rules_demote_stale_signal_before_selection() -> None:
     result = evaluate_deterministic_rules(pack)
 
     assert result.decision["action"] == "NO_TRADE"
-    assert result.decision["reason_codes"] == ["no_actionable_signals"]
+    assert result.decision["reason_codes"] == ["policy_gate_blocked"]
     assert {"name": "freshness", "status": "WARN", "reason": "stale"} in result.policy_gates
 
 

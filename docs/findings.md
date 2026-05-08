@@ -1,12 +1,12 @@
 # Phase 1 Findings
 
-**Status:** Preliminary scaffold
+**Status:** Preliminary empirical H1 complete
 **Owner:** Ohad Meiri
 **Last updated:** 2026-05-08
 
 This document is the phase-gate record for the v2 research phase. It separates
-implemented research machinery from empirical findings. Until result files exist under
-`research/results/`, every strategy verdict below remains provisional.
+implemented research machinery from empirical findings. Result files now exist for
+T72 live refresh and T73 actionability calibration; H2-H5 remain pending.
 
 T65 note: the repo has provisional Phase 2 and early Phase 3 implementation scaffolding
 through T64. Those artifacts are useful for local paper/demo workflows, but they do not
@@ -22,11 +22,11 @@ replace the empirical verdicts required here.
 | Free market data | yfinance daily bars, sector ETFs, options forward collector | Ready for refresh; historical options remain forward-only on free tier. |
 | Official filings | SEC company facts, Form 4, 13F pullers | Ready for PIT-scoped lane evaluation. |
 | Public web/RSS | RSS ingestion plus optional Scrapling adapter | Use only for public, forward-observed sources. No paid-sub scraping. |
-| Signal lanes | Fundamentals, insider, institutional, sector, volume, pre/post, news, options | Deterministic functions implemented; empirical IC pending. |
+| Signal lanes | Fundamentals, insider, institutional, sector, volume, pre/post, news, options | First live H1 run is inconclusive for tested lanes. |
 | Actionability gate | `src/agency/services/actionability_gate.py` | V1 rules enforce lane source counts, freshness, dedupe, and inferred corroboration. |
 | Evaluation | H1 IC, H1 verdicts, walk-forward, profile, sweep, combination, LLM A/B | Reusable utilities implemented and unit-tested. |
 | Data refresh batch | `research/scripts/run_data_refresh_batch.py` | Live refresh summary committed under `research/results/t72-live-summary/`; raw/parquet data remains local-only. |
-| Research batch | `research/scripts/run_research_batch.py` | Ready to run; T66 status is blocked by missing PIT manifests beyond universe membership. |
+| Research batch | `research/scripts/run_research_batch.py` | T73 live H1 artifacts committed under `research/results/t73-actionability-calibration/`. |
 
 ---
 
@@ -34,17 +34,18 @@ replace the empirical verdicts required here.
 
 | Lane | Source | Current verdict | Next action |
 | --- | --- | --- | --- |
-| Fundamentals | SEC company facts | Pending empirical IC | Run `research/scripts/run_h1_ic.py --signal fundamentals`. |
-| Insider | SEC Form 4 | Pending empirical IC | Run H1 IC after Form 4 refresh. |
-| Institutional | SEC 13F | Pending empirical IC | Run H1 IC after 13F refresh. |
-| Sector momentum | Sector ETF bars | Pending empirical IC | Run H1 IC after ETF refresh. |
-| Abnormal volume | Daily bars | Pending empirical IC | Run H1 IC with inferred-source label preserved. |
+| Fundamentals | SEC company facts | Inconclusive; best 20d IC 0.0522, t 1.1058, Bonferroni p 1.0000 | Keep context-only until retest. |
+| Insider | SEC Form 4 | Inconclusive; best 5d IC 0.0525, t 1.3829, Bonferroni p 1.0000 | Keep context-only until retest. |
+| Institutional | SEC 13F | Inconclusive; best 5d IC 0.0163, t 0.4926, Bonferroni p 1.0000 | Keep context-only until retest. |
+| Sector momentum | Sector ETF bars | Inconclusive; best 5d IC -0.0986, t -2.5095, Bonferroni p 0.1209 | Retest before considering inverse use. |
+| Abnormal volume | Daily bars | Inconclusive; best 5d IC 0.1080, t 2.6284, Bonferroni p 0.0858 | Keep as corroborating context. |
 | Pre/post | Extended-hours-capable source | Pending data coverage check | Keep context-only if free coverage is sparse. |
-| News | RSS-forward corpus | Forward-only preliminary | Accumulate held-out window before declaring edge. |
+| News | RSS-forward corpus | Not evaluated in H1 output; insufficient ticker-tagged observations | Improve ticker tagging and accumulate held-out coverage. |
 | Options flow | yfinance forward chains | Forward-only preliminary | Accumulate forward observations or buy historical data. |
 
-**Architecture implication:** no lane should become action-weighted in production until it
-survives H1 or is explicitly accepted as context-only.
+**Architecture implication:** no tested lane is research-validated as a standalone
+action trigger. T73 therefore keeps the actionability bar conservative: deterministic
+`WATCH` now requires at least two usable independent sources and one confirmed signal.
 
 ---
 
@@ -56,8 +57,9 @@ single surviving lane.
 
 **Current verdict:** pending empirical comparison.
 
-**Next action:** run H1 verdicts first, then build the combined signal from surviving
-lanes and profile it with the walk-forward harness.
+**Next action:** no H1 lane survived, so H2 should stay blocked until a wider retest,
+stronger ticker-tagged news coverage, or an explicit context-only combination experiment
+is accepted.
 
 ---
 
@@ -104,10 +106,11 @@ schema priorities are:
 Phase 1 implementation scaffolding is substantially complete. Empirical validation is
 not complete. T66 added a repeatable result runner, T67 added the local data-refresh
 orchestrator, and T68 added v1 actionability gates. T72 records the first compact
-live-refresh summary; raw/parquet outputs remain intentionally local-only. The next
-highest-value research work is to calibrate actionability thresholds from the live H1
-preview and then revise `docs/v2-plan.md` with validated lane weights or documented
-simplifications.
+live-refresh summary; raw/parquet outputs remain intentionally local-only. T73 records
+the first live H1 calibration result and keeps runtime thresholds conservative because
+no lane survived the Bonferroni-adjusted H1 bar. The next highest-value work is to test
+the first version with the conservative gate and decide whether to widen H1 coverage or
+add stronger ticker-tagged sources.
 
 See `docs/phase-status.md` for the current implementation-vs-phase-gate truth table
 and next ticket candidates.
