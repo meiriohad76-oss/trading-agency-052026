@@ -172,6 +172,12 @@ h2 {
   text-decoration: underline;
 }
 
+.inline-links {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .tag-warn {
   color: #3b2200;
   background: #ffd88a;

@@ -27,6 +27,7 @@ router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent / "templates"))
 
 ACTIONABLE_ACTIONS = {"BUY", "SELL", "SHORT", "COVER", "WATCH", "HOLD"}
+OPEN_RISK_DECISIONS = {"ALLOW", "WARN"}
 DEGRADED_SOURCE_STATUSES = {"DEGRADED", "STALE", "UNAVAILABLE", "RATE_LIMITED"}
 DEGRADED_FRESHNESS = {"AGING", "STALE", "UNAVAILABLE"}
 
@@ -55,10 +56,12 @@ async def dashboard_context() -> dict[str, object]:
             risk_decisions=risk_decisions,
         )
     )
+    review_queue = paper_review_queue(reports, risk_decisions, readiness)
     summary = command_summary(
         candidates=candidates,
         data_sources=data_sources,
         contracts=contracts,
+        review_queue=review_queue,
     )
     return {
         "actions": command_actions(),
@@ -68,6 +71,7 @@ async def dashboard_context() -> dict[str, object]:
         "data_refresh": data_refresh_progress_view(load_data_refresh_progress()),
         "live_config": live_config_view(load_live_config_readiness()),
         "readiness": readiness,
+        "review_queue": review_queue,
         "summary": summary,
     }
 
@@ -213,6 +217,7 @@ def command_summary(
     candidates: Sequence[Mapping[str, object]],
     data_sources: Sequence[Mapping[str, object]],
     contracts: Sequence[Mapping[str, object]],
+    review_queue: Sequence[Mapping[str, object]] = (),
 ) -> dict[str, object]:
     degraded_source_count = sum(1 for source in data_sources if _source_is_degraded(source))
     candidate_count = len(candidates)
@@ -229,6 +234,7 @@ def command_summary(
         "source_count": len(data_sources),
         "degraded_source_count": degraded_source_count,
         "contract_count": len(contracts),
+        "review_queue_count": len(review_queue),
         "hero_class": _command_hero_class(candidate_count, degraded_source_count),
         "headline": _command_headline(candidate_count, actionable_candidate_count),
         "detail": _command_detail(candidate_count, degraded_source_count),
@@ -239,6 +245,7 @@ def command_actions() -> list[dict[str, str]]:
     return [
         {"label": "Review config", "href": "#live-config-heading"},
         {"label": "Review readiness", "href": "#readiness-heading"},
+        {"label": "Review queue", "href": "#review-queue-heading"},
         {"label": "Review candidates", "href": "#candidates-heading"},
         {"label": "Review data sources", "href": "#source-heading"},
         {"label": "Review contracts", "href": "#contracts-heading"},
@@ -294,6 +301,24 @@ def live_config_view(readiness: Mapping[str, object]) -> dict[str, object]:
     view = dict(readiness)
     view["check_rows"] = _list_field(readiness, "checks")
     return view
+
+
+def paper_review_queue(
+    reports: Sequence[Mapping[str, object]],
+    risk_decisions: Sequence[Mapping[str, object]],
+    readiness: Mapping[str, object],
+) -> list[dict[str, object]]:
+    cycle_id = readiness.get("cycle_id")
+    if not isinstance(cycle_id, str) or not cycle_id:
+        return []
+    risks = _risk_decision_index(risk_decisions)
+    rows = [
+        _paper_review_row(report, risks.get(_runtime_payload_key(report)))
+        for report in reports
+        if report.get("cycle_id") == cycle_id
+        and str(report.get("final_action")) in ACTIONABLE_ACTIONS
+    ]
+    return sorted(rows, key=_paper_review_sort_key)
 
 
 def final_selection_summary(rows: Sequence[Mapping[str, object]]) -> dict[str, object]:
@@ -469,6 +494,7 @@ def _final_selection_row(report: Mapping[str, object]) -> dict[str, object]:
 def _risk_decision_row(decision: Mapping[str, object]) -> dict[str, object]:
     reasons = _string_list(decision, "reasons")
     return {
+        "cycle_id": str(decision["cycle_id"]),
         "ticker": str(decision["ticker"]),
         "decision": str(decision["decision"]),
         "decision_class": _decision_class(str(decision["decision"])),
@@ -481,6 +507,38 @@ def _risk_decision_row(decision: Mapping[str, object]) -> dict[str, object]:
         ),
         "reason": reasons[0] if reasons else "risk decision recorded",
         "checks": _check_rows(decision, "checks"),
+    }
+
+
+def _paper_review_row(
+    report: Mapping[str, object],
+    risk_decision: Mapping[str, object] | None,
+) -> dict[str, object]:
+    candidate = _candidate_row(report)
+    evidence_pack = _mapping_field(report, "evidence_pack")
+    data_quality = _mapping_field(evidence_pack, "data_quality")
+    decision = "PENDING"
+    decision_class = "neutral"
+    reason = "waiting for risk decision"
+    if risk_decision is not None:
+        decision = str(risk_decision["decision"])
+        decision_class = _decision_class(decision)
+        reasons = _string_list(risk_decision, "reasons")
+        reason = reasons[0] if reasons else "risk decision recorded"
+    ticker = str(candidate["ticker"])
+    return {
+        **candidate,
+        "cycle_id": str(report["cycle_id"]),
+        "candidate_href": f"/candidates/{ticker}",
+        "risk_href": "/risk",
+        "final_selection_href": "/final-selection",
+        "risk_decision": decision,
+        "risk_class": decision_class,
+        "review_state": _paper_review_state(decision),
+        "review_class": _paper_review_class(decision),
+        "reason": reason,
+        "source_count": _int_field(data_quality, "source_count"),
+        "confirmed_signal_count": _int_field(data_quality, "confirmed_signal_count"),
     }
 
 
@@ -548,6 +606,36 @@ def _check_rows(payload: Mapping[str, object], key: str) -> list[dict[str, str]]
 
 def _is_actionable_candidate(candidate: Mapping[str, object]) -> bool:
     return str(candidate["action"]) in ACTIONABLE_ACTIONS and candidate["gate_status"] != "BLOCK"
+
+
+def _risk_decision_index(
+    risk_decisions: Sequence[Mapping[str, object]],
+) -> dict[tuple[str, str, str], Mapping[str, object]]:
+    indexed: dict[tuple[str, str, str], Mapping[str, object]] = {}
+    for decision in risk_decisions:
+        key = _runtime_payload_key(decision)
+        if all(key) and key not in indexed:
+            indexed[key] = decision
+    return indexed
+
+
+def _runtime_payload_key(payload: Mapping[str, object]) -> tuple[str, str, str]:
+    return (
+        str(payload.get("cycle_id", "")),
+        str(payload.get("ticker", "")),
+        str(payload.get("as_of", "")),
+    )
+
+
+def _paper_review_sort_key(row: Mapping[str, object]) -> tuple[int, int, str]:
+    decision = str(row["risk_decision"])
+    if decision in OPEN_RISK_DECISIONS:
+        priority = 0
+    elif decision == "PENDING":
+        priority = 1
+    else:
+        priority = 2
+    return (priority, -_int_field(row, "conviction_pct"), str(row["ticker"]))
 
 
 def _source_is_degraded(source: Mapping[str, object]) -> bool:
@@ -663,6 +751,22 @@ def _decision_class(decision: str) -> str:
         return "pass"
     if decision == "WARN":
         return "warn"
+    return "block"
+
+
+def _paper_review_state(decision: str) -> str:
+    if decision in OPEN_RISK_DECISIONS:
+        return "Ready"
+    if decision == "PENDING":
+        return "Waiting"
+    return "Blocked"
+
+
+def _paper_review_class(decision: str) -> str:
+    if decision in OPEN_RISK_DECISIONS:
+        return _decision_class(decision)
+    if decision == "PENDING":
+        return "neutral"
     return "block"
 
 
