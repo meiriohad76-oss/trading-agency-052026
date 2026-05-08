@@ -69,6 +69,23 @@ has zero rows, or a manifest reports issues.
 
 Import a local unusual-activity export directly when you have one:
 
+First smoke-test the file in an isolated results folder:
+
+```powershell
+.\.venv\Scripts\python research\scripts\smoke_activity_alert_import.py `
+  --input research\config\activity-alerts.example.csv `
+  --output-root research\results\t82-activity-alert-import
+```
+
+Review:
+
+```powershell
+Get-Content research\results\t82-activity-alert-import\activity-alert-import-summary.md
+```
+
+If the verdict is `ready_for_research_batch`, import it into the live local
+dataset:
+
 ```powershell
 .\.venv\Scripts\python research\scripts\import_activity_alerts.py `
   --input research\config\activity-alerts.example.csv
