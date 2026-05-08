@@ -24,6 +24,13 @@ def test_validate_contract_accepts_risk_decision() -> None:
     validate_contract("risk-decision", _risk_decision())
 
 
+def test_validate_contract_accepts_runtime_audit_payloads() -> None:
+    validate_contract("agent-run", _agent_run())
+    validate_contract("prompt-audit", _prompt_audit())
+    validate_contract("execution-state", _execution_state())
+    validate_contract("risk-snapshot", _risk_snapshot())
+
+
 def test_validate_contract_reports_payload_path() -> None:
     payload = _source_health()
     payload["status"] = "BROKEN"
@@ -93,6 +100,64 @@ def _risk_decision() -> dict[str, object]:
         "reasons": ["AAPL passed v0 risk checks"],
         "risk_flags": [],
         "source_health": {"source_count": 1, "degraded_source_count": 0},
+    }
+
+
+def _agent_run() -> dict[str, object]:
+    return {
+        "schema_version": "0.1.0",
+        "run_id": "run-1",
+        "cycle_id": "cycle-1",
+        "agent_name": "runtime-cycle",
+        "status": "SUCCEEDED",
+        "trigger": "MANUAL",
+        "started_at": "2026-05-07T09:30:00Z",
+        "finished_at": "2026-05-07T09:31:00Z",
+        "payload": {"candidate_count": 1},
+    }
+
+
+def _prompt_audit() -> dict[str, object]:
+    return {
+        "schema_version": "0.1.0",
+        "prompt_id": "prompt-1",
+        "run_id": "run-1",
+        "cycle_id": "cycle-1",
+        "agent_name": "llm-review",
+        "model": "gpt-test",
+        "prompt_class": "candidate-review",
+        "prompt_hash": "b" * 64,
+        "created_at": "2026-05-07T09:31:00Z",
+        "redaction_status": "NO_SECRETS",
+        "payload": {"template": "candidate-review-v1"},
+    }
+
+
+def _execution_state() -> dict[str, object]:
+    return {
+        "schema_version": "0.1.0",
+        "state_id": "state-1",
+        "cycle_id": "cycle-1",
+        "ticker": "AAPL",
+        "execution_id": "exec-1",
+        "state": "READY",
+        "event_time": "2026-05-07T09:33:00Z",
+        "reason": "paper preview ready",
+        "payload": {"submit_enabled": False},
+    }
+
+
+def _risk_snapshot() -> dict[str, object]:
+    return {
+        "schema_version": "0.1.0",
+        "snapshot_id": "snap-1",
+        "cycle_id": "cycle-1",
+        "ticker": "AAPL",
+        "as_of": "2026-05-07T09:30:00Z",
+        "generated_at": "2026-05-07T09:32:00Z",
+        "gross_exposure_pct": 40.0,
+        "risk_level": "LOW",
+        "payload": {"degraded_source_count": 0},
     }
 
 

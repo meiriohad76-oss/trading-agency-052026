@@ -62,6 +62,65 @@ risk_decisions = Table(
     Col("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
 
+agent_runs = Table(
+    "agent_runs",
+    metadata,
+    Col("run_id", String(length=120), primary_key=True),
+    Col("cycle_id", String(length=120), nullable=False),
+    Col("agent_name", String(length=120), nullable=False),
+    Col("status", String(length=40), nullable=False),
+    Col("trigger", String(length=40), nullable=False),
+    Col("started_at", DateTime(timezone=True), nullable=False),
+    Col("finished_at", DateTime(timezone=True)),
+    Col("payload", JSON, nullable=False),
+    Col("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Col("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
+prompt_audits = Table(
+    "prompt_audits",
+    metadata,
+    Col("prompt_id", String(length=120), primary_key=True),
+    Col("run_id", String(length=120)),
+    Col("cycle_id", String(length=120), nullable=False),
+    Col("agent_name", String(length=120), nullable=False),
+    Col("model", String(length=120), nullable=False),
+    Col("prompt_class", String(length=120), nullable=False),
+    Col("prompt_hash", String(length=128), nullable=False),
+    Col("created_at", DateTime(timezone=True), nullable=False),
+    Col("redaction_status", String(length=40), nullable=False),
+    Col("payload", JSON, nullable=False),
+    Col("inserted_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
+execution_state_history = Table(
+    "execution_state_history",
+    metadata,
+    Col("state_id", String(length=120), primary_key=True),
+    Col("cycle_id", String(length=120), nullable=False),
+    Col("ticker", String(length=16)),
+    Col("execution_id", String(length=120), nullable=False),
+    Col("state", String(length=40), nullable=False),
+    Col("event_time", DateTime(timezone=True), nullable=False),
+    Col("reason", Text),
+    Col("payload", JSON, nullable=False),
+    Col("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
+risk_snapshots = Table(
+    "risk_snapshots",
+    metadata,
+    Col("snapshot_id", String(length=120), primary_key=True),
+    Col("cycle_id", String(length=120), nullable=False),
+    Col("ticker", String(length=16)),
+    Col("as_of", DateTime(timezone=True), nullable=False),
+    Col("generated_at", DateTime(timezone=True), nullable=False),
+    Col("gross_exposure_pct", Float, nullable=False),
+    Col("risk_level", String(length=40), nullable=False),
+    Col("payload", JSON, nullable=False),
+    Col("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
 candidate_lifecycle_events = Table(
     "candidate_lifecycle_events",
     metadata,

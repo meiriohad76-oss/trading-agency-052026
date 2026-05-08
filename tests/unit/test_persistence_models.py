@@ -5,10 +5,14 @@ from pathlib import Path
 from types import ModuleType
 
 from agency.persistence import (
+    agent_runs,
     candidate_lifecycle_events,
     data_source_health,
+    execution_state_history,
     metadata,
+    prompt_audits,
     risk_decisions,
+    risk_snapshots,
     selection_reports,
 )
 
@@ -18,6 +22,10 @@ def test_metadata_includes_data_source_health_table() -> None:
     assert metadata.tables["selection_reports"] is selection_reports
     assert metadata.tables["candidate_lifecycle_events"] is candidate_lifecycle_events
     assert metadata.tables["risk_decisions"] is risk_decisions
+    assert metadata.tables["agent_runs"] is agent_runs
+    assert metadata.tables["prompt_audits"] is prompt_audits
+    assert metadata.tables["execution_state_history"] is execution_state_history
+    assert metadata.tables["risk_snapshots"] is risk_snapshots
 
 
 def test_data_source_health_table_has_runtime_status_columns() -> None:
@@ -91,6 +99,32 @@ def test_risk_decisions_migration_links_to_lifecycle_revision() -> None:
 
     assert migration.revision == "0005_risk_decisions"
     assert migration.down_revision == "0004_candidate_lifecycle_events"
+
+
+def test_runtime_audit_tables_have_key_columns() -> None:
+    assert {"run_id", "cycle_id", "agent_name", "status", "payload"}.issubset(
+        set(agent_runs.c.keys())
+    )
+    assert {"prompt_id", "run_id", "prompt_hash", "payload"}.issubset(
+        set(prompt_audits.c.keys())
+    )
+    assert {"state_id", "execution_id", "state", "event_time", "payload"}.issubset(
+        set(execution_state_history.c.keys())
+    )
+    assert {"snapshot_id", "gross_exposure_pct", "risk_level", "payload"}.issubset(
+        set(risk_snapshots.c.keys())
+    )
+    assert agent_runs.primary_key.columns.keys() == ["run_id"]
+    assert prompt_audits.primary_key.columns.keys() == ["prompt_id"]
+    assert execution_state_history.primary_key.columns.keys() == ["state_id"]
+    assert risk_snapshots.primary_key.columns.keys() == ["snapshot_id"]
+
+
+def test_runtime_audit_migration_links_to_risk_decision_revision() -> None:
+    migration = _load_migration("0006_runtime_audit_tables.py")
+
+    assert migration.revision == "0006_runtime_audit_tables"
+    assert migration.down_revision == "0005_risk_decisions"
 
 
 def _load_migration(filename: str) -> ModuleType:
