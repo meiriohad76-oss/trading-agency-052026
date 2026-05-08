@@ -15,7 +15,7 @@ SECONDS_PER_MINUTE = 60
 ESTIMATED_JOB_SECONDS = {
     "prices_daily": 90.0,
     "sec_company_facts": 60.0,
-    "sec_form4": 120.0,
+    "sec_form4": 600.0,
     "sec_13f": 90.0,
     "news_rss": 20.0,
     "options_chains": 60.0,
@@ -153,12 +153,19 @@ def _eta_seconds(jobs: tuple[RefreshJobResult, ...], updated_at: str | None) -> 
     remaining = 0.0
     for job in jobs:
         if job.status == "pending":
-            remaining += fallback or ESTIMATED_JOB_SECONDS.get(job.dataset, 60.0)
+            remaining += _job_estimate(job.dataset, fallback)
         elif job.status == "running":
-            estimate = fallback or ESTIMATED_JOB_SECONDS.get(job.dataset, 60.0)
+            estimate = _job_estimate(job.dataset, fallback)
             elapsed = _running_elapsed_seconds(job, updated)
             remaining += max(estimate - elapsed, 5.0)
     return round(remaining)
+
+
+def _job_estimate(dataset: str, fallback: float | None) -> float:
+    baseline = ESTIMATED_JOB_SECONDS.get(dataset, 60.0)
+    if fallback is None:
+        return baseline
+    return max(baseline, fallback)
 
 
 def _running_elapsed_seconds(job: RefreshJobResult, updated_at: datetime | None) -> float:

@@ -52,6 +52,21 @@ def test_risk_decisions_block_projected_exposure_cap() -> None:
     assert "projected gross exposure exceeds cap" in results[0].risk_decision["reasons"]
 
 
+def test_risk_decisions_do_not_spend_capacity_on_watch_rows() -> None:
+    results = build_risk_decisions(
+        [selection_report(action="WATCH", score=0.9) for _ in range(4)],
+        [source_health()],
+        generated_at=GENERATED_AT,
+        policy=PortfolioPolicy(max_new_positions_per_cycle=1),
+    )
+
+    assert {result.risk_decision["decision"] for result in results} == {"WARN"}
+    assert all(
+        "new candidate capacity exceeded" not in result.risk_decision["reasons"]
+        for result in results
+    )
+
+
 def _risk_result(report: dict[str, object]) -> RiskDecisionResult:
     return build_risk_decision(
         report,

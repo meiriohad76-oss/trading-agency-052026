@@ -18,7 +18,7 @@ from agency.services import (
 CYCLE_ID = "cycle-2026-05-07T143000Z"
 AS_OF = "2026-05-07T14:30:00Z"
 GENERATED_AT = "2026-05-07T14:31:00Z"
-PROJECTED_EXPOSURE_PCT = 15.0
+PROJECTED_EXPOSURE_PCT = 5.0
 
 
 def test_runtime_cycle_builds_contract_valid_artifacts() -> None:
@@ -60,6 +60,20 @@ def test_runtime_cycle_records_requested_tickers_without_signals() -> None:
     assert cycle.selection_reports[0]["final_action"] == "NO_TRADE"
     assert cycle.risk_decisions[0]["decision"] == "BLOCK"
     assert cycle.execution_previews[0]["preview_state"] == "BLOCKED"
+
+
+def test_runtime_cycle_risk_ignores_unused_stale_sources() -> None:
+    unused_source = source_health(status="STALE", freshness="STALE")
+    unused_source["source"] = "rss-news"
+    cycle = build_runtime_cycle(
+        cycle_id=CYCLE_ID,
+        as_of=AS_OF,
+        generated_at=GENERATED_AT,
+        source_health=[source_health(), unused_source],
+        signals=[_signal("AAPL", 0.7)],
+    )
+
+    assert "runtime source degradation present" not in cycle.risk_decisions[0]["reasons"]
 
 
 def test_runtime_cycle_from_payload_accepts_json_compatible_inputs() -> None:

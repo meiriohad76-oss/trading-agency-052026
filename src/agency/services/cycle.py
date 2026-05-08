@@ -16,6 +16,7 @@ from agency.runtime import (
     upsert_selection_report,
     upsert_source_health,
 )
+from agency.runtime.readiness_sources import relevant_source_health, used_sources
 from agency.services.evidence_pack import build_evidence_pack
 from agency.services.execution_preview import build_execution_previews
 from agency.services.final_selection import build_final_selection
@@ -73,9 +74,13 @@ def build_runtime_cycle(
         build_final_selection(pack, generated_at=generated_at) for pack in evidence_packs
     ]
     selection_reports = [result.selection_report for result in final_results]
+    risk_source_health = relevant_source_health(
+        normalized_sources,
+        used_sources=used_sources(selection_reports),
+    )
     risk_results = build_risk_decisions(
         selection_reports,
-        normalized_sources,
+        risk_source_health,
         generated_at=generated_at,
         policy=policy,
         current_gross_exposure_pct=current_gross_exposure_pct,

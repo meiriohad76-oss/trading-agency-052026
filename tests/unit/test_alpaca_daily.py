@@ -5,6 +5,7 @@ from pathlib import Path
 
 import httpx
 import pandas as pd
+from prices import alpaca_daily
 from prices.alpaca_daily import AlpacaDailyConfig, build_alpaca_downloader, normalize_alpaca_bars
 from prices.storage import DateRange
 
@@ -35,6 +36,7 @@ def test_normalize_alpaca_bars_writes_price_schema() -> None:
     assert frame.iloc[0]["source"] == "alpaca"
     assert frame.iloc[0]["source_id"] == "alpaca:iex:AAPL:2026-05-07"
     assert frame.iloc[0]["adj_close"] == EXPECTED_ADJ_CLOSE
+    assert frame.attrs == {}
 
 
 async def test_alpaca_downloader_requests_pages_with_auth_headers(tmp_path: Path) -> None:
@@ -87,3 +89,23 @@ async def test_alpaca_downloader_requests_pages_with_auth_headers(tmp_path: Path
     assert requests[0].url.params["symbols"] == "AAPL"
     assert requests[0].url.params["feed"] == "iex"
     assert requests[0].url.params["timeframe"] == "1Day"
+
+
+def test_alpaca_verify_context_uses_windows_truststore(monkeypatch: object) -> None:
+    class FakeContext:
+        def __init__(self, protocol: object) -> None:
+            self.protocol = protocol
+
+    class FakeTruststore:
+        SSLContext = FakeContext
+
+    def fake_import_module(name: str) -> object:
+        assert name == "truststore"
+        return FakeTruststore
+
+    monkeypatch.setattr(alpaca_daily.sys, "platform", "win32")
+    monkeypatch.setattr(alpaca_daily, "import_module", fake_import_module)
+
+    context = alpaca_daily._verify_context()
+
+    assert isinstance(context, FakeContext)

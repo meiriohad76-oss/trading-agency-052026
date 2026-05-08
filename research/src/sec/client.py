@@ -108,7 +108,13 @@ class SecClient:
     async def _get(self, url: str) -> httpx.Response:
         for attempt in range(MAX_ATTEMPTS):
             await self._rate_limiter.wait()
-            response = await self._client.get(url)
+            try:
+                response = await self._client.get(url)
+            except httpx.TransportError:
+                if attempt < MAX_ATTEMPTS - 1:
+                    await self._sleeper(RETRY_BACKOFF_SECONDS * (2**attempt))
+                    continue
+                raise
             if response.status_code == httpx.codes.TOO_MANY_REQUESTS and attempt < MAX_ATTEMPTS - 1:
                 await self._sleeper(RETRY_BACKOFF_SECONDS * (2**attempt))
                 continue

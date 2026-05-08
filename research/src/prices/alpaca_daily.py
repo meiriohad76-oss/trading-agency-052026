@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import os
+import ssl
+import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
+from importlib import import_module
 from typing import Self, cast
 
 import httpx
@@ -100,6 +103,7 @@ def normalize_alpaca_bars(ticker: str, raw: pd.DataFrame, *, fetched_at: datetim
     frame["date"] = pd.to_datetime(frame["t"], utc=True).dt.date
     requested_start = raw.attrs.get("requested_start")
     requested_end = raw.attrs.get("requested_end")
+    frame.attrs.clear()
     if isinstance(requested_start, date) and isinstance(requested_end, date):
         frame = frame[(frame["date"] >= requested_start) & (frame["date"] <= requested_end)]
     if frame.empty:
@@ -143,7 +147,11 @@ async def _download_alpaca_history(
 ) -> pd.DataFrame:
     rows: list[Mapping[str, object]] = []
     page_token: str | None = None
-    async with httpx.AsyncClient(timeout=config.timeout_seconds, transport=transport) as client:
+    async with httpx.AsyncClient(
+        timeout=config.timeout_seconds,
+        transport=transport,
+        verify=_verify_context(),
+    ) as client:
         while True:
             params = _request_params(ticker, requested, config, page_token=page_token)
             response = await client.get(config.bars_url, params=params, headers=_headers(config))
@@ -240,3 +248,14 @@ def _rfc3339_day(value: date) -> str:
 
 def _as_utc(value: date) -> datetime:
     return datetime(value.year, value.month, value.day, tzinfo=UTC)
+
+
+def _verify_context() -> ssl.SSLContext | bool:
+    if sys.platform != "win32":
+        return True
+    try:
+        truststore = import_module("truststore")
+    except ModuleNotFoundError:
+        return True
+    context_factory = cast(type[ssl.SSLContext], truststore.SSLContext)
+    return context_factory(ssl.PROTOCOL_TLS_CLIENT)

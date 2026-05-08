@@ -1,6 +1,6 @@
 # Phase Status
 
-**Status:** reconciled after T88
+**Status:** reconciled after T90
 **Owner:** Ohad Meiri
 **Last updated:** 2026-05-08
 
@@ -9,7 +9,7 @@ implementation scaffolding from accepted phase gates.
 
 ## Current Truth
 
-- T01-T88 are archived under `tickets/done/`.
+- T01-T90 are archived under `tickets/done/`.
 - The repo contains Phase 0 foundation, Phase 1 research machinery, Phase 2
   contracts/dashboard scaffolding, and Phase 3 runtime orchestration through a
   PIT-backed local paper cycle.
@@ -25,7 +25,7 @@ implementation scaffolding from accepted phase gates.
 | Phase 1 research | Validated lanes, realistic profile, thresholds, plan revision. | Live H1 calibration is inconclusive; conservative thresholds are active. | Test first version, then widen H1 coverage or improve ticker-tagged sources. |
 | Phase 2 design | Design doc, finalized schemas, UX prototype, test plan. | Partially implemented ahead of gate with provisional contracts. | Reconcile after findings; write explicit design/test plan. |
 | Phase 3 build | Components built with all three test layers green. | Runtime can persist seeded, PIT-backed, and stocks-only replay paper cycles. | Keep first-version path stable during testing. |
-| Phase 4 validate | Paper-test against live data; user testing; threshold adjustment. | Stocks-only PIT replay is ready for user inspection; current-date live validation has an Alpaca provider slot, visible refresh progress/ETA, and visible config readiness checks, but still needs local credentials. | Configure Alpaca credentials only after the Live Config panel has no blockers, run a current-date refresh, then watch progress on Command and run a persisted live paper cycle. |
+| Phase 4 validate | Paper-test against live data; user testing; threshold adjustment. | Current-date live data refresh and a persisted stocks-only paper cycle are ready for user inspection. The latest local cycle is paper-only and reviewable, with risk still blocking non-actionable candidates. | Inspect the Command, Final Selection, Risk, Execution Preview, Audit, and candidate detail pages. |
 | Phase 5 operate | Production paper trading and learning loop. | Not started. | Wait for Phase 4 validation. |
 
 ## High-Priority Gaps
@@ -46,20 +46,21 @@ implementation scaffolding from accepted phase gates.
 7. Portfolio policy is still static/read-only, not persisted or user-editable.
 8. Options/unusual-activity providers are explicitly deferred to backlog; the
    default runtime lane set is stocks-only.
-9. Current-date live validation can now select `market_data_provider="alpaca"`,
-   but it still needs local Alpaca credentials before bars past `2025-12-31`
-   can be tested in this environment.
+9. Current-date live validation can now select `market_data_provider="alpaca"`;
+   local credentials are required and are checked by Live Config before refresh.
 10. Data refresh batches now write incremental progress and ETA status; the
-    Command page polls the latest status file while data is loading.
+    Command page polls the latest status file while data is loading, and command
+    duration stamps now measure elapsed subprocess time.
 11. `/status/live-config` and the Command-page Live Config panel show refresh
     config and credential readiness without exposing secret values.
+12. Current-date local validation produced a `ready_for_paper_validation` cycle
+    with WATCH candidates and paper-only risk decisions.
 
 ## Next Ticket Candidates
 
-No active numbered ticket is selected. Recommended next work is clearing any
-Live Config blockers, configuring local Alpaca credentials, and running a
-current-date live refresh/cycle smoke while watching the Command-page Data
-Loading panel.
+No active numbered ticket is selected. Recommended next work is user inspection
+of the first current-date paper cycle, then follow-up tickets for confusing UI,
+threshold tuning, or missing data sources found during that inspection.
 
 ## Operating Rule
 
