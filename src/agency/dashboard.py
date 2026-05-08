@@ -19,6 +19,7 @@ from agency.db import MissingDatabaseConfigurationError, get_session
 from agency.runtime import build_live_readiness
 from agency.runtime.data_refresh_progress import load_data_refresh_progress
 from agency.runtime.live_config_readiness import load_live_config_readiness
+from agency.runtime.operational_readiness import build_operational_readiness
 from agency.services import (
     build_and_persist_human_review_event,
     build_execution_previews,
@@ -90,6 +91,11 @@ async def dashboard_context() -> dict[str, object]:
 @router.get("/status/paper-review")
 async def paper_review_status() -> dict[str, object]:
     return await paper_review_status_context()
+
+
+@router.get("/status/operational-readiness")
+async def operational_readiness_status() -> dict[str, object]:
+    return await operational_readiness_context()
 
 
 @router.get("/candidates/{ticker}")
@@ -361,6 +367,31 @@ async def paper_review_status_context() -> dict[str, object]:
         reports=reports,
         risk_decisions=risk_decisions,
         readiness=readiness,
+    )
+
+
+async def operational_readiness_context() -> dict[str, object]:
+    reports, data_sources, risk_decisions = await asyncio.gather(
+        runtime_selection_reports(limit=10),
+        runtime_data_source_status(),
+        runtime_risk_decisions(limit=25),
+    )
+    readiness = build_live_readiness(
+        source_health=data_sources,
+        selection_reports=reports,
+        risk_decisions=risk_decisions,
+    )
+    paper_status = await paper_review_status_from_runtime(
+        reports=reports,
+        risk_decisions=risk_decisions,
+        readiness=readiness,
+    )
+    return build_operational_readiness(
+        health={"status": "ok", "service": "trading-agency-v2"},
+        live_config=load_live_config_readiness(),
+        data_refresh=load_data_refresh_progress(),
+        live_readiness=readiness,
+        paper_review=paper_status,
     )
 
 

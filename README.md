@@ -103,13 +103,18 @@ Run the FastAPI shell:
 ```
 
 The local API exposes `/health`, `/contracts`, `/contracts/{name}`, `/status/data-sources`,
-`/reports/selection`, `/risk/decisions`, `/audit/agent-runs`, `/audit/risk-snapshots`,
-`/audit/execution-states`, and `/metrics`. The root path `/` renders the server-side
-dashboard shell, with `/audit` for runtime trace review.
+`/status/live-config`, `/status/live-readiness`, `/status/paper-review`,
+`/status/operational-readiness`, `/reports/selection`, `/risk/decisions`,
+`/audit/agent-runs`, `/audit/risk-snapshots`, `/audit/execution-states`, and
+`/metrics`. The root path `/` renders the server-side dashboard shell, with
+`/audit` for runtime trace review.
 
 To smoke-check a seeded local runtime:
 
 ```powershell
 .\.venv\Scripts\python scripts\check_local_runtime.py `
   --min-selection-reports 1 --min-risk-decisions 1
+
+.\.venv\Scripts\python scripts\check_operational_readiness.py `
+  --min-queue 1
 ```

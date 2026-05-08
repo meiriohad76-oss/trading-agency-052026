@@ -6,6 +6,7 @@ import pytest
 
 from scripts.backup_postgres import default_backup_path, pg_dump_command
 from scripts.check_local_runtime import metric_value
+from scripts.check_operational_readiness import check_operational_readiness
 from scripts.check_paper_review_status import check_paper_review_status
 from scripts.restore_postgres import psql_restore_command
 
@@ -107,4 +108,45 @@ def test_check_paper_review_status_summarizes_progress(
         "approve_count": 0,
         "defer_count": 1,
         "reject_count": 0,
+    }
+
+
+def test_check_operational_readiness_summarizes_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_fetch_json(_base_url: str, path: str) -> dict[str, object]:
+        assert path == "/status/operational-readiness"
+        return {
+            "ready": True,
+            "state": "attention",
+            "status_label": "Operational With Attention",
+            "blocker_count": 0,
+            "warning_count": 1,
+            "live_readiness": {"cycle_id": "cycle-1"},
+            "paper_review": {
+                "progress": {
+                    "total_count": EXPECTED_REVIEW_QUEUE_COUNT,
+                    "reviewed_count": EXPECTED_REVIEWED_COUNT,
+                    "pending_count": EXPECTED_PENDING_COUNT,
+                }
+            },
+        }
+
+    monkeypatch.setattr(
+        "scripts.check_operational_readiness._fetch_json",
+        fake_fetch_json,
+    )
+
+    summary = check_operational_readiness(min_queue=4, min_reviewed=1)
+
+    assert summary == {
+        "ready": True,
+        "state": "attention",
+        "status_label": "Operational With Attention",
+        "blocker_count": 0,
+        "warning_count": 1,
+        "cycle_id": "cycle-1",
+        "queue_count": EXPECTED_REVIEW_QUEUE_COUNT,
+        "reviewed_count": EXPECTED_REVIEWED_COUNT,
+        "pending_count": EXPECTED_PENDING_COUNT,
     }
