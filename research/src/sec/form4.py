@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Protocol
+from xml.etree.ElementTree import ParseError
 
 import pandas as pd
 from sec.cik import cik_lookup_for_tickers, parse_company_tickers
@@ -62,8 +63,15 @@ async def pull_form4(
         )
         filings_seen += len(filings)
         for filing in filings:
-            xml = await _fetch_filing_xml(client, filing, get_now)
-            frame = parse_form4_xml(ticker=ticker, filing=filing, xml=xml, fetched_at=get_now())
+            frame, issue = await _parse_filing(
+                ticker=ticker,
+                client=client,
+                filing=filing,
+                clock=get_now,
+            )
+            if issue is not None:
+                issues.append(issue)
+                continue
             if not frame.empty:
                 frames.append(frame)
 
@@ -85,6 +93,50 @@ async def pull_form4(
         issues=issues,
     )
     return FormPullSummary(len(tickers), filings_seen, rows_written, issues)
+
+
+async def _parse_filing(
+    *,
+    ticker: str,
+    client: Form4Client,
+    filing: FilingSummary,
+    clock: Callable[[], datetime],
+) -> tuple[pd.DataFrame, dict[str, str] | None]:
+    normalized_filing = _normalized_filing(filing)
+    xml = await _fetch_filing_xml(client, normalized_filing, clock)
+    try:
+        return (
+            parse_form4_xml(
+                ticker=ticker,
+                filing=normalized_filing,
+                xml=xml,
+                fetched_at=clock(),
+            ),
+            None,
+        )
+    except ParseError as exc:
+        return (
+            pd.DataFrame(),
+            _filing_issue(ticker=ticker, filing=normalized_filing, detail=str(exc)),
+        )
+
+
+def _normalized_filing(filing: FilingSummary) -> FilingSummary:
+    document_name = PurePosixPath(filing.primary_document).name
+    if document_name == filing.primary_document:
+        return filing
+    return replace(filing, primary_document=document_name)
+
+
+def _filing_issue(*, ticker: str, filing: FilingSummary, detail: str) -> dict[str, str]:
+    return {
+        "ticker": ticker,
+        "accession_number": filing.accession_number,
+        "primary_document": filing.primary_document,
+        "reason": "malformed Form 4 XML",
+        "detail": detail,
+        "source_url": filing.document_url,
+    }
 
 
 def parse_form4_xml(

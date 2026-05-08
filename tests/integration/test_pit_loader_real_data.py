@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+import json
+from datetime import date, datetime
 from pathlib import Path
 
 import pytest
@@ -17,7 +18,12 @@ def test_real_pit_loader_smoke_when_datasets_exist() -> None:
         pytest.skip("real PIT datasets are populated by later data tickets")
 
     loader = PITLoader()
-    as_of = date.today() - timedelta(days=7)
+    as_of = _manifest_as_of(required[0])
 
     assert loader.prices(["AAPL"], as_of, lookback_days=10).height > 0
     assert "AAPL" in loader.universe_members(as_of)
+
+
+def _manifest_as_of(path: Path) -> date:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return datetime.fromisoformat(str(payload["max_timestamp_as_of"])).date()

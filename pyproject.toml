@@ -26,6 +26,7 @@ dependencies = [
   "scipy>=1.16",
   "statsmodels>=0.14.6",
   "SQLAlchemy>=2.0",
+  "truststore>=0.10",
   "tzdata>=2025.2",
   "uvicorn>=0.30",
   "yfinance==1.2.2",
