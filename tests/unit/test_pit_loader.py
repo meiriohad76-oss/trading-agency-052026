@@ -168,6 +168,22 @@ def test_sector_etfs_are_pit_filtered(tmp_path: Path) -> None:
     assert result.get_column("source_id").to_list() == ["xlf-1", "xlk-1"]
 
 
+def test_stock_trades_filter_trade_date_and_timestamp_as_of(tmp_path: Path) -> None:
+    frame = pl.DataFrame(
+        [
+            stock_trade("AAPL", date(2026, 5, 5), date(2026, 5, 5), "a1"),
+            stock_trade("AAPL", date(2026, 5, 6), date(2026, 5, 6), "a2"),
+            stock_trade("AAPL", date(2026, 5, 6), date(2026, 5, 7), "future"),
+            stock_trade("MSFT", date(2026, 5, 6), date(2026, 5, 6), "m1"),
+        ]
+    )
+    loader = loader_with(tmp_path, {DatasetName.STOCK_TRADES: frame})
+
+    result = loader.stock_trades(["AAPL"], date(2026, 5, 6), lookback_days=2)
+
+    assert result.get_column("source_id").to_list() == ["a1", "a2"]
+
+
 def test_future_as_of_dates_raise_before_manifest_access(tmp_path: Path) -> None:
     loader = PITLoader(parquet_root=tmp_path, manifest_root=tmp_path, today=lambda: TODAY)
 
@@ -212,3 +228,27 @@ def test_stale_manifest_raises_data_not_available(tmp_path: Path) -> None:
 
     with pytest.raises(DataNotAvailableAt, match="stale"):
         loader.prices(["AAPL"], date(2022, 6, 15), lookback_days=1)
+
+
+def stock_trade(
+    ticker: str,
+    trade_date: date,
+    timestamp_as_of: date,
+    source_id: str,
+) -> dict[str, object]:
+    return {
+        "ticker": ticker,
+        "trade_date": trade_date,
+        "trade_ts": trade_date,
+        "price": 100.0,
+        "size": 100.0,
+        "notional": 10_000.0,
+        "direction": 1,
+        "signed_volume": 100.0,
+        "signed_notional": 10_000.0,
+        "session": "REGULAR",
+        "is_block_trade": False,
+        "is_off_exchange": False,
+        "sequence_number": 1,
+        **provenance(SourceTier.CONFIRMED_TRADE_PRINT, timestamp_as_of, source_id=source_id),
+    }

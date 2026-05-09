@@ -12,6 +12,7 @@ DATASETS = (
     "sec_form4",
     "sec_13f",
     "news_rss",
+    "stock_trades",
     "options_chains",
     "unusual_activity_alerts",
 )
@@ -41,6 +42,8 @@ class RefreshBatchConfig:
     market_data_adjustment: str = "all"
     market_data_base_url: str = "https://data.alpaca.markets"
     market_data_credentials_present: bool = False
+    massive_base_url: str = "https://api.polygon.io"
+    massive_credentials_present: bool = False
 
 
 @dataclass(frozen=True)

@@ -43,6 +43,13 @@ class LoaderLike(Protocol):
         lookback_days: int,
     ) -> pl.DataFrame: ...
 
+    def stock_trades(
+        self,
+        tickers: list[str],
+        as_of: date,
+        lookback_days: int,
+    ) -> pl.DataFrame: ...
+
     def activity_alerts(
         self,
         tickers: list[str],
@@ -106,6 +113,10 @@ class ScopedPITLoader:
     def option_chains(self, tickers: list[str], as_of: date, lookback_days: int) -> pl.DataFrame:
         self._ensure_in_scope(as_of)
         return self.loader.option_chains(tickers, as_of, lookback_days)
+
+    def stock_trades(self, tickers: list[str], as_of: date, lookback_days: int) -> pl.DataFrame:
+        self._ensure_in_scope(as_of)
+        return self.loader.stock_trades(tickers, as_of, lookback_days)
 
     def activity_alerts(
         self,

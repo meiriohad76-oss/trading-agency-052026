@@ -21,10 +21,13 @@ from pit.manifest import DatasetName, ManifestRegistry
 SIGNAL_DATASETS: Mapping[str, tuple[DatasetName, ...]] = {
     "abnormal_volume": (DatasetName.PRICES_DAILY,),
     "activity_alerts": (DatasetName.UNUSUAL_ACTIVITY_ALERTS,),
+    "block_trade_pressure": (DatasetName.STOCK_TRADES,),
+    "buy_sell_pressure": (DatasetName.STOCK_TRADES,),
     "fundamentals": (DatasetName.SEC_COMPANY_FACTS,),
     "insider": (DatasetName.SEC_FORM4,),
     "institutional": (DatasetName.SEC_13F,),
     "news": (DatasetName.NEWS_RSS,),
+    "options_anomaly": (DatasetName.OPTIONS_CHAINS,),
     "options_flow": (DatasetName.OPTIONS_CHAINS,),
     "sector_momentum": (DatasetName.PRICES_DAILY,),
 }

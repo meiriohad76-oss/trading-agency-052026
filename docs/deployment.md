@@ -42,10 +42,11 @@ Set local-only secrets in `.env`; do not commit real values.
   `research/config/live-refresh.local.json` sets `sec_user_agent`.
 - `OPENAI_API_KEY` is optional in the current paper workflow and reserved for
   future live LLM review calls.
+- `POLYGON_API_KEY` or `MASSIVE_API_KEY` is required only when
+  `stock_trades` is enabled for Massive market-flow refreshes.
 - Planned provider keys are optional until their connectors are enabled:
   `OPENFIGI_API_KEY`, `BENZINGA_API_KEY`, `UNUSUAL_WHALES_API_KEY`,
-  `FRED_API_KEY`, `POLYGON_API_KEY`, `MASSIVE_API_KEY`,
-  `THETADATA_USERNAME`, and `THETADATA_PASSWORD`.
+  `FRED_API_KEY`, `THETADATA_USERNAME`, and `THETADATA_PASSWORD`.
 
 Non-secret refresh settings live in `research/config/live-refresh.local.json`,
 including `rss_feeds`, `filer_ciks`, `cusip_map`, ticker universe, and the
@@ -78,10 +79,33 @@ When persisted, the cycle flows through the same evidence, final-selection,
 risk, execution-preview, audit, dashboard, and metrics path as the seeded
 runtime.
 
-To opt into the options/activity lanes after importing coverage, add
-`options_chains` and/or `unusual_activity_alerts` to `datasets`, then set
-`runtime_signals` in `research/config/live-refresh.local.json` or pass repeated
-`--signal` flags to `scripts/run_live_runtime_cycle.py`.
+To opt into market-flow, options, or activity lanes after importing coverage, add
+`stock_trades`, `options_chains`, and/or `unusual_activity_alerts` to `datasets`,
+then set `runtime_signals` in `research/config/live-refresh.local.json` or pass
+repeated `--signal` flags to `scripts/run_live_runtime_cycle.py`.
+
+For Massive stock-trade pressure, set one local key and keep the default base URL:
+
+```powershell
+POLYGON_API_KEY=<local key>
+# or MASSIVE_API_KEY=<local key>
+MASSIVE_BASE_URL=https://api.polygon.io
+```
+
+Then add these opt-in runtime lanes when `stock_trades` has refreshed:
+
+```json
+"runtime_signals": [
+  "fundamentals",
+  "insider",
+  "institutional",
+  "abnormal_volume",
+  "buy_sell_pressure",
+  "block_trade_pressure",
+  "sector_momentum",
+  "news"
+]
+```
 
 Then verify the runtime can see the persisted rows:
 

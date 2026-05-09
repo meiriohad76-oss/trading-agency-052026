@@ -59,6 +59,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--market-data-feed")
     parser.add_argument("--market-data-adjustment")
     parser.add_argument("--market-data-base-url")
+    parser.add_argument("--massive-base-url")
     parser.add_argument(
         "--output-root",
         type=Path,
@@ -124,6 +125,13 @@ def _batch_config(
             "https://data.alpaca.markets",
         ),
         market_data_credentials_present=_alpaca_credentials_present(),
+        massive_base_url=_setting(
+            args.massive_base_url,
+            overrides.massive_base_url,
+            os.environ.get("MASSIVE_BASE_URL"),
+            "https://api.polygon.io",
+        ),
+        massive_credentials_present=_massive_credentials_present(),
     )
 
 
@@ -151,6 +159,13 @@ def _alpaca_credentials_present() -> bool:
     return bool(
         os.environ.get("ALPACA_API_KEY", "").strip()
         and os.environ.get("ALPACA_SECRET_KEY", "").strip()
+    )
+
+
+def _massive_credentials_present() -> bool:
+    return bool(
+        os.environ.get("MASSIVE_API_KEY", "").strip()
+        or os.environ.get("POLYGON_API_KEY", "").strip()
     )
 
 

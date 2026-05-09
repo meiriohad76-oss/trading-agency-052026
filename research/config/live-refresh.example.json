@@ -7,6 +7,7 @@
     "sec_form4",
     "sec_13f",
     "news_rss",
+    "stock_trades",
     "options_chains",
     "unusual_activity_alerts"
   ],
@@ -15,6 +16,8 @@
     "insider",
     "institutional",
     "abnormal_volume",
+    "buy_sell_pressure",
+    "block_trade_pressure",
     "sector_momentum",
     "news",
     "options_anomaly",
@@ -42,5 +45,6 @@
   "market_data_provider": "yfinance",
   "market_data_feed": "iex",
   "market_data_adjustment": "all",
-  "market_data_base_url": "https://data.alpaca.markets"
+  "market_data_base_url": "https://data.alpaca.markets",
+  "massive_base_url": "https://api.polygon.io"
 }

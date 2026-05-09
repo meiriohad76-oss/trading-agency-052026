@@ -18,6 +18,7 @@ ESTIMATED_JOB_SECONDS = {
     "sec_form4": 600.0,
     "sec_13f": 90.0,
     "news_rss": 20.0,
+    "stock_trades": 180.0,
     "options_chains": 60.0,
     "unusual_activity_alerts": 10.0,
 }
@@ -77,6 +78,8 @@ def result_to_json(result: RefreshBatchResult) -> str:
             "market_data_adjustment": result.config.market_data_adjustment,
             "market_data_base_url": result.config.market_data_base_url,
             "market_data_credentials_present": result.config.market_data_credentials_present,
+            "massive_base_url": result.config.massive_base_url,
+            "massive_credentials_present": result.config.massive_credentials_present,
         },
         "jobs": [asdict(job) for job in result.jobs],
         "progress": result_progress(result),

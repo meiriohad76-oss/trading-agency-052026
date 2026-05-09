@@ -1,16 +1,16 @@
 # Phase Status
 
-**Status:** reconciled after T99
+**Status:** reconciled after T109
 **Owner:** Ohad Meiri
-**Last updated:** 2026-05-08
+**Last updated:** 2026-05-09
 
 This document is the operational truth table for the repo. It separates merged
 implementation scaffolding from accepted phase gates.
 
 ## Current Truth
 
-- T01-T99 are archived under `tickets/done/`.
-- T100-T104 are open backlog tickets for subscription-email evidence agents.
+- T01-T99 and T105-T109 are archived under `tickets/done/`.
+- T100-T104 remain open backlog tickets for subscription-email evidence agents.
 - The repo contains Phase 0 foundation, Phase 1 research machinery, Phase 2
   contracts/dashboard scaffolding, and Phase 3 runtime orchestration through a
   PIT-backed local paper cycle.
@@ -47,7 +47,8 @@ implementation scaffolding from accepted phase gates.
 7. Portfolio policy is still static/read-only, not persisted or user-editable.
 8. Options/unusual-activity lanes are implemented and opt-in:
    `options_anomaly`, `options_flow`, and `activity_alerts`. Provider selection
-   is still deferred; the default runtime lane set remains stocks-only.
+   is still deferred for confirmed options/dark-pool alerts; the default runtime
+   lane set remains stocks-only.
 9. Current-date live validation can now select `market_data_provider="alpaca"`;
    local credentials are required and are checked by Live Config before refresh.
 10. Data refresh batches now write incremental progress and ETA status; the
@@ -84,12 +85,18 @@ implementation scaffolding from accepted phase gates.
 23. Subscription-email agents are now planned as T100-T104: a shared mailbox
     evidence foundation plus separate Seeking Alpha, TradeVision, and Zacks
     agents, followed by orchestration and calibration.
+24. Massive/Polygon delayed stock trades are now wired as an opt-in
+    `stock_trades` dataset with `buy_sell_pressure` and `block_trade_pressure`
+    runtime lanes. These lanes are inferred from confirmed prints and require
+    `POLYGON_API_KEY` or `MASSIVE_API_KEY` only when enabled.
 
 ## Next Ticket Candidates
 
 The active backlog is T100-T104. Recommended order is T100 first, then T101-T103
 in parallel if ownership is split, then T104 once all subscription-email agents
-can emit fixture evidence.
+can emit fixture evidence. After the user adds a Massive/Polygon key, run a
+small live `stock_trades` refresh and keep market-flow lanes context-only until
+H1 has enough coverage to retest them.
 
 ## Operating Rule
 

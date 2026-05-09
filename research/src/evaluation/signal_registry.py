@@ -3,6 +3,8 @@ from __future__ import annotations
 from backtests.scoped_loader import SignalFn
 from signals.abnormal_volume import abnormal_volume_score
 from signals.activity_alerts import activity_alert_score
+from signals.block_trade_pressure import block_trade_pressure_score
+from signals.buy_sell_pressure import buy_sell_pressure_score
 from signals.fundamentals import fundamental_score
 from signals.insider import insider_score
 from signals.institutional import institutional_score
@@ -14,6 +16,8 @@ from signals.sector_momentum import sector_momentum_score
 SIGNALS: dict[str, SignalFn] = {
     "abnormal_volume": abnormal_volume_score,
     "activity_alerts": activity_alert_score,
+    "block_trade_pressure": block_trade_pressure_score,
+    "buy_sell_pressure": buy_sell_pressure_score,
     "fundamentals": fundamental_score,
     "insider": insider_score,
     "institutional": institutional_score,

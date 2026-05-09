@@ -44,6 +44,24 @@ LANE_CONFIGS: dict[str, RuntimeLaneConfig] = {
         "CONFIRMED",
         FreshnessDomain.NEWS,
     ),
+    "block_trade_pressure": RuntimeLaneConfig(
+        "block_trade_pressure",
+        DatasetName.STOCK_TRADES,
+        "massive-stock-trades",
+        "INFERRED_FROM_BARS",
+        "INFERRED",
+        FreshnessDomain.PRICING,
+        0.55,
+    ),
+    "buy_sell_pressure": RuntimeLaneConfig(
+        "buy_sell_pressure",
+        DatasetName.STOCK_TRADES,
+        "massive-stock-trades",
+        "INFERRED_FROM_BARS",
+        "INFERRED",
+        FreshnessDomain.PRICING,
+        0.55,
+    ),
     "fundamentals": RuntimeLaneConfig(
         "fundamentals",
         DatasetName.SEC_COMPANY_FACTS,
@@ -137,6 +155,12 @@ DATASET_CONFIGS: dict[DatasetName, RuntimeDatasetConfig] = {
         "RSS_HEADLINE",
         FreshnessDomain.NEWS,
     ),
+    DatasetName.STOCK_TRADES: RuntimeDatasetConfig(
+        DatasetName.STOCK_TRADES,
+        "massive-stock-trades",
+        "CONFIRMED_TRADE_PRINT",
+        FreshnessDomain.PRICING,
+    ),
     DatasetName.OPTIONS_CHAINS: RuntimeDatasetConfig(
         DatasetName.OPTIONS_CHAINS,
         "options-chains",
@@ -160,6 +184,12 @@ STOCKS_ONLY_RUNTIME_SIGNALS = (
     "news",
 )
 
-OPTIONAL_RUNTIME_SIGNALS = ("activity_alerts", "options_anomaly", "options_flow")
+OPTIONAL_RUNTIME_SIGNALS = (
+    "activity_alerts",
+    "block_trade_pressure",
+    "buy_sell_pressure",
+    "options_anomaly",
+    "options_flow",
+)
 
 DEFAULT_RUNTIME_SIGNALS = STOCKS_ONLY_RUNTIME_SIGNALS
