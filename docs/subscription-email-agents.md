@@ -53,6 +53,48 @@ The first implementation uses direct HTTP fetches for allowlisted links. If a
 paid article requires an active browser login, the fetch may return a login page
 or fail; those attempts are counted but do not expose article content.
 
+## Authenticated Article Sessions
+
+For paid article links, use a local saved browser session instead of storing
+site passwords in config. Install the optional browser tooling:
+
+```powershell
+.\.venv\Scripts\python -m pip install .[web]
+.\.venv\Scripts\python -m playwright install chromium
+```
+
+Then save a session for each paid provider you want the agent to open:
+
+```powershell
+.\.venv\Scripts\python research\scripts\save_article_browser_session.py `
+  --provider seeking_alpha
+```
+
+The script opens a visible browser. Log in manually, return to the terminal, and
+press Enter. The session is saved under
+`research/config/browser-sessions/`, which is ignored by git.
+
+Supported providers are:
+
+- `seeking_alpha`
+- `tradevision`
+- `zacks`
+
+After at least one session is saved, enable link opening in
+`research/config/subscription-email.local.json`:
+
+```json
+"follow_article_links": true,
+"article_fetch_mode": "auto",
+"article_browser_state_dir": "research/config/browser-sessions",
+"article_browser_wait_seconds": 5
+```
+
+`auto` tries direct HTTP, Scrapling, and then the saved browser session. Use
+`browser` when a provider always requires login. Article text is analyzed in
+memory only; summaries store hashes, ticker tags, direction, and catalyst tags,
+not the raw paid article body.
+
 ## Import Command
 
 ```powershell

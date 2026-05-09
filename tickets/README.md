@@ -13,7 +13,7 @@ Current project status is tracked in `docs/phase-status.md`.
 
 ## Current Queue
 
-No open implementation tickets are currently queued in this directory.
+- T115: Massive historical market-flow backtest.
 
 Completed archive:
 
@@ -80,8 +80,7 @@ Use `docs/phase-status.md` as the source of truth before drafting the next ticke
 
 Recommended next batch:
 
-- Run a live Massive/Polygon stock-trades refresh after adding the local key.
-- Run the market-flow worker on real coverage.
+- Run T115 after adding the local Massive/Polygon key.
 - Run subscription-email ingest after exporting approved `.eml` messages.
 - Draft the next ticket from the first live validation gap that blocks paper
   testing.

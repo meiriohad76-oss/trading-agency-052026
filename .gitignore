@@ -16,6 +16,7 @@ __pycache__/
 # Research data
 research/config/*.local.json
 research/config/*token*.json
+research/config/browser-sessions/**
 research/data/raw/subscription_emails/**
 research/data/raw/**
 !research/data/raw/.gitkeep

@@ -96,8 +96,9 @@ implementation scaffolding from accepted phase gates.
 
 ## Next Ticket Candidates
 
-After the user adds a Massive/Polygon key, run a small live `stock_trades`
-refresh, then run the market-flow worker. When subscription email exports are
+T115 is queued for the Massive historical market-flow backtest. After the user
+adds a Massive/Polygon key, run a small live `stock_trades` refresh, then run the
+market-flow worker on real coverage. When subscription email exports are
 available, run `import_subscription_emails.py`, review the T104 calibration
 artifact, and keep those lanes context-only until real mailbox coverage is
 validated. Keep market-flow lanes context-only until the worker has enough

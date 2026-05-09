@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+from subscription_email import linked_content
+from subscription_email.article_session import browser_state_path, provider_for_url
 from subscription_email.calibration import write_subscription_email_calibration
 from subscription_email.classifiers import classify_subscription_emails
 from subscription_email.config import SubscriptionEmailConfig, load_subscription_email_config
@@ -206,6 +208,69 @@ def test_ingest_uses_linked_article_content_for_ticker_and_summary(tmp_path: Pat
     assert "Paid article title" not in json.dumps(summary)
 
 
+def test_fetch_linked_article_can_fall_back_to_browser_session(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state_dir = tmp_path / "sessions"
+    state_dir.mkdir()
+    (state_dir / "seeking_alpha.json").write_text("{}", encoding="utf-8")
+    config = _config(article_fetch_mode="auto", article_browser_state_dir=state_dir)
+    article_text = (
+        "AAPL receives an analyst upgrade with positive revenue guidance. "
+        "Management raised full-year expectations after strong demand signals. "
+    ) * 3
+
+    monkeypatch.setattr(
+        linked_content,
+        "_fetch_with_httpx",
+        lambda _url, _timeout: FetchedArticle(
+            url="https://seekingalpha.com/article/123",
+            status_code=200,
+            title="Login",
+            text="Sign in to continue",
+        ),
+    )
+    monkeypatch.setattr(
+        linked_content,
+        "_fetch_with_scrapling",
+        lambda _url, _timeout: FetchedArticle(
+            url="https://seekingalpha.com/article/123",
+            status_code=200,
+            title="Subscribe",
+            text="Subscribe to continue",
+        ),
+    )
+    monkeypatch.setattr(
+        linked_content,
+        "fetch_with_browser_session",
+        lambda _url, **_kwargs: FetchedArticle(
+            url="https://seekingalpha.com/article/123",
+            status_code=200,
+            title="AAPL upgrade",
+            text=article_text,
+        ),
+    )
+
+    page = linked_content.fetch_linked_article(
+        "https://seekingalpha.com/article/123",
+        EXPECTED_ARTICLE_TIMEOUT_SECONDS,
+        config=config,
+    )
+
+    assert page.title == "AAPL upgrade"
+    assert "positive revenue guidance" in page.text
+
+
+def test_browser_session_provider_paths_are_local_and_gitignored(tmp_path: Path) -> None:
+    assert provider_for_url("https://seekingalpha.com/article/123") == "seeking_alpha"
+    assert provider_for_url("https://www.zacks.com/stock/news/abc") == "zacks"
+    assert provider_for_url("https://example.test/article") is None
+    assert browser_state_path(provider="tradevision", repo_root=tmp_path) == (
+        tmp_path / "research" / "config" / "browser-sessions" / "tradevision.json"
+    )
+
+
 def test_mailbox_sync_saves_only_allowlisted_messages(tmp_path: Path) -> None:
     mailbox = tmp_path / "mail"
     config_path = _config_path(tmp_path, input_path=mailbox, mode="gmail")
@@ -360,6 +425,8 @@ def _config_path(
     services: list[str] | None = None,
     follow_article_links: bool = False,
     mode: str = "local_eml",
+    article_fetch_mode: str = "auto",
+    article_browser_state_dir: Path | None = None,
 ) -> Path:
     path = tmp_path / "subscription-email.json"
     payload: dict[str, object] = {
@@ -380,7 +447,10 @@ def _config_path(
         "mailbox_mark_seen": False,
         "follow_article_links": follow_article_links,
         "article_link_domains": ["seekingalpha.com"],
+        "article_fetch_mode": article_fetch_mode,
     }
+    if article_browser_state_dir is not None:
+        payload["article_browser_state_dir"] = str(article_browser_state_dir)
     path.write_text(
         json.dumps(payload),
         encoding="utf-8",
@@ -388,7 +458,11 @@ def _config_path(
     return path
 
 
-def _config() -> SubscriptionEmailConfig:
+def _config(
+    *,
+    article_fetch_mode: str = "auto",
+    article_browser_state_dir: Path | None = None,
+) -> SubscriptionEmailConfig:
     return SubscriptionEmailConfig(
         mode="local_eml",
         input_path=Path("mail"),
@@ -400,6 +474,8 @@ def _config() -> SubscriptionEmailConfig:
             "zacks.com",
         ),
         tickers=("AAPL", "MSFT", "NVDA"),
+        article_fetch_mode=article_fetch_mode,
+        article_browser_state_dir=article_browser_state_dir,
     )
 
 
