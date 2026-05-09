@@ -275,6 +275,7 @@ def _summary_payload(
             "succeeded": link_stats.succeeded,
             "failed": link_stats.failed,
             "skipped": link_stats.skipped,
+            "cache_hits": link_stats.cached,
         },
         "manual_review_count": len(manual_review),
         "ignored_count": len(ignored),
