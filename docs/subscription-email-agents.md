@@ -99,13 +99,14 @@ After at least one session is saved, enable link opening in
 
 `auto` tries direct HTTP, Scrapling, and then the saved browser session. Use
 `browser` when a provider always requires login. Article text is analyzed in
-memory only; summaries store hashes, ticker tags, direction, and catalyst tags,
-not the raw paid article body.
+memory only; summaries store hashes, ticker tags, direction, catalyst tags,
+risk flags, key-point labels, and a compact derived thesis, not the raw paid
+article body.
 
 Successful article analyses are cached by normalized URL in the ignored
 `article_analysis_cache_path`. The cache stores only URL, hashes, ticker tags,
-direction, catalyst tags, status, and fetch time, so repeated monitor cycles do
-not reopen old paid links.
+direction, catalyst tags, risk flags, key-point labels, derived thesis, status,
+and fetch time, so repeated monitor cycles do not reopen old paid links.
 
 ## Import Command
 
