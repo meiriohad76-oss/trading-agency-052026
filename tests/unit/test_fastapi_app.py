@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
+import pandas as pd
 from fastapi.testclient import TestClient
 from pytest import MonkeyPatch
 
@@ -11,6 +13,7 @@ from agency.api.health import runtime_data_source_status
 from agency.app import create_app
 from agency.dashboard import (
     candidate_detail_summary,
+    candidate_email_evidence,
     candidate_review_summary,
     candidate_rows,
     command_summary,
@@ -51,6 +54,7 @@ FULL_RELIABILITY_PERCENT = 100
 EXPECTED_TIMELINE_LIMIT = 50
 EXPECTED_REVIEW_QUEUE_COUNT = 4
 EXPECTED_REVIEWED_COUNT = 3
+EXPECTED_EMAIL_EVENT_COUNT = 2
 
 
 def test_health_endpoint_reports_service_status() -> None:
@@ -350,6 +354,11 @@ def test_final_selection_rows_follow_service_contract() -> None:
     assert rows[0]["llm_action"] == "NO_REVIEW"
     assert rows[0]["confirmed_signal_count"] == EXPECTED_CONFIRMED_SIGNAL_COUNT
     assert rows[0]["policy_gates"][0]["status"] == "PASS"
+    assert rows[0]["decision_explanation"].startswith("The final action is WATCH")
+    assert rows[0]["actionable_signals"][0]["summary"] == (
+        "Fundamental metrics are constructive."
+    )
+    assert rows[0]["actionable_signals"][0]["score"] == "+0.70 bullish"
 
 
 def test_risk_decision_rows_summarize_risk_contract() -> None:
@@ -518,6 +527,76 @@ def test_candidate_detail_summary_uses_latest_report() -> None:
     assert summary["report_count"] == 1
     assert summary["event_count"] == 1
     assert summary["latest_action"] == "WATCH"
+    assert "backed by 2 independent source(s)" in str(summary["detail"])
+
+
+def test_candidate_email_evidence_summarizes_email_and_feed_rows(tmp_path: Path) -> None:
+    event_path = tmp_path / "subscription_emails.parquet"
+    news_path = tmp_path / "news_rss.parquet"
+    pd.DataFrame(
+        [
+            {
+                "ticker": "MSFT",
+                "service": "seeking_alpha",
+                "event_type": "sa_analyst_article",
+                "direction": "BULLISH",
+                "title": "Seeking Alpha Email: MSFT article",
+                "timestamp_as_of": "2026-05-08T12:00:00+00:00",
+                "linked_content_status": "article_analyzed",
+                "linked_content_summary": "Linked content thesis: constructive context.",
+            },
+            {
+                "ticker": "MSFT",
+                "service": "seeking_alpha",
+                "event_type": "sa_rank_change",
+                "direction": "BEARISH",
+                "title": "Seeking Alpha Email: MSFT rank change",
+                "timestamp_as_of": "2026-05-08T11:00:00+00:00",
+                "linked_content_status": "not_requested",
+                "linked_content_summary": None,
+            },
+            {
+                "ticker": "AAPL",
+                "service": "zacks",
+                "event_type": "zacks_rank_change",
+                "direction": "BULLISH",
+                "title": "Other ticker",
+                "timestamp_as_of": "2026-05-08T10:00:00+00:00",
+                "linked_content_status": "not_requested",
+                "linked_content_summary": None,
+            },
+        ]
+    ).to_parquet(event_path)
+    pd.DataFrame(
+        [
+            {
+                "ticker": "MSFT",
+                "feed_name": "Seeking Alpha Email",
+                "title": "MSFT email-derived row",
+                "summary": "Email-derived evidence classified as bullish.",
+                "timestamp_as_of": "2026-05-08T12:00:00+00:00",
+                "source_tier": "PAID_SUB_EMAIL",
+            },
+            {
+                "ticker": "MSFT",
+                "feed_name": "SEC",
+                "title": "Non-email row",
+                "summary": "Official filing.",
+                "timestamp_as_of": "2026-05-08T09:00:00+00:00",
+                "source_tier": "OFFICIAL_FILING",
+            },
+        ]
+    ).to_parquet(news_path)
+
+    evidence = candidate_email_evidence("msft", event_path=event_path, news_path=news_path)
+
+    assert evidence["event_count"] == EXPECTED_EMAIL_EVENT_COUNT
+    assert evidence["feed_count"] == 1
+    assert evidence["analyzed_count"] == 1
+    assert evidence["service_summary"] == "Seeking Alpha 2"
+    assert evidence["rows"][0]["linked_status_label"] == "Article Analyzed"
+    assert evidence["rows"][0]["summary"] == "Linked content thesis: constructive context."
+    assert evidence["feed_rows"][0]["title"] == "MSFT email-derived row"
 
 
 def test_candidate_review_summary_uses_latest_human_review_event() -> None:
