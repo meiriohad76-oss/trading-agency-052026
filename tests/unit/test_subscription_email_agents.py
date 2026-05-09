@@ -131,7 +131,7 @@ def test_ingest_writes_pit_clean_outputs_without_private_bodies(tmp_path: Path) 
     assert result.processed_emails == 1
     assert result.news_rows == 1
     assert result.ignored_count == 1
-    assert news.iloc[0]["timestamp_as_of"] == FETCHED_AT.isoformat()
+    assert news.iloc[0]["timestamp_as_of"] == pd.Timestamp(FETCHED_AT)
     assert events.iloc[0]["message_id_hash"] != "sa.eml@example.test"
     assert "PRIVATE_BODY_SENTENCE" not in json.dumps(summary)
     assert summary["ignored"][0]["reason"] == "future_email"
