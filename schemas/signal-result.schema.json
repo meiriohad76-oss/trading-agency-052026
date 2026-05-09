@@ -80,6 +80,10 @@
     "suppression_reason": {
       "type": ["string", "null"],
       "minLength": 1
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1
     }
   }
 }

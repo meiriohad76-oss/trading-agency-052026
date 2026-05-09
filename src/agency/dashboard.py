@@ -727,6 +727,7 @@ def _final_selection_row(report: Mapping[str, object]) -> dict[str, object]:
         "freshness": str(data_quality["freshness"]),
         "source_count": _int_field(data_quality, "source_count"),
         "confirmed_signal_count": _int_field(data_quality, "confirmed_signal_count"),
+        "context_signals": _context_signal_rows(evidence_pack),
     }
 
 
@@ -818,6 +819,22 @@ def _execution_preview_row(preview: Mapping[str, object]) -> dict[str, object]:
         "time_in_force": preview["time_in_force"] or "None",
         "reason": reasons[0] if reasons else "preview recorded",
     }
+
+
+def _context_signal_rows(evidence_pack: Mapping[str, object]) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for item in _list_field(evidence_pack, "context_signals"):
+        signal = cast(Mapping[str, object], item)
+        rows.append(
+            {
+                "lane": _label_text(str(signal["lane"])),
+                "direction": str(signal["direction"]),
+                "direction_class": _direction_class(str(signal["direction"])),
+                "confidence_pct": _percent(signal, "confidence"),
+                "summary": str(signal.get("summary") or _reason_text(signal)),
+            }
+        )
+    return rows
 
 
 def _candidate_row(report: Mapping[str, object]) -> dict[str, object]:
@@ -1075,6 +1092,14 @@ def _decision_class(decision: str) -> str:
     if decision == "WARN":
         return "warn"
     return "block"
+
+
+def _direction_class(direction: str) -> str:
+    if direction == "BULLISH":
+        return "pass"
+    if direction == "BEARISH":
+        return "block"
+    return "neutral"
 
 
 def _paper_review_state(decision: str) -> str:

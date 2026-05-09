@@ -80,6 +80,25 @@ def test_pit_loader_filters_activity_alerts_by_ticker_and_observed_date(tmp_path
     assert [item.value["ticker"] for item in result] == ["AAPL"]
 
 
+def test_pit_loader_filters_subscription_emails_by_ticker_and_observed_date(
+    tmp_path: Path,
+) -> None:
+    frame = pl.DataFrame(
+        [
+            _email_row("AAPL", "old", as_of=date(2026, 5, 1)),
+            _email_row("AAPL", "inside", as_of=date(2026, 5, 5)),
+            _email_row("AAPL", "future", as_of=date(2026, 5, 7)),
+            _email_row("MSFT", "other", as_of=date(2026, 5, 5)),
+        ]
+    )
+    loader = loader_with(tmp_path, {DatasetName.SUBSCRIPTION_EMAILS: frame})
+
+    result = loader.subscription_emails(["AAPL"], date(2026, 5, 6), lookback_days=3)
+
+    assert [item.provenance.source_id for item in result] == ["inside"]
+    assert [item.value["linked_content_status"] for item in result] == ["article_analyzed"]
+
+
 def _alert_row(
     ticker: str,
     source_id: str,
@@ -97,5 +116,31 @@ def _alert_row(
         "volume": 10_000.0,
         "notional": notional,
         "premium": None,
+        **provenance(SourceTier.PAID_SUB_EMAIL, as_of, source_id=source_id),
+    }
+
+
+def _email_row(
+    ticker: str,
+    source_id: str,
+    *,
+    as_of: date = date(2026, 5, 8),
+) -> dict[str, object]:
+    return {
+        "ticker": ticker,
+        "service": "seeking_alpha",
+        "services": ["seeking_alpha"],
+        "event_type": "sa_analyst_article",
+        "event_types": ["sa_analyst_article"],
+        "direction": "BULLISH",
+        "title": "hashed title only",
+        "source_refs": [],
+        "message_id_hash": f"message-{source_id}",
+        "sender_domain": "email.seekingalpha.com",
+        "received_at": as_of,
+        "linked_content_status": "article_analyzed",
+        "linked_content_url": "https://seekingalpha.com/article/fixture",
+        "linked_content_title_hash": "titlehash",
+        "linked_content_summary": "Linked content thesis: constructive context for AAPL.",
         **provenance(SourceTier.PAID_SUB_EMAIL, as_of, source_id=source_id),
     }

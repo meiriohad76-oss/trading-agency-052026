@@ -17,6 +17,8 @@ EVENT_COLUMNS = [
     "direction",
     "title",
     "source_refs",
+    "source",
+    "source_tier",
     "source_id",
     "source_url",
     "message_id_hash",
@@ -25,8 +27,10 @@ EVENT_COLUMNS = [
     "linked_content_status",
     "linked_content_url",
     "linked_content_title_hash",
+    "linked_content_summary",
     "timestamp_observed",
     "timestamp_as_of",
+    "freshness",
     "confidence",
     "verification_level",
 ]
@@ -36,9 +40,10 @@ def write_event_frame(path: Path, frame: pd.DataFrame) -> int:
     if frame.empty:
         return 0
     path.parent.mkdir(parents=True, exist_ok=True)
-    output = frame[EVENT_COLUMNS].copy()
+    output = _with_event_defaults(frame)[EVENT_COLUMNS].copy()
     if path.exists():
-        output = pd.concat([pd.read_parquet(path), output], ignore_index=True)
+        existing = _with_event_defaults(pd.read_parquet(path))[EVENT_COLUMNS]
+        output = pd.concat([existing, output], ignore_index=True)
     output = (
         output.drop_duplicates(subset=["source_id"], keep="last")
         .sort_values(["timestamp_as_of", "ticker", "source_id"])
@@ -46,6 +51,20 @@ def write_event_frame(path: Path, frame: pd.DataFrame) -> int:
     )
     output.to_parquet(path, engine="pyarrow", compression="snappy", index=False)
     return len(frame)
+
+
+def _with_event_defaults(frame: pd.DataFrame) -> pd.DataFrame:
+    output = frame.copy()
+    defaults: dict[str, str | None] = {
+        "source": "subscription-email",
+        "source_tier": "PAID_SUB_EMAIL",
+        "freshness": "FRESH",
+        "linked_content_summary": None,
+    }
+    for column, value in defaults.items():
+        if column not in output.columns:
+            output[column] = value
+    return output
 
 
 def write_manifest(

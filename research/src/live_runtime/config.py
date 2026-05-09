@@ -95,6 +95,15 @@ LANE_CONFIGS: dict[str, RuntimeLaneConfig] = {
         FreshnessDomain.NEWS,
         0.6,
     ),
+    "subscription_thesis": RuntimeLaneConfig(
+        "subscription_thesis",
+        DatasetName.SUBSCRIPTION_EMAILS,
+        "subscription-email-thesis",
+        "PAID_SUB_EMAIL",
+        "CONFIRMED",
+        FreshnessDomain.NEWS,
+        0.65,
+    ),
     "options_anomaly": RuntimeLaneConfig(
         "options_anomaly",
         DatasetName.OPTIONS_CHAINS,
@@ -155,6 +164,12 @@ DATASET_CONFIGS: dict[DatasetName, RuntimeDatasetConfig] = {
         "RSS_HEADLINE",
         FreshnessDomain.NEWS,
     ),
+    DatasetName.SUBSCRIPTION_EMAILS: RuntimeDatasetConfig(
+        DatasetName.SUBSCRIPTION_EMAILS,
+        "subscription-email-thesis",
+        "PAID_SUB_EMAIL",
+        FreshnessDomain.NEWS,
+    ),
     DatasetName.STOCK_TRADES: RuntimeDatasetConfig(
         DatasetName.STOCK_TRADES,
         "massive-stock-trades",
@@ -190,6 +205,7 @@ OPTIONAL_RUNTIME_SIGNALS = (
     "buy_sell_pressure",
     "options_anomaly",
     "options_flow",
+    "subscription_thesis",
 )
 
 DEFAULT_RUNTIME_SIGNALS = STOCKS_ONLY_RUNTIME_SIGNALS

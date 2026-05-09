@@ -651,6 +651,29 @@ th {
   gap: 12px;
 }
 
+.context-list {
+  display: grid;
+  gap: 10px;
+}
+
+.context-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.context-row span,
+.context-row p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.context-row p {
+  grid-column: 1 / -1;
+}
+
 .timeline-item {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

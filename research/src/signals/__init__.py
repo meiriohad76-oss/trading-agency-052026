@@ -12,6 +12,11 @@ from .options_anomaly import options_anomaly_frame, options_anomaly_score
 from .options_flow import options_flow_frame, options_flow_score
 from .prepost import prepost_gap_frame, prepost_gap_score
 from .sector_momentum import sector_momentum_frame, sector_momentum_score
+from .subscription_thesis import (
+    SubscriptionThesisContext,
+    subscription_thesis_contexts,
+    subscription_thesis_score,
+)
 
 __all__ = [
     "abnormal_volume_frame",
@@ -38,4 +43,7 @@ __all__ = [
     "prepost_gap_score",
     "sector_momentum_frame",
     "sector_momentum_score",
+    "SubscriptionThesisContext",
+    "subscription_thesis_contexts",
+    "subscription_thesis_score",
 ]

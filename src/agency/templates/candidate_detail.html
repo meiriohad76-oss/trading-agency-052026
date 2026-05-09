@@ -107,6 +107,20 @@
           </div>
         </div>
         <p class="muted-line">{{ report.llm_rationale }}</p>
+        {% if report.context_signals %}
+        <div class="context-list" aria-label="Context signals">
+          {% for signal in report.context_signals %}
+          <article class="context-row">
+            <div>
+              <strong>{{ signal.lane }}</strong>
+              <span>{{ signal.confidence_pct }}% confidence</span>
+            </div>
+            <span class="tag tag-{{ signal.direction_class }}">{{ signal.direction }}</span>
+            <p>{{ signal.summary }}</p>
+          </article>
+          {% endfor %}
+        </div>
+        {% endif %}
       </article>
       {% else %}
       <p class="empty-block">No selection reports yet</p>

@@ -7,6 +7,7 @@ from evaluation.signal_registry import SIGNALS
 from live_runtime.config import LANE_CONFIGS, RuntimeLaneConfig
 from live_runtime.freshness import effective_freshness_timestamp
 from pit.manifest import DataManifest, ManifestRegistry
+from signals.subscription_thesis import subscription_thesis_contexts
 
 from agency.provenance import compute_freshness
 from agency.services import build_signal_result
@@ -26,6 +27,20 @@ def build_runtime_signals(
     results: list[dict[str, object]] = []
     for lane in lanes:
         config = LANE_CONFIGS[lane]
+        if lane == "subscription_thesis":
+            results.extend(
+                _subscription_thesis_signals(
+                    cycle_id=cycle_id,
+                    as_of=as_of,
+                    as_of_text=as_of_text,
+                    generated_at=generated_at,
+                    tickers=tickers,
+                    loader=loader,
+                    registry=registry,
+                    config=config,
+                )
+            )
+            continue
         try:
             scores = SIGNALS[lane](as_of, tickers, loader)
             manifest = registry.require(config.dataset, as_of=as_of)
@@ -47,6 +62,41 @@ def build_runtime_signals(
             for ticker, score in sorted(filtered_scores.items())
         )
     return results
+
+
+def _subscription_thesis_signals(
+    *,
+    cycle_id: str,
+    as_of: date,
+    as_of_text: str,
+    generated_at: datetime,
+    tickers: set[str],
+    loader: Any,
+    registry: ManifestRegistry,
+    config: RuntimeLaneConfig,
+) -> list[dict[str, object]]:
+    try:
+        contexts = subscription_thesis_contexts(as_of, tickers, loader)
+        manifest = registry.require(config.dataset, as_of=as_of)
+    except Exception:
+        return []
+    provenance = _provenance(config, manifest, generated_at=generated_at)
+    return [
+        build_signal_result(
+            cycle_id=cycle_id,
+            ticker=context.ticker,
+            as_of=as_of_text,
+            lane=config.lane,
+            score=context.score,
+            provenance=provenance,
+            confidence=config.confidence,
+            reason_codes=["subscription_thesis_context_only"],
+            actionability="CONTEXT_ONLY",
+            summary=context.summary,
+        )
+        for context in contexts
+        if context.ticker in tickers
+    ]
 
 
 def _provenance(

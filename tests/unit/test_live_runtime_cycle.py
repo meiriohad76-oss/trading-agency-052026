@@ -149,6 +149,12 @@ def test_optional_market_flow_lanes_require_stock_trades_dataset() -> None:
     assert datasets == {DatasetName.STOCK_TRADES}
 
 
+def test_optional_subscription_thesis_lane_requires_subscription_email_dataset() -> None:
+    datasets = required_runtime_datasets(("subscription_thesis",))
+
+    assert datasets == {DatasetName.SUBSCRIPTION_EMAILS}
+
+
 def test_live_pit_runtime_cycle_can_emit_market_flow_signals(tmp_path: Path) -> None:
     loader = loader_with(
         tmp_path,
@@ -175,6 +181,43 @@ def test_live_pit_runtime_cycle_can_emit_market_flow_signals(tmp_path: Path) -> 
 
     assert cycle.source_health[0]["source"] == "massive-stock-trades"
     assert summary["signal_count"] == EXPECTED_PRICE_SIGNAL_COUNT
+
+
+def test_live_pit_runtime_cycle_keeps_subscription_thesis_context_only(
+    tmp_path: Path,
+) -> None:
+    loader = loader_with(
+        tmp_path,
+        {
+            DatasetName.SUBSCRIPTION_EMAILS: pl.DataFrame(
+                [
+                    subscription_email(
+                        "AAPL",
+                        "BULLISH",
+                        "Linked content thesis: constructive context for AAPL.",
+                    )
+                ]
+            )
+        },
+    )
+
+    cycle = build_live_pit_runtime_cycle(
+        cycle_id="cycle-thesis",
+        as_of=date(2026, 5, 6),
+        tickers={"AAPL"},
+        manifest_root=loader.manifest_root,
+        parquet_root=loader.parquet_root,
+        lanes=("subscription_thesis",),
+        generated_at=GENERATED_AT,
+    )
+    pack = cycle.evidence_packs[0]
+    report = cycle.selection_reports[0]
+
+    assert len(pack["context_signals"]) == 1
+    assert pack["actionable_signals"] == []
+    assert pack["data_quality"]["source_count"] == 0
+    assert report["final_action"] == "NO_TRADE"
+    assert "Subscription article thesis" in str(pack["context_signals"][0]["summary"])
 
 
 def test_replay_freshness_caps_future_manifest_timestamps(tmp_path: Path) -> None:
@@ -242,4 +285,33 @@ def stock_trade(
         "sequence_number": 1,
         "source_id": f"{ticker}-flow",
         "timestamp_as_of": date(2026, 5, 6),
+    }
+
+
+def subscription_email(ticker: str, direction: str, summary: str) -> dict[str, object]:
+    return {
+        "ticker": ticker,
+        "service": "seeking_alpha",
+        "services": ["seeking_alpha"],
+        "event_type": "sa_analyst_article",
+        "event_types": ["sa_analyst_article"],
+        "direction": direction,
+        "title": "Safe hashed title only",
+        "source_refs": [],
+        "source": "seeking_alpha-email",
+        "source_tier": "PAID_SUB_EMAIL",
+        "source_id": f"{ticker}-subscription-thesis",
+        "source_url": "https://seekingalpha.com/article/fixture",
+        "message_id_hash": f"{ticker}-message",
+        "sender_domain": "email.seekingalpha.com",
+        "received_at": date(2026, 5, 6),
+        "linked_content_status": "article_analyzed",
+        "linked_content_url": "https://seekingalpha.com/article/fixture",
+        "linked_content_title_hash": "titlehash",
+        "linked_content_summary": summary,
+        "timestamp_observed": GENERATED_AT,
+        "timestamp_as_of": date(2026, 5, 6),
+        "freshness": "FRESH",
+        "confidence": 1.0,
+        "verification_level": "CONFIRMED",
     }

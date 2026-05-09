@@ -90,6 +90,7 @@ def _classify_service(
                 source_url=str(row["source_url"]),
                 source_id=str(row["source_id"]),
                 confidence=_float(row["confidence"]),
+                fetched_at=fetched_at,
             )
             for ticker, row in zip(tickers, news_rows, strict=True)
         ],
@@ -131,6 +132,7 @@ def _tradevision_rows(
                     source_url=str(row["source_url"]),
                     source_id=str(row["source_id"]),
                     confidence=_float(row["confidence"]),
+                    fetched_at=fetched_at,
                 )
                 for ticker, row in zip(tickers, news_rows, strict=True)
             ],
@@ -154,6 +156,7 @@ def _tradevision_rows(
                 source_url=str(row["source_url"]),
                 source_id=str(row["source_id"]),
                 confidence=_float(row["confidence"]),
+                fetched_at=fetched_at,
             )
             for ticker, row in zip(tickers, activity_rows, strict=True)
         ],
@@ -247,8 +250,14 @@ def _event_row(
     source_url: str,
     source_id: str,
     confidence: float,
+    fetched_at: datetime,
 ) -> dict[str, object]:
     message_id_hash = _hash(record.message_id)
+    freshness = compute_freshness(
+        record.received_at,
+        FreshnessDomain.NEWS,
+        now=fetched_at,
+    ).value
     return {
         "ticker": ticker,
         "service": service,
@@ -265,6 +274,8 @@ def _event_row(
                 "message_id_hash": message_id_hash,
             }
         ],
+        "source": f"{service}-email",
+        "source_tier": SourceTier.PAID_SUB_EMAIL.value,
         "source_id": f"subscription_email:{service}:{ticker}:{event_type}:{message_id_hash}",
         "source_url": source_url,
         "message_id_hash": message_id_hash,
@@ -273,8 +284,10 @@ def _event_row(
         "linked_content_status": record.linked_content_status,
         "linked_content_url": record.linked_content_url,
         "linked_content_title_hash": record.linked_content_title_hash,
+        "linked_content_summary": record.linked_content_summary,
         "timestamp_observed": record.received_at.isoformat(),
         "timestamp_as_of": record.received_at.isoformat(),
+        "freshness": freshness,
         "confidence": confidence,
         "verification_level": VerificationLevel.CONFIRMED.value,
     }
@@ -508,6 +521,7 @@ def _merge_event(
             "received_at": as_of,
             "confidence": max(_float(existing["confidence"]), _float(row["confidence"])),
             "source_id": f"subscription_email_event:{_hash('|'.join(key))}:{_hash(str(refs))}",
+            "linked_content_summary": _merge_summary(existing, row),
         }
     )
 
@@ -533,6 +547,17 @@ def _unique_refs(refs: list[dict[str, object]]) -> list[dict[str, object]]:
             seen.add(key)
             output.append(ref)
     return output
+
+
+def _merge_summary(existing: dict[str, object], row: dict[str, object]) -> str | None:
+    summaries = [
+        str(value)
+        for value in (existing.get("linked_content_summary"), row.get("linked_content_summary"))
+        if isinstance(value, str) and value
+    ]
+    if not summaries:
+        return None
+    return max(summaries, key=len)
 
 
 def _float(value: object) -> float:

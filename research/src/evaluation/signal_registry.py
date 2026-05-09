@@ -12,6 +12,7 @@ from signals.news import news_score
 from signals.options_anomaly import options_anomaly_score
 from signals.options_flow import options_flow_score
 from signals.sector_momentum import sector_momentum_score
+from signals.subscription_thesis import subscription_thesis_score
 
 SIGNALS: dict[str, SignalFn] = {
     "abnormal_volume": abnormal_volume_score,
@@ -25,4 +26,5 @@ SIGNALS: dict[str, SignalFn] = {
     "options_anomaly": options_anomaly_score,
     "options_flow": options_flow_score,
     "sector_momentum": sector_momentum_score,
+    "subscription_thesis": subscription_thesis_score,
 }
