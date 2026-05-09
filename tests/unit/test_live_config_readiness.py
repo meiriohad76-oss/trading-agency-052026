@@ -198,6 +198,41 @@ def test_live_config_readiness_passes_local_subscription_email_export(
     assert _check(readiness, "Subscription emails")["status"] == "PASS"
 
 
+def test_live_config_readiness_passes_gmail_app_password_credentials(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _blank_env(monkeypatch)
+    monkeypatch.setenv("SUBSCRIPTION_EMAIL_USERNAME", "user@example.test")
+    monkeypatch.setenv("SUBSCRIPTION_EMAIL_PASSWORD", "app-password")
+    subscription_config = tmp_path / "subscription-email.json"
+    subscription_config.write_text(
+        json.dumps(
+            {
+                "mode": "gmail",
+                "input_path": str(tmp_path / "mail"),
+                "enabled_services": ["seeking_alpha"],
+                "mailbox_username_env": "SUBSCRIPTION_EMAIL_USERNAME",
+                "mailbox_password_env": "SUBSCRIPTION_EMAIL_PASSWORD",
+            }
+        ),
+        encoding="utf-8",
+    )
+    config_path = _write_config(
+        tmp_path,
+        {
+            "datasets": ["subscription_emails"],
+            "tickers": ["AAPL"],
+            "subscription_email_config": str(subscription_config),
+            "market_data_provider": "yfinance",
+        },
+    )
+
+    readiness = load_live_config_readiness(config_path)
+
+    assert _check(readiness, "Subscription emails")["status"] == "PASS"
+
+
 def test_live_config_status_endpoint_reads_configured_path(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -122,12 +122,25 @@ def _subscription_email_check(payload: Mapping[str, object]) -> dict[str, str]: 
             "Local .eml export folder is not present yet",
         )
     if mode in {"gmail", "outlook", "imap"}:
+        username_env = str(config.get("mailbox_username_env") or "SUBSCRIPTION_EMAIL_USERNAME")
+        password_env = str(config.get("mailbox_password_env") or "SUBSCRIPTION_EMAIL_PASSWORD")
+        missing = [
+            name
+            for name in (username_env, password_env)
+            if os.environ.get(name, "").strip() == ""
+        ]
+        if not missing:
+            return _check(
+                "Subscription emails",
+                "PASS",
+                f"{mode} configured for {len(services)} service(s)",
+            )
         token_path = _config_path(config, "token_path")
         if token_path is None or not token_path.is_file():
             return _check(
                 "Subscription emails",
                 "WARN",
-                "Mailbox token path is not present yet",
+                f"Missing mailbox credentials: {', '.join(missing)}",
             )
     return _check(
         "Subscription emails",
