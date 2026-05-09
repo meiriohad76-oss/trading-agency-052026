@@ -81,6 +81,22 @@ Validate the live outputs:
 The command exits nonzero if the batch failed, any job did not pass, a manifest
 has zero rows, or a manifest reports issues.
 
+When `stock_trades` has enough historical coverage, run the market-flow worker:
+
+```powershell
+.\.venv\Scripts\python research\scripts\run_market_flow_worker.py `
+  --start 2024-01-01 `
+  --end 2026-05-08 `
+  --ticker AAPL `
+  --ticker MSFT `
+  --horizon 5 `
+  --horizon 20 `
+  --output-root research\results\t110-market-flow-worker
+```
+
+Review `market-flow-calibration.md` before changing paper-review expectations
+for `buy_sell_pressure` or `block_trade_pressure`.
+
 Import a local unusual-activity export directly when you have one:
 
 First smoke-test the file in an isolated results folder:

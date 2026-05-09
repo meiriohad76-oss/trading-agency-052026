@@ -40,8 +40,11 @@ DEFAULT_LANE_RULES: Mapping[str, LaneActionabilityRule] = {
     "news": LaneActionabilityRule(min_sources=2, min_confirmed_sources=1),
     "activity_alerts": LaneActionabilityRule(),
     "abnormal_volume": LaneActionabilityRule(min_confirmed_sources=0),
+    "block_trade_pressure": LaneActionabilityRule(min_confirmed_sources=0),
+    "buy_sell_pressure": LaneActionabilityRule(min_confirmed_sources=0),
     "prepost": LaneActionabilityRule(min_confirmed_sources=0),
     "options_flow": LaneActionabilityRule(min_confirmed_sources=0),
+    "options_anomaly": LaneActionabilityRule(min_confirmed_sources=0),
 }
 
 

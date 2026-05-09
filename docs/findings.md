@@ -116,9 +116,12 @@ lane for provider/email block trades, dark-pool prints, and unusual-activity exp
 T99 adds an inferred options-anomaly lane plus explicit optional runtime wiring for
 options/activity signals. T105-T109 add Massive/Polygon delayed stock-trade ingestion
 and inferred market-flow lanes for buy/sell pressure and block/off-exchange pressure.
-These lanes remain context-only until enough forward or historical coverage is tested.
-The next highest-value work is to test the first version with the conservative gate
-and decide whether to widen H1 coverage or add stronger ticker-tagged sources.
+T110-T114 add a dedicated market-flow analysis worker that generates features,
+tests IC, sweeps thresholds, and writes holdout-based runtime guidance. These
+lanes remain context-only until enough forward or historical coverage is tested.
+The next highest-value work is to test the first version with the conservative
+gate and decide whether to widen H1 coverage or add stronger ticker-tagged
+sources.
 
 See `docs/phase-status.md` for the current implementation-vs-phase-gate truth table
 and next ticket candidates.
