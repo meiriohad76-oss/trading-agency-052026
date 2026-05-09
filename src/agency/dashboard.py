@@ -41,6 +41,8 @@ ACTIONABLE_ACTIONS = {"BUY", "SELL", "SHORT", "COVER", "WATCH", "HOLD"}
 OPEN_RISK_DECISIONS = {"ALLOW", "WARN"}
 DEGRADED_SOURCE_STATUSES = {"DEGRADED", "STALE", "UNAVAILABLE", "RATE_LIMITED"}
 DEGRADED_FRESHNESS = {"AGING", "STALE", "UNAVAILABLE"}
+MIN_BRIEF_SOURCE_COUNT = 2
+MIN_BRIEF_CONFIRMED_COUNT = 1
 
 
 @router.get("/")
@@ -145,13 +147,22 @@ async def candidate_detail_context(ticker: str) -> dict[str, object]:
     reports = await runtime_selection_reports(ticker=normalized_ticker, limit=5)
     timeline = await runtime_candidate_timeline(ticker=normalized_ticker, limit=25)
     report_rows = final_selection_rows(reports)
+    latest_report = report_rows[0] if report_rows else None
+    email_evidence = candidate_email_evidence(normalized_ticker)
+    review = candidate_review_summary(report_rows, timeline)
     return {
         "ticker": normalized_ticker,
-        "email_evidence": candidate_email_evidence(normalized_ticker),
-        "latest_report": report_rows[0] if report_rows else None,
+        "decision_brief": candidate_decision_brief(
+            normalized_ticker,
+            latest_report,
+            email_evidence,
+            review,
+        ),
+        "email_evidence": email_evidence,
+        "latest_report": latest_report,
         "previous_reports": report_rows[1:],
         "reports": report_rows,
-        "review": candidate_review_summary(report_rows, timeline),
+        "review": review,
         "timeline": timeline_rows(timeline),
         "summary": candidate_detail_summary(normalized_ticker, report_rows, timeline),
     }
@@ -725,6 +736,7 @@ def candidate_email_evidence(
     events = _candidate_email_event_rows(normalized, event_path=event_path, limit=limit)
     feed_rows = _candidate_email_feed_rows(normalized, news_path=news_path, limit=limit)
     service_counts = _candidate_email_service_counts(normalized, event_path)
+    direction_counts = _candidate_email_direction_counts(normalized, event_path)
     analyzed_count = _candidate_email_analyzed_count(normalized, event_path)
     event_count = _candidate_email_count(normalized, event_path)
     feed_count = _candidate_email_feed_count(normalized, news_path)
@@ -735,6 +747,9 @@ def candidate_email_evidence(
         "feed_count": feed_count,
         "analyzed_count": analyzed_count,
         "latest_at": latest_at or "None",
+        "direction_rows": _direction_count_rows(direction_counts),
+        "direction_summary": _direction_summary(direction_counts),
+        "meaning": _email_evidence_meaning(event_count, direction_counts, analyzed_count),
         "service_summary": _service_summary(service_counts),
         "rows": events,
         "feed_rows": feed_rows,
@@ -834,6 +849,16 @@ def _candidate_email_service_counts(ticker: str, event_path: Path) -> Counter[st
     )
 
 
+def _candidate_email_direction_counts(ticker: str, event_path: Path) -> Counter[str]:
+    frame = _ticker_frame(event_path, ticker)
+    if frame.empty or "direction" not in frame.columns:
+        return Counter()
+    return Counter(
+        (_clean_text(direction) or "NEUTRAL").upper()
+        for direction in frame["direction"].to_list()
+    )
+
+
 def _ticker_frame(path: Path, ticker: str) -> pd.DataFrame:
     if not path.is_file():
         return pd.DataFrame()
@@ -862,6 +887,50 @@ def _service_summary(counts: Counter[str]) -> str:
         f"{_service_label(service)} {count}"
         for service, count in counts.most_common()
     )
+
+
+def _direction_count_rows(counts: Counter[str]) -> list[dict[str, object]]:
+    directions = ("BULLISH", "BEARISH", "NEUTRAL")
+    return [
+        {
+            "label": direction.title(),
+            "direction": direction,
+            "count": counts.get(direction, 0),
+            "status_class": _direction_class(direction),
+        }
+        for direction in directions
+        if counts.get(direction, 0) > 0
+    ]
+
+
+def _direction_summary(counts: Counter[str]) -> str:
+    rows = _direction_count_rows(counts)
+    if not rows:
+        return "No directional email evidence"
+    return ", ".join(f"{row['label']} {row['count']}" for row in rows)
+
+
+def _email_evidence_meaning(
+    event_count: int,
+    direction_counts: Counter[str],
+    analyzed_count: int,
+) -> str:
+    if event_count == 0:
+        return "No subscription email intelligence is currently attached to this ticker."
+    bullish = direction_counts.get("BULLISH", 0)
+    bearish = direction_counts.get("BEARISH", 0)
+    neutral = direction_counts.get("NEUTRAL", 0)
+    if bullish > bearish:
+        tilt = f"Email alerts lean bullish ({bullish} bullish vs {bearish} bearish)."
+    elif bearish > bullish:
+        tilt = f"Email alerts lean bearish ({bearish} bearish vs {bullish} bullish)."
+    elif bullish or bearish:
+        tilt = f"Email alerts are mixed ({bullish} bullish and {bearish} bearish)."
+    else:
+        tilt = f"Email alerts are mostly neutral ({neutral} neutral)."
+    if analyzed_count == 0:
+        return f"{tilt} Article links have not been analyzed yet, so this is context only."
+    return f"{tilt} {analyzed_count} linked article thesis row(s) are ready for review."
 
 
 def _email_evidence_detail(event_count: int, feed_count: int, analyzed_count: int) -> str:
@@ -908,6 +977,363 @@ def _service_label(value: str) -> str:
     if cleaned.lower() == "seeking alpha email":
         return "Seeking Alpha"
     return cleaned.title() if cleaned else "Email"
+
+
+def candidate_decision_brief(
+    ticker: str,
+    latest_report: Mapping[str, object] | None,
+    email_evidence: Mapping[str, object],
+    review: Mapping[str, object],
+) -> dict[str, object]:
+    if latest_report is None:
+        return _empty_decision_brief(ticker, email_evidence)
+    action = str(latest_report["action"])
+    gate_status = str(latest_report["gate_status"])
+    conviction_pct = _int_field(latest_report, "conviction_pct")
+    actionable = _mapping_rows(latest_report, "actionable_signals")
+    context = _mapping_rows(latest_report, "context_signals")
+    suppressed = _mapping_rows(latest_report, "suppressed_signals")
+    all_signals = [*actionable, *context, *suppressed]
+    direction_counts = _signal_direction_counts(all_signals)
+    state_class = _candidate_state_class(action, gate_status)
+    return {
+        "ticker": ticker,
+        "action": action,
+        "action_label": _candidate_action_label(action),
+        "state_label": _candidate_state_label(action, gate_status),
+        "state_class": state_class,
+        "headline": _candidate_brief_headline(ticker, action, gate_status),
+        "detail": _candidate_brief_detail(action, actionable, context, suppressed),
+        "next_step": _candidate_next_step(action, gate_status, review),
+        "conviction_pct": conviction_pct,
+        "conviction_style": f"--meter-value: {conviction_pct}%",
+        "gate_status": gate_status,
+        "gate_class": gate_status.lower(),
+        "generated_at": str(latest_report["generated_at"]),
+        "source_count": _int_field(latest_report, "source_count"),
+        "confirmed_signal_count": _int_field(latest_report, "confirmed_signal_count"),
+        "signal_counts": _signal_count_cards(actionable, context, suppressed),
+        "signal_balance": _signal_balance(direction_counts),
+        "support_cards": _signal_driver_cards(all_signals, "BULLISH", default_tone="pass"),
+        "caution_cards": _signal_driver_cards(all_signals, "BEARISH", default_tone="block"),
+        "decision_points": _decision_points(latest_report, email_evidence),
+        "email_takeaway": str(email_evidence["meaning"]),
+        "email_status_class": str(email_evidence["status_class"]),
+    }
+
+
+def _empty_decision_brief(
+    ticker: str,
+    email_evidence: Mapping[str, object],
+) -> dict[str, object]:
+    return {
+        "ticker": ticker,
+        "action": "NONE",
+        "action_label": "No Report",
+        "state_label": "Waiting For Runtime",
+        "state_class": "neutral",
+        "headline": f"{ticker} has not been evaluated yet.",
+        "detail": "Run a runtime cycle to produce a decision brief and evidence summary.",
+        "next_step": "Run the live runtime cycle, then review the generated candidate report.",
+        "conviction_pct": 0,
+        "conviction_style": "--meter-value: 0%",
+        "gate_status": "UNKNOWN",
+        "gate_class": "unknown",
+        "generated_at": "None",
+        "source_count": 0,
+        "confirmed_signal_count": 0,
+        "signal_counts": _signal_count_cards([], [], []),
+        "signal_balance": _signal_balance(Counter()),
+        "support_cards": [],
+        "caution_cards": [],
+        "decision_points": [
+            {
+                "label": "No selection report",
+                "detail": "There is no persisted decision for this ticker yet.",
+                "tone": "neutral",
+            },
+            {
+                "label": "Email context",
+                "detail": str(email_evidence["detail"]),
+                "tone": str(email_evidence["status_class"]),
+            },
+        ],
+        "email_takeaway": str(email_evidence["meaning"]),
+        "email_status_class": str(email_evidence["status_class"]),
+    }
+
+
+def _mapping_rows(payload: Mapping[str, object], key: str) -> list[Mapping[str, object]]:
+    value = payload.get(key, [])
+    if not isinstance(value, list):
+        return []
+    return [cast(Mapping[str, object], item) for item in value if isinstance(item, Mapping)]
+
+
+def _candidate_state_class(action: str, gate_status: str) -> str:
+    if gate_status == "BLOCK" or action in {"NO_TRADE", "CLOSE_REVIEW"}:
+        return "block"
+    if action == "WATCH":
+        return "warn"
+    if action in {"BUY", "SELL", "SHORT", "COVER", "HOLD"}:
+        return "pass"
+    return "neutral"
+
+
+def _candidate_state_label(action: str, gate_status: str) -> str:
+    if gate_status == "BLOCK":
+        return "Blocked By Policy"
+    if action == "WATCH":
+        return "Selected For Review"
+    if action in {"NO_TRADE", "CLOSE_REVIEW"}:
+        return "Rejected For Now"
+    if action in {"BUY", "SELL", "SHORT", "COVER"}:
+        return "Trade Candidate"
+    if action == "HOLD":
+        return "Hold / Monitor"
+    return "No Decision"
+
+
+def _candidate_action_label(action: str) -> str:
+    labels = {
+        "WATCH": "Watch",
+        "NO_TRADE": "No Trade",
+        "CLOSE_REVIEW": "Close Review",
+        "BUY": "Buy Candidate",
+        "SELL": "Sell Candidate",
+        "SHORT": "Short Candidate",
+        "COVER": "Cover Candidate",
+        "HOLD": "Hold",
+    }
+    return labels.get(action, _label_text(action))
+
+
+def _candidate_brief_headline(ticker: str, action: str, gate_status: str) -> str:
+    if gate_status == "BLOCK":
+        return f"{ticker} was blocked by policy gates."
+    headlines = {
+        "WATCH": f"{ticker} is selected for human review, not automatic trading.",
+        "NO_TRADE": f"{ticker} was rejected for now.",
+        "CLOSE_REVIEW": f"{ticker} needs closer review before any action.",
+        "HOLD": f"{ticker} is a hold/monitor candidate.",
+    }
+    if action in {"BUY", "SELL", "SHORT", "COVER"}:
+        return f"{ticker} is a {action.lower()} candidate pending risk review."
+    return headlines.get(action, f"{ticker} has a recorded decision.")
+
+
+def _candidate_brief_detail(
+    action: str,
+    actionable: Sequence[Mapping[str, object]],
+    context: Sequence[Mapping[str, object]],
+    suppressed: Sequence[Mapping[str, object]],
+) -> str:
+    support = _first_signal_summary([*actionable, *context], "BULLISH")
+    caution = _first_signal_summary([*actionable, *context, *suppressed], "BEARISH")
+    if action == "WATCH":
+        if support and caution:
+            return f"Selected because {support} Main caution: {caution}"
+        if support:
+            return f"Selected because {support}"
+    if action in {"NO_TRADE", "CLOSE_REVIEW"} and caution:
+        return f"Rejected or held back because {caution}"
+    if support:
+        return f"Primary constructive evidence: {support}"
+    if caution:
+        return f"Primary caution: {caution}"
+    return "The latest report did not surface a strong directional driver."
+
+
+def _first_signal_summary(
+    signals: Sequence[Mapping[str, object]],
+    direction: str,
+) -> str | None:
+    for signal in _sorted_signals(signals):
+        if str(signal.get("direction")) == direction:
+            return str(signal["summary"])
+    return None
+
+
+def _candidate_next_step(
+    action: str,
+    gate_status: str,
+    review: Mapping[str, object],
+) -> str:
+    if gate_status == "BLOCK":
+        return "Do not approve. Fix the blocking gate or wait for stronger evidence."
+    if action == "WATCH":
+        decision = str(review.get("decision", "Pending"))
+        if decision == "Pending":
+            return "Review the drivers below, then approve, defer, or reject the paper candidate."
+        return f"Human review is recorded as {decision}; monitor the next runtime cycle."
+    if action in {"NO_TRADE", "CLOSE_REVIEW"}:
+        return "No trade. Revisit only if a later cycle adds stronger independent evidence."
+    if action in {"BUY", "SELL", "SHORT", "COVER"}:
+        return "Send to risk review and paper preview before any broker action."
+    return "Monitor the next refresh for a clearer setup."
+
+
+def _signal_count_cards(
+    actionable: Sequence[Mapping[str, object]],
+    context: Sequence[Mapping[str, object]],
+    suppressed: Sequence[Mapping[str, object]],
+) -> list[dict[str, object]]:
+    return [
+        {
+            "label": "Actionable",
+            "value": len(actionable),
+            "detail": "can drive the decision",
+            "tone": "pass" if actionable else "neutral",
+        },
+        {
+            "label": "Context",
+            "value": len(context),
+            "detail": "useful but not decisive",
+            "tone": "warn" if context else "neutral",
+        },
+        {
+            "label": "Suppressed",
+            "value": len(suppressed),
+            "detail": "ignored or too weak",
+            "tone": "block" if suppressed else "pass",
+        },
+    ]
+
+
+def _signal_direction_counts(signals: Sequence[Mapping[str, object]]) -> Counter[str]:
+    return Counter(str(signal.get("direction", "NEUTRAL")) for signal in signals)
+
+
+def _signal_balance(counts: Counter[str]) -> list[dict[str, object]]:
+    total = sum(counts.values())
+    if total == 0:
+        return [
+            {
+                "label": "No signals",
+                "count": 0,
+                "tone": "neutral",
+                "style": "width: 100%",
+            }
+        ]
+    rows: list[dict[str, object]] = []
+    for direction, tone in (("BULLISH", "pass"), ("BEARISH", "block"), ("NEUTRAL", "neutral")):
+        count = counts.get(direction, 0)
+        if count == 0:
+            continue
+        pct = round((count / total) * 100, 2)
+        rows.append(
+            {
+                "label": direction.title(),
+                "count": count,
+                "tone": tone,
+                "style": f"width: {pct}%",
+            }
+        )
+    return rows
+
+
+def _signal_driver_cards(
+    signals: Sequence[Mapping[str, object]],
+    direction: str,
+    *,
+    default_tone: str,
+    limit: int = 3,
+) -> list[dict[str, object]]:
+    rows = [
+        signal
+        for signal in _sorted_signals(signals)
+        if str(signal.get("direction")) == direction
+    ][:limit]
+    if not rows and direction == "BEARISH":
+        return [
+            {
+                "label": "No major negative driver",
+                "detail": "The latest report did not surface a bearish actionable driver.",
+                "meta": "risk check",
+                "tone": "pass",
+            }
+        ]
+    cards: list[dict[str, object]] = [
+        {
+            "label": str(signal["lane"]),
+            "detail": str(signal["summary"]),
+            "meta": f"{signal['score']} / {signal['confidence_pct']}% confidence",
+            "tone": default_tone,
+        }
+        for signal in rows
+    ]
+    return cards
+
+
+def _sorted_signals(signals: Sequence[Mapping[str, object]]) -> list[Mapping[str, object]]:
+    return sorted(
+        signals,
+        key=lambda signal: abs(_numeric_value(signal.get("score_value"))),
+        reverse=True,
+    )
+
+
+def _numeric_value(value: object) -> float:
+    if isinstance(value, int | float):
+        return float(value)
+    return 0.0
+
+
+def _decision_points(
+    latest_report: Mapping[str, object],
+    email_evidence: Mapping[str, object],
+) -> list[dict[str, object]]:
+    action = str(latest_report["action"])
+    gate_status = str(latest_report["gate_status"])
+    source_count = _int_field(latest_report, "source_count")
+    confirmed = _int_field(latest_report, "confirmed_signal_count")
+    points: list[dict[str, object]] = [
+        {
+            "label": _candidate_state_label(action, gate_status),
+            "detail": _decision_explanation(
+                latest_report,
+                {"action": str(latest_report["deterministic_action"])},
+                {
+                    "source_count": source_count,
+                    "confirmed_signal_count": confirmed,
+                    "freshness": str(latest_report["freshness"]),
+                },
+            ),
+            "tone": _candidate_state_class(action, gate_status),
+        },
+        {
+            "label": "Evidence breadth",
+            "detail": f"{source_count} independent source(s), {confirmed} confirmed signal(s).",
+            "tone": (
+                "pass"
+                if source_count >= MIN_BRIEF_SOURCE_COUNT
+                and confirmed >= MIN_BRIEF_CONFIRMED_COUNT
+                else "warn"
+            ),
+        },
+        {
+            "label": "Subscription context",
+            "detail": str(email_evidence["meaning"]),
+            "tone": str(email_evidence["status_class"]),
+        },
+    ]
+    if gate_status == "PASS":
+        points.append(
+            {
+                "label": "Policy gates",
+                "detail": "No blocking policy gate is active for the latest report.",
+                "tone": "pass",
+            }
+        )
+    else:
+        points.append(
+            {
+                "label": "Policy gates",
+                "detail": f"Latest policy gate state is {gate_status}.",
+                "tone": "block" if gate_status == "BLOCK" else "warn",
+            }
+        )
+    return points
 
 
 def _final_selection_row(report: Mapping[str, object]) -> dict[str, object]:
@@ -1046,6 +1472,7 @@ def _signal_rows(evidence_pack: Mapping[str, object], key: str) -> list[dict[str
                 "direction_class": _direction_class(str(signal["direction"])),
                 "confidence_pct": _percent(signal, "confidence"),
                 "score": _score_text(signal),
+                "score_value": _float_field(signal, "score"),
                 "summary": _signal_summary(signal),
                 "source": _signal_source(signal),
             }

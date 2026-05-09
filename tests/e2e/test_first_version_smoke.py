@@ -23,7 +23,7 @@ def test_first_version_happy_path_pages(monkeypatch: pytest.MonkeyPatch) -> None
         "/risk": ["Risk Decisions", "ALLOW", "BLOCK"],
         "/execution-preview": ["Execution Preview", "Submission disabled", "Closed"],
         "/audit": ["Runtime Audit", "Agent Runs", "Risk Snapshots"],
-        "/candidates/NVDA": ["Candidate Audit", "NVDA", "FINAL_ACTION"],
+        "/candidates/NVDA": ["Candidate Brief", "NVDA", "FINAL_ACTION"],
     }
 
     for path, expected_text in pages.items():

@@ -2,64 +2,225 @@
 
 {% set active_nav = "command" %}
 
-{% block title %}{{ ticker }} Audit | Trading Agency v2{% endblock %}
-{% block eyebrow %}Candidate Audit{% endblock %}
+{% block title %}{{ ticker }} Brief | Trading Agency v2{% endblock %}
+{% block eyebrow %}Candidate Brief{% endblock %}
 {% block page_title %}{{ ticker }}{% endblock %}
-{% block topbar_meta %}{{ summary.report_count }} reports &middot; {{ summary.event_count }} events{% endblock %}
+{% block topbar_meta %}{{ decision_brief.state_label }} &middot; {{ summary.report_count }} reports{% endblock %}
 
 {% block content %}
-  <section class="hero hero-info" aria-label="Candidate state">
-    <h2>{{ summary.headline }}</h2>
-    <p>{{ summary.detail }}</p>
+  <section class="decision-brief decision-brief-{{ decision_brief.state_class }}" aria-label="Decision brief">
+    <div class="brief-copy">
+      <p class="brief-kicker">{{ decision_brief.state_label }}</p>
+      <div class="brief-title-row">
+        <h2>{{ ticker }}</h2>
+        <span class="action-chip action-chip-{{ decision_brief.state_class }}">{{ decision_brief.action_label }}</span>
+      </div>
+      <p class="brief-headline">{{ decision_brief.headline }}</p>
+      <p class="brief-detail">{{ decision_brief.detail }}</p>
+      <div class="next-step">
+        <span>Next step</span>
+        <strong>{{ decision_brief.next_step }}</strong>
+      </div>
+    </div>
+
+    <aside class="brief-score" aria-label="Decision score">
+      <div class="conviction-meter" style="{{ decision_brief.conviction_style }}">
+        <span>Conviction</span>
+        <strong>{{ decision_brief.conviction_pct }}%</strong>
+      </div>
+      <div class="brief-score-meta">
+        <div>
+          <span class="metric-label">Gate</span>
+          <strong>{{ decision_brief.gate_status }}</strong>
+        </div>
+        <div>
+          <span class="metric-label">Sources</span>
+          <strong>{{ decision_brief.source_count }}</strong>
+        </div>
+        <div>
+          <span class="metric-label">Confirmed</span>
+          <strong>{{ decision_brief.confirmed_signal_count }}</strong>
+        </div>
+      </div>
+    </aside>
   </section>
 
-  <section class="summary-band" aria-label="Candidate metrics">
-    <div>
-      <span class="metric-label">Reports</span>
-      <strong>{{ summary.report_count }}</strong>
-    </div>
-    <div>
-      <span class="metric-label">Events</span>
-      <strong>{{ summary.event_count }}</strong>
-    </div>
-    <div>
-      <span class="metric-label">Latest Action</span>
-      <strong>{{ summary.latest_action }}</strong>
-    </div>
-    <div>
-      <span class="metric-label">Review State</span>
-      <strong>{{ review.decision }}</strong>
-    </div>
-    <div>
-      <span class="metric-label">Email Events</span>
+  <section class="brief-metrics" aria-label="Candidate metrics">
+    {% for item in decision_brief.signal_counts %}
+    <article class="brief-metric brief-metric-{{ item.tone }}">
+      <span>{{ item.label }}</span>
+      <strong>{{ item.value }}</strong>
+      <p>{{ item.detail }}</p>
+    </article>
+    {% endfor %}
+    <article class="brief-metric brief-metric-{{ email_evidence.status_class }}">
+      <span>Email Evidence</span>
       <strong>{{ email_evidence.event_count }}</strong>
+      <p>{{ email_evidence.direction_summary }}</p>
+    </article>
+  </section>
+
+  <section class="panel action-summary-panel" aria-labelledby="why-heading">
+    <div class="section-heading">
+      <div>
+        <h2 id="why-heading">Why This Stock Is Here</h2>
+        <p class="section-subtitle">The plain-English reason for selection or rejection.</p>
+      </div>
+      <span class="tag tag-{{ decision_brief.state_class }}">{{ decision_brief.state_label }}</span>
     </div>
-    <div>
-      <span class="metric-label">Feed Rows</span>
-      <strong>{{ email_evidence.feed_count }}</strong>
+
+    <div class="reason-grid">
+      {% for item in decision_brief.decision_points %}
+      <article class="reason-card reason-card-{{ item.tone }}">
+        <span class="reason-number">{{ loop.index }}</span>
+        <div>
+          <strong>{{ item.label }}</strong>
+          <p>{{ item.detail }}</p>
+        </div>
+      </article>
+      {% endfor %}
+    </div>
+
+    <div class="balance-summary" aria-label="Signal balance">
+      <div class="balance-head">
+        <strong>Signal Balance</strong>
+        <span>Bullish, bearish, and neutral evidence in the latest report</span>
+      </div>
+      <div class="balance-track">
+        {% for segment in decision_brief.signal_balance %}
+        <span class="balance-segment balance-{{ segment.tone }}" style="{{ segment.style }}">
+          {{ segment.label }} {{ segment.count }}
+        </span>
+        {% endfor %}
+      </div>
     </div>
   </section>
 
-  <section class="panel" aria-labelledby="paper-review-heading">
+  <section class="driver-layout" aria-label="Signal drivers">
+    <section class="panel driver-panel driver-panel-pass" aria-labelledby="support-heading">
+      <div class="section-heading">
+        <h2 id="support-heading">What Supports It</h2>
+      </div>
+      <div class="driver-list">
+        {% for card in decision_brief.support_cards %}
+        <article class="driver-card driver-card-{{ card.tone }}">
+          <strong>{{ card.label }}</strong>
+          <p>{{ card.detail }}</p>
+          <span>{{ card.meta }}</span>
+        </article>
+        {% else %}
+        <p class="empty-block">No constructive driver is active in the latest report.</p>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="panel driver-panel driver-panel-warn" aria-labelledby="caution-heading">
+      <div class="section-heading">
+        <h2 id="caution-heading">What Could Be Wrong</h2>
+      </div>
+      <div class="driver-list">
+        {% for card in decision_brief.caution_cards %}
+        <article class="driver-card driver-card-{{ card.tone }}">
+          <strong>{{ card.label }}</strong>
+          <p>{{ card.detail }}</p>
+          <span>{{ card.meta }}</span>
+        </article>
+        {% else %}
+        <p class="empty-block">No caution driver is active in the latest report.</p>
+        {% endfor %}
+      </div>
+    </section>
+  </section>
+
+  <section class="panel intelligence-panel" aria-labelledby="email-evidence-heading">
     <div class="section-heading">
-      <h2 id="paper-review-heading">Paper Review</h2>
+      <div>
+        <h2 id="email-evidence-heading">Subscription Intelligence</h2>
+        <p class="section-subtitle">{{ decision_brief.email_takeaway }}</p>
+      </div>
+      <span class="tag tag-{{ email_evidence.status_class }}">{{ email_evidence.status_label }}</span>
+    </div>
+
+    <div class="intelligence-strip">
+      <div>
+        <span class="metric-label">Matched Emails</span>
+        <strong>{{ email_evidence.event_count }}</strong>
+      </div>
+      <div>
+        <span class="metric-label">Feed Rows</span>
+        <strong>{{ email_evidence.feed_count }}</strong>
+      </div>
+      <div>
+        <span class="metric-label">Article Analysis</span>
+        <strong>{{ email_evidence.analyzed_count }}</strong>
+      </div>
+      <div>
+        <span class="metric-label">Services</span>
+        <strong>{{ email_evidence.service_summary }}</strong>
+      </div>
+    </div>
+
+    <div class="direction-pills" aria-label="Email direction counts">
+      {% for row in email_evidence.direction_rows %}
+      <span class="direction-pill direction-pill-{{ row.status_class }}">{{ row.label }} {{ row.count }}</span>
+      {% else %}
+      <span class="direction-pill direction-pill-neutral">No direction</span>
+      {% endfor %}
+    </div>
+
+    <details class="details-panel">
+      <summary>Show recent email and feed rows</summary>
+      <div class="evidence-columns compact-evidence">
+        <div>
+          <h3>Recent Email Matches</h3>
+          <div class="evidence-list">
+            {% for row in email_evidence.rows %}
+            <article class="evidence-row">
+              <div class="evidence-row-head">
+                <div>
+                  <strong>{{ row.title }}</strong>
+                  <span>{{ row.service }} / {{ row.event_type }} / {{ row.timestamp }}</span>
+                </div>
+                <span class="tag tag-{{ row.direction_class }}">{{ row.direction }}</span>
+              </div>
+              <p>{{ row.summary }}</p>
+            </article>
+            {% else %}
+            <p class="empty-block">No subscription emails currently match {{ ticker }}</p>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div>
+          <h3>Email-Derived Feed Rows</h3>
+          <div class="evidence-list">
+            {% for row in email_evidence.feed_rows %}
+            <article class="evidence-row">
+              <div class="evidence-row-head">
+                <div>
+                  <strong>{{ row.title }}</strong>
+                  <span>{{ row.feed_name }} / {{ row.timestamp }}</span>
+                </div>
+              </div>
+              <p>{{ row.summary }}</p>
+            </article>
+            {% else %}
+            <p class="empty-block">No email-derived feed rows currently match {{ ticker }}</p>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    </details>
+  </section>
+
+  <section class="panel review-panel" aria-labelledby="paper-review-heading">
+    <div class="section-heading">
+      <div>
+        <h2 id="paper-review-heading">Human Review</h2>
+        <p class="section-subtitle">{{ review.reason }}</p>
+      </div>
       <span class="tag tag-{{ review.status_class }}">{{ review.decision }}</span>
     </div>
-    <div class="readiness-grid">
-      <div>
-        <span class="metric-label">Cycle</span>
-        <strong>{{ review.cycle_id }}</strong>
-      </div>
-      <div>
-        <span class="metric-label">As Of</span>
-        <strong>{{ review.as_of }}</strong>
-      </div>
-      <div>
-        <span class="metric-label">Recorded</span>
-        <strong>{{ review.event_time }}</strong>
-      </div>
-    </div>
-    <p class="panel-note">{{ review.reason }}</p>
     {% if review.can_record %}
     <span class="inline-actions">
       <form method="post" action="{{ review.approve_action }}">
@@ -77,88 +238,17 @@
     {% endif %}
   </section>
 
-  <section class="panel evidence-panel" aria-labelledby="email-evidence-heading">
+  <section class="panel" aria-labelledby="technical-heading">
     <div class="section-heading">
       <div>
-        <h2 id="email-evidence-heading">Email And Feed Evidence</h2>
-        <p class="section-subtitle">{{ email_evidence.detail }}</p>
+        <h2 id="technical-heading">Technical Details</h2>
+        <p class="section-subtitle">Audit and raw decision artifacts, collapsed by default.</p>
       </div>
-      <span class="tag tag-{{ email_evidence.status_class }}">{{ email_evidence.status_label }}</span>
+      <a class="text-link" href="/reports/selection/{{ ticker }}">Selection JSON</a>
     </div>
 
-    <div class="evidence-grid" aria-label="Email evidence metrics">
-      <div>
-        <span class="metric-label">Matched Emails</span>
-        <strong>{{ email_evidence.event_count }}</strong>
-      </div>
-      <div>
-        <span class="metric-label">Feed Rows</span>
-        <strong>{{ email_evidence.feed_count }}</strong>
-      </div>
-      <div>
-        <span class="metric-label">Linked Articles</span>
-        <strong>{{ email_evidence.analyzed_count }}</strong>
-      </div>
-      <div>
-        <span class="metric-label">Latest</span>
-        <strong>{{ email_evidence.latest_at }}</strong>
-      </div>
-    </div>
-
-    <p class="panel-note">Services: {{ email_evidence.service_summary }}</p>
-
-    <div class="evidence-columns">
-      <div>
-        <h3>Recent Email Matches</h3>
-        <div class="evidence-list">
-          {% for row in email_evidence.rows %}
-          <article class="evidence-row">
-            <div class="evidence-row-head">
-              <div>
-                <strong>{{ row.title }}</strong>
-                <span>{{ row.service }} / {{ row.event_type }} / {{ row.timestamp }}</span>
-              </div>
-              <span class="tag tag-{{ row.direction_class }}">{{ row.direction }}</span>
-            </div>
-            <p>{{ row.summary }}</p>
-            <span class="tag tag-{{ row.linked_status_class }}">{{ row.linked_status_label }}</span>
-          </article>
-          {% else %}
-          <p class="empty-block">No subscription emails currently match {{ ticker }}</p>
-          {% endfor %}
-        </div>
-      </div>
-
-      <div>
-        <h3>Email-Derived Feed Rows</h3>
-        <div class="evidence-list">
-          {% for row in email_evidence.feed_rows %}
-          <article class="evidence-row">
-            <div class="evidence-row-head">
-              <div>
-                <strong>{{ row.title }}</strong>
-                <span>{{ row.feed_name }} / {{ row.timestamp }}</span>
-              </div>
-            </div>
-            <p>{{ row.summary }}</p>
-          </article>
-          {% else %}
-          <p class="empty-block">No email-derived feed rows currently match {{ ticker }}</p>
-          {% endfor %}
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <section class="panel" aria-labelledby="reports-heading">
-    <div class="section-heading">
-      <div>
-        <h2 id="reports-heading">Latest Selection Report</h2>
-        <p class="section-subtitle">Decision first, then the evidence that explains it.</p>
-      </div>
-      <a class="text-link" href="/reports/selection/{{ ticker }}">JSON</a>
-    </div>
-    <div class="report-stack">
+    <details class="details-panel">
+      <summary>Show latest report details</summary>
       {% if latest_report %}
       <article class="report-card report-card-primary">
         <div class="report-head">
@@ -168,9 +258,7 @@
           </div>
           <span class="tag tag-{{ latest_report.gate_status | lower }}">{{ latest_report.gate_status }}</span>
         </div>
-
         <p class="decision-copy">{{ latest_report.decision_explanation }}</p>
-
         <div class="decision-grid">
           <div>
             <span class="metric-label">Final Conviction</span>
@@ -189,115 +277,30 @@
             <strong>{{ latest_report.confirmed_signal_count }} confirmed</strong>
           </div>
         </div>
-
-        {% if latest_report.actionable_signals %}
-        <div class="signal-section" aria-label="Actionable signals">
-          <h3>Actionable Signals</h3>
-          <div class="signal-list">
-            {% for signal in latest_report.actionable_signals %}
-            <article class="signal-row">
-              <div>
-                <strong>{{ signal.lane }}</strong>
-                <span>{{ signal.source }} / {{ signal.score }} / {{ signal.confidence_pct }}% confidence</span>
-              </div>
-              <span class="tag tag-{{ signal.direction_class }}">{{ signal.direction }}</span>
-              <p>{{ signal.summary }}</p>
-            </article>
-            {% endfor %}
-          </div>
-        </div>
-        {% endif %}
-
-        {% if latest_report.context_signals %}
-        <div class="signal-section" aria-label="Context signals">
-          <h3>Context Signals</h3>
-          <div class="signal-list">
-            {% for signal in latest_report.context_signals %}
-            <article class="signal-row">
-              <div>
-                <strong>{{ signal.lane }}</strong>
-                <span>{{ signal.source }} / {{ signal.score }} / {{ signal.confidence_pct }}% confidence</span>
-              </div>
-              <span class="tag tag-{{ signal.direction_class }}">{{ signal.direction }}</span>
-              <p>{{ signal.summary }}</p>
-            </article>
-            {% endfor %}
-          </div>
-        </div>
-        {% endif %}
-
-        {% if latest_report.suppressed_signals %}
-        <div class="signal-section" aria-label="Suppressed signals">
-          <h3>Suppressed Signals</h3>
-          <div class="signal-list">
-            {% for signal in latest_report.suppressed_signals %}
-            <article class="signal-row">
-              <div>
-                <strong>{{ signal.lane }}</strong>
-                <span>{{ signal.source }} / {{ signal.score }} / {{ signal.confidence_pct }}% confidence</span>
-              </div>
-              <span class="tag tag-{{ signal.direction_class }}">{{ signal.direction }}</span>
-              <p>{{ signal.summary }}</p>
-            </article>
-            {% endfor %}
-          </div>
-        </div>
-        {% endif %}
-
-        <div class="split-panel">
-          <div>
-            <h3>Policy Gates</h3>
-            <div class="gate-list">
-              {% for gate in latest_report.policy_gates %}
-              <div class="gate-row gate-{{ gate.status_class }}">
-                <span class="gate-indicator" aria-hidden="true"></span>
-                <span>{{ gate.name }}</span>
-                <strong>{{ gate.status }}</strong>
-                <em>{{ gate.reason }}</em>
-              </div>
-              {% endfor %}
-            </div>
-          </div>
-          <div>
-            <h3>Review Notes</h3>
-            <p>{{ latest_report.llm_rationale }}</p>
-            <p class="muted-line">Risk flags: {{ latest_report.risk_flag_text }}.</p>
-          </div>
-        </div>
       </article>
-
-      {% if previous_reports %}
-      <details class="history-panel">
-        <summary>Previous reports ({{ previous_reports | length }})</summary>
-        <div class="history-list">
-          {% for report in previous_reports %}
-          <article class="history-row">
-            <div>
-              <strong>{{ report.action }} / {{ report.conviction_pct }}%</strong>
-              <span>{{ report.generated_at }} / gate {{ report.gate_status }}</span>
-            </div>
-            <p>{{ report.decision_explanation }}</p>
-          </article>
-          {% endfor %}
-        </div>
-      </details>
-      {% endif %}
       {% else %}
       <p class="empty-block">No selection reports yet</p>
       {% endif %}
-    </div>
-  </section>
+    </details>
 
-  <section class="panel" aria-labelledby="timeline-heading">
-    <div class="section-heading">
-      <div>
-        <h2 id="timeline-heading">Lifecycle Audit</h2>
-        <p class="section-subtitle">Machine audit trail for tracing how the current report was produced.</p>
+    {% if previous_reports %}
+    <details class="details-panel">
+      <summary>Show previous reports ({{ previous_reports | length }})</summary>
+      <div class="history-list">
+        {% for report in previous_reports %}
+        <article class="history-row">
+          <div>
+            <strong>{{ report.action }} / {{ report.conviction_pct }}%</strong>
+            <span>{{ report.generated_at }} / gate {{ report.gate_status }}</span>
+          </div>
+          <p>{{ report.decision_explanation }}</p>
+        </article>
+        {% endfor %}
       </div>
-      <a class="text-link" href="/candidates/{{ ticker }}/timeline">JSON</a>
-    </div>
-    {% if timeline %}
-    <details class="history-panel">
+    </details>
+    {% endif %}
+
+    <details class="details-panel">
       <summary>Show lifecycle events ({{ timeline | length }})</summary>
       <div class="timeline">
         {% for event in timeline %}
@@ -309,11 +312,10 @@
           <span class="tag tag-neutral">{{ event.status }}</span>
           <p>{{ event.reason or "recorded" }}</p>
         </article>
+        {% else %}
+        <p class="empty-block">No lifecycle events yet</p>
         {% endfor %}
       </div>
     </details>
-    {% else %}
-    <p class="empty-block">No lifecycle events yet</p>
-    {% endif %}
   </section>
 {% endblock %}
