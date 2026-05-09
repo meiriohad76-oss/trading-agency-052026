@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+MIN_ARTICLE_CHARS = 100
+
 
 @dataclass(frozen=True)
 class SubscriptionEmailConfig:
@@ -17,6 +19,11 @@ class SubscriptionEmailConfig:
     unmatched_ticker_policy: str = "manual_review"
     mailbox_label: str | None = None
     token_path: Path | None = None
+    follow_article_links: bool = False
+    article_link_domains: tuple[str, ...] = ()
+    article_max_links_per_email: int = 1
+    article_fetch_timeout_seconds: int = 15
+    article_max_chars: int = 12_000
 
 
 def load_subscription_email_config(path: Path, *, repo_root: Path) -> SubscriptionEmailConfig:
@@ -33,6 +40,11 @@ def load_subscription_email_config(path: Path, *, repo_root: Path) -> Subscripti
         unmatched_ticker_policy=_string(payload, "unmatched_ticker_policy", "manual_review"),
         mailbox_label=_optional_string(payload, "mailbox_label"),
         token_path=_optional_path(payload, "token_path", repo_root=repo_root),
+        follow_article_links=_boolean(payload, "follow_article_links", False),
+        article_link_domains=_domains(payload, "article_link_domains"),
+        article_max_links_per_email=_integer(payload, "article_max_links_per_email", 1),
+        article_fetch_timeout_seconds=_integer(payload, "article_fetch_timeout_seconds", 15),
+        article_max_chars=_integer(payload, "article_max_chars", 12_000),
     )
     _validate(config)
     return config
@@ -49,6 +61,12 @@ def _validate(config: SubscriptionEmailConfig) -> None:
         raise ValueError("lookback_days must be >= 1")
     if config.unmatched_ticker_policy not in {"manual_review", "ignore"}:
         raise ValueError("unmatched_ticker_policy must be manual_review or ignore")
+    if config.article_max_links_per_email < 0:
+        raise ValueError("article_max_links_per_email must be >= 0")
+    if config.article_fetch_timeout_seconds < 1:
+        raise ValueError("article_fetch_timeout_seconds must be >= 1")
+    if config.article_max_chars < MIN_ARTICLE_CHARS:
+        raise ValueError("article_max_chars must be >= 100")
 
 
 def _string(payload: dict[str, Any], key: str, default: str) -> str:
@@ -84,6 +102,13 @@ def _integer(payload: dict[str, Any], key: str, default: int) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         raise TypeError(f"{key} must be an integer")
     return int(value)
+
+
+def _boolean(payload: dict[str, Any], key: str, default: bool) -> bool:
+    value = payload.get(key, default)
+    if not isinstance(value, bool):
+        raise TypeError(f"{key} must be a boolean")
+    return value
 
 
 def _path(payload: dict[str, Any], key: str, *, repo_root: Path) -> Path:

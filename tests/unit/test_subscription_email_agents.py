@@ -12,6 +12,7 @@ from subscription_email.calibration import write_subscription_email_calibration
 from subscription_email.classifiers import classify_subscription_emails
 from subscription_email.config import SubscriptionEmailConfig, load_subscription_email_config
 from subscription_email.ingest import ingest_subscription_emails
+from subscription_email.linked_content import FetchedArticle, html_to_text
 from subscription_email.parser import parse_email_file, read_local_emails
 from subscription_email.types import EmailRecord
 
@@ -19,6 +20,7 @@ FETCHED_AT = datetime(2026, 5, 9, 12, 0, tzinfo=UTC)
 EXPECTED_NEWS_ROWS = 2
 EXPECTED_EVENT_ROWS = 3
 EXPECTED_SOURCE_REFS = 2
+EXPECTED_ARTICLE_TIMEOUT_SECONDS = 15
 
 
 def test_subscription_email_config_parses_local_mode(tmp_path: Path) -> None:
@@ -32,6 +34,7 @@ def test_subscription_email_config_parses_local_mode(tmp_path: Path) -> None:
     assert config.input_path == input_path
     assert config.enabled_services == ("seeking_alpha", "tradevision", "zacks")
     assert config.allowed_sender_domains[0] == "seekingalpha.com"
+    assert config.follow_article_links is False
 
 
 def test_subscription_email_config_rejects_unknown_service(tmp_path: Path) -> None:
@@ -58,6 +61,21 @@ def test_parse_local_eml_extracts_safe_metadata_and_text(tmp_path: Path) -> None
     assert record.message_id == "sa.eml@example.test"
     assert "AAPL Quant Rating upgraded" in record.body_text
     assert records == [record]
+
+
+def test_parse_html_email_preserves_href_urls(tmp_path: Path) -> None:
+    message_path = tmp_path / "link.eml"
+    _write_message(
+        message_path,
+        sender="alerts@email.seekingalpha.com",
+        subject="Seeking Alpha link",
+        body="<a href='https://seekingalpha.com/article/123?source=email'>Open article</a>",
+        subtype="html",
+    )
+
+    record = parse_email_file(message_path)
+
+    assert "https://seekingalpha.com/article/123?source=email" in record.body_text
 
 
 def test_classifiers_route_service_emails_to_existing_lanes() -> None:
@@ -137,6 +155,61 @@ def test_ingest_writes_pit_clean_outputs_without_private_bodies(tmp_path: Path) 
     assert summary["ignored"][0]["reason"] == "future_email"
 
 
+def test_ingest_uses_linked_article_content_for_ticker_and_summary(tmp_path: Path) -> None:
+    mailbox = tmp_path / "mail"
+    mailbox.mkdir()
+    _write_message(
+        mailbox / "linked.eml",
+        sender="alerts@email.seekingalpha.com",
+        subject="Seeking Alpha article alert",
+        body="Read the latest analysis: https://seekingalpha.com/article/123",
+    )
+    config_path = _config_path(tmp_path, input_path=mailbox, follow_article_links=True)
+
+    def fetcher(url: str, timeout_seconds: int) -> FetchedArticle:
+        assert url == "https://seekingalpha.com/article/123"
+        assert timeout_seconds == EXPECTED_ARTICLE_TIMEOUT_SECONDS
+        return FetchedArticle(
+            url=url,
+            status_code=200,
+            title="Paid article title should be hashed",
+            text="AAPL receives an analyst upgrade with positive revenue guidance.",
+        )
+
+    result = ingest_subscription_emails(
+        config_path=config_path,
+        repo_root=tmp_path,
+        clock=lambda: FETCHED_AT,
+        summary_root=tmp_path / "summary",
+        article_fetcher=fetcher,
+    )
+
+    news = pd.read_parquet(tmp_path / "research" / "data" / "parquet" / "news_rss.parquet")
+    events = pd.read_parquet(
+        tmp_path / "research" / "data" / "parquet" / "subscription_emails.parquet"
+    )
+    summary = json.loads((tmp_path / "summary" / "subscription-email-ingest.json").read_text())
+
+    assert result.news_rows == 1
+    assert result.linked_content_attempted == 1
+    assert result.linked_content_succeeded == 1
+    assert news.iloc[0]["ticker"] == "AAPL"
+    assert "Linked content analysis" in news.iloc[0]["summary"]
+    assert events.iloc[0]["linked_content_status"] == "article_analyzed"
+    assert summary["linked_content"]["succeeded"] == 1
+    assert "analyst upgrade" not in json.dumps(summary)
+    assert "Paid article title" not in json.dumps(summary)
+
+
+def test_html_to_text_removes_scripts_and_extracts_title() -> None:
+    title, text = html_to_text(
+        "<html><title>Example</title><script>secret()</script><p>AAPL upgraded</p></html>"
+    )
+
+    assert title == "Example"
+    assert text == "AAPL upgraded"
+
+
 def test_subscription_email_calibration_keeps_lanes_context_only(tmp_path: Path) -> None:
     summary_path = tmp_path / "subscription-email-ingest.json"
     summary_path.write_text(
@@ -169,6 +242,7 @@ def _config_path(
     *,
     input_path: Path | None = None,
     services: list[str] | None = None,
+    follow_article_links: bool = False,
 ) -> Path:
     path = tmp_path / "subscription-email.json"
     path.write_text(
@@ -186,6 +260,8 @@ def _config_path(
                 "tickers": ["AAPL", "MSFT", "NVDA"],
                 "lookback_days": 30,
                 "unmatched_ticker_policy": "manual_review",
+                "follow_article_links": follow_article_links,
+                "article_link_domains": ["seekingalpha.com"],
             }
         ),
         encoding="utf-8",

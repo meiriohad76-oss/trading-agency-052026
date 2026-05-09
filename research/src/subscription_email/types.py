@@ -13,6 +13,10 @@ class EmailRecord:
     received_at: datetime
     body_text: str
     source_path: str | None = None
+    linked_content_summary: str | None = None
+    linked_content_status: str = "not_requested"
+    linked_content_url: str | None = None
+    linked_content_title_hash: str | None = None
 
 
 @dataclass(frozen=True)
@@ -30,6 +34,10 @@ class SubscriptionEmailIngestResult:
     news_rows: int
     activity_rows: int
     event_rows: int
+    linked_content_attempted: int
+    linked_content_succeeded: int
+    linked_content_failed: int
+    linked_content_skipped: int
     manual_review_count: int
     ignored_count: int
     service_counts: dict[str, int]

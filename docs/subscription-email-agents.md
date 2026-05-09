@@ -14,7 +14,8 @@ Gmail, Outlook, and IMAP are represented in config for later connectors.
   become `unusual_activity_alerts` rows.
 
 Raw email bodies are never written to summary artifacts. Message IDs are stored
-as hashes, and summaries are generic classification summaries.
+as hashes, article titles are stored only as hashes, and fetched article text is
+analyzed in memory only.
 
 ## Local Setup
 
@@ -34,6 +35,24 @@ research/data/raw/subscription_emails/
 That folder is ignored by git. Keep only service emails that the agency is
 allowed to read.
 
+To let the agent open article links from those emails, set this in
+`research/config/subscription-email.local.json`:
+
+```json
+"follow_article_links": true,
+"article_link_domains": [
+  "seekingalpha.com",
+  "email.seekingalpha.com",
+  "tradevision.io",
+  "tradevision.com",
+  "zacks.com"
+]
+```
+
+The first implementation uses direct HTTP fetches for allowlisted links. If a
+paid article requires an active browser login, the fetch may return a login page
+or fail; those attempts are counted but do not expose article content.
+
 ## Import Command
 
 ```powershell
@@ -50,6 +69,9 @@ The command writes:
 - downstream manifests for written datasets
 - `research/results/latest-subscription-emails/subscription-email-ingest.json`
 - `research/results/latest-subscription-emails/subscription-email-ingest.md`
+
+The safe summary includes link-fetch counts: attempted, analyzed, failed, and
+skipped.
 
 ## Refresh Batch
 

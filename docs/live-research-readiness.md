@@ -34,6 +34,8 @@ Use this checklist to make those inputs explicit.
     `research/config/subscription-email.local.json`.
   - Export approved `.eml` messages into
     `research/data/raw/subscription_emails/`.
+  - Set `follow_article_links` to `true` when the agent should open allowlisted
+    article links and analyze page content in memory.
   - Add `subscription_emails` to `datasets` only when that local export exists.
   - See `docs/subscription-email-agents.md` for the exact command flow.
 

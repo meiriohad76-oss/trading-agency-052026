@@ -183,7 +183,7 @@ def _news_row(
         "feed_name": SERVICE_LABELS[service],
         "title": _title(record, service, event_type),
         "url": source_url,
-        "summary": _summary(service, event_type, _direction(_text(record))),
+        "summary": _summary(service, event_type, _direction(_text(record)), record),
         "published_at": record.received_at,
         "source": f"{service}-email",
         "source_tier": SourceTier.PAID_SUB_EMAIL.value,
@@ -220,7 +220,7 @@ def _activity_row(
         "alert_type": alert_type,
         "direction": direction,
         "event_time": record.received_at.isoformat(),
-        "summary": _summary("tradevision", alert_type, direction),
+        "summary": _summary("tradevision", alert_type, direction, record),
         "price": None,
         "volume": None,
         "notional": notional,
@@ -270,6 +270,9 @@ def _event_row(
         "message_id_hash": message_id_hash,
         "sender_domain": record.sender_domain,
         "received_at": record.received_at.isoformat(),
+        "linked_content_status": record.linked_content_status,
+        "linked_content_url": record.linked_content_url,
+        "linked_content_title_hash": record.linked_content_title_hash,
         "timestamp_observed": record.received_at.isoformat(),
         "timestamp_as_of": record.received_at.isoformat(),
         "confidence": confidence,
@@ -364,11 +367,14 @@ def _title(record: EmailRecord, service: str, event_type: str) -> str:
     return f"{prefix}: {event_type.replace('_', ' ')} - {subject}"
 
 
-def _summary(service: str, event_type: str, direction: str) -> str:
-    return (
+def _summary(service: str, event_type: str, direction: str, record: EmailRecord) -> str:
+    summary = (
         f"Email-derived {SERVICE_LABELS[service]} evidence classified as "
         f"{event_type} with {direction.lower()} direction."
     )
+    if record.linked_content_summary is None:
+        return summary
+    return f"{summary} {record.linked_content_summary}"
 
 
 def _first_url(record: EmailRecord) -> str | None:
@@ -421,6 +427,7 @@ def _audit_stub(record: EmailRecord, service: str | None, reason: str) -> dict[s
         "message_id_hash": _hash(record.message_id),
         "sender_domain": record.sender_domain,
         "received_at": record.received_at.isoformat(),
+        "linked_content_status": record.linked_content_status,
     }
 
 
@@ -540,7 +547,8 @@ def _float(value: object) -> float:
 
 
 def _text(record: EmailRecord) -> str:
-    return f"{record.subject}\n{record.body_text}"
+    linked = f"\n{record.linked_content_summary}" if record.linked_content_summary else ""
+    return f"{record.subject}\n{record.body_text}{linked}"
 
 
 def _hash(value: str) -> str:
