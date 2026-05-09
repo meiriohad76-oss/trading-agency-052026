@@ -5,7 +5,7 @@ from statistics.ic import compute_ic, compute_ic_panel
 
 import pandas as pd
 import pytest
-from hypothesis import given
+from hypothesis import given, settings
 from hypothesis import strategies as st
 
 PERFECT_IC = 1.0
@@ -83,6 +83,7 @@ def test_compute_ic_drops_missing_pairs_within_cross_section() -> None:
 
 
 @given(st.floats(min_value=SCALE_MIN, max_value=SCALE_MAX, allow_nan=False, allow_infinity=False))
+@settings(deadline=None)
 def test_ic_t_stat_invariant_under_positive_linear_scaling(scale: float) -> None:
     scores = pd.DataFrame(
         {

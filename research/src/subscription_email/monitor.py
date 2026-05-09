@@ -10,6 +10,7 @@ from typing import Any
 
 from subscription_email.config import load_subscription_email_config
 from subscription_email.ingest import ingest_subscription_email_config
+from subscription_email.linked_content import ArticleFetcher
 from subscription_email.mailbox import ImapFactory, MailboxSyncResult, sync_mailbox_emails
 
 MIN_MONITOR_POLL_SECONDS = 5
@@ -33,6 +34,7 @@ def monitor_subscription_emails_once(
     summary_root: Path | None = None,
     clock: Callable[[], datetime] | None = None,
     imap_factory: ImapFactory | None = None,
+    article_fetcher: ArticleFetcher | None = None,
 ) -> MonitorRunResult:
     config = load_subscription_email_config(config_path, repo_root=repo_root)
     get_now = clock or (lambda: datetime.now(UTC))
@@ -40,8 +42,8 @@ def monitor_subscription_emails_once(
     resolved_state_path = state_path or config.input_path / ".subscription-email-monitor.json"
     before = _read_state(resolved_state_path)
     snapshot = _snapshot(config.input_path)
-    changed_files = _changed_count(before.get("files", []), snapshot)
-    if changed_files == 0:
+    changed_files = _changed_files(before.get("files", []), snapshot)
+    if not changed_files:
         result = MonitorRunResult(
             status="skipped",
             reason="no new or changed email files",
@@ -57,11 +59,13 @@ def monitor_subscription_emails_once(
             repo_root=repo_root,
             summary_root=summary_root,
             clock=get_now,
+            article_fetcher=article_fetcher,
+            source_paths=tuple(config.input_path / path for path in changed_files),
         )
         result = MonitorRunResult(
             status="analyzed",
             reason="new or changed email files detected",
-            changed_files=changed_files,
+            changed_files=len(changed_files),
             mailbox_sync=mailbox_sync,
             ingest={
                 "processed_emails": ingest.processed_emails,
@@ -130,11 +134,22 @@ def _snapshot(path: Path) -> list[dict[str, object]]:
 
 
 def _changed_count(previous: object, current: list[dict[str, object]]) -> int:
+    return len(_changed_files(previous, current))
+
+
+def _changed_files(previous: object, current: list[dict[str, object]]) -> list[Path]:
     if not isinstance(previous, list):
-        return len(current)
+        return [Path(str(item["path"])) for item in current if _has_path(item)]
     old = {json.dumps(item, sort_keys=True) for item in previous if isinstance(item, dict)}
-    new = {json.dumps(item, sort_keys=True) for item in current}
-    return len(new.difference(old))
+    return [
+        Path(str(item["path"]))
+        for item in current
+        if _has_path(item) and json.dumps(item, sort_keys=True) not in old
+    ]
+
+
+def _has_path(item: object) -> bool:
+    return isinstance(item, dict) and isinstance(item.get("path"), str)
 
 
 def _read_state(path: Path) -> dict[str, Any]:
