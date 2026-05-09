@@ -73,6 +73,45 @@ The command writes:
 The safe summary includes link-fetch counts: attempted, analyzed, failed, and
 skipped.
 
+## Automatic Monitor
+
+Run one monitor cycle:
+
+```powershell
+.\.venv\Scripts\python research\scripts\watch_subscription_emails.py `
+  --config research\config\subscription-email.local.json `
+  --once
+```
+
+Run continuously:
+
+```powershell
+.\.venv\Scripts\python research\scripts\watch_subscription_emails.py `
+  --config research\config\subscription-email.local.json `
+  --poll-seconds 60
+```
+
+In `local_eml` mode, the monitor watches
+`research/data/raw/subscription_emails/` and starts analysis when a new or
+changed `.eml` file appears.
+
+For IMAP-style mailbox polling, set `mode` to `imap`, `gmail`, or `outlook` and
+keep secrets in `.env`, not in JSON:
+
+```json
+"mode": "gmail",
+"mailbox_label": "INBOX",
+"mailbox_username_env": "SUBSCRIPTION_EMAIL_USERNAME",
+"mailbox_password_env": "SUBSCRIPTION_EMAIL_PASSWORD",
+"mailbox_search": "UNSEEN",
+"mailbox_mark_seen": false
+```
+
+Then add the corresponding values to `.env`. The monitor downloads only
+allowlisted sender domains into the ignored local `.eml` folder, then runs the
+same analysis pipeline. Messages are fetched with `BODY.PEEK[]` by default so
+they are not marked read unless `mailbox_mark_seen` is set to `true`.
+
 ## Refresh Batch
 
 To run the agents through the data-refresh batch, add this dataset and config

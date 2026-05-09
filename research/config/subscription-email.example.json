@@ -33,5 +33,12 @@
   ],
   "article_max_links_per_email": 1,
   "article_fetch_timeout_seconds": 15,
-  "article_max_chars": 12000
+  "article_max_chars": 12000,
+  "mailbox_host": null,
+  "mailbox_port": 993,
+  "mailbox_username_env": "SUBSCRIPTION_EMAIL_USERNAME",
+  "mailbox_password_env": "SUBSCRIPTION_EMAIL_PASSWORD",
+  "mailbox_search": "UNSEEN",
+  "mailbox_mark_seen": false,
+  "monitor_poll_seconds": 60
 }
