@@ -8,6 +8,10 @@ from typing import Any
 MIN_ARTICLE_CHARS = 100
 MIN_MONITOR_POLL_SECONDS = 5
 MIN_BROWSER_WAIT_SECONDS = 1
+SUPPORTED_ARTICLE_FETCH_MODES = {"auto", "http", "browser"}
+SUPPORTED_BROWSER_CHANNELS = {"chromium", "chrome", "msedge"}
+SUPPORTED_MODES = {"local_eml", "gmail", "outlook", "imap"}
+SUPPORTED_UNMATCHED_TICKER_POLICIES = {"manual_review", "ignore"}
 
 
 @dataclass(frozen=True)
@@ -29,6 +33,8 @@ class SubscriptionEmailConfig:
     article_fetch_mode: str = "auto"
     article_browser_state_dir: Path | None = None
     article_browser_wait_seconds: int = 5
+    article_browser_channel: str = "chrome"
+    article_browser_headless: bool = True
     mailbox_host: str | None = None
     mailbox_port: int = 993
     mailbox_username_env: str = "SUBSCRIPTION_EMAIL_USERNAME"
@@ -64,6 +70,8 @@ def load_subscription_email_config(path: Path, *, repo_root: Path) -> Subscripti
             repo_root=repo_root,
         ),
         article_browser_wait_seconds=_integer(payload, "article_browser_wait_seconds", 5),
+        article_browser_channel=_string(payload, "article_browser_channel", "chrome"),
+        article_browser_headless=_boolean(payload, "article_browser_headless", True),
         mailbox_host=_optional_string(payload, "mailbox_host"),
         mailbox_port=_integer(payload, "mailbox_port", 993),
         mailbox_username_env=_string(
@@ -85,7 +93,7 @@ def load_subscription_email_config(path: Path, *, repo_root: Path) -> Subscripti
 
 
 def _validate(config: SubscriptionEmailConfig) -> None:
-    if config.mode not in {"local_eml", "gmail", "outlook", "imap"}:
+    if config.mode not in SUPPORTED_MODES:
         raise ValueError(f"unsupported subscription email mode: {config.mode}")
     known_services = {"seeking_alpha", "tradevision", "zacks"}
     unknown = sorted(set(config.enabled_services).difference(known_services))
@@ -93,18 +101,28 @@ def _validate(config: SubscriptionEmailConfig) -> None:
         raise ValueError(f"unknown subscription email service(s): {unknown}")
     if config.lookback_days < 1:
         raise ValueError("lookback_days must be >= 1")
-    if config.unmatched_ticker_policy not in {"manual_review", "ignore"}:
+    if config.unmatched_ticker_policy not in SUPPORTED_UNMATCHED_TICKER_POLICIES:
         raise ValueError("unmatched_ticker_policy must be manual_review or ignore")
+    _validate_article_config(config)
+    _validate_mailbox_config(config)
+
+
+def _validate_article_config(config: SubscriptionEmailConfig) -> None:
     if config.article_max_links_per_email < 0:
         raise ValueError("article_max_links_per_email must be >= 0")
     if config.article_fetch_timeout_seconds < 1:
         raise ValueError("article_fetch_timeout_seconds must be >= 1")
     if config.article_max_chars < MIN_ARTICLE_CHARS:
         raise ValueError("article_max_chars must be >= 100")
-    if config.article_fetch_mode not in {"auto", "http", "browser"}:
+    if config.article_fetch_mode not in SUPPORTED_ARTICLE_FETCH_MODES:
         raise ValueError("article_fetch_mode must be auto, http, or browser")
     if config.article_browser_wait_seconds < MIN_BROWSER_WAIT_SECONDS:
         raise ValueError("article_browser_wait_seconds must be >= 1")
+    if config.article_browser_channel not in SUPPORTED_BROWSER_CHANNELS:
+        raise ValueError("article_browser_channel must be chromium, chrome, or msedge")
+
+
+def _validate_mailbox_config(config: SubscriptionEmailConfig) -> None:
     if config.mailbox_port < 1:
         raise ValueError("mailbox_port must be >= 1")
     if config.mode == "imap" and config.mailbox_host is None:

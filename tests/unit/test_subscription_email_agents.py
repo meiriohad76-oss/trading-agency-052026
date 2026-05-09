@@ -271,6 +271,22 @@ def test_browser_session_provider_paths_are_local_and_gitignored(tmp_path: Path)
     )
 
 
+def test_subscription_email_config_supports_real_browser_channel(tmp_path: Path) -> None:
+    config_path = _config_path(
+        tmp_path,
+        article_fetch_mode="browser",
+        article_browser_state_dir=tmp_path / "sessions",
+        article_browser_channel="msedge",
+        article_browser_headless=False,
+    )
+
+    config = load_subscription_email_config(config_path, repo_root=tmp_path)
+
+    assert config.article_fetch_mode == "browser"
+    assert config.article_browser_channel == "msedge"
+    assert config.article_browser_headless is False
+
+
 def test_mailbox_sync_saves_only_allowlisted_messages(tmp_path: Path) -> None:
     mailbox = tmp_path / "mail"
     config_path = _config_path(tmp_path, input_path=mailbox, mode="gmail")
@@ -427,6 +443,8 @@ def _config_path(
     mode: str = "local_eml",
     article_fetch_mode: str = "auto",
     article_browser_state_dir: Path | None = None,
+    article_browser_channel: str = "chrome",
+    article_browser_headless: bool = True,
 ) -> Path:
     path = tmp_path / "subscription-email.json"
     payload: dict[str, object] = {
@@ -448,6 +466,8 @@ def _config_path(
         "follow_article_links": follow_article_links,
         "article_link_domains": ["seekingalpha.com"],
         "article_fetch_mode": article_fetch_mode,
+        "article_browser_channel": article_browser_channel,
+        "article_browser_headless": article_browser_headless,
     }
     if article_browser_state_dir is not None:
         payload["article_browser_state_dir"] = str(article_browser_state_dir)
@@ -462,6 +482,8 @@ def _config(
     *,
     article_fetch_mode: str = "auto",
     article_browser_state_dir: Path | None = None,
+    article_browser_channel: str = "chrome",
+    article_browser_headless: bool = True,
 ) -> SubscriptionEmailConfig:
     return SubscriptionEmailConfig(
         mode="local_eml",
@@ -476,6 +498,8 @@ def _config(
         tickers=("AAPL", "MSFT", "NVDA"),
         article_fetch_mode=article_fetch_mode,
         article_browser_state_dir=article_browser_state_dir,
+        article_browser_channel=article_browser_channel,
+        article_browser_headless=article_browser_headless,
     )
 
 

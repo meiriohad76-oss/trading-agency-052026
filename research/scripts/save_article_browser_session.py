@@ -20,6 +20,8 @@ def main() -> int:
         provider=args.provider,
         state_dir=args.state_dir,
         login_url=args.login_url,
+        browser_channel=args.browser_channel,
+        profile_dir=args.profile_dir,
     )
     print(f"Saved browser session: {_display_path(state_path)}")
     return 0
@@ -31,6 +33,17 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--provider", choices=sorted(PROVIDER_LOGIN_URLS), required=True)
     parser.add_argument("--login-url", help="Override login URL for the selected provider.")
+    parser.add_argument(
+        "--browser-channel",
+        choices=("chrome", "msedge", "chromium"),
+        default="chrome",
+        help="Browser channel to use for login. Prefer chrome or msedge for paid sites.",
+    )
+    parser.add_argument(
+        "--profile-dir",
+        type=Path,
+        help="Persistent local browser profile directory. Defaults under state-dir/profiles.",
+    )
     parser.add_argument(
         "--state-dir",
         type=Path,
