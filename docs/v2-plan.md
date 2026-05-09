@@ -253,7 +253,7 @@ These are *not* in v2 by default. Each requires written justification before ado
 |---|---|---|---|
 | **Marketaux historical news** | News with PIT publish timestamps for backtesting | ~$30-50/mo | Research must show news lane adds measurable edge above SEC + price + paid-sub email lanes. |
 | **X / Twitter Basic API** | Read access to followed accounts | $200/mo | Research must show X content adds measurable edge above the news lanes already available. |
-| **Polygon.io** | Real-time + historical intraday, options data, trade prints | $30-200/mo depending on tier | Research must show intraday or options data is decisive. Alpaca + yfinance may suffice. |
+| **Polygon.io / Massive** | Delayed stock trades now; real-time/options data on higher tiers later | $79+/mo depending on tier | Stock-trade pressure is wired as opt-in context. Higher-tier options or real-time data still needs research justification. |
 | **Alpaca paid plans** | Better intraday data, lower latency | ~$9-99/mo | Only if free tier proves insufficient for the chosen strategy. |
 
 ### 6.4 Blocked
@@ -308,7 +308,7 @@ confirmed signal before it can emit `WATCH`; inferred lanes remain corroboration
 | **Unusual options activity** | TradeVision email; possibly yfinance options chains | Paid-sub email / RSS-only | Confirmed (TV) / Inferred (yfinance) | Confirmed: single OK. Inferred: needs corroboration. |
 | **Abnormal volume / velocity** | Alpaca + yfinance bar data | Inferred-from-bars | Inferred | Never sole basis; needs confirmed corroboration |
 | **Pre/post-market price + volume** | Alpaca free tier, yfinance | Free-tier | Confirmed (data) but inferred (signal) | Magnitude threshold + corroboration |
-| **Pre-market trade prints** | Alpaca | Free-tier (limited) | Confirmed where available | Test lane; may degrade to "inferred" if free tier insufficient |
+| **Pre-market trade prints** | Massive/Polygon stock trades | Paid API | Confirmed prints; inferred direction | Context until H1 validates market-flow pressure. |
 | **Options chain / IV** | yfinance options | RSS-only | Confirmed (data) but inferred (signal) | Magnitude threshold + corroboration |
 | **X / Twitter** | X Basic API ($) or skip | Social/crowd | Inferred | Pending research justification (§6.3) |
 | **Sector tailwind/pressure** | Sector ETFs + top constituents | Free-tier | Confirmed (when ETF + breadth pass) | ETF + breadth gate (v1's lesson) |

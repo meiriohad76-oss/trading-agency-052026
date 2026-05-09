@@ -10,7 +10,12 @@ from prices.sector_etfs import SECTOR_ETF_TICKERS
 from agency.provenance import Provenanced
 
 from .exceptions import DataNotAvailableAt, LookaheadRequested
-from .forward_views import activity_alerts_from_loader, news_from_loader, option_chains_from_loader
+from .forward_views import (
+    activity_alerts_from_loader,
+    news_from_loader,
+    option_chains_from_loader,
+    stock_trades_from_loader,
+)
 from .manifest import DatasetName, ManifestRegistry
 from .records import (
     ProvenancedTickerSet,
@@ -160,6 +165,9 @@ class PITLoader:
 
     def option_chains(self, tickers: list[str], as_of: date, lookback_days: int) -> pl.DataFrame:
         return option_chains_from_loader(self, tickers, as_of, lookback_days)
+
+    def stock_trades(self, tickers: list[str], as_of: date, lookback_days: int) -> pl.DataFrame:
+        return stock_trades_from_loader(self, tickers, as_of, lookback_days)
 
     def activity_alerts(
         self,

@@ -143,6 +143,40 @@ def test_optional_options_lanes_require_options_chain_dataset() -> None:
     assert datasets == {DatasetName.OPTIONS_CHAINS}
 
 
+def test_optional_market_flow_lanes_require_stock_trades_dataset() -> None:
+    datasets = required_runtime_datasets(("buy_sell_pressure", "block_trade_pressure"))
+
+    assert datasets == {DatasetName.STOCK_TRADES}
+
+
+def test_live_pit_runtime_cycle_can_emit_market_flow_signals(tmp_path: Path) -> None:
+    loader = loader_with(
+        tmp_path,
+        {
+            DatasetName.STOCK_TRADES: pl.DataFrame(
+                [
+                    stock_trade("AAPL", 100_000.0, 1, True),
+                    stock_trade("MSFT", 100_000.0, -1, True),
+                ]
+            )
+        },
+    )
+
+    cycle = build_live_pit_runtime_cycle(
+        cycle_id="cycle-flow",
+        as_of=date(2026, 5, 6),
+        tickers={"AAPL", "MSFT"},
+        manifest_root=loader.manifest_root,
+        parquet_root=loader.parquet_root,
+        lanes=("buy_sell_pressure",),
+        generated_at=GENERATED_AT,
+    )
+    summary = build_live_runtime_summary(cycle, persisted=False)
+
+    assert cycle.source_health[0]["source"] == "massive-stock-trades"
+    assert summary["signal_count"] == EXPECTED_PRICE_SIGNAL_COUNT
+
+
 def test_replay_freshness_caps_future_manifest_timestamps(tmp_path: Path) -> None:
     loader = loader_with(
         tmp_path,
@@ -184,3 +218,28 @@ def test_replay_freshness_caps_future_manifest_timestamps(tmp_path: Path) -> Non
     )
 
     assert cycle.source_health[0]["status"] == "HEALTHY"
+
+
+def stock_trade(
+    ticker: str,
+    notional: float,
+    direction: int,
+    block: bool,
+) -> dict[str, object]:
+    return {
+        "ticker": ticker,
+        "trade_date": date(2026, 5, 6),
+        "trade_ts": "2026-05-06T13:30:00Z",
+        "price": 100.0,
+        "size": notional / 100.0,
+        "notional": notional,
+        "direction": direction,
+        "signed_volume": direction * notional / 100.0,
+        "signed_notional": direction * notional,
+        "session": "REGULAR",
+        "is_block_trade": block,
+        "is_off_exchange": block,
+        "sequence_number": 1,
+        "source_id": f"{ticker}-flow",
+        "timestamp_as_of": date(2026, 5, 6),
+    }

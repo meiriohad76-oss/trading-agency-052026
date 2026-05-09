@@ -53,6 +53,12 @@ Completed archive:
 - T97: paper review smoke-check script.
 - T98: operational readiness API and smoke-check script.
 - T99: optional options anomaly and activity-alert runtime lanes.
+- T105: Massive/Polygon stock-trades ingestion.
+- T106: stock-trade classifier for sessions, direction, and block/off-exchange
+  features.
+- T107: buy/sell pressure signal from delayed trade prints.
+- T108: block/off-exchange pressure signal from delayed trade prints.
+- T109: Massive market-flow runtime, readiness, and docs wiring.
 - PR #82: provider readiness checklist.
 
 ## Next Ticket Candidates

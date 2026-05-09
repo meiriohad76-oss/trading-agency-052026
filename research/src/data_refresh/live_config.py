@@ -29,6 +29,7 @@ class RefreshConfigOverrides:
     market_data_feed: str | None = None
     market_data_adjustment: str | None = None
     market_data_base_url: str | None = None
+    massive_base_url: str | None = None
     runtime_signals: tuple[str, ...] = ()
 
 
@@ -54,6 +55,7 @@ def load_refresh_config(path: Path, *, repo_root: Path) -> RefreshConfigOverride
         market_data_feed=_optional_string(payload, "market_data_feed"),
         market_data_adjustment=_optional_string(payload, "market_data_adjustment"),
         market_data_base_url=_optional_string(payload, "market_data_base_url"),
+        massive_base_url=_optional_string(payload, "massive_base_url"),
         runtime_signals=_string_tuple(payload, "runtime_signals"),
     )
 

@@ -60,6 +60,8 @@ def _checks(config_path: Path, payload: Mapping[str, object] | None) -> list[dic
         checks.append(_list_check(payload, "RSS feeds", "rss_feeds"))
     if _uses(datasets, "options_chains"):
         checks.append(_check("Options chains", "WARN", "Forward-chain anomalies are inferred"))
+    if _uses(datasets, "stock_trades"):
+        checks.append(_massive_credentials_check())
     if _uses(datasets, "sec_13f"):
         checks.extend([
             _list_check(payload, "13F filers", "filer_ciks"),
@@ -84,6 +86,12 @@ def _market_data_check(payload: Mapping[str, object]) -> dict[str, str]:
     if provider == "yfinance":
         return _check("Market data", "WARN", "yfinance may be stale for current-date bars")
     return _check("Market data", "BLOCK", f"Unknown provider: {provider}")
+
+
+def _massive_credentials_check() -> dict[str, str]:
+    if _massive_credentials_present():
+        return _check("Massive market-flow", "PASS", "Massive or Polygon credentials are present")
+    return _check("Massive market-flow", "BLOCK", "Missing MASSIVE_API_KEY or POLYGON_API_KEY")
 
 
 def _ticker_check(payload: Mapping[str, object]) -> dict[str, str]:
@@ -167,6 +175,13 @@ def _uses(datasets: tuple[str, ...], dataset: str) -> bool:
 
 def _uses_any(datasets: tuple[str, ...], candidates: set[str]) -> bool:
     return not datasets or bool(candidates.intersection(datasets))
+
+
+def _massive_credentials_present() -> bool:
+    return bool(
+        os.environ.get("MASSIVE_API_KEY", "").strip()
+        or os.environ.get("POLYGON_API_KEY", "").strip()
+    )
 
 
 def _state(blocker_count: int, warning_count: int) -> str:

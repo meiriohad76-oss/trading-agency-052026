@@ -17,7 +17,8 @@ validate each signal lane.
 | 2 | Benzinga | News, calendars, ratings, unusual activity | `BENZINGA_API_KEY` | Planned |
 | 2 | Unusual Whales | Dark-pool, options flow, unusual activity | `UNUSUAL_WHALES_API_KEY` | Planned |
 | 3 | FRED | Macro/rate regime filters | `FRED_API_KEY` | Planned |
-| 3 | Polygon/Massive | Raw stock/options market data | `POLYGON_API_KEY` or `MASSIVE_API_KEY` | Planned |
+| 2 | Polygon/Massive | Delayed stock trades and market-flow pressure | `POLYGON_API_KEY` or `MASSIVE_API_KEY` | Wired opt-in |
+| 3 | Polygon/Massive options tiers | Options trades, quotes, and aggregates | `POLYGON_API_KEY` or `MASSIVE_API_KEY` | Backlog |
 | 3 | ThetaData | Deep historical options research | `THETADATA_USERNAME`, `THETADATA_PASSWORD` | Planned |
 | 3 | FINRA OTC Transparency | Delayed market-structure context | none | Planned |
 | Later | OpenAI | Supervised LLM review calls | `OPENAI_API_KEY` | Optional |
@@ -26,12 +27,15 @@ validate each signal lane.
 
 1. Keep Alpaca, SEC EDGAR, and RSS as the operational stocks-only paper stack.
 2. Add OpenFIGI before expanding 13F coverage, so CUSIP mapping is repeatable.
-3. Add one confirmed activity provider next: Unusual Whales if the API plan is
+3. Enable Polygon/Massive `stock_trades` only after adding a local key. The
+   current implementation uses delayed confirmed stock prints to infer buy/sell
+   and block/off-exchange pressure. It does not claim true aggressor side.
+4. Add one confirmed activity provider next: Unusual Whales if the API plan is
    acceptable, otherwise Benzinga unusual-activity endpoints.
-4. Import several weeks of confirmed activity alerts, then re-run H1/H2 before
+5. Import several weeks of confirmed activity alerts, then re-run H1/H2 before
    enabling `activity_alerts`, `options_anomaly`, or `options_flow` in runtime.
-5. Add FRED only once macro filters are part of candidate scoring.
-6. Buy deep historical options data only after the alert lane proves useful.
+6. Add FRED only once macro filters are part of candidate scoring.
+7. Buy deep historical options data only after the alert lane proves useful.
 
 ## Local Readiness
 
@@ -43,6 +47,10 @@ Optional activity/options lanes are already represented in the data model:
 
 - `options_anomaly`: inferred from option-chain snapshots.
 - `options_flow`: inferred call/put pressure from option-chain snapshots.
+- `buy_sell_pressure`: inferred from delayed confirmed stock trade prints using
+  tick/zero-tick direction.
+- `block_trade_pressure`: inferred from large and off-exchange stock prints;
+  useful context for market-flow pressure, not a standalone dark-pool verdict.
 - `activity_alerts`: confirmed provider/export alerts for dark-pool prints,
   block trades, unusual options activity, options sweeps, and unusual stock
   activity.

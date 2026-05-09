@@ -16,6 +16,7 @@ def build_refresh_jobs(config: RefreshBatchConfig) -> tuple[RefreshJob, ...]:
         "sec_form4": _form4_job,
         "sec_13f": _form13f_job,
         "news_rss": _news_job,
+        "stock_trades": _stock_trades_job,
         "options_chains": _options_job,
         "unusual_activity_alerts": _activity_alerts_job,
     }
@@ -89,6 +90,18 @@ def _news_job(config: RefreshBatchConfig) -> RefreshJob:
         command.extend(["--feed", feed])
     reasons = () if config.rss_feeds else ("missing RSS feed specs",)
     return _job(config, "news_rss", command, reasons)
+
+
+def _stock_trades_job(config: RefreshBatchConfig) -> RefreshJob:
+    command = _base_command(config, "pull_massive_stock_trades.py")
+    command.extend(["--start", config.start.isoformat(), "--end", config.end.isoformat()])
+    command.extend(["--massive-base-url", config.massive_base_url])
+    for ticker in config.tickers:
+        command.extend(["--ticker", ticker.upper()])
+    reasons = list(_universe_reasons(config))
+    if not config.massive_credentials_present:
+        reasons.append("missing Massive market-flow credentials")
+    return _job(config, "stock_trades", command, tuple(reasons))
 
 
 def _options_job(config: RefreshBatchConfig) -> RefreshJob:
@@ -202,6 +215,7 @@ def _validate_config(config: RefreshBatchConfig) -> None:
         ("market_data_feed", config.market_data_feed),
         ("market_data_adjustment", config.market_data_adjustment),
         ("market_data_base_url", config.market_data_base_url),
+        ("massive_base_url", config.massive_base_url),
     ):
         if value.strip() == "":
             raise ValueError(f"{label} must not be blank")

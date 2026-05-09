@@ -39,6 +39,12 @@ def test_required_datasets_include_activity_alert_manifest() -> None:
     assert requirements[DatasetName.UNUSUAL_ACTIVITY_ALERTS] == "activity_alerts signal inputs"
 
 
+def test_required_datasets_include_market_flow_manifest() -> None:
+    requirements = required_datasets(["buy_sell_pressure"], uses_static_universe=True)
+
+    assert requirements[DatasetName.STOCK_TRADES] == "buy_sell_pressure signal inputs"
+
+
 def test_inspect_datasets_reports_missing_and_ready_manifests(tmp_path) -> None:
     manifest_root = tmp_path / "manifests"
     parquet_root = tmp_path / "parquet"

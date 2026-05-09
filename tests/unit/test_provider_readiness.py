@@ -67,6 +67,23 @@ def test_provider_readiness_warns_for_partial_key_pairs(
     assert _provider(readiness, "ThetaData")["status"] == "WARN"
 
 
+def test_provider_readiness_blocks_massive_when_market_flow_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _blank_provider_env(monkeypatch)
+
+    readiness = load_provider_readiness(
+        {
+            "provider": "yfinance",
+            "checks": [{"label": "Massive market-flow", "status": "BLOCK"}],
+        }
+    )
+
+    assert readiness["ready"] is False
+    assert _provider(readiness, "Polygon or Massive")["required_now"] is True
+    assert _provider(readiness, "Polygon or Massive")["status"] == "BLOCK"
+
+
 def test_provider_readiness_endpoint_returns_provider_matrix(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

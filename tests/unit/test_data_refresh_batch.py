@@ -93,6 +93,26 @@ def test_build_refresh_jobs_accepts_local_activity_alert_csv(tmp_path: Path) -> 
     assert ready_job.display_command[-2:] == ("--input", "alerts.csv")
 
 
+def test_build_refresh_jobs_blocks_stock_trades_without_massive_credentials(
+    tmp_path: Path,
+) -> None:
+    missing = _config(tmp_path, datasets=("stock_trades",), tickers=("aapl",))
+    ready = _config(
+        tmp_path,
+        datasets=("stock_trades",),
+        tickers=("aapl",),
+        massive_credentials_present=True,
+    )
+
+    blocked_job = build_refresh_jobs(missing)[0]
+    ready_job = build_refresh_jobs(ready)[0]
+
+    assert blocked_job.blocked_reasons == ("missing Massive market-flow credentials",)
+    assert ready_job.blocked_reasons == ()
+    assert "--massive-base-url" in ready_job.display_command
+    assert ready_job.display_command[-2:] == ("--ticker", "AAPL")
+
+
 def test_run_refresh_batch_dry_run_writes_status(tmp_path: Path) -> None:
     cusip_map = tmp_path / "cusips.json"
     cusip_map.write_text('{"037833100": "AAPL"}', encoding="utf-8")
@@ -224,6 +244,7 @@ def _config(
     dry_run: bool = False,
     market_data_provider: str = "yfinance",
     market_data_credentials_present: bool = False,
+    massive_credentials_present: bool = False,
 ) -> RefreshBatchConfig:
     return RefreshBatchConfig(
         repo_root=tmp_path,
@@ -240,6 +261,7 @@ def _config(
         dry_run=dry_run,
         market_data_provider=market_data_provider,
         market_data_credentials_present=market_data_credentials_present,
+        massive_credentials_present=massive_credentials_present,
     )
 
 

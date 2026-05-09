@@ -13,6 +13,11 @@ Use this checklist to make those inputs explicit.
   - Pass one or more institutional filer CIKs.
 - CUSIP map
   - JSON object mapping CUSIP strings to tickers.
+- Massive/Polygon stock trades, optional
+  - Add `POLYGON_API_KEY` or `MASSIVE_API_KEY` in `.env`.
+  - Include `stock_trades` only when you want delayed trade-print pressure
+    lanes. The signals infer direction from prints; they do not identify true
+    buyer/seller aggressor side.
 - Unusual activity alerts CSV, optional
   - Use for paid/confirmed provider alerts such as block trades, dark-pool prints,
     unusual options activity, options sweeps, and unusual stock activity.
@@ -114,6 +119,7 @@ datasets and runtime signals explicitly:
   "sec_form4",
   "sec_13f",
   "news_rss",
+  "stock_trades",
   "options_chains",
   "unusual_activity_alerts"
 ],
@@ -122,6 +128,8 @@ datasets and runtime signals explicitly:
   "insider",
   "institutional",
   "abnormal_volume",
+  "buy_sell_pressure",
+  "block_trade_pressure",
   "sector_momentum",
   "news",
   "options_anomaly",
@@ -130,9 +138,10 @@ datasets and runtime signals explicitly:
 ]
 ```
 
-`options_anomaly` and `options_flow` are inferred from forward option-chain
-snapshots. `activity_alerts` is the confirmed lane for provider-sourced dark-pool,
-block-trade, and unusual-options alerts.
+`buy_sell_pressure` and `block_trade_pressure` are inferred from delayed
+Massive/Polygon stock prints. `options_anomaly` and `options_flow` are inferred
+from forward option-chain snapshots. `activity_alerts` is the confirmed lane for
+provider-sourced dark-pool, block-trade, and unusual-options alerts.
 
 Write the compact summary artifact:
 

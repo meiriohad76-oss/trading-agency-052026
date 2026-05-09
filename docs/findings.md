@@ -2,7 +2,7 @@
 
 **Status:** Preliminary empirical H1 complete
 **Owner:** Ohad Meiri
-**Last updated:** 2026-05-08
+**Last updated:** 2026-05-09
 
 This document is the phase-gate record for the v2 research phase. It separates
 implemented research machinery from empirical findings. Result files now exist for
@@ -22,7 +22,7 @@ replace the empirical verdicts required here.
 | Free market data | yfinance daily bars, sector ETFs, options forward collector | Ready for refresh; historical options remain forward-only on free tier. |
 | Official filings | SEC company facts, Form 4, 13F pullers | Ready for PIT-scoped lane evaluation. |
 | Public web/RSS | RSS ingestion plus optional Scrapling adapter | Use only for public, forward-observed sources. No paid-sub scraping. |
-| Signal lanes | Fundamentals, insider, institutional, sector, volume, pre/post, news, options anomaly/flow, activity alerts | First live H1 run is inconclusive for tested lanes; options/activity lanes need provider or forward coverage. |
+| Signal lanes | Fundamentals, insider, institutional, sector, volume, pre/post, news, market-flow pressure, options anomaly/flow, activity alerts | First live H1 run is inconclusive for tested lanes; market-flow/options/activity lanes need provider or forward coverage. |
 | Actionability gate | `src/agency/services/actionability_gate.py` | V1 rules enforce lane source counts, freshness, dedupe, and inferred corroboration. |
 | Evaluation | H1 IC, H1 verdicts, walk-forward, profile, sweep, combination, LLM A/B | Reusable utilities implemented and unit-tested. |
 | Data refresh batch | `research/scripts/run_data_refresh_batch.py` | Live refresh summary committed under `research/results/t72-live-summary/`; raw/parquet data remains local-only. |
@@ -41,6 +41,8 @@ replace the empirical verdicts required here.
 | Abnormal volume | Daily bars | Inconclusive; best 5d IC 0.1080, t 2.6284, Bonferroni p 0.0858 | Keep as corroborating context. |
 | Pre/post | Extended-hours-capable source | Pending data coverage check | Keep context-only if free coverage is sparse. |
 | News | RSS-forward corpus | Not evaluated in H1 output; insufficient ticker-tagged observations | Improve ticker tagging and accumulate held-out coverage. |
+| Buy/sell pressure | Massive/Polygon delayed stock prints | Forward-only scaffold; inferred by tick/zero-tick direction | Pull `stock_trades`, accumulate coverage, and keep as corroborating context until H1 retest. |
+| Block trade pressure | Massive/Polygon delayed stock prints | Forward-only scaffold; inferred from large/off-exchange prints | Use as market-flow context; confirmed provider dark-pool labels still belong in `activity_alerts`. |
 | Options anomaly/flow | yfinance forward chains | Forward-only preliminary; inferred from chain snapshots | Accumulate forward observations or buy historical options/trade data. |
 | Activity alerts | Local paid/confirmed CSV import | Forward-only scaffold; no empirical verdict yet | Import provider block-trade, dark-pool, and unusual-options exports and run H1 once coverage exists. |
 
@@ -112,10 +114,11 @@ the first live H1 calibration result and keeps runtime thresholds conservative b
 no lane survived the Bonferroni-adjusted H1 bar. T81 adds a confirmed activity-alert
 lane for provider/email block trades, dark-pool prints, and unusual-activity exports.
 T99 adds an inferred options-anomaly lane plus explicit optional runtime wiring for
-options/activity signals. These lanes remain context-only until enough forward or
-historical coverage is tested. The next highest-value work is to test the first
-version with the conservative gate and decide whether to widen H1 coverage or add
-stronger ticker-tagged sources.
+options/activity signals. T105-T109 add Massive/Polygon delayed stock-trade ingestion
+and inferred market-flow lanes for buy/sell pressure and block/off-exchange pressure.
+These lanes remain context-only until enough forward or historical coverage is tested.
+The next highest-value work is to test the first version with the conservative gate
+and decide whether to widen H1 coverage or add stronger ticker-tagged sources.
 
 See `docs/phase-status.md` for the current implementation-vs-phase-gate truth table
 and next ticket candidates.

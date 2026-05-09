@@ -33,6 +33,7 @@ def test_load_refresh_config_parses_live_inputs(tmp_path: Path) -> None:
                 "market_data_feed": "iex",
                 "market_data_adjustment": "all",
                 "market_data_base_url": "https://data.alpaca.markets",
+                "massive_base_url": "https://api.polygon.io",
                 "runtime_signals": ["options_anomaly", "activity_alerts"],
             }
         ),
@@ -53,6 +54,7 @@ def test_load_refresh_config_parses_live_inputs(tmp_path: Path) -> None:
     assert config.dry_run is True
     assert config.market_data_provider == "alpaca"
     assert config.market_data_feed == "iex"
+    assert config.massive_base_url == "https://api.polygon.io"
     assert config.runtime_signals == ("options_anomaly", "activity_alerts")
 
 

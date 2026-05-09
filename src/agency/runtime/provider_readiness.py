@@ -77,8 +77,8 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
     ProviderSpec(
         "polygon_massive",
         "Polygon or Massive",
-        "options_history",
-        "Historical and real-time options trades, quotes, and aggregates.",
+        "market_flow",
+        "Delayed stock trades for market-flow pressure, plus optional options history later.",
         ("POLYGON_API_KEY", "MASSIVE_API_KEY"),
         mode="any",
     ),
@@ -149,6 +149,8 @@ def _required_now(spec: ProviderSpec, live_config: Mapping[str, object]) -> bool
         return str(live_config.get("provider", "")).lower() == "alpaca"
     if spec.provider_id == "sec_edgar":
         return any(check.get("label") == "SEC User-Agent" for check in _checks(live_config))
+    if spec.provider_id == "polygon_massive":
+        return any(check.get("label") == "Massive market-flow" for check in _checks(live_config))
     return False
 
 

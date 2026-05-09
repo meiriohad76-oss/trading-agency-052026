@@ -12,6 +12,7 @@ ESTIMATED_JOB_SECONDS = {
     "sec_form4": 600.0,
     "sec_13f": 90.0,
     "news_rss": 20.0,
+    "stock_trades": 180.0,
     "options_chains": 60.0,
     "unusual_activity_alerts": 10.0,
 }

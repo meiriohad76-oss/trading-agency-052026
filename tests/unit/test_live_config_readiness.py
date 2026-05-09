@@ -105,6 +105,46 @@ def test_live_config_readiness_warns_for_inferred_options_chains(
     assert _check(readiness, "Options chains")["status"] == "WARN"
 
 
+def test_live_config_readiness_blocks_stock_trades_without_massive_key(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _blank_env(monkeypatch)
+    config_path = _write_config(
+        tmp_path,
+        {
+            "datasets": ["stock_trades"],
+            "tickers": ["AAPL"],
+            "market_data_provider": "yfinance",
+        },
+    )
+
+    readiness = load_live_config_readiness(config_path)
+
+    assert readiness["state"] == "blocked"
+    assert _check(readiness, "Massive market-flow")["status"] == "BLOCK"
+
+
+def test_live_config_readiness_accepts_stock_trades_with_polygon_key(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _blank_env(monkeypatch)
+    monkeypatch.setenv("POLYGON_API_KEY", "polygon")
+    config_path = _write_config(
+        tmp_path,
+        {
+            "datasets": ["stock_trades"],
+            "tickers": ["AAPL"],
+            "market_data_provider": "yfinance",
+        },
+    )
+
+    readiness = load_live_config_readiness(config_path)
+
+    assert _check(readiness, "Massive market-flow")["status"] == "PASS"
+
+
 def test_live_config_status_endpoint_reads_configured_path(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -140,6 +180,8 @@ def _blank_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "MARKET_DATA_PROVIDER",
         "SEC_USER_AGENT",
         "LIVE_REFRESH_CONFIG_PATH",
+        "MASSIVE_API_KEY",
+        "POLYGON_API_KEY",
     ):
         monkeypatch.setenv(key, "")
 
