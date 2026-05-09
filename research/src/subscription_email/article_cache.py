@@ -12,7 +12,13 @@ SAFE_ANALYSIS_KEYS = frozenset(
         "direction",
         "fetched_at",
         "status",
+        "context_chars",
+        "context_source",
+        "key_points",
+        "risk_flags",
+        "status_code",
         "text_hash",
+        "thesis",
         "tickers",
         "title_hash",
         "url",
@@ -87,6 +93,10 @@ def _safe_analysis(value: Mapping[str, object]) -> dict[str, object] | None:
     direction = value.get("direction")
     tickers = _string_list(value.get("tickers"))
     catalysts = _string_list(value.get("catalysts"))
+    risk_flags = _string_list(value.get("risk_flags"))
+    key_points = _string_list(value.get("key_points"))
+    thesis = value.get("thesis")
+    context_source = value.get("context_source")
     if not all(isinstance(item, str) and item for item in (status, url, title_hash, text_hash)):
         return None
     if direction not in {"BULLISH", "BEARISH", "NEUTRAL"}:
@@ -98,8 +108,20 @@ def _safe_analysis(value: Mapping[str, object]) -> dict[str, object] | None:
         "tickers": tickers,
         "direction": direction,
         "catalysts": catalysts,
+        "risk_flags": risk_flags,
+        "key_points": key_points,
         "text_hash": text_hash,
     }
+    if isinstance(thesis, str) and thesis:
+        output["thesis"] = thesis
+    if isinstance(context_source, str) and context_source:
+        output["context_source"] = context_source
+    context_chars = _integer(value.get("context_chars"))
+    if context_chars is not None:
+        output["context_chars"] = context_chars
+    status_code = _integer(value.get("status_code"))
+    if status_code is not None:
+        output["status_code"] = status_code
     fetched_at = value.get("fetched_at")
     if isinstance(fetched_at, str) and fetched_at:
         output["fetched_at"] = fetched_at
@@ -110,3 +132,9 @@ def _string_list(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
     return [str(item) for item in value if isinstance(item, str) and item]
+
+
+def _integer(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    return value if isinstance(value, int) and value >= 0 else None

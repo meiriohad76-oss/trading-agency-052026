@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -9,6 +8,10 @@ from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 from news.scrapling_adapter import fetch_page
+from subscription_email.article_analysis import (
+    analyze_article,
+    summary_from_analysis,
+)
 from subscription_email.article_cache import (
     cacheable_analysis,
     load_article_analysis_cache,
@@ -23,22 +26,7 @@ from subscription_email.config import SubscriptionEmailConfig
 from subscription_email.types import EmailRecord
 
 URL_RE = re.compile(r"https?://[^\s<>)\"]+")
-TICKER_TEMPLATE = r"(?<![A-Z0-9])\$?{ticker}(?![A-Z0-9])"
 MIN_USABLE_ARTICLE_CHARS = 200
-
-POSITIVE_TERMS = frozenset(
-    {"upgrade", "upgraded", "bullish", "buy", "outperform", "beats", "raises", "positive"}
-)
-NEGATIVE_TERMS = frozenset(
-    {"downgrade", "downgraded", "bearish", "sell", "underperform", "misses", "cuts", "negative"}
-)
-CATALYST_TERMS = {
-    "quant_rating": ("quant rating", "quant rank"),
-    "analyst_rating": ("upgrade", "downgrade", "price target", "analyst"),
-    "earnings": ("earnings", "eps", "revenue", "guidance"),
-    "rank_change": ("zacks rank", "rank #"),
-    "unusual_activity": ("dark pool", "block trade", "unusual options", "sweep"),
-}
 
 ArticleFetcher = Callable[[str, int], "FetchedArticle"]
 
@@ -222,36 +210,11 @@ def _usable_article(page: FetchedArticle) -> bool:
     return not any(marker in lowered for marker in login_markers)
 
 
-def analyze_article(page: FetchedArticle, *, config: SubscriptionEmailConfig) -> dict[str, object]:
-    clipped = page.text[: config.article_max_chars]
-    tickers = _tickers(f"{page.title or ''}\n{clipped}", config.tickers)
-    direction = _direction(clipped)
-    catalysts = _catalysts(clipped)
-    return {
-        "status": "article_analyzed",
-        "url": _normalize_url(page.url),
-        "title_hash": _hash(page.title or ""),
-        "tickers": tickers,
-        "direction": direction,
-        "catalysts": catalysts,
-        "text_hash": _hash(clipped),
-    }
-
-
 def _with_analysis(record: EmailRecord, analysis: dict[str, object]) -> EmailRecord:
-    tickers = ",".join(str(item) for item in _list(analysis.get("tickers")))
-    catalysts = ",".join(str(item) for item in _list(analysis.get("catalysts")))
-    summary = (
-        "Linked content analysis: "
-        f"tickers={tickers or 'none'}; "
-        f"direction={analysis['direction']}; "
-        f"catalysts={catalysts or 'none'}; "
-        f"text_hash={analysis['text_hash']}."
-    )
     return EmailRecord(
         **{
             **record.__dict__,
-            "linked_content_summary": summary,
+            "linked_content_summary": summary_from_analysis(analysis),
             "linked_content_status": str(analysis["status"]),
             "linked_content_url": str(analysis["url"]),
             "linked_content_title_hash": str(analysis["title_hash"]),
@@ -273,37 +236,6 @@ def _record_text(record: EmailRecord) -> str:
     return f"{record.subject}\n{record.body_text}"
 
 
-def _tickers(text: str, configured: tuple[str, ...]) -> list[str]:
-    upper = text.upper()
-    return sorted(
-        {
-            ticker
-            for ticker in configured
-            if re.search(TICKER_TEMPLATE.format(ticker=re.escape(ticker.upper())), upper)
-        }
-    )
-
-
-def _direction(text: str) -> str:
-    lowered = text.lower()
-    positive = sum(1 for term in POSITIVE_TERMS if term in lowered)
-    negative = sum(1 for term in NEGATIVE_TERMS if term in lowered)
-    if positive > negative:
-        return "BULLISH"
-    if negative > positive:
-        return "BEARISH"
-    return "NEUTRAL"
-
-
-def _catalysts(text: str) -> list[str]:
-    lowered = text.lower()
-    return [
-        label
-        for label, terms in CATALYST_TERMS.items()
-        if any(term in lowered for term in terms)
-    ]
-
-
 def _allowed_url(url: str, domains: tuple[str, ...]) -> bool:
     domain = urlsplit(url).netloc.lower()
     return bool(domain) and any(domain == item or domain.endswith(f".{item}") for item in domains)
@@ -316,11 +248,3 @@ def _clean_url(value: str) -> str:
 def _normalize_url(value: str) -> str:
     parsed = urlsplit(value)
     return urlunsplit((parsed.scheme, parsed.netloc.lower(), parsed.path, parsed.query, ""))
-
-
-def _hash(value: str) -> str:
-    return hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
-
-
-def _list(value: object) -> list[object]:
-    return value if isinstance(value, list) else []

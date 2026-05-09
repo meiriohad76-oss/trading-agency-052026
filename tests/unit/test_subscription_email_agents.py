@@ -9,6 +9,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 from subscription_email import linked_content
+from subscription_email.article_analysis import analyze_article
 from subscription_email.article_session import browser_state_path, provider_for_url
 from subscription_email.calibration import write_subscription_email_calibration
 from subscription_email.classifiers import classify_subscription_emails
@@ -201,7 +202,8 @@ def test_ingest_uses_linked_article_content_for_ticker_and_summary(tmp_path: Pat
     assert result.linked_content_attempted == 1
     assert result.linked_content_succeeded == 1
     assert news.iloc[0]["ticker"] == "AAPL"
-    assert "Linked content analysis" in news.iloc[0]["summary"]
+    assert "Linked content thesis" in news.iloc[0]["summary"]
+    assert "analyst/rating cue" in news.iloc[0]["summary"]
     assert events.iloc[0]["linked_content_status"] == "article_analyzed"
     assert summary["linked_content"]["succeeded"] == 1
     assert "analyst upgrade" not in json.dumps(summary)
@@ -253,6 +255,30 @@ def test_linked_article_cache_hit_avoids_fetcher(tmp_path: Path) -> None:
     assert result.records[0].linked_content_status == "article_analyzed"
     assert result.records[0].linked_content_title_hash == "title123"
     assert "MSFT" in str(result.records[0].linked_content_summary)
+    assert "Linked content thesis" in str(result.records[0].linked_content_summary)
+
+
+def test_article_analysis_builds_thesis_without_raw_text() -> None:
+    analysis = analyze_article(
+        FetchedArticle(
+            url="https://seekingalpha.com/article/789",
+            status_code=200,
+            title="Paid article title must be hashed",
+            text=(
+                "MSFT is bullish after an analyst upgrade and higher revenue guidance. "
+                "The article also notes valuation and regulatory risk."
+            ),
+        ),
+        config=_config(),
+    )
+
+    assert analysis["tickers"] == ["MSFT"]
+    assert analysis["direction"] == "BULLISH"
+    assert analysis["catalysts"] == ["analyst_rating", "earnings"]
+    assert analysis["risk_flags"] == ["valuation", "legal_or_regulatory"]
+    assert "constructive context for MSFT" in str(analysis["thesis"])
+    assert "Paid article title" not in json.dumps(analysis)
+    assert "higher revenue guidance" not in json.dumps(analysis)
 
 
 def test_linked_article_cache_miss_writes_only_safe_analysis(tmp_path: Path) -> None:
@@ -286,7 +312,10 @@ def test_linked_article_cache_miss_writes_only_safe_analysis(tmp_path: Path) -> 
     assert "https://seekingalpha.com/article/456" in cache["articles"]
     assert "Paid title must not be cached" not in json.dumps(cache)
     assert "bullish analyst upgrade" not in json.dumps(cache)
+    assert "strong earnings guidance" not in json.dumps(cache)
     assert cache["articles"]["https://seekingalpha.com/article/456"]["tickers"] == ["NVDA"]
+    assert "thesis" in cache["articles"]["https://seekingalpha.com/article/456"]
+    assert "key_points" in cache["articles"]["https://seekingalpha.com/article/456"]
 
 
 def test_linked_article_cache_reuses_original_redirect_url(tmp_path: Path) -> None:
