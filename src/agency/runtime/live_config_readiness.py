@@ -58,6 +58,8 @@ def _checks(config_path: Path, payload: Mapping[str, object] | None) -> list[dic
         checks.append(_sec_user_agent_check(payload))
     if _uses(datasets, "news_rss"):
         checks.append(_list_check(payload, "RSS feeds", "rss_feeds"))
+    if _uses(datasets, "subscription_emails") or _has_path(payload, "subscription_email_config"):
+        checks.append(_subscription_email_check(payload))
     if _uses(datasets, "options_chains"):
         checks.append(_check("Options chains", "WARN", "Forward-chain anomalies are inferred"))
     if _uses(datasets, "stock_trades"):
@@ -94,6 +96,46 @@ def _massive_credentials_check() -> dict[str, str]:
     return _check("Massive market-flow", "BLOCK", "Missing MASSIVE_API_KEY or POLYGON_API_KEY")
 
 
+def _subscription_email_check(payload: Mapping[str, object]) -> dict[str, str]:  # noqa: PLR0911
+    config_path = _config_path(payload, "subscription_email_config")
+    if config_path is None:
+        return _check(
+            "Subscription emails",
+            "WARN",
+            "Missing subscription_email_config; paid email agents stay disabled",
+        )
+    if not config_path.is_file():
+        return _check("Subscription emails", "WARN", f"Missing {_display_path(config_path)}")
+    try:
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return _check("Subscription emails", "WARN", "Config could not be read")
+    if not isinstance(config, Mapping):
+        return _check("Subscription emails", "WARN", "Config must be a JSON object")
+    mode = str(config.get("mode") or "local_eml")
+    services = _strings(config, "enabled_services")
+    input_path = _config_path(config, "input_path")
+    if mode == "local_eml" and (input_path is None or not input_path.exists()):
+        return _check(
+            "Subscription emails",
+            "WARN",
+            "Local .eml export folder is not present yet",
+        )
+    if mode in {"gmail", "outlook", "imap"}:
+        token_path = _config_path(config, "token_path")
+        if token_path is None or not token_path.is_file():
+            return _check(
+                "Subscription emails",
+                "WARN",
+                "Mailbox token path is not present yet",
+            )
+    return _check(
+        "Subscription emails",
+        "PASS",
+        f"{mode} configured for {len(services)} service(s)",
+    )
+
+
 def _ticker_check(payload: Mapping[str, object]) -> dict[str, str]:
     tickers = _strings(payload, "tickers")
     if tickers:
@@ -128,6 +170,18 @@ def _file_check(payload: Mapping[str, object], label: str, key: str) -> dict[str
     if path.is_file():
         return _check(label, "PASS", f"{_display_path(path)} exists")
     return _check(label, "BLOCK", f"Missing {_display_path(path)}")
+
+
+def _config_path(payload: Mapping[str, object], key: str) -> Path | None:
+    value = payload.get(key)
+    if not isinstance(value, str) or value.strip() == "":
+        return None
+    path = Path(value)
+    return path if path.is_absolute() else REPO_ROOT / path
+
+
+def _has_path(payload: Mapping[str, object], key: str) -> bool:
+    return _config_path(payload, key) is not None
 
 
 def _check(label: str, status: str, detail: str) -> dict[str, str]:

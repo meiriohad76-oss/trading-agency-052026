@@ -83,6 +83,13 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         mode="any",
     ),
     ProviderSpec(
+        "subscription_email_agents",
+        "Subscription Email Agents",
+        "subscription_research",
+        "User-authorized Seeking Alpha, TradeVision, and Zacks mailbox exports.",
+        (),
+    ),
+    ProviderSpec(
         "thetadata",
         "ThetaData",
         "options_history",
@@ -151,6 +158,8 @@ def _required_now(spec: ProviderSpec, live_config: Mapping[str, object]) -> bool
         return any(check.get("label") == "SEC User-Agent" for check in _checks(live_config))
     if spec.provider_id == "polygon_massive":
         return any(check.get("label") == "Massive market-flow" for check in _checks(live_config))
+    if spec.provider_id == "subscription_email_agents":
+        return any(check.get("label") == "Subscription emails" for check in _checks(live_config))
     return False
 
 

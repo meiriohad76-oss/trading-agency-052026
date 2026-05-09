@@ -13,6 +13,7 @@ validate each signal lane.
 | 1 | Alpaca | Daily stock bars | `ALPACA_API_KEY`, `ALPACA_SECRET_KEY` | Wired |
 | 1 | SEC EDGAR | Company facts, Form 4, 13F | `SEC_USER_AGENT` | Wired |
 | 1 | RSS feeds | Forward public news | none | Wired |
+| 1 | Subscription email agents | Seeking Alpha, TradeVision, Zacks email evidence | local `.eml` export | Wired opt-in |
 | 2 | OpenFIGI | CUSIP/ticker/security mapping | `OPENFIGI_API_KEY` | Planned |
 | 2 | Benzinga | News, calendars, ratings, unusual activity | `BENZINGA_API_KEY` | Planned |
 | 2 | Unusual Whales | Dark-pool, options flow, unusual activity | `UNUSUAL_WHALES_API_KEY` | Planned |
@@ -32,12 +33,15 @@ validate each signal lane.
    and block/off-exchange pressure. It does not claim true aggressor side.
 4. Run the market-flow analysis worker after the historical pull; it keeps
    runtime guidance context-only until train/test threshold checks pass.
-5. Add one confirmed activity provider next: Unusual Whales if the API plan is
+5. Use subscription email agents as an opt-in bridge for paid Seeking Alpha,
+   TradeVision, and Zacks alerts while provider APIs are evaluated. The rows feed
+   existing news/activity lanes but remain context-only until forward validation.
+6. Add one confirmed activity provider next: Unusual Whales if the API plan is
    acceptable, otherwise Benzinga unusual-activity endpoints.
-6. Import several weeks of confirmed activity alerts, then re-run H1/H2 before
+7. Import several weeks of confirmed activity alerts, then re-run H1/H2 before
    enabling `activity_alerts`, `options_anomaly`, or `options_flow` in runtime.
-7. Add FRED only once macro filters are part of candidate scoring.
-8. Buy deep historical options data only after the alert lane proves useful.
+8. Add FRED only once macro filters are part of candidate scoring.
+9. Buy deep historical options data only after the alert lane proves useful.
 
 ## Local Readiness
 
@@ -60,3 +64,8 @@ Optional activity/options lanes are already represented in the data model:
 Until provider-specific connectors exist, confirmed activity data enters through
 `research/config/activity-alerts.example.csv` copied to a local ignored CSV and
 referenced by `activity_alerts_csv` in `research/config/live-refresh.local.json`.
+
+Subscription emails enter through
+`research/config/subscription-email.example.json` copied to
+`research/config/subscription-email.local.json`; local `.eml` exports stay under
+`research/data/raw/subscription_emails/` and are ignored by git.

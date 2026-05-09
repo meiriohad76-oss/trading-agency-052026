@@ -26,6 +26,7 @@ def test_provider_readiness_blocks_only_active_missing_required_keys(
     assert readiness["warning_count"] == 0
     assert _provider(readiness, "Alpaca")["status"] == "BLOCK"
     assert _provider(readiness, "SEC EDGAR")["status"] == "PASS"
+    assert _provider(readiness, "Subscription Email Agents")["status"] == "PASS"
     assert _provider(readiness, "Unusual Whales")["status"] == "PLANNED"
 
 

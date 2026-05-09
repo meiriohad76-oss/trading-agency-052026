@@ -7,6 +7,7 @@
     "sec_form4",
     "sec_13f",
     "news_rss",
+    "subscription_emails",
     "stock_trades",
     "options_chains",
     "unusual_activity_alerts"
@@ -37,6 +38,7 @@
   ],
   "cusip_map": "research/config/cusip-map.example.json",
   "activity_alerts_csv": null,
+  "subscription_email_config": "research/config/subscription-email.example.json",
   "sec_user_agent": null,
   "workers": 1,
   "include_etfs": true,

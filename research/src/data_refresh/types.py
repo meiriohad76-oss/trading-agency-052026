@@ -12,6 +12,7 @@ DATASETS = (
     "sec_form4",
     "sec_13f",
     "news_rss",
+    "subscription_emails",
     "stock_trades",
     "options_chains",
     "unusual_activity_alerts",
@@ -31,6 +32,7 @@ class RefreshBatchConfig:
     filer_ciks: tuple[str, ...] = ()
     cusip_map: Path | None = None
     activity_alerts_csv: Path | None = None
+    subscription_email_config: Path | None = None
     sec_user_agent: str | None = None
     python_executable: str = "python"
     workers: int = 1

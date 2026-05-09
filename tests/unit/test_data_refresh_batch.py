@@ -93,6 +93,46 @@ def test_build_refresh_jobs_accepts_local_activity_alert_csv(tmp_path: Path) -> 
     assert ready_job.display_command[-2:] == ("--input", "alerts.csv")
 
 
+def test_build_refresh_jobs_accepts_subscription_email_config(tmp_path: Path) -> None:
+    mailbox = tmp_path / "mail"
+    mailbox.mkdir()
+    config_path = tmp_path / "subscription-email.json"
+    config_path.write_text(
+        json.dumps({"mode": "local_eml", "input_path": str(mailbox)}),
+        encoding="utf-8",
+    )
+    missing = _config(tmp_path, datasets=("subscription_emails",))
+    ready = _config(
+        tmp_path,
+        datasets=("subscription_emails",),
+        subscription_email_config=config_path,
+    )
+
+    blocked_job = build_refresh_jobs(missing)[0]
+    ready_job = build_refresh_jobs(ready)[0]
+
+    assert blocked_job.blocked_reasons == ("missing subscription email config",)
+    assert ready_job.blocked_reasons == ()
+    assert ready_job.display_command[-2:] == ("--config", "subscription-email.json")
+
+
+def test_build_refresh_jobs_blocks_missing_subscription_email_input(tmp_path: Path) -> None:
+    config_path = tmp_path / "subscription-email.json"
+    config_path.write_text(
+        json.dumps({"mode": "local_eml", "input_path": "missing-mail"}),
+        encoding="utf-8",
+    )
+    config = _config(
+        tmp_path,
+        datasets=("subscription_emails",),
+        subscription_email_config=config_path,
+    )
+
+    job = build_refresh_jobs(config)[0]
+
+    assert job.blocked_reasons == ("missing subscription email input: missing-mail",)
+
+
 def test_build_refresh_jobs_blocks_stock_trades_without_massive_credentials(
     tmp_path: Path,
 ) -> None:
@@ -241,6 +281,7 @@ def _config(
     cusip_map: Path | None = None,
     sec_user_agent: str | None = None,
     activity_alerts_csv: Path | None = None,
+    subscription_email_config: Path | None = None,
     dry_run: bool = False,
     market_data_provider: str = "yfinance",
     market_data_credentials_present: bool = False,
@@ -257,6 +298,7 @@ def _config(
         filer_ciks=filer_ciks,
         cusip_map=cusip_map,
         activity_alerts_csv=activity_alerts_csv,
+        subscription_email_config=subscription_email_config,
         sec_user_agent=sec_user_agent,
         dry_run=dry_run,
         market_data_provider=market_data_provider,

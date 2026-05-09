@@ -18,6 +18,7 @@ ESTIMATED_JOB_SECONDS = {
     "sec_form4": 600.0,
     "sec_13f": 90.0,
     "news_rss": 20.0,
+    "subscription_emails": 15.0,
     "stock_trades": 180.0,
     "options_chains": 60.0,
     "unusual_activity_alerts": 10.0,
@@ -69,6 +70,7 @@ def result_to_json(result: RefreshBatchResult) -> str:
             "filer_ciks": list(result.config.filer_ciks),
             "cusip_map": _optional_path(result),
             "activity_alerts_csv": _optional_activity_alerts_path(result),
+            "subscription_email_config": _optional_subscription_email_path(result),
             "workers": result.config.workers,
             "include_etfs": result.config.include_etfs,
             "refresh": result.config.refresh,
@@ -220,6 +222,12 @@ def _optional_activity_alerts_path(result: RefreshBatchResult) -> str | None:
     if result.config.activity_alerts_csv is None:
         return None
     return _portable_path(result.config.activity_alerts_csv, result.config.repo_root)
+
+
+def _optional_subscription_email_path(result: RefreshBatchResult) -> str | None:
+    if result.config.subscription_email_config is None:
+        return None
+    return _portable_path(result.config.subscription_email_config, result.config.repo_root)
 
 
 def _portable_path(path: Path, repo_root: Path) -> str:

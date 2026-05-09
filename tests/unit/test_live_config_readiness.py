@@ -145,6 +145,59 @@ def test_live_config_readiness_accepts_stock_trades_with_polygon_key(
     assert _check(readiness, "Massive market-flow")["status"] == "PASS"
 
 
+def test_live_config_readiness_warns_for_missing_subscription_email_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _blank_env(monkeypatch)
+    config_path = _write_config(
+        tmp_path,
+        {
+            "datasets": ["subscription_emails"],
+            "tickers": ["AAPL"],
+            "market_data_provider": "yfinance",
+        },
+    )
+
+    readiness = load_live_config_readiness(config_path)
+
+    assert readiness["state"] == "warning"
+    assert _check(readiness, "Subscription emails")["status"] == "WARN"
+
+
+def test_live_config_readiness_passes_local_subscription_email_export(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _blank_env(monkeypatch)
+    mailbox = tmp_path / "mail"
+    mailbox.mkdir()
+    subscription_config = tmp_path / "subscription-email.json"
+    subscription_config.write_text(
+        json.dumps(
+            {
+                "mode": "local_eml",
+                "input_path": str(mailbox),
+                "enabled_services": ["seeking_alpha"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    config_path = _write_config(
+        tmp_path,
+        {
+            "datasets": ["subscription_emails"],
+            "tickers": ["AAPL"],
+            "subscription_email_config": str(subscription_config),
+            "market_data_provider": "yfinance",
+        },
+    )
+
+    readiness = load_live_config_readiness(config_path)
+
+    assert _check(readiness, "Subscription emails")["status"] == "PASS"
+
+
 def test_live_config_status_endpoint_reads_configured_path(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
