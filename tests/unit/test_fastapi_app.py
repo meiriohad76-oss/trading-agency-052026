@@ -12,6 +12,7 @@ import agency.dashboard as dashboard_module
 from agency.api.health import runtime_data_source_status
 from agency.app import create_app
 from agency.dashboard import (
+    candidate_decision_brief,
     candidate_detail_summary,
     candidate_email_evidence,
     candidate_review_summary,
@@ -55,6 +56,7 @@ EXPECTED_TIMELINE_LIMIT = 50
 EXPECTED_REVIEW_QUEUE_COUNT = 4
 EXPECTED_REVIEWED_COUNT = 3
 EXPECTED_EMAIL_EVENT_COUNT = 2
+EXPECTED_BRIEF_POINT_COUNT = 4
 
 
 def test_health_endpoint_reports_service_status() -> None:
@@ -216,9 +218,9 @@ def test_candidate_detail_renders_audit_empty_state() -> None:
     response = client.get("/candidates/AAPL")
 
     assert response.status_code == HTTP_OK
-    assert "Candidate Audit" in response.text
+    assert "Candidate Brief" in response.text
     assert "AAPL" in response.text
-    assert "Paper Review" in response.text
+    assert "Human Review" in response.text
     assert "No selection report available for review" in response.text
     assert "No lifecycle events yet" in response.text
 
@@ -530,6 +532,28 @@ def test_candidate_detail_summary_uses_latest_report() -> None:
     assert "backed by 2 independent source(s)" in str(summary["detail"])
 
 
+def test_candidate_decision_brief_explains_selection_action() -> None:
+    reports = final_selection_rows([build_final_selection(_evidence_pack()).selection_report])
+
+    brief = candidate_decision_brief(
+        "AAPL",
+        reports[0],
+        {
+            "detail": "2 matching email events.",
+            "meaning": "Email alerts are mixed.",
+            "status_class": "warn",
+        },
+        {"decision": "Pending"},
+    )
+
+    assert brief["state_label"] == "Selected For Review"
+    assert brief["headline"] == "AAPL is selected for human review, not automatic trading."
+    assert "approve, defer, or reject" in str(brief["next_step"])
+    assert brief["signal_counts"][0]["value"] == EXPECTED_CONFIRMED_SIGNAL_COUNT
+    assert brief["support_cards"][0]["label"] == "Fundamentals"
+    assert len(brief["decision_points"]) == EXPECTED_BRIEF_POINT_COUNT
+
+
 def test_candidate_email_evidence_summarizes_email_and_feed_rows(tmp_path: Path) -> None:
     event_path = tmp_path / "subscription_emails.parquet"
     news_path = tmp_path / "news_rss.parquet"
@@ -593,6 +617,8 @@ def test_candidate_email_evidence_summarizes_email_and_feed_rows(tmp_path: Path)
     assert evidence["event_count"] == EXPECTED_EMAIL_EVENT_COUNT
     assert evidence["feed_count"] == 1
     assert evidence["analyzed_count"] == 1
+    assert evidence["direction_summary"] == "Bullish 1, Bearish 1"
+    assert "mixed" in str(evidence["meaning"])
     assert evidence["service_summary"] == "Seeking Alpha 2"
     assert evidence["rows"][0]["linked_status_label"] == "Article Analyzed"
     assert evidence["rows"][0]["summary"] == "Linked content thesis: constructive context."
