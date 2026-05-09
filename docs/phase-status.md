@@ -10,6 +10,7 @@ implementation scaffolding from accepted phase gates.
 ## Current Truth
 
 - T01-T99 are archived under `tickets/done/`.
+- T100-T104 are open backlog tickets for subscription-email evidence agents.
 - The repo contains Phase 0 foundation, Phase 1 research machinery, Phase 2
   contracts/dashboard scaffolding, and Phase 3 runtime orchestration through a
   PIT-backed local paper cycle.
@@ -80,13 +81,15 @@ implementation scaffolding from accepted phase gates.
 22. `/status/provider-readiness` and the Command dashboard now show the
     whole-agency provider-key checklist without exposing secret values. Missing
     future-provider keys stay planned instead of blocking the current paper flow.
+23. Subscription-email agents are now planned as T100-T104: a shared mailbox
+    evidence foundation plus separate Seeking Alpha, TradeVision, and Zacks
+    agents, followed by orchestration and calibration.
 
 ## Next Ticket Candidates
 
-No active numbered ticket is selected. Recommended next work is user inspection
-of the Command review queue, candidate detail review workspace, and
-operational readiness smoke checks, then follow-up tickets for confusing UI,
-threshold tuning, or missing data sources found during that inspection.
+The active backlog is T100-T104. Recommended order is T100 first, then T101-T103
+in parallel if ownership is split, then T104 once all subscription-email agents
+can emit fixture evidence.
 
 ## Operating Rule
 
