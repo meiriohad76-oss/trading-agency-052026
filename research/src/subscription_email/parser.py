@@ -8,11 +8,13 @@ from email import policy
 from email.message import EmailMessage, Message
 from email.parser import BytesParser
 from email.utils import getaddresses, parsedate_to_datetime
+from html import unescape
 from pathlib import Path
 
 from subscription_email.types import EmailRecord
 
 HTML_TAG_RE = re.compile(r"<[^>]+>")
+HTML_HREF_RE = re.compile(r"""href=["'](?P<url>[^"']+)["']""", re.IGNORECASE)
 
 
 def read_local_emails(path: Path) -> list[EmailRecord]:
@@ -106,7 +108,10 @@ def _payload_text(message: Message) -> str:
     else:
         text = str(message.get_payload())
     if message.get_content_type() == "text/html":
+        hrefs = [unescape(match.group("url")) for match in HTML_HREF_RE.finditer(text)]
         text = HTML_TAG_RE.sub(" ", text)
+        if hrefs:
+            text = f"{text} {' '.join(hrefs)}"
     return " ".join(text.split())
 
 

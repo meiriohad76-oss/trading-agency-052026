@@ -22,5 +22,16 @@
   "lookback_days": 30,
   "unmatched_ticker_policy": "manual_review",
   "mailbox_label": "Trading Agency",
-  "token_path": "research/config/subscription-email-token.local.json"
+  "token_path": "research/config/subscription-email-token.local.json",
+  "follow_article_links": false,
+  "article_link_domains": [
+    "seekingalpha.com",
+    "email.seekingalpha.com",
+    "tradevision.io",
+    "tradevision.com",
+    "zacks.com"
+  ],
+  "article_max_links_per_email": 1,
+  "article_fetch_timeout_seconds": 15,
+  "article_max_chars": 12000
 }

@@ -22,6 +22,9 @@ EVENT_COLUMNS = [
     "message_id_hash",
     "sender_domain",
     "received_at",
+    "linked_content_status",
+    "linked_content_url",
+    "linked_content_title_hash",
     "timestamp_observed",
     "timestamp_as_of",
     "confidence",
@@ -95,6 +98,8 @@ def summary_to_markdown(summary: dict[str, Any]) -> str:
         f"| News rows | {summary['news_rows']} |",
         f"| Activity rows | {summary['activity_rows']} |",
         f"| Deduped events | {summary['event_rows']} |",
+        f"| Linked content attempts | {_linked_count(summary, 'attempted')} |",
+        f"| Linked content analyzed | {_linked_count(summary, 'succeeded')} |",
         f"| Manual review | {summary['manual_review_count']} |",
         f"| Ignored | {summary['ignored_count']} |",
         "",
@@ -109,6 +114,13 @@ def summary_to_markdown(summary: dict[str, Any]) -> str:
         lines.append("| none | 0 |")
     lines.append("")
     return "\n".join(lines)
+
+
+def _linked_count(summary: dict[str, Any], key: str) -> object:
+    linked = summary.get("linked_content")
+    if not isinstance(linked, dict):
+        return 0
+    return linked.get(key, 0)
 
 
 def _stats(path: Path) -> dict[str, int | str]:

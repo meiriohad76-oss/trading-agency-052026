@@ -18,6 +18,11 @@ from news.storage import write_manifest as write_news_manifest
 from news.storage import write_news_frame
 from subscription_email.classifiers import classify_subscription_emails
 from subscription_email.config import SubscriptionEmailConfig, load_subscription_email_config
+from subscription_email.linked_content import (
+    ArticleFetcher,
+    LinkedContentStats,
+    enrich_records_with_linked_content,
+)
 from subscription_email.parser import read_local_emails
 from subscription_email.storage import (
     write_event_frame,
@@ -43,6 +48,7 @@ def ingest_subscription_emails(
     event_manifest_path: Path | None = None,
     summary_root: Path | None = None,
     clock: Callable[[], datetime] | None = None,
+    article_fetcher: ArticleFetcher | None = None,
 ) -> SubscriptionEmailIngestResult:
     config = load_subscription_email_config(config_path, repo_root=repo_root)
     return ingest_subscription_email_config(
@@ -57,6 +63,7 @@ def ingest_subscription_emails(
         event_manifest_path=event_manifest_path,
         summary_root=summary_root,
         clock=clock,
+        article_fetcher=article_fetcher,
     )
 
 
@@ -73,11 +80,21 @@ def ingest_subscription_email_config(
     event_manifest_path: Path | None = None,
     summary_root: Path | None = None,
     clock: Callable[[], datetime] | None = None,
+    article_fetcher: ArticleFetcher | None = None,
 ) -> SubscriptionEmailIngestResult:
     fetched_at = _utc_now(clock)
     records = _records(config)
     eligible, filtered = _eligible_records(records, config=config, fetched_at=fetched_at)
-    classified = classify_subscription_emails(eligible, config=config, fetched_at=fetched_at)
+    link_result = enrich_records_with_linked_content(
+        eligible,
+        config=config,
+        fetcher=article_fetcher,
+    )
+    classified = classify_subscription_emails(
+        link_result.records,
+        config=config,
+        fetched_at=fetched_at,
+    )
     ignored = [*filtered, *classified.ignored]
     paths = _write_outputs(
         repo_root=repo_root,
@@ -88,6 +105,7 @@ def ingest_subscription_email_config(
         news_rows=classified.news_rows,
         activity_rows=classified.activity_rows,
         event_rows=classified.event_rows,
+        link_stats=link_result.stats,
         manual_review=classified.manual_review,
         ignored=ignored,
         news_path=news_path,
@@ -103,6 +121,10 @@ def ingest_subscription_email_config(
         news_rows=len(classified.news_rows),
         activity_rows=len(classified.activity_rows),
         event_rows=len(classified.event_rows),
+        linked_content_attempted=link_result.stats.attempted,
+        linked_content_succeeded=link_result.stats.succeeded,
+        linked_content_failed=link_result.stats.failed,
+        linked_content_skipped=link_result.stats.skipped,
         manual_review_count=len(classified.manual_review),
         ignored_count=len(ignored),
         service_counts=_service_counts(classified.event_rows),
@@ -149,6 +171,7 @@ def _write_outputs(
     news_rows: list[dict[str, object]],
     activity_rows: list[dict[str, object]],
     event_rows: list[dict[str, object]],
+    link_stats: LinkedContentStats,
     manual_review: list[dict[str, object]],
     ignored: list[dict[str, object]],
     news_path: Path | None,
@@ -212,6 +235,7 @@ def _write_outputs(
             news_rows=news_rows,
             activity_rows=activity_rows,
             event_rows=event_rows,
+            link_stats=link_stats,
             manual_review=manual_review,
             ignored=ignored,
         ),
@@ -230,6 +254,7 @@ def _summary_payload(
     news_rows: list[dict[str, object]],
     activity_rows: list[dict[str, object]],
     event_rows: list[dict[str, object]],
+    link_stats: LinkedContentStats,
     manual_review: list[dict[str, object]],
     ignored: list[dict[str, object]],
 ) -> dict[str, Any]:
@@ -244,6 +269,13 @@ def _summary_payload(
         "news_rows": len(news_rows),
         "activity_rows": len(activity_rows),
         "event_rows": len(event_rows),
+        "linked_content": {
+            "enabled": config.follow_article_links,
+            "attempted": link_stats.attempted,
+            "succeeded": link_stats.succeeded,
+            "failed": link_stats.failed,
+            "skipped": link_stats.skipped,
+        },
         "manual_review_count": len(manual_review),
         "ignored_count": len(ignored),
         "service_counts": service_counts,
