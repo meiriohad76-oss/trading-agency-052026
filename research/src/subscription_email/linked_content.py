@@ -4,16 +4,21 @@ import hashlib
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
-from html.parser import HTMLParser
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 from news.scrapling_adapter import fetch_page
+from subscription_email.article_session import (
+    BrowserSessionUnavailableError,
+    fetch_with_browser_session,
+)
+from subscription_email.article_types import FetchedArticle, html_to_text
 from subscription_email.config import SubscriptionEmailConfig
 from subscription_email.types import EmailRecord
 
 URL_RE = re.compile(r"https?://[^\s<>)\"]+")
 TICKER_TEMPLATE = r"(?<![A-Z0-9])\$?{ticker}(?![A-Z0-9])"
+MIN_USABLE_ARTICLE_CHARS = 200
 
 POSITIVE_TERMS = frozenset(
     {"upgrade", "upgraded", "bullish", "buy", "outperform", "beats", "raises", "positive"}
@@ -30,14 +35,6 @@ CATALYST_TERMS = {
 }
 
 ArticleFetcher = Callable[[str, int], "FetchedArticle"]
-
-
-@dataclass(frozen=True)
-class FetchedArticle:
-    url: str
-    status_code: int
-    title: str | None
-    text: str
 
 
 @dataclass(frozen=True)
@@ -102,14 +99,63 @@ def allowed_article_links(record: EmailRecord, config: SubscriptionEmailConfig) 
     return [_normalize_url(url) for url in candidates if _allowed_url(url, domains)]
 
 
-def fetch_linked_article(url: str, timeout_seconds: int) -> FetchedArticle:
-    try:
-        return _fetch_with_httpx(url, timeout_seconds)
-    except Exception:
+def fetch_linked_article(
+    url: str,
+    timeout_seconds: int,
+    *,
+    config: SubscriptionEmailConfig | None = None,
+) -> FetchedArticle:
+    errors: list[str] = []
+    for fetch_name, fetcher in _fetchers(config):
         try:
-            return _fetch_with_scrapling(url, timeout_seconds)
-        except Exception as fallback_exc:
-            raise RuntimeError("linked article fetch failed") from fallback_exc
+            page = fetcher(url, timeout_seconds)
+        except BrowserSessionUnavailableError as exc:
+            errors.append(f"{fetch_name}: {exc}")
+            continue
+        except Exception as exc:
+            errors.append(f"{fetch_name}: {exc}")
+            continue
+        if _usable_article(page):
+            return page
+        errors.append(f"{fetch_name}: fetched page did not look like article content")
+    raise RuntimeError(f"linked article fetch failed ({'; '.join(errors)})")
+
+
+def _fetchers(
+    config: SubscriptionEmailConfig | None,
+) -> list[tuple[str, ArticleFetcher]]:
+    mode = "auto" if config is None else config.article_fetch_mode
+    if mode == "http":
+        return [("httpx", _fetch_with_httpx)]
+    if mode == "browser":
+        if config is None:
+            return []
+        return [
+            (
+                "browser_session",
+                lambda url, timeout: fetch_with_browser_session(
+                    url,
+                    config=config,
+                    timeout_seconds=timeout,
+                ),
+            )
+        ]
+    output: list[tuple[str, ArticleFetcher]] = [
+        ("httpx", _fetch_with_httpx),
+        ("scrapling", _fetch_with_scrapling),
+    ]
+    if config is not None:
+        output.append(
+            (
+                "browser_session",
+                lambda url, timeout: fetch_with_browser_session(
+                    url,
+                    config=config,
+                    timeout_seconds=timeout,
+                ),
+            )
+        )
+    return output
 
 
 def _fetch_with_httpx(url: str, timeout_seconds: int) -> FetchedArticle:
@@ -136,6 +182,21 @@ def _fetch_with_scrapling(url: str, timeout_seconds: int) -> FetchedArticle:
     )
 
 
+def _usable_article(page: FetchedArticle) -> bool:
+    text = " ".join(page.text.split())
+    if len(text) < MIN_USABLE_ARTICLE_CHARS:
+        return False
+    lowered = text.lower()
+    login_markers = (
+        "sign in to continue",
+        "sign in",
+        "log in",
+        "subscribe to continue",
+        "create an account",
+    )
+    return not any(marker in lowered for marker in login_markers)
+
+
 def analyze_article(page: FetchedArticle, *, config: SubscriptionEmailConfig) -> dict[str, object]:
     clipped = page.text[: config.article_max_chars]
     tickers = _tickers(f"{page.title or ''}\n{clipped}", config.tickers)
@@ -150,12 +211,6 @@ def analyze_article(page: FetchedArticle, *, config: SubscriptionEmailConfig) ->
         "catalysts": catalysts,
         "text_hash": _hash(clipped),
     }
-
-
-def html_to_text(html: str) -> tuple[str | None, str]:
-    parser = _ReadableHTMLParser()
-    parser.feed(html)
-    return parser.title, " ".join(" ".join(parser.parts).split())
 
 
 def _with_analysis(record: EmailRecord, analysis: dict[str, object]) -> EmailRecord:
@@ -244,34 +299,3 @@ def _hash(value: str) -> str:
 
 def _list(value: object) -> list[object]:
     return value if isinstance(value, list) else []
-
-
-class _ReadableHTMLParser(HTMLParser):
-    def __init__(self) -> None:
-        super().__init__()
-        self.parts: list[str] = []
-        self.title: str | None = None
-        self._in_title = False
-        self._skip_depth = 0
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        del attrs
-        if tag in {"script", "style", "noscript"}:
-            self._skip_depth += 1
-        if tag == "title":
-            self._in_title = True
-
-    def handle_endtag(self, tag: str) -> None:
-        if tag in {"script", "style", "noscript"} and self._skip_depth > 0:
-            self._skip_depth -= 1
-        if tag == "title":
-            self._in_title = False
-
-    def handle_data(self, data: str) -> None:
-        text = " ".join(data.split())
-        if not text or self._skip_depth > 0:
-            return
-        if self._in_title:
-            self.title = text
-        else:
-            self.parts.append(text)

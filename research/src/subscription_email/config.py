@@ -7,6 +7,7 @@ from typing import Any
 
 MIN_ARTICLE_CHARS = 100
 MIN_MONITOR_POLL_SECONDS = 5
+MIN_BROWSER_WAIT_SECONDS = 1
 
 
 @dataclass(frozen=True)
@@ -25,6 +26,9 @@ class SubscriptionEmailConfig:
     article_max_links_per_email: int = 1
     article_fetch_timeout_seconds: int = 15
     article_max_chars: int = 12_000
+    article_fetch_mode: str = "auto"
+    article_browser_state_dir: Path | None = None
+    article_browser_wait_seconds: int = 5
     mailbox_host: str | None = None
     mailbox_port: int = 993
     mailbox_username_env: str = "SUBSCRIPTION_EMAIL_USERNAME"
@@ -53,6 +57,13 @@ def load_subscription_email_config(path: Path, *, repo_root: Path) -> Subscripti
         article_max_links_per_email=_integer(payload, "article_max_links_per_email", 1),
         article_fetch_timeout_seconds=_integer(payload, "article_fetch_timeout_seconds", 15),
         article_max_chars=_integer(payload, "article_max_chars", 12_000),
+        article_fetch_mode=_string(payload, "article_fetch_mode", "auto"),
+        article_browser_state_dir=_optional_path(
+            payload,
+            "article_browser_state_dir",
+            repo_root=repo_root,
+        ),
+        article_browser_wait_seconds=_integer(payload, "article_browser_wait_seconds", 5),
         mailbox_host=_optional_string(payload, "mailbox_host"),
         mailbox_port=_integer(payload, "mailbox_port", 993),
         mailbox_username_env=_string(
@@ -90,6 +101,10 @@ def _validate(config: SubscriptionEmailConfig) -> None:
         raise ValueError("article_fetch_timeout_seconds must be >= 1")
     if config.article_max_chars < MIN_ARTICLE_CHARS:
         raise ValueError("article_max_chars must be >= 100")
+    if config.article_fetch_mode not in {"auto", "http", "browser"}:
+        raise ValueError("article_fetch_mode must be auto, http, or browser")
+    if config.article_browser_wait_seconds < MIN_BROWSER_WAIT_SECONDS:
+        raise ValueError("article_browser_wait_seconds must be >= 1")
     if config.mailbox_port < 1:
         raise ValueError("mailbox_port must be >= 1")
     if config.mode == "imap" and config.mailbox_host is None:
