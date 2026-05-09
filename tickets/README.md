@@ -13,7 +13,7 @@ Current project status is tracked in `docs/phase-status.md`.
 
 ## Current Queue
 
-There are no active open ticket specs after T99.
+T100-T104 are open backlog tickets for subscription-email evidence agents.
 
 Completed archive:
 
@@ -53,6 +53,7 @@ Completed archive:
 - T97: paper review smoke-check script.
 - T98: operational readiness API and smoke-check script.
 - T99: optional options anomaly and activity-alert runtime lanes.
+- PR #82: provider readiness checklist.
 
 ## Next Ticket Candidates
 
@@ -60,10 +61,14 @@ Use `docs/phase-status.md` as the source of truth before drafting the next ticke
 
 Recommended next batch:
 
-No numbered ticket is selected. Use the operational readiness smoke check,
-Command review queue, candidate detail review workspace, `/status/paper-review`,
-and first-version testing checklist against the latest current-date paper cycle.
-Provider selection for options/dark-pool activity remains the next data decision.
+- T100: shared subscription-email evidence foundation.
+- T101: Seeking Alpha email agent for analyst articles, news, and Quant ranking
+  changes.
+- T102: TradeVision email agent for bullish/bearish news, dark-pool, block
+  trade, and unusual options/activity alerts.
+- T103: Zacks email agent for news, rank changes, and analyst recommendations.
+- T104: orchestration, dashboard readiness, deduplication, and calibration for
+  all subscription-email agents.
 
 ## How To Assign A Ticket
 
