@@ -1,6 +1,6 @@
 # Phase Status
 
-**Status:** reconciled after T114
+**Status:** reconciled after T100-T104
 **Owner:** Ohad Meiri
 **Last updated:** 2026-05-09
 
@@ -9,8 +9,8 @@ implementation scaffolding from accepted phase gates.
 
 ## Current Truth
 
-- T01-T99 and T105-T114 are archived under `tickets/done/`.
-- T100-T104 remain open backlog tickets for subscription-email evidence agents.
+- T01-T114 are archived under `tickets/done/`; T100-T104 are the
+  subscription-email evidence-agent foundation.
 - The repo contains Phase 0 foundation, Phase 1 research machinery, Phase 2
   contracts/dashboard scaffolding, and Phase 3 runtime orchestration through a
   PIT-backed local paper cycle.
@@ -82,9 +82,10 @@ implementation scaffolding from accepted phase gates.
 22. `/status/provider-readiness` and the Command dashboard now show the
     whole-agency provider-key checklist without exposing secret values. Missing
     future-provider keys stay planned instead of blocking the current paper flow.
-23. Subscription-email agents are now planned as T100-T104: a shared mailbox
-    evidence foundation plus separate Seeking Alpha, TradeVision, and Zacks
-    agents, followed by orchestration and calibration.
+23. Subscription-email agents are wired as an opt-in local `.eml` ingestion path
+    for Seeking Alpha, TradeVision, and Zacks. They feed existing `news_rss` and
+    `unusual_activity_alerts` lanes, write a safe deduped event view, and remain
+    context-only until forward validation.
 24. Massive/Polygon delayed stock trades are now wired as an opt-in
     `stock_trades` dataset with `buy_sell_pressure` and `block_trade_pressure`
     runtime lanes. These lanes are inferred from confirmed prints and require
@@ -95,12 +96,12 @@ implementation scaffolding from accepted phase gates.
 
 ## Next Ticket Candidates
 
-The active backlog is T100-T104. Recommended order is T100 first, then T101-T103
-in parallel if ownership is split, then T104 once all subscription-email agents
-can emit fixture evidence. After the user adds a Massive/Polygon key, run a
-small live `stock_trades` refresh, then run the market-flow worker. Keep
-market-flow lanes context-only until the worker has enough coverage to recommend
-runtime-weight eligibility.
+After the user adds a Massive/Polygon key, run a small live `stock_trades`
+refresh, then run the market-flow worker. When subscription email exports are
+available, run `import_subscription_emails.py`, review the T104 calibration
+artifact, and keep those lanes context-only until real mailbox coverage is
+validated. Keep market-flow lanes context-only until the worker has enough
+coverage to recommend runtime-weight eligibility.
 
 ## Operating Rule
 

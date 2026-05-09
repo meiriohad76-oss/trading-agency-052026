@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import Any
 
 from data_refresh.types import DATASETS, RefreshBatchConfig, RefreshJob
 
@@ -16,6 +18,7 @@ def build_refresh_jobs(config: RefreshBatchConfig) -> tuple[RefreshJob, ...]:
         "sec_form4": _form4_job,
         "sec_13f": _form13f_job,
         "news_rss": _news_job,
+        "subscription_emails": _subscription_email_job,
         "stock_trades": _stock_trades_job,
         "options_chains": _options_job,
         "unusual_activity_alerts": _activity_alerts_job,
@@ -90,6 +93,60 @@ def _news_job(config: RefreshBatchConfig) -> RefreshJob:
         command.extend(["--feed", feed])
     reasons = () if config.rss_feeds else ("missing RSS feed specs",)
     return _job(config, "news_rss", command, reasons)
+
+
+def _subscription_email_job(config: RefreshBatchConfig) -> RefreshJob:
+    command = _base_command(config, "import_subscription_emails.py")
+    reasons = []
+    if config.subscription_email_config is None:
+        reasons.append("missing subscription email config")
+    else:
+        command.extend(["--config", str(config.subscription_email_config)])
+        if not config.subscription_email_config.is_file():
+            display_path = _display_path(config.subscription_email_config, config.repo_root)
+            reasons.append(f"missing subscription email config: {display_path}")
+        else:
+            reasons.extend(_subscription_email_config_reasons(config))
+    return _job(config, "subscription_emails", command, reasons)
+
+
+def _subscription_email_config_reasons(config: RefreshBatchConfig) -> list[str]:
+    if config.subscription_email_config is None:
+        return []
+    payload = _json_object(config.subscription_email_config)
+    mode = str(payload.get("mode") or "local_eml")
+    if mode == "local_eml":
+        return _missing_local_email_input(payload, config.repo_root)
+    if mode in {"gmail", "outlook", "imap"}:
+        token_path = _payload_path(payload, "token_path", config.repo_root)
+        if token_path is None or not token_path.is_file():
+            return ["missing subscription mailbox token path"]
+        return []
+    return [f"unsupported subscription email mode: {mode}"]
+
+
+def _missing_local_email_input(payload: dict[str, Any], repo_root: Path) -> list[str]:
+    input_path = _payload_path(payload, "input_path", repo_root)
+    if input_path is None:
+        return ["missing subscription email input_path"]
+    if input_path.exists():
+        return []
+    return [f"missing subscription email input: {_display_path(input_path, repo_root)}"]
+
+
+def _payload_path(payload: dict[str, Any], key: str, repo_root: Path) -> Path | None:
+    value = payload.get(key)
+    if not isinstance(value, str) or value.strip() == "":
+        return None
+    path = Path(value)
+    return path if path.is_absolute() else repo_root / path
+
+
+def _json_object(path: Path) -> dict[str, Any]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise TypeError(f"{path} must contain a JSON object")
+    return payload
 
 
 def _stock_trades_job(config: RefreshBatchConfig) -> RefreshJob:

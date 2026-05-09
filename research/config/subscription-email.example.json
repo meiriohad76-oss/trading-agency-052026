@@ -1,0 +1,26 @@
+{
+  "mode": "local_eml",
+  "input_path": "research/data/raw/subscription_emails",
+  "enabled_services": [
+    "seeking_alpha",
+    "tradevision",
+    "zacks"
+  ],
+  "allowed_sender_domains": [
+    "seekingalpha.com",
+    "email.seekingalpha.com",
+    "tradevision.io",
+    "tradevision.com",
+    "zacks.com",
+    "zacksalerts.com"
+  ],
+  "tickers": [
+    "AAPL",
+    "MSFT",
+    "NVDA"
+  ],
+  "lookback_days": 30,
+  "unmatched_ticker_policy": "manual_review",
+  "mailbox_label": "Trading Agency",
+  "token_path": "research/config/subscription-email-token.local.json"
+}

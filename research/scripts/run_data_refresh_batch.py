@@ -50,6 +50,11 @@ def _parse_args() -> argparse.Namespace:
         type=Path,
         help="Local CSV of paid/confirmed alerts.",
     )
+    parser.add_argument(
+        "--subscription-email-config",
+        type=Path,
+        help="Local config for paid subscription email agents.",
+    )
     parser.add_argument("--sec-user-agent", help="SEC-compliant User-Agent override.")
     parser.add_argument("--workers", type=int)
     parser.add_argument("--include-etfs", action=argparse.BooleanOptionalAction)
@@ -99,6 +104,9 @@ def _batch_config(
         filer_ciks=tuple(args.filer_cik or overrides.filer_ciks),
         cusip_map=args.cusip_map or overrides.cusip_map,
         activity_alerts_csv=args.activity_alerts_csv or overrides.activity_alerts_csv,
+        subscription_email_config=(
+            args.subscription_email_config or overrides.subscription_email_config
+        ),
         sec_user_agent=sec_user_agent,
         python_executable=sys.executable,
         workers=args.workers or overrides.workers or 1,

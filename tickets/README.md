@@ -13,7 +13,7 @@ Current project status is tracked in `docs/phase-status.md`.
 
 ## Current Queue
 
-T100-T104 are open backlog tickets for subscription-email evidence agents.
+No open implementation tickets are currently queued in this directory.
 
 Completed archive:
 
@@ -53,6 +53,14 @@ Completed archive:
 - T97: paper review smoke-check script.
 - T98: operational readiness API and smoke-check script.
 - T99: optional options anomaly and activity-alert runtime lanes.
+- T100: shared subscription-email evidence foundation.
+- T101: Seeking Alpha email agent for analyst articles, news, and Quant ranking
+  changes.
+- T102: TradeVision email agent for bullish/bearish news, dark-pool, block
+  trade, and unusual options/activity alerts.
+- T103: Zacks email agent for news, rank changes, and analyst recommendations.
+- T104: orchestration, dashboard readiness, deduplication, and calibration for
+  all subscription-email agents.
 - T105: Massive/Polygon stock-trades ingestion.
 - T106: stock-trade classifier for sessions, direction, and block/off-exchange
   features.
@@ -72,14 +80,11 @@ Use `docs/phase-status.md` as the source of truth before drafting the next ticke
 
 Recommended next batch:
 
-- T100: shared subscription-email evidence foundation.
-- T101: Seeking Alpha email agent for analyst articles, news, and Quant ranking
-  changes.
-- T102: TradeVision email agent for bullish/bearish news, dark-pool, block
-  trade, and unusual options/activity alerts.
-- T103: Zacks email agent for news, rank changes, and analyst recommendations.
-- T104: orchestration, dashboard readiness, deduplication, and calibration for
-  all subscription-email agents.
+- Run a live Massive/Polygon stock-trades refresh after adding the local key.
+- Run the market-flow worker on real coverage.
+- Run subscription-email ingest after exporting approved `.eml` messages.
+- Draft the next ticket from the first live validation gap that blocks paper
+  testing.
 
 ## How To Assign A Ticket
 

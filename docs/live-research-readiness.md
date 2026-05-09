@@ -27,6 +27,15 @@ Use this checklist to make those inputs explicit.
   - Supported useful `alert_type` values include `block_trade`, `dark_pool`,
     `large_print`, `unusual_stock_activity`, `unusual_options_activity`,
     `options_sweep`, `call_sweep`, and `put_sweep`.
+- Subscription email agents, optional
+  - Use for user-authorized Seeking Alpha, TradeVision, and Zacks mailbox
+    exports.
+  - Copy `research/config/subscription-email.example.json` to
+    `research/config/subscription-email.local.json`.
+  - Export approved `.eml` messages into
+    `research/data/raw/subscription_emails/`.
+  - Add `subscription_emails` to `datasets` only when that local export exists.
+  - See `docs/subscription-email-agents.md` for the exact command flow.
 
 ## Dry Run
 
@@ -135,6 +144,7 @@ datasets and runtime signals explicitly:
   "sec_form4",
   "sec_13f",
   "news_rss",
+  "subscription_emails",
   "stock_trades",
   "options_chains",
   "unusual_activity_alerts"
@@ -158,6 +168,10 @@ datasets and runtime signals explicitly:
 Massive/Polygon stock prints. `options_anomaly` and `options_flow` are inferred
 from forward option-chain snapshots. `activity_alerts` is the confirmed lane for
 provider-sourced dark-pool, block-trade, and unusual-options alerts.
+
+`subscription_emails` feeds the existing `news_rss` and
+`unusual_activity_alerts` datasets. It also writes a safe deduped
+`subscription_emails` event view for source-health and calibration review.
 
 Write the compact summary artifact:
 

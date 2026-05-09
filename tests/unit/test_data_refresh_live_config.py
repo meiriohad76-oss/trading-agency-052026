@@ -24,6 +24,7 @@ def test_load_refresh_config_parses_live_inputs(tmp_path: Path) -> None:
                 "filer_ciks": ["0001067983"],
                 "cusip_map": "cusips.json",
                 "activity_alerts_csv": "alerts.csv",
+                "subscription_email_config": "subscription-email.json",
                 "sec_user_agent": "Trading Agency admin@example.com",
                 "workers": EXPECTED_WORKERS,
                 "include_etfs": False,
@@ -48,6 +49,7 @@ def test_load_refresh_config_parses_live_inputs(tmp_path: Path) -> None:
     assert config.tickers == ("AAPL", "MSFT")
     assert config.cusip_map == cusip_map
     assert config.activity_alerts_csv == tmp_path / "alerts.csv"
+    assert config.subscription_email_config == tmp_path / "subscription-email.json"
     assert config.workers == EXPECTED_WORKERS
     assert config.include_etfs is False
     assert config.refresh is True
