@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 from urllib.parse import urlencode
 
+import pandas as pd
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
@@ -31,6 +33,9 @@ from agency.services import (
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent / "templates"))
+REPO_ROOT = Path(__file__).resolve().parents[2]
+EMAIL_EVENTS_PATH = REPO_ROOT / "research" / "data" / "parquet" / "subscription_emails.parquet"
+NEWS_RSS_PATH = REPO_ROOT / "research" / "data" / "parquet" / "news_rss.parquet"
 
 ACTIONABLE_ACTIONS = {"BUY", "SELL", "SHORT", "COVER", "WATCH", "HOLD"}
 OPEN_RISK_DECISIONS = {"ALLOW", "WARN"}
@@ -142,6 +147,9 @@ async def candidate_detail_context(ticker: str) -> dict[str, object]:
     report_rows = final_selection_rows(reports)
     return {
         "ticker": normalized_ticker,
+        "email_evidence": candidate_email_evidence(normalized_ticker),
+        "latest_report": report_rows[0] if report_rows else None,
+        "previous_reports": report_rows[1:],
         "reports": report_rows,
         "review": candidate_review_summary(report_rows, timeline),
         "timeline": timeline_rows(timeline),
@@ -526,12 +534,14 @@ def candidate_detail_summary(
     timeline: Sequence[Mapping[str, object]],
 ) -> dict[str, object]:
     latest_action = str(reports[0]["action"]) if reports else "None"
+    latest = reports[0] if reports else None
     return {
         "ticker": ticker,
         "report_count": len(reports),
         "event_count": len(timeline),
         "latest_action": latest_action,
         "headline": _candidate_detail_headline(ticker, latest_action),
+        "detail": _candidate_detail_text(ticker, latest),
     }
 
 
@@ -704,6 +714,202 @@ def timeline_rows(events: Sequence[Mapping[str, object]]) -> list[dict[str, obje
     ]
 
 
+def candidate_email_evidence(
+    ticker: str,
+    *,
+    event_path: Path = EMAIL_EVENTS_PATH,
+    news_path: Path = NEWS_RSS_PATH,
+    limit: int = 5,
+) -> dict[str, object]:
+    normalized = ticker.upper()
+    events = _candidate_email_event_rows(normalized, event_path=event_path, limit=limit)
+    feed_rows = _candidate_email_feed_rows(normalized, news_path=news_path, limit=limit)
+    service_counts = _candidate_email_service_counts(normalized, event_path)
+    analyzed_count = _candidate_email_analyzed_count(normalized, event_path)
+    event_count = _candidate_email_count(normalized, event_path)
+    feed_count = _candidate_email_feed_count(normalized, news_path)
+    latest_at = _latest_text([*events, *feed_rows])
+    return {
+        "ticker": normalized,
+        "event_count": event_count,
+        "feed_count": feed_count,
+        "analyzed_count": analyzed_count,
+        "latest_at": latest_at or "None",
+        "service_summary": _service_summary(service_counts),
+        "rows": events,
+        "feed_rows": feed_rows,
+        "status_label": "Email Matches" if event_count else "No Email Evidence",
+        "status_class": "pass" if event_count else "neutral",
+        "detail": _email_evidence_detail(event_count, feed_count, analyzed_count),
+    }
+
+
+def _candidate_email_event_rows(
+    ticker: str,
+    *,
+    event_path: Path,
+    limit: int,
+) -> list[dict[str, object]]:
+    frame = _ticker_frame(event_path, ticker)
+    if frame.empty:
+        return []
+    frame = frame.sort_values("timestamp_as_of", ascending=False).head(limit)
+    rows: list[dict[str, object]] = []
+    for row in _records(frame):
+        status = _clean_text(row.get("linked_content_status")) or "not_requested"
+        linked_summary = _clean_text(row.get("linked_content_summary"))
+        title = _clean_text(row.get("title"))
+        direction = (_clean_text(row.get("direction")) or "NEUTRAL").upper()
+        rows.append(
+            {
+                "service": _service_label(_clean_text(row.get("service")) or "subscription"),
+                "event_type": _label_text(_clean_text(row.get("event_type")) or "email evidence"),
+                "direction": direction,
+                "direction_class": _direction_class(direction),
+                "linked_content_status": status,
+                "linked_status_label": _linked_status_label(status),
+                "linked_status_class": _linked_status_class(status),
+                "timestamp": _clean_text(row.get("timestamp_as_of")) or "unknown",
+                "detail": _linked_status_detail(status),
+                "title": _clip_text(title or "Subscription email evidence", 120),
+                "summary": _clip_text(linked_summary or _linked_status_detail(status), 180),
+            }
+        )
+    return rows
+
+
+def _candidate_email_feed_rows(
+    ticker: str,
+    *,
+    news_path: Path,
+    limit: int,
+) -> list[dict[str, object]]:
+    frame = _ticker_frame(news_path, ticker)
+    if frame.empty or "source_tier" not in frame.columns:
+        return []
+    frame = frame[frame["source_tier"].astype(str).eq("PAID_SUB_EMAIL")]
+    if frame.empty:
+        return []
+    frame = frame.sort_values("timestamp_as_of", ascending=False).head(limit)
+    rows: list[dict[str, object]] = []
+    for row in _records(frame):
+        title = _clean_text(row.get("title"))
+        summary = _clean_text(row.get("summary"))
+        rows.append(
+            {
+                "feed_name": _service_label(_clean_text(row.get("feed_name")) or "email feed"),
+                "title": _clip_text(title or "Email-derived feed item", 110),
+                "summary": _clip_text(summary or "No summary recorded", 180),
+                "timestamp": _clean_text(row.get("timestamp_as_of")) or "unknown",
+            }
+        )
+    return rows
+
+
+def _candidate_email_count(ticker: str, event_path: Path) -> int:
+    return len(_ticker_frame(event_path, ticker))
+
+
+def _candidate_email_analyzed_count(ticker: str, event_path: Path) -> int:
+    frame = _ticker_frame(event_path, ticker)
+    if frame.empty or "linked_content_status" not in frame.columns:
+        return 0
+    return int(frame["linked_content_status"].astype(str).eq("article_analyzed").sum())
+
+
+def _candidate_email_feed_count(ticker: str, news_path: Path) -> int:
+    frame = _ticker_frame(news_path, ticker)
+    if frame.empty or "source_tier" not in frame.columns:
+        return 0
+    return int(frame[frame["source_tier"].astype(str).eq("PAID_SUB_EMAIL")].shape[0])
+
+
+def _candidate_email_service_counts(ticker: str, event_path: Path) -> Counter[str]:
+    frame = _ticker_frame(event_path, ticker)
+    if frame.empty or "service" not in frame.columns:
+        return Counter()
+    return Counter(
+        _service_label(_clean_text(service) or "subscription")
+        for service in frame["service"].to_list()
+    )
+
+
+def _ticker_frame(path: Path, ticker: str) -> pd.DataFrame:
+    if not path.is_file():
+        return pd.DataFrame()
+    try:
+        frame = pd.read_parquet(path)
+    except (OSError, ValueError, ImportError):
+        return pd.DataFrame()
+    if "ticker" not in frame.columns:
+        return pd.DataFrame()
+    return frame[frame["ticker"].astype(str).str.upper().eq(ticker.upper())].copy()
+
+
+def _records(frame: pd.DataFrame) -> list[dict[str, Any]]:
+    return cast(list[dict[str, Any]], frame.to_dict(orient="records"))
+
+
+def _latest_text(rows: Sequence[Mapping[str, object]]) -> str | None:
+    values = [str(row["timestamp"]) for row in rows if row.get("timestamp")]
+    return max(values) if values else None
+
+
+def _service_summary(counts: Counter[str]) -> str:
+    if not counts:
+        return "No matching email services"
+    return ", ".join(
+        f"{_service_label(service)} {count}"
+        for service, count in counts.most_common()
+    )
+
+
+def _email_evidence_detail(event_count: int, feed_count: int, analyzed_count: int) -> str:
+    if event_count == 0:
+        return "No subscription emails currently match this ticker."
+    if analyzed_count:
+        return (
+            f"{event_count} matching email events and {feed_count} feed rows. "
+            f"{analyzed_count} linked article thesis rows are ready for context review."
+        )
+    return (
+        f"{event_count} matching email events and {feed_count} feed rows. "
+        "No linked article thesis has been analyzed yet, so these are shown as evidence only."
+    )
+
+
+def _linked_status_label(status: str) -> str:
+    labels = {
+        "article_analyzed": "Article Analyzed",
+        "article_fetch_failed": "Link Failed",
+        "not_requested": "Email Only",
+    }
+    return labels.get(status, _label_text(status))
+
+
+def _linked_status_class(status: str) -> str:
+    if status == "article_analyzed":
+        return "pass"
+    if status == "article_fetch_failed":
+        return "warn"
+    return "neutral"
+
+
+def _linked_status_detail(status: str) -> str:
+    if status == "article_analyzed":
+        return "The linked article was analyzed and can appear as a thesis context signal."
+    if status == "article_fetch_failed":
+        return "The email matched this ticker, but the linked page could not be analyzed."
+    return "The email matched this ticker; linked article analysis was not available for this row."
+
+
+def _service_label(value: str) -> str:
+    cleaned = value.replace("-email", "").replace("_", " ").replace("-", " ").strip()
+    if cleaned.lower() == "seeking alpha email":
+        return "Seeking Alpha"
+    return cleaned.title() if cleaned else "Email"
+
+
 def _final_selection_row(report: Mapping[str, object]) -> dict[str, object]:
     base = _candidate_row(report)
     deterministic = _mapping_field(report, "deterministic")
@@ -728,6 +934,9 @@ def _final_selection_row(report: Mapping[str, object]) -> dict[str, object]:
         "source_count": _int_field(data_quality, "source_count"),
         "confirmed_signal_count": _int_field(data_quality, "confirmed_signal_count"),
         "context_signals": _context_signal_rows(evidence_pack),
+        "actionable_signals": _signal_rows(evidence_pack, "actionable_signals"),
+        "suppressed_signals": _signal_rows(evidence_pack, "suppressed_signals"),
+        "decision_explanation": _decision_explanation(base, deterministic, data_quality),
     }
 
 
@@ -822,19 +1031,122 @@ def _execution_preview_row(preview: Mapping[str, object]) -> dict[str, object]:
 
 
 def _context_signal_rows(evidence_pack: Mapping[str, object]) -> list[dict[str, object]]:
+    return _signal_rows(evidence_pack, "context_signals")
+
+
+def _signal_rows(evidence_pack: Mapping[str, object], key: str) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
-    for item in _list_field(evidence_pack, "context_signals"):
+    for item in _list_field(evidence_pack, key):
         signal = cast(Mapping[str, object], item)
         rows.append(
             {
                 "lane": _label_text(str(signal["lane"])),
+                "lane_key": str(signal["lane"]),
                 "direction": str(signal["direction"]),
                 "direction_class": _direction_class(str(signal["direction"])),
                 "confidence_pct": _percent(signal, "confidence"),
-                "summary": str(signal.get("summary") or _reason_text(signal)),
+                "score": _score_text(signal),
+                "summary": _signal_summary(signal),
+                "source": _signal_source(signal),
             }
         )
     return rows
+
+
+def _decision_explanation(
+    base: Mapping[str, object],
+    deterministic: Mapping[str, object],
+    data_quality: Mapping[str, object],
+) -> str:
+    action = str(base["action"])
+    gate_status = str(base["gate_status"])
+    deterministic_action = str(deterministic["action"])
+    source_count = _int_field(data_quality, "source_count")
+    confirmed_count = _int_field(data_quality, "confirmed_signal_count")
+    freshness = str(data_quality["freshness"]).lower()
+    if action == "NO_TRADE":
+        return (
+            "The engine is not asking for a trade right now. "
+            f"It saw {source_count} independent source(s), {confirmed_count} confirmed "
+            f"signal(s), and {freshness} evidence; the current gate state is {gate_status}."
+        )
+    return (
+        f"The final action is {action} because the deterministic pass produced "
+        f"{deterministic_action} with {source_count} independent source(s) and "
+        f"{confirmed_count} confirmed signal(s). Gate state: {gate_status}."
+    )
+
+
+def _score_text(signal: Mapping[str, object]) -> str:
+    score = _float_field(signal, "score")
+    if score > 0:
+        bias = "bullish"
+    elif score < 0:
+        bias = "bearish"
+    else:
+        bias = "neutral"
+    return f"{score:+.2f} {bias}"
+
+
+def _signal_summary(signal: Mapping[str, object]) -> str:
+    explicit = _clean_text(signal.get("summary"))
+    if explicit:
+        return _clip_text(explicit, 220)
+    reason_codes = _string_list(signal, "reason_codes")
+    if reason_codes:
+        return " ".join(_reason_summary(code) for code in reason_codes)
+    lane = _label_text(str(signal["lane"]))
+    direction = str(signal["direction"]).lower()
+    return f"{lane} signal is {direction}."
+
+
+def _reason_summary(reason_code: str) -> str:
+    summaries = {
+        "abnormal_volume_bullish": "Volume activity is constructive.",
+        "abnormal_volume_bearish": "Volume activity is negative.",
+        "activity_alerts_bullish": "Unusual activity alerts are constructive.",
+        "activity_alerts_bearish": "Unusual activity alerts are negative.",
+        "bearish_action_not_enabled": "Bearish actions are not enabled in this runtime.",
+        "below_actionability_threshold": "Signal is below the actionability threshold.",
+        "block_trade_pressure_bullish": "Block-trade pressure is constructive.",
+        "block_trade_pressure_bearish": "Block-trade pressure is negative.",
+        "buy_sell_pressure_bullish": "Buy/sell pressure is constructive.",
+        "buy_sell_pressure_bearish": "Buy/sell pressure is negative.",
+        "duplicate_signal_source": "Duplicate source was ignored.",
+        "fundamentals_bullish": "Fundamental metrics are constructive.",
+        "fundamentals_bearish": "Fundamental metrics are negative.",
+        "insider_bullish": "Insider activity is constructive.",
+        "insider_bearish": "Insider activity is negative.",
+        "institutional_bullish": "Institutional positioning is constructive.",
+        "institutional_bearish": "Institutional positioning is negative.",
+        "insufficient_confirmed_sources": "Needs more confirmed corroboration.",
+        "insufficient_independent_sources": "Needs more independent source coverage.",
+        "news_bullish": "News flow is constructive.",
+        "news_bearish": "News flow is negative.",
+        "not_actionable": "Useful context, but not actionable by itself.",
+        "options_anomaly_bullish": "Options anomaly activity is constructive.",
+        "options_anomaly_bearish": "Options anomaly activity is negative.",
+        "options_flow_bullish": "Options flow is constructive.",
+        "options_flow_bearish": "Options flow is negative.",
+        "prepost_bullish": "Pre/post-market activity is constructive.",
+        "prepost_bearish": "Pre/post-market activity is negative.",
+        "requires_confirmed_corroboration": "Inferred signal needs confirmed corroboration.",
+        "sector_momentum_bullish": "Sector momentum is constructive.",
+        "sector_momentum_bearish": "Sector momentum is negative.",
+        "signal_strength_below_threshold": "Combined signal strength is below threshold.",
+        "source_unavailable": "Source was unavailable.",
+        "stale_evidence": "Evidence is stale, so it is context only.",
+        "subscription_thesis_context_only": "Subscription article thesis is context only.",
+        "zero_confidence": "Signal confidence is zero.",
+    }
+    return summaries.get(reason_code, f"{_label_text(reason_code)}.")
+
+
+def _signal_source(signal: Mapping[str, object]) -> str:
+    provenance = _mapping_field(signal, "provenance")
+    source = _service_label(str(provenance.get("source") or signal.get("source_tier") or "source"))
+    tier = _label_text(str(signal.get("source_tier") or provenance.get("source_tier") or "source"))
+    return f"{source} / {tier}"
 
 
 def _candidate_row(report: Mapping[str, object]) -> dict[str, object]:
@@ -1017,6 +1329,24 @@ def _label_text(value: str) -> str:
     return value.replace("_", " ").title()
 
 
+def _clip_text(value: str, max_chars: int) -> str:
+    cleaned = " ".join(value.split())
+    if len(cleaned) <= max_chars:
+        return cleaned
+    return cleaned[: max_chars - 3].rstrip() + "..."
+
+
+def _clean_text(value: object) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, float) and pd.isna(value):
+        return None
+    text = " ".join(str(value).split())
+    if not text or text.lower() in {"nan", "none", "nat"}:
+        return None
+    return text
+
+
 def _command_hero_class(candidate_count: int, degraded_source_count: int) -> str:
     if degraded_source_count > 0:
         return "hero-watch"
@@ -1061,6 +1391,21 @@ def _candidate_detail_headline(ticker: str, latest_action: str) -> str:
     if latest_action == "None":
         return f"{ticker} has no persisted selection reports yet."
     return f"{ticker} latest action: {latest_action}."
+
+
+def _candidate_detail_text(ticker: str, latest_report: Mapping[str, object] | None) -> str:
+    if latest_report is None:
+        return f"{ticker} will show decision evidence after the first runtime cycle persists."
+    action = str(latest_report["action"])
+    conviction = _int_field(latest_report, "conviction_pct")
+    source_count = _int_field(latest_report, "source_count")
+    confirmed_count = _int_field(latest_report, "confirmed_signal_count")
+    gate_status = str(latest_report["gate_status"])
+    return (
+        f"Latest report is {action} at {conviction}% conviction, backed by "
+        f"{source_count} independent source(s) and {confirmed_count} confirmed signal(s). "
+        f"Policy gate state is {gate_status}."
+    )
 
 
 def _risk_headline(

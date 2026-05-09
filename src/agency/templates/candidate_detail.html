@@ -10,7 +10,7 @@
 {% block content %}
   <section class="hero hero-info" aria-label="Candidate state">
     <h2>{{ summary.headline }}</h2>
-    <p>Selection reports and lifecycle events are loaded from runtime readers.</p>
+    <p>{{ summary.detail }}</p>
   </section>
 
   <section class="summary-band" aria-label="Candidate metrics">
@@ -31,8 +31,12 @@
       <strong>{{ review.decision }}</strong>
     </div>
     <div>
-      <span class="metric-label">Ticker</span>
-      <strong>{{ summary.ticker }}</strong>
+      <span class="metric-label">Email Events</span>
+      <strong>{{ email_evidence.event_count }}</strong>
+    </div>
+    <div>
+      <span class="metric-label">Feed Rows</span>
+      <strong>{{ email_evidence.feed_count }}</strong>
     </div>
   </section>
 
@@ -73,79 +77,243 @@
     {% endif %}
   </section>
 
+  <section class="panel evidence-panel" aria-labelledby="email-evidence-heading">
+    <div class="section-heading">
+      <div>
+        <h2 id="email-evidence-heading">Email And Feed Evidence</h2>
+        <p class="section-subtitle">{{ email_evidence.detail }}</p>
+      </div>
+      <span class="tag tag-{{ email_evidence.status_class }}">{{ email_evidence.status_label }}</span>
+    </div>
+
+    <div class="evidence-grid" aria-label="Email evidence metrics">
+      <div>
+        <span class="metric-label">Matched Emails</span>
+        <strong>{{ email_evidence.event_count }}</strong>
+      </div>
+      <div>
+        <span class="metric-label">Feed Rows</span>
+        <strong>{{ email_evidence.feed_count }}</strong>
+      </div>
+      <div>
+        <span class="metric-label">Linked Articles</span>
+        <strong>{{ email_evidence.analyzed_count }}</strong>
+      </div>
+      <div>
+        <span class="metric-label">Latest</span>
+        <strong>{{ email_evidence.latest_at }}</strong>
+      </div>
+    </div>
+
+    <p class="panel-note">Services: {{ email_evidence.service_summary }}</p>
+
+    <div class="evidence-columns">
+      <div>
+        <h3>Recent Email Matches</h3>
+        <div class="evidence-list">
+          {% for row in email_evidence.rows %}
+          <article class="evidence-row">
+            <div class="evidence-row-head">
+              <div>
+                <strong>{{ row.title }}</strong>
+                <span>{{ row.service }} / {{ row.event_type }} / {{ row.timestamp }}</span>
+              </div>
+              <span class="tag tag-{{ row.direction_class }}">{{ row.direction }}</span>
+            </div>
+            <p>{{ row.summary }}</p>
+            <span class="tag tag-{{ row.linked_status_class }}">{{ row.linked_status_label }}</span>
+          </article>
+          {% else %}
+          <p class="empty-block">No subscription emails currently match {{ ticker }}</p>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div>
+        <h3>Email-Derived Feed Rows</h3>
+        <div class="evidence-list">
+          {% for row in email_evidence.feed_rows %}
+          <article class="evidence-row">
+            <div class="evidence-row-head">
+              <div>
+                <strong>{{ row.title }}</strong>
+                <span>{{ row.feed_name }} / {{ row.timestamp }}</span>
+              </div>
+            </div>
+            <p>{{ row.summary }}</p>
+          </article>
+          {% else %}
+          <p class="empty-block">No email-derived feed rows currently match {{ ticker }}</p>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </section>
+
   <section class="panel" aria-labelledby="reports-heading">
     <div class="section-heading">
-      <h2 id="reports-heading">Selection Reports</h2>
+      <div>
+        <h2 id="reports-heading">Latest Selection Report</h2>
+        <p class="section-subtitle">Decision first, then the evidence that explains it.</p>
+      </div>
       <a class="text-link" href="/reports/selection/{{ ticker }}">JSON</a>
     </div>
     <div class="report-stack">
-      {% for report in reports %}
-      <article class="report-card">
+      {% if latest_report %}
+      <article class="report-card report-card-primary">
         <div class="report-head">
           <div>
-            <strong>{{ report.action }}</strong>
-            <span>{{ report.generated_at }}</span>
+            <strong>{{ latest_report.action }}</strong>
+            <span>{{ latest_report.generated_at }} / cycle {{ latest_report.cycle_id }}</span>
           </div>
-          <span class="tag tag-{{ report.gate_status | lower }}">{{ report.gate_status }}</span>
+          <span class="tag tag-{{ latest_report.gate_status | lower }}">{{ latest_report.gate_status }}</span>
         </div>
+
+        <p class="decision-copy">{{ latest_report.decision_explanation }}</p>
+
         <div class="decision-grid">
           <div>
             <span class="metric-label">Final Conviction</span>
-            <strong>{{ report.conviction_pct }}%</strong>
+            <strong>{{ latest_report.conviction_pct }}%</strong>
           </div>
           <div>
             <span class="metric-label">Deterministic</span>
-            <strong>{{ report.deterministic_action }} / {{ report.deterministic_conviction_pct }}%</strong>
+            <strong>{{ latest_report.deterministic_action }} / {{ latest_report.deterministic_conviction_pct }}%</strong>
           </div>
           <div>
             <span class="metric-label">LLM Review</span>
-            <strong>{{ report.llm_action }} / {{ report.llm_confidence_pct }}%</strong>
+            <strong>{{ latest_report.llm_action }} / {{ latest_report.llm_confidence_pct }}%</strong>
           </div>
           <div>
-            <span class="metric-label">Risk Flags</span>
-            <strong>{{ report.risk_flag_count }}</strong>
+            <span class="metric-label">Evidence</span>
+            <strong>{{ latest_report.confirmed_signal_count }} confirmed</strong>
           </div>
         </div>
-        <p class="muted-line">{{ report.llm_rationale }}</p>
-        {% if report.context_signals %}
-        <div class="context-list" aria-label="Context signals">
-          {% for signal in report.context_signals %}
-          <article class="context-row">
-            <div>
-              <strong>{{ signal.lane }}</strong>
-              <span>{{ signal.confidence_pct }}% confidence</span>
+
+        {% if latest_report.actionable_signals %}
+        <div class="signal-section" aria-label="Actionable signals">
+          <h3>Actionable Signals</h3>
+          <div class="signal-list">
+            {% for signal in latest_report.actionable_signals %}
+            <article class="signal-row">
+              <div>
+                <strong>{{ signal.lane }}</strong>
+                <span>{{ signal.source }} / {{ signal.score }} / {{ signal.confidence_pct }}% confidence</span>
+              </div>
+              <span class="tag tag-{{ signal.direction_class }}">{{ signal.direction }}</span>
+              <p>{{ signal.summary }}</p>
+            </article>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+
+        {% if latest_report.context_signals %}
+        <div class="signal-section" aria-label="Context signals">
+          <h3>Context Signals</h3>
+          <div class="signal-list">
+            {% for signal in latest_report.context_signals %}
+            <article class="signal-row">
+              <div>
+                <strong>{{ signal.lane }}</strong>
+                <span>{{ signal.source }} / {{ signal.score }} / {{ signal.confidence_pct }}% confidence</span>
+              </div>
+              <span class="tag tag-{{ signal.direction_class }}">{{ signal.direction }}</span>
+              <p>{{ signal.summary }}</p>
+            </article>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+
+        {% if latest_report.suppressed_signals %}
+        <div class="signal-section" aria-label="Suppressed signals">
+          <h3>Suppressed Signals</h3>
+          <div class="signal-list">
+            {% for signal in latest_report.suppressed_signals %}
+            <article class="signal-row">
+              <div>
+                <strong>{{ signal.lane }}</strong>
+                <span>{{ signal.source }} / {{ signal.score }} / {{ signal.confidence_pct }}% confidence</span>
+              </div>
+              <span class="tag tag-{{ signal.direction_class }}">{{ signal.direction }}</span>
+              <p>{{ signal.summary }}</p>
+            </article>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+
+        <div class="split-panel">
+          <div>
+            <h3>Policy Gates</h3>
+            <div class="gate-list">
+              {% for gate in latest_report.policy_gates %}
+              <div class="gate-row gate-{{ gate.status_class }}">
+                <span class="gate-indicator" aria-hidden="true"></span>
+                <span>{{ gate.name }}</span>
+                <strong>{{ gate.status }}</strong>
+                <em>{{ gate.reason }}</em>
+              </div>
+              {% endfor %}
             </div>
-            <span class="tag tag-{{ signal.direction_class }}">{{ signal.direction }}</span>
-            <p>{{ signal.summary }}</p>
+          </div>
+          <div>
+            <h3>Review Notes</h3>
+            <p>{{ latest_report.llm_rationale }}</p>
+            <p class="muted-line">Risk flags: {{ latest_report.risk_flag_text }}.</p>
+          </div>
+        </div>
+      </article>
+
+      {% if previous_reports %}
+      <details class="history-panel">
+        <summary>Previous reports ({{ previous_reports | length }})</summary>
+        <div class="history-list">
+          {% for report in previous_reports %}
+          <article class="history-row">
+            <div>
+              <strong>{{ report.action }} / {{ report.conviction_pct }}%</strong>
+              <span>{{ report.generated_at }} / gate {{ report.gate_status }}</span>
+            </div>
+            <p>{{ report.decision_explanation }}</p>
           </article>
           {% endfor %}
         </div>
-        {% endif %}
-      </article>
+      </details>
+      {% endif %}
       {% else %}
       <p class="empty-block">No selection reports yet</p>
-      {% endfor %}
+      {% endif %}
     </div>
   </section>
 
   <section class="panel" aria-labelledby="timeline-heading">
     <div class="section-heading">
-      <h2 id="timeline-heading">Lifecycle Audit</h2>
+      <div>
+        <h2 id="timeline-heading">Lifecycle Audit</h2>
+        <p class="section-subtitle">Machine audit trail for tracing how the current report was produced.</p>
+      </div>
       <a class="text-link" href="/candidates/{{ ticker }}/timeline">JSON</a>
     </div>
-    <div class="timeline">
-      {% for event in timeline %}
-      <article class="timeline-item">
-        <div>
-          <strong>{{ event.event_type }}</strong>
-          <span>{{ event.event_time }}</span>
-        </div>
-        <span class="tag tag-neutral">{{ event.status }}</span>
-        <p>{{ event.reason or "recorded" }}</p>
-      </article>
-      {% else %}
-      <p class="empty-block">No lifecycle events yet</p>
-      {% endfor %}
-    </div>
+    {% if timeline %}
+    <details class="history-panel">
+      <summary>Show lifecycle events ({{ timeline | length }})</summary>
+      <div class="timeline">
+        {% for event in timeline %}
+        <article class="timeline-item">
+          <div>
+            <strong>{{ event.event_type }}</strong>
+            <span>{{ event.event_time }}</span>
+          </div>
+          <span class="tag tag-neutral">{{ event.status }}</span>
+          <p>{{ event.reason or "recorded" }}</p>
+        </article>
+        {% endfor %}
+      </div>
+    </details>
+    {% else %}
+    <p class="empty-block">No lifecycle events yet</p>
+    {% endif %}
   </section>
 {% endblock %}
