@@ -119,6 +119,20 @@ curl.exe http://127.0.0.1:8000/status/live-readiness
 curl.exe http://127.0.0.1:8000/status/operational-readiness
 ```
 
+After `stock_trades` has enough history, run the market-flow worker before
+raising market-flow importance in paper review:
+
+```powershell
+.\.venv\Scripts\python research\scripts\run_market_flow_worker.py `
+  --start 2024-01-01 `
+  --end 2026-05-08 `
+  --ticker AAPL `
+  --ticker MSFT `
+  --horizon 5 `
+  --horizon 20 `
+  --output-root research\results\t110-market-flow-worker
+```
+
 This remains paper-only. Stale or missing local PIT datasets intentionally
 degrade source health and can leave candidates blocked or context-only until a
 fresh refresh and required provider feeds are available.

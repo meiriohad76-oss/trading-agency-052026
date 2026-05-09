@@ -78,6 +78,17 @@ def test_actionability_gate_requires_confirmed_corroboration_for_inferred_signal
     assert corroborated[0]["actionability"] == "ACTIONABLE"
 
 
+def test_actionability_gate_treats_market_flow_as_inferred_corroborating_lane() -> None:
+    gated = apply_actionability_gate(
+        [
+            _signal("buy_sell_pressure", "massive", "flow", verification_level="INFERRED"),
+            _signal("fundamentals", "sec", "confirmed"),
+        ]
+    )
+
+    assert gated[0]["actionability"] == "ACTIONABLE"
+
+
 def test_actionability_gate_accepts_custom_lane_thresholds() -> None:
     config = ActionabilityGateConfig(
         lane_rules={"custom": LaneActionabilityRule(min_sources=2, min_confirmed_sources=1)}

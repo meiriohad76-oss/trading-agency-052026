@@ -1,6 +1,6 @@
 # Phase Status
 
-**Status:** reconciled after T109
+**Status:** reconciled after T114
 **Owner:** Ohad Meiri
 **Last updated:** 2026-05-09
 
@@ -9,7 +9,7 @@ implementation scaffolding from accepted phase gates.
 
 ## Current Truth
 
-- T01-T99 and T105-T109 are archived under `tickets/done/`.
+- T01-T99 and T105-T114 are archived under `tickets/done/`.
 - T100-T104 remain open backlog tickets for subscription-email evidence agents.
 - The repo contains Phase 0 foundation, Phase 1 research machinery, Phase 2
   contracts/dashboard scaffolding, and Phase 3 runtime orchestration through a
@@ -89,14 +89,18 @@ implementation scaffolding from accepted phase gates.
     `stock_trades` dataset with `buy_sell_pressure` and `block_trade_pressure`
     runtime lanes. These lanes are inferred from confirmed prints and require
     `POLYGON_API_KEY` or `MASSIVE_API_KEY` only when enabled.
+25. A dedicated market-flow analysis worker now generates feature panels, IC
+    checks, threshold sweeps, holdout validation, and runtime guidance artifacts
+    for the market-flow lanes.
 
 ## Next Ticket Candidates
 
 The active backlog is T100-T104. Recommended order is T100 first, then T101-T103
 in parallel if ownership is split, then T104 once all subscription-email agents
 can emit fixture evidence. After the user adds a Massive/Polygon key, run a
-small live `stock_trades` refresh and keep market-flow lanes context-only until
-H1 has enough coverage to retest them.
+small live `stock_trades` refresh, then run the market-flow worker. Keep
+market-flow lanes context-only until the worker has enough coverage to recommend
+runtime-weight eligibility.
 
 ## Operating Rule
 

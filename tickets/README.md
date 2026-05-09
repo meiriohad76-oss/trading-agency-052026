@@ -59,6 +59,11 @@ Completed archive:
 - T107: buy/sell pressure signal from delayed trade prints.
 - T108: block/off-exchange pressure signal from delayed trade prints.
 - T109: Massive market-flow runtime, readiness, and docs wiring.
+- T110: market-flow feature worker.
+- T111: market-flow H1 evaluator.
+- T112: market-flow threshold optimizer.
+- T113: market-flow holdout validation.
+- T114: market-flow runtime calibration.
 - PR #82: provider readiness checklist.
 
 ## Next Ticket Candidates

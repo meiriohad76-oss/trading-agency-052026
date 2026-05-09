@@ -14,6 +14,9 @@ DEFAULT_LANE_WEIGHTS: Mapping[str, float] = {
     "sector_momentum": 0.8,
     "abnormal_volume": 0.7,
     "options_flow": 0.7,
+    "buy_sell_pressure": 0.5,
+    "block_trade_pressure": 0.4,
+    "options_anomaly": 0.4,
     "news": 0.6,
     "prepost": 0.5,
 }

@@ -30,12 +30,14 @@ validate each signal lane.
 3. Enable Polygon/Massive `stock_trades` only after adding a local key. The
    current implementation uses delayed confirmed stock prints to infer buy/sell
    and block/off-exchange pressure. It does not claim true aggressor side.
-4. Add one confirmed activity provider next: Unusual Whales if the API plan is
+4. Run the market-flow analysis worker after the historical pull; it keeps
+   runtime guidance context-only until train/test threshold checks pass.
+5. Add one confirmed activity provider next: Unusual Whales if the API plan is
    acceptable, otherwise Benzinga unusual-activity endpoints.
-5. Import several weeks of confirmed activity alerts, then re-run H1/H2 before
+6. Import several weeks of confirmed activity alerts, then re-run H1/H2 before
    enabling `activity_alerts`, `options_anomaly`, or `options_flow` in runtime.
-6. Add FRED only once macro filters are part of candidate scoring.
-7. Buy deep historical options data only after the alert lane proves useful.
+7. Add FRED only once macro filters are part of candidate scoring.
+8. Buy deep historical options data only after the alert lane proves useful.
 
 ## Local Readiness
 
