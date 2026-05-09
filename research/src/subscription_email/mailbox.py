@@ -49,7 +49,7 @@ def sync_mailbox_emails(
         return MailboxSyncResult("local_eml", 0, 0, 0, 0, config.input_path, "local folder mode")
     if config.mode not in {"imap", "gmail", "outlook"}:
         raise ValueError(f"unsupported mailbox sync mode: {config.mode}")
-    environment = env or os.environ
+    environment = env if env is not None else os.environ
     username = _env_value(environment, config.mailbox_username_env)
     password = _env_value(environment, config.mailbox_password_env)
     if username is None or password is None:

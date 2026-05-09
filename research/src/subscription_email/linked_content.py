@@ -4,10 +4,16 @@ import hashlib
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 from news.scrapling_adapter import fetch_page
+from subscription_email.article_cache import (
+    cacheable_analysis,
+    load_article_analysis_cache,
+    write_article_analysis_cache,
+)
 from subscription_email.article_session import (
     BrowserSessionUnavailableError,
     fetch_with_browser_session,
@@ -43,6 +49,7 @@ class LinkedContentStats:
     succeeded: int = 0
     failed: int = 0
     skipped: int = 0
+    cached: int = 0
 
 
 @dataclass(frozen=True)
@@ -59,9 +66,13 @@ def enrich_records_with_linked_content(
 ) -> LinkedContentResult:
     if not config.follow_article_links or config.article_max_links_per_email == 0:
         return LinkedContentResult(records=records, stats=LinkedContentStats(skipped=len(records)))
-    fetch_article = fetcher or fetch_linked_article
+    fetch_article = fetcher or (
+        lambda url, timeout: fetch_linked_article(url, timeout, config=config)
+    )
+    cache = load_article_analysis_cache(config.article_analysis_cache_path)
+    cache_changed = False
     output: list[EmailRecord] = []
-    attempted = succeeded = failed = skipped = 0
+    attempted = succeeded = failed = skipped = cached = 0
     for record in records:
         links = allowed_article_links(record, config)
         if not links:
@@ -70,6 +81,12 @@ def enrich_records_with_linked_content(
             continue
         enriched = record
         for url in links[: config.article_max_links_per_email]:
+            cached_analysis = cache.get(url)
+            if cached_analysis is not None:
+                enriched = _with_analysis(record, cached_analysis)
+                cached += 1
+                succeeded += 1
+                break
             attempted += 1
             try:
                 page = fetch_article(url, config.article_fetch_timeout_seconds)
@@ -78,10 +95,17 @@ def enrich_records_with_linked_content(
                 enriched = _with_status(record, "article_fetch_failed", url=url)
                 continue
             analysis = analyze_article(page, config=config)
+            safe = cacheable_analysis(analysis, fetched_at=datetime.now(UTC).isoformat())
+            if safe is not None:
+                cache[url] = safe
+                cache[str(safe["url"])] = safe
+                cache_changed = True
             enriched = _with_analysis(record, analysis)
             succeeded += 1
             break
         output.append(enriched)
+    if cache_changed:
+        write_article_analysis_cache(config.article_analysis_cache_path, cache)
     return LinkedContentResult(
         records=output,
         stats=LinkedContentStats(
@@ -89,6 +113,7 @@ def enrich_records_with_linked_content(
             succeeded=succeeded,
             failed=failed,
             skipped=skipped,
+            cached=cached,
         ),
     )
 

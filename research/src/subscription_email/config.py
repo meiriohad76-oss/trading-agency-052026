@@ -32,6 +32,7 @@ class SubscriptionEmailConfig:
     article_max_chars: int = 12_000
     article_fetch_mode: str = "auto"
     article_browser_state_dir: Path | None = None
+    article_analysis_cache_path: Path | None = None
     article_browser_wait_seconds: int = 5
     article_browser_channel: str = "chrome"
     article_browser_headless: bool = True
@@ -68,6 +69,10 @@ def load_subscription_email_config(path: Path, *, repo_root: Path) -> Subscripti
             payload,
             "article_browser_state_dir",
             repo_root=repo_root,
+        ),
+        article_analysis_cache_path=(
+            _optional_path(payload, "article_analysis_cache_path", repo_root=repo_root)
+            or repo_root / "research" / "config" / "article-analysis-cache.local.json"
         ),
         article_browser_wait_seconds=_integer(payload, "article_browser_wait_seconds", 5),
         article_browser_channel=_string(payload, "article_browser_channel", "chrome"),

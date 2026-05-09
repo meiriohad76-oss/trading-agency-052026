@@ -208,6 +208,128 @@ def test_ingest_uses_linked_article_content_for_ticker_and_summary(tmp_path: Pat
     assert "Paid article title" not in json.dumps(summary)
 
 
+def test_linked_article_cache_hit_avoids_fetcher(tmp_path: Path) -> None:
+    cache_path = tmp_path / "article-cache.local.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "0.1.0",
+                "articles": {
+                    "https://seekingalpha.com/article/123": {
+                        "status": "article_analyzed",
+                        "url": "https://seekingalpha.com/article/123",
+                        "title_hash": "title123",
+                        "tickers": ["MSFT"],
+                        "direction": "BULLISH",
+                        "catalysts": ["analyst_rating"],
+                        "text_hash": "text123",
+                        "fetched_at": FETCHED_AT.isoformat(),
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    config = _config(follow_article_links=True, article_analysis_cache_path=cache_path)
+    records = [
+        _record(
+            "seeking_alpha",
+            "Seeking Alpha article alert",
+            "Read this https://seekingalpha.com/article/123",
+        )
+    ]
+
+    def fetcher(_url: str, _timeout_seconds: int) -> FetchedArticle:
+        raise AssertionError("cache hit should not fetch article")
+
+    result = linked_content.enrich_records_with_linked_content(
+        records,
+        config=config,
+        fetcher=fetcher,
+    )
+
+    assert result.stats.cached == 1
+    assert result.stats.attempted == 0
+    assert result.records[0].linked_content_status == "article_analyzed"
+    assert result.records[0].linked_content_title_hash == "title123"
+    assert "MSFT" in str(result.records[0].linked_content_summary)
+
+
+def test_linked_article_cache_miss_writes_only_safe_analysis(tmp_path: Path) -> None:
+    cache_path = tmp_path / "article-cache.local.json"
+    config = _config(follow_article_links=True, article_analysis_cache_path=cache_path)
+    records = [
+        _record(
+            "seeking_alpha",
+            "Seeking Alpha article alert",
+            "Read this https://seekingalpha.com/article/456",
+        )
+    ]
+
+    def fetcher(url: str, _timeout_seconds: int) -> FetchedArticle:
+        return FetchedArticle(
+            url=url,
+            status_code=200,
+            title="Paid title must not be cached",
+            text="NVDA receives a bullish analyst upgrade with strong earnings guidance.",
+        )
+
+    result = linked_content.enrich_records_with_linked_content(
+        records,
+        config=config,
+        fetcher=fetcher,
+    )
+    cache = json.loads(cache_path.read_text(encoding="utf-8"))
+
+    assert result.stats.attempted == 1
+    assert result.stats.succeeded == 1
+    assert "https://seekingalpha.com/article/456" in cache["articles"]
+    assert "Paid title must not be cached" not in json.dumps(cache)
+    assert "bullish analyst upgrade" not in json.dumps(cache)
+    assert cache["articles"]["https://seekingalpha.com/article/456"]["tickers"] == ["NVDA"]
+
+
+def test_linked_article_cache_reuses_original_redirect_url(tmp_path: Path) -> None:
+    cache_path = tmp_path / "article-cache.local.json"
+    config = _config(follow_article_links=True, article_analysis_cache_path=cache_path)
+    records = [
+        _record(
+            "seeking_alpha",
+            "Seeking Alpha article alert",
+            "Read this https://email.seekingalpha.com/redirect/456",
+        )
+    ]
+    calls = 0
+
+    def fetcher(_url: str, _timeout_seconds: int) -> FetchedArticle:
+        nonlocal calls
+        calls += 1
+        return FetchedArticle(
+            url="https://seekingalpha.com/article/456",
+            status_code=200,
+            title="Paid title must not be cached",
+            text="NVDA receives a bullish analyst upgrade with strong earnings guidance.",
+        )
+
+    first = linked_content.enrich_records_with_linked_content(
+        records,
+        config=config,
+        fetcher=fetcher,
+    )
+    second = linked_content.enrich_records_with_linked_content(
+        records,
+        config=config,
+        fetcher=fetcher,
+    )
+    cache = json.loads(cache_path.read_text(encoding="utf-8"))
+
+    assert calls == 1
+    assert first.stats.attempted == 1
+    assert second.stats.cached == 1
+    assert "https://email.seekingalpha.com/redirect/456" in cache["articles"]
+    assert "https://seekingalpha.com/article/456" in cache["articles"]
+
+
 def test_fetch_linked_article_can_fall_back_to_browser_session(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -322,9 +444,14 @@ def test_mailbox_sync_saves_only_allowlisted_messages(tmp_path: Path) -> None:
     assert client.selected_mailbox == "INBOX"
 
 
-def test_mailbox_sync_requires_credentials(tmp_path: Path) -> None:
+def test_mailbox_sync_requires_credentials(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     config_path = _config_path(tmp_path, input_path=tmp_path / "mail", mode="gmail")
     config = load_subscription_email_config(config_path, repo_root=tmp_path)
+    monkeypatch.setenv("SUBSCRIPTION_EMAIL_USERNAME", "real-user@example.test")
+    monkeypatch.setenv("SUBSCRIPTION_EMAIL_PASSWORD", "real-password")
 
     with pytest.raises(RuntimeError, match="missing SUBSCRIPTION_EMAIL_USERNAME"):
         sync_mailbox_emails(config, env={})
@@ -443,6 +570,7 @@ def _config_path(
     mode: str = "local_eml",
     article_fetch_mode: str = "auto",
     article_browser_state_dir: Path | None = None,
+    article_analysis_cache_path: Path | None = None,
     article_browser_channel: str = "chrome",
     article_browser_headless: bool = True,
 ) -> Path:
@@ -471,6 +599,8 @@ def _config_path(
     }
     if article_browser_state_dir is not None:
         payload["article_browser_state_dir"] = str(article_browser_state_dir)
+    if article_analysis_cache_path is not None:
+        payload["article_analysis_cache_path"] = str(article_analysis_cache_path)
     path.write_text(
         json.dumps(payload),
         encoding="utf-8",
@@ -480,8 +610,10 @@ def _config_path(
 
 def _config(
     *,
+    follow_article_links: bool = False,
     article_fetch_mode: str = "auto",
     article_browser_state_dir: Path | None = None,
+    article_analysis_cache_path: Path | None = None,
     article_browser_channel: str = "chrome",
     article_browser_headless: bool = True,
 ) -> SubscriptionEmailConfig:
@@ -496,8 +628,10 @@ def _config(
             "zacks.com",
         ),
         tickers=("AAPL", "MSFT", "NVDA"),
+        follow_article_links=follow_article_links,
         article_fetch_mode=article_fetch_mode,
         article_browser_state_dir=article_browser_state_dir,
+        article_analysis_cache_path=article_analysis_cache_path,
         article_browser_channel=article_browser_channel,
         article_browser_headless=article_browser_headless,
     )

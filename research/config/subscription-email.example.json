@@ -36,6 +36,7 @@
   "article_max_chars": 12000,
   "article_fetch_mode": "auto",
   "article_browser_state_dir": "research/config/browser-sessions",
+  "article_analysis_cache_path": "research/config/article-analysis-cache.local.json",
   "article_browser_wait_seconds": 5,
   "article_browser_channel": "chrome",
   "article_browser_headless": true,

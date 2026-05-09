@@ -91,6 +91,7 @@ After at least one session is saved, enable link opening in
 "follow_article_links": true,
 "article_fetch_mode": "auto",
 "article_browser_state_dir": "research/config/browser-sessions",
+"article_analysis_cache_path": "research/config/article-analysis-cache.local.json",
 "article_browser_wait_seconds": 5,
 "article_browser_channel": "chrome",
 "article_browser_headless": true
@@ -100,6 +101,11 @@ After at least one session is saved, enable link opening in
 `browser` when a provider always requires login. Article text is analyzed in
 memory only; summaries store hashes, ticker tags, direction, and catalyst tags,
 not the raw paid article body.
+
+Successful article analyses are cached by normalized URL in the ignored
+`article_analysis_cache_path`. The cache stores only URL, hashes, ticker tags,
+direction, catalyst tags, status, and fetch time, so repeated monitor cycles do
+not reopen old paid links.
 
 ## Import Command
 
