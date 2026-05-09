@@ -23,7 +23,7 @@ from subscription_email.linked_content import (
     LinkedContentStats,
     enrich_records_with_linked_content,
 )
-from subscription_email.parser import read_local_emails
+from subscription_email.parser import parse_email_file, read_local_emails
 from subscription_email.storage import (
     write_event_frame,
     write_summary,
@@ -49,6 +49,7 @@ def ingest_subscription_emails(
     summary_root: Path | None = None,
     clock: Callable[[], datetime] | None = None,
     article_fetcher: ArticleFetcher | None = None,
+    source_paths: tuple[Path, ...] | None = None,
 ) -> SubscriptionEmailIngestResult:
     config = load_subscription_email_config(config_path, repo_root=repo_root)
     return ingest_subscription_email_config(
@@ -64,6 +65,7 @@ def ingest_subscription_emails(
         summary_root=summary_root,
         clock=clock,
         article_fetcher=article_fetcher,
+        source_paths=source_paths,
     )
 
 
@@ -81,9 +83,10 @@ def ingest_subscription_email_config(
     summary_root: Path | None = None,
     clock: Callable[[], datetime] | None = None,
     article_fetcher: ArticleFetcher | None = None,
+    source_paths: tuple[Path, ...] | None = None,
 ) -> SubscriptionEmailIngestResult:
     fetched_at = _utc_now(clock)
-    records = _records(config)
+    records = _records(config, source_paths=source_paths)
     eligible, filtered = _eligible_records(records, config=config, fetched_at=fetched_at)
     link_result = enrich_records_with_linked_content(
         eligible,
@@ -132,13 +135,19 @@ def ingest_subscription_email_config(
     )
 
 
-def _records(config: SubscriptionEmailConfig) -> list[EmailRecord]:
+def _records(
+    config: SubscriptionEmailConfig,
+    *,
+    source_paths: tuple[Path, ...] | None = None,
+) -> list[EmailRecord]:
     if config.mode != "local_eml":
         raise NotImplementedError(
             f"subscription email mode {config.mode!r} is configured but not implemented yet"
         )
     if not config.input_path.exists():
         raise FileNotFoundError(config.input_path)
+    if source_paths is not None:
+        return [parse_email_file(path) for path in sorted(source_paths)]
     return read_local_emails(config.input_path)
 
 

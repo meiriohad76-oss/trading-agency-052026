@@ -492,6 +492,68 @@ def test_monitor_analyzes_new_local_emails_once(tmp_path: Path) -> None:
     assert second.ingest is None
 
 
+def test_monitor_opens_article_links_only_for_changed_emails(tmp_path: Path) -> None:
+    mailbox = tmp_path / "mail"
+    mailbox.mkdir()
+    old_path = mailbox / "old.eml"
+    _write_message(
+        old_path,
+        sender="alerts@email.seekingalpha.com",
+        subject="Seeking Alpha article on AAPL",
+        body="AAPL old article. https://seekingalpha.com/article/old",
+    )
+    state_path = tmp_path / "monitor-state.json"
+    old_stat = old_path.stat()
+    state_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "0.1.0",
+                "files": [
+                    {
+                        "path": old_path.relative_to(mailbox).as_posix(),
+                        "size": old_stat.st_size,
+                        "mtime_ns": old_stat.st_mtime_ns,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    _write_message(
+        mailbox / "new.eml",
+        sender="alerts@email.seekingalpha.com",
+        subject="Seeking Alpha article on MSFT",
+        body="MSFT new article. https://seekingalpha.com/article/new",
+    )
+    config_path = _config_path(tmp_path, input_path=mailbox, follow_article_links=True)
+    fetched_urls: list[str] = []
+
+    def fetcher(url: str, _timeout_seconds: int) -> FetchedArticle:
+        fetched_urls.append(url)
+        return FetchedArticle(
+            url=url,
+            status_code=200,
+            title="Safe title hash only",
+            text="MSFT receives a bullish analyst upgrade with strong earnings guidance.",
+        )
+
+    result = monitor_subscription_emails_once(
+        config_path=config_path,
+        repo_root=tmp_path,
+        state_path=state_path,
+        summary_root=tmp_path / "summary",
+        clock=lambda: FETCHED_AT,
+        article_fetcher=fetcher,
+    )
+
+    assert result.status == "analyzed"
+    assert result.changed_files == 1
+    assert result.ingest is not None
+    assert result.ingest["processed_emails"] == 1
+    assert result.ingest["linked_content_attempted"] == 1
+    assert fetched_urls == ["https://seekingalpha.com/article/new"]
+
+
 def test_monitor_syncs_mailbox_then_runs_analysis(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
