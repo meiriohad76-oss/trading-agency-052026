@@ -10,6 +10,7 @@ from subscription_email.article_types import FetchedArticle, html_to_text
 from subscription_email.config import SubscriptionEmailConfig
 
 DEFAULT_STATE_DIR = Path("research/config/browser-sessions")
+DEFAULT_BROWSER_CHANNEL = "chrome"
 PROVIDER_LOGIN_URLS = {
     "seeking_alpha": "https://seekingalpha.com/account/login",
     "tradevision": "https://www.tradevision.io/login",
@@ -30,6 +31,8 @@ class BrowserSessionUnavailableError(RuntimeError):
 class BrowserSessionFetchConfig:
     state_dir: Path
     wait_seconds: int
+    browser_channel: str
+    headless: bool
 
 
 def provider_for_url(url: str) -> str | None:
@@ -71,6 +74,8 @@ def browser_fetch_config(
     return BrowserSessionFetchConfig(
         state_dir=state_dir,
         wait_seconds=config.article_browser_wait_seconds,
+        browser_channel=config.article_browser_channel,
+        headless=config.article_browser_headless,
     )
 
 
@@ -94,6 +99,8 @@ def fetch_with_browser_session(
         state_path=state_path,
         timeout_seconds=timeout_seconds,
         wait_seconds=fetch_config.wait_seconds,
+        browser_channel=fetch_config.browser_channel,
+        headless=fetch_config.headless,
     )
 
 
@@ -102,19 +109,26 @@ def save_browser_session(
     provider: str,
     state_dir: Path,
     login_url: str | None = None,
+    browser_channel: str = DEFAULT_BROWSER_CHANNEL,
+    profile_dir: Path | None = None,
 ) -> Path:
     state_dir.mkdir(parents=True, exist_ok=True)
     state_path = state_dir / f"{provider}.json"
+    resolved_profile_dir = profile_dir or state_dir / "profiles" / provider
+    resolved_profile_dir.mkdir(parents=True, exist_ok=True)
     playwright = _playwright_sync_api()
     with playwright.sync_playwright() as runtime:
-        browser = runtime.chromium.launch(headless=False)
-        context = browser.new_context()
-        page = context.new_page()
+        context = runtime.chromium.launch_persistent_context(
+            resolved_profile_dir.as_posix(),
+            headless=False,
+            **_launch_options(browser_channel),
+        )
+        page = context.pages[0] if context.pages else context.new_page()
         page.goto(login_url or provider_login_url(provider))
         print("Log in in the browser window, then return here and press Enter.")
         input()
         context.storage_state(path=state_path.as_posix())
-        browser.close()
+        context.close()
     return state_path
 
 
@@ -124,11 +138,16 @@ def _fetch_with_playwright(
     state_path: Path,
     timeout_seconds: int,
     wait_seconds: int,
+    browser_channel: str,
+    headless: bool,
 ) -> FetchedArticle:
     playwright = _playwright_sync_api()
     timeout_ms = timeout_seconds * 1000
     with playwright.sync_playwright() as runtime:
-        browser = runtime.chromium.launch(headless=True)
+        browser = runtime.chromium.launch(
+            headless=headless,
+            **_launch_options(browser_channel),
+        )
         context = browser.new_context(storage_state=state_path.as_posix())
         page = context.new_page()
         response = page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
@@ -143,6 +162,16 @@ def _fetch_with_playwright(
         title=title,
         text=text,
     )
+
+
+def _launch_options(browser_channel: str) -> dict[str, object]:
+    options: dict[str, object] = {
+        "args": ["--disable-blink-features=AutomationControlled"],
+        "ignore_default_args": ["--enable-automation"],
+    }
+    if browser_channel != "chromium":
+        options["channel"] = browser_channel
+    return options
 
 
 def _playwright_sync_api() -> Any:

@@ -67,12 +67,16 @@ Then save a session for each paid provider you want the agent to open:
 
 ```powershell
 .\.venv\Scripts\python research\scripts\save_article_browser_session.py `
-  --provider seeking_alpha
+  --provider seeking_alpha `
+  --browser-channel chrome
 ```
 
 The script opens a visible browser. Log in manually, return to the terminal, and
 press Enter. The session is saved under
-`research/config/browser-sessions/`, which is ignored by git.
+`research/config/browser-sessions/`, which is ignored by git. It also uses a
+persistent local browser profile under that same ignored directory. If a paid
+site blocks Playwright's bundled Chromium, use `--browser-channel chrome` or
+`--browser-channel msedge`.
 
 Supported providers are:
 
@@ -87,7 +91,9 @@ After at least one session is saved, enable link opening in
 "follow_article_links": true,
 "article_fetch_mode": "auto",
 "article_browser_state_dir": "research/config/browser-sessions",
-"article_browser_wait_seconds": 5
+"article_browser_wait_seconds": 5,
+"article_browser_channel": "chrome",
+"article_browser_headless": true
 ```
 
 `auto` tries direct HTTP, Scrapling, and then the saved browser session. Use

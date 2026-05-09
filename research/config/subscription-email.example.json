@@ -37,6 +37,8 @@
   "article_fetch_mode": "auto",
   "article_browser_state_dir": "research/config/browser-sessions",
   "article_browser_wait_seconds": 5,
+  "article_browser_channel": "chrome",
+  "article_browser_headless": true,
   "mailbox_host": null,
   "mailbox_port": 993,
   "mailbox_username_env": "SUBSCRIPTION_EMAIL_USERNAME",
