@@ -20,6 +20,7 @@ from agency.runtime import build_live_readiness
 from agency.runtime.data_refresh_progress import load_data_refresh_progress
 from agency.runtime.live_config_readiness import load_live_config_readiness
 from agency.runtime.operational_readiness import build_operational_readiness
+from agency.runtime.provider_readiness import load_provider_readiness
 from agency.services import (
     build_and_persist_human_review_event,
     build_execution_previews,
@@ -74,13 +75,16 @@ async def dashboard_context() -> dict[str, object]:
         contracts=contracts,
         review_queue=review_queue,
     )
+    live_config = load_live_config_readiness()
+    provider_readiness = load_provider_readiness(live_config)
     return {
         "actions": command_actions(),
         "contracts": contracts,
         "data_sources": source_status_rows(data_sources),
         "candidates": candidates,
         "data_refresh": data_refresh_progress_view(load_data_refresh_progress()),
-        "live_config": live_config_view(load_live_config_readiness()),
+        "live_config": live_config_view(live_config),
+        "provider_readiness": provider_readiness_view(provider_readiness),
         "readiness": readiness,
         "review_progress": review_progress,
         "review_queue": review_queue,
@@ -291,6 +295,7 @@ def command_summary(
 def command_actions() -> list[dict[str, str]]:
     return [
         {"label": "Review config", "href": "#live-config-heading"},
+        {"label": "Review providers", "href": "#provider-readiness-heading"},
         {"label": "Review readiness", "href": "#readiness-heading"},
         {"label": "Review queue", "href": "#review-queue-heading"},
         {"label": "Review candidates", "href": "#candidates-heading"},
@@ -347,6 +352,15 @@ def data_refresh_progress_view(progress: Mapping[str, object]) -> dict[str, obje
 def live_config_view(readiness: Mapping[str, object]) -> dict[str, object]:
     view = dict(readiness)
     view["check_rows"] = _list_field(readiness, "checks")
+    return view
+
+
+def provider_readiness_view(readiness: Mapping[str, object]) -> dict[str, object]:
+    view = dict(readiness)
+    view["provider_rows"] = [
+        _provider_readiness_row(cast(Mapping[str, object], row))
+        for row in _list_field(readiness, "providers")
+    ]
     return view
 
 
@@ -967,6 +981,19 @@ def _readiness_blocker_rows(summary: Mapping[str, object]) -> list[dict[str, str
             }
         )
     return rows
+
+
+def _provider_readiness_row(row: Mapping[str, object]) -> dict[str, object]:
+    return {
+        "label": str(row["label"]),
+        "category": _label_text(str(row["category"])),
+        "purpose": str(row["purpose"]),
+        "required_label": "Required now" if row["required_now"] is True else "Planned",
+        "status": str(row["status"]),
+        "status_class": str(row["status_class"]),
+        "key_label": str(row["key_label"]),
+        "detail": str(row["detail"]),
+    }
 
 
 def _label_text(value: str) -> str:

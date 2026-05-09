@@ -42,6 +42,10 @@ Set local-only secrets in `.env`; do not commit real values.
   `research/config/live-refresh.local.json` sets `sec_user_agent`.
 - `OPENAI_API_KEY` is optional in the current paper workflow and reserved for
   future live LLM review calls.
+- Planned provider keys are optional until their connectors are enabled:
+  `OPENFIGI_API_KEY`, `BENZINGA_API_KEY`, `UNUSUAL_WHALES_API_KEY`,
+  `FRED_API_KEY`, `POLYGON_API_KEY`, `MASSIVE_API_KEY`,
+  `THETADATA_USERNAME`, and `THETADATA_PASSWORD`.
 
 Non-secret refresh settings live in `research/config/live-refresh.local.json`,
 including `rss_feeds`, `filer_ciks`, `cusip_map`, ticker universe, and the
@@ -86,6 +90,7 @@ Then verify the runtime can see the persisted rows:
   --min-selection-reports 1 --min-risk-decisions 1
 
 curl.exe http://127.0.0.1:8000/status/live-config
+curl.exe http://127.0.0.1:8000/status/provider-readiness
 curl.exe http://127.0.0.1:8000/status/live-readiness
 curl.exe http://127.0.0.1:8000/status/operational-readiness
 ```
@@ -122,6 +127,10 @@ The Command page Live Config panel and `/status/live-config` show whether the
 local refresh config, selected provider, credentials, ticker universe, SEC
 User-Agent, RSS feeds, 13F filers, CUSIP map, and activity-alert CSV are ready.
 They report missing secret names only, never secret values.
+
+The Command page Provider Readiness panel and `/status/provider-readiness` show
+the whole-agency provider-key checklist. Missing future-provider keys are marked
+as planned and do not block the current stocks-only paper workflow.
 
 The default refresh output is `research/results/latest-data-refresh/`. During a
 long run, the Command page polls that status file through `/status/data-refresh`

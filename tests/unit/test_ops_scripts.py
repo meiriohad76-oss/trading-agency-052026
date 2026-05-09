@@ -8,6 +8,7 @@ from scripts.backup_postgres import default_backup_path, pg_dump_command
 from scripts.check_local_runtime import metric_value
 from scripts.check_operational_readiness import check_operational_readiness
 from scripts.check_paper_review_status import check_paper_review_status
+from scripts.check_provider_readiness import check_provider_readiness
 from scripts.restore_postgres import psql_restore_command
 
 EXPECTED_SOURCE_HEALTH = 2.0
@@ -149,4 +150,41 @@ def test_check_operational_readiness_summarizes_endpoint(
         "queue_count": EXPECTED_REVIEW_QUEUE_COUNT,
         "reviewed_count": EXPECTED_REVIEWED_COUNT,
         "pending_count": EXPECTED_PENDING_COUNT,
+    }
+
+
+def test_check_provider_readiness_summarizes_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_fetch_json(_base_url: str, path: str) -> dict[str, object]:
+        assert path == "/status/provider-readiness"
+        return {
+            "ready": True,
+            "state": "ready",
+            "provider_count": 10,
+            "configured_count": 3,
+            "active_required_count": 2,
+            "blocker_count": 0,
+            "warning_count": 0,
+            "providers": [
+                {"label": "Alpaca", "configured": True},
+                {"label": "Unusual Whales", "configured": False},
+            ],
+        }
+
+    monkeypatch.setattr(
+        "scripts.check_provider_readiness._fetch_json",
+        fake_fetch_json,
+    )
+
+    summary = check_provider_readiness(require_configured="Alpaca")
+
+    assert summary == {
+        "ready": True,
+        "state": "ready",
+        "provider_count": 10,
+        "configured_count": 3,
+        "active_required_count": 2,
+        "blocker_count": 0,
+        "warning_count": 0,
     }
