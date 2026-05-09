@@ -19,6 +19,9 @@ research/config/*token*.json
 research/data/raw/subscription_emails/**
 research/data/raw/**
 !research/data/raw/.gitkeep
+*.monitor-state.json
+*monitor-state.json
+.subscription-email-monitor.json
 research/data/parquet/**
 !research/data/parquet/.gitkeep
 !research/data/parquet/universe_membership.parquet

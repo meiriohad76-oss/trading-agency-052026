@@ -13,6 +13,8 @@ from subscription_email.classifiers import classify_subscription_emails
 from subscription_email.config import SubscriptionEmailConfig, load_subscription_email_config
 from subscription_email.ingest import ingest_subscription_emails
 from subscription_email.linked_content import FetchedArticle, html_to_text
+from subscription_email.mailbox import sync_mailbox_emails
+from subscription_email.monitor import monitor_subscription_emails_once
 from subscription_email.parser import parse_email_file, read_local_emails
 from subscription_email.types import EmailRecord
 
@@ -21,6 +23,9 @@ EXPECTED_NEWS_ROWS = 2
 EXPECTED_EVENT_ROWS = 3
 EXPECTED_SOURCE_REFS = 2
 EXPECTED_ARTICLE_TIMEOUT_SECONDS = 15
+EXPECTED_MAILBOX_ATTEMPTED = 2
+EXPECTED_MAILBOX_SAVED = 1
+EXPECTED_MONITOR_CHANGED = 1
 
 
 def test_subscription_email_config_parses_local_mode(tmp_path: Path) -> None:
@@ -201,6 +206,117 @@ def test_ingest_uses_linked_article_content_for_ticker_and_summary(tmp_path: Pat
     assert "Paid article title" not in json.dumps(summary)
 
 
+def test_mailbox_sync_saves_only_allowlisted_messages(tmp_path: Path) -> None:
+    mailbox = tmp_path / "mail"
+    config_path = _config_path(tmp_path, input_path=mailbox, mode="gmail")
+    config = load_subscription_email_config(config_path, repo_root=tmp_path)
+    client = FakeImapClient(
+        {
+            "1": _message_bytes(
+                sender="alerts@email.seekingalpha.com",
+                subject="Seeking Alpha AAPL",
+                body="AAPL analyst article",
+            ),
+            "2": _message_bytes(
+                sender="spam@example.test",
+                subject="Spam",
+                body="AAPL",
+            ),
+        }
+    )
+
+    result = sync_mailbox_emails(
+        config,
+        env={
+            "SUBSCRIPTION_EMAIL_USERNAME": "user@example.test",
+            "SUBSCRIPTION_EMAIL_PASSWORD": "app-password",
+        },
+        imap_factory=lambda _config: client,
+    )
+
+    assert result.attempted == EXPECTED_MAILBOX_ATTEMPTED
+    assert result.saved == EXPECTED_MAILBOX_SAVED
+    assert result.skipped == EXPECTED_MAILBOX_SAVED
+    assert len(list(mailbox.glob("*.eml"))) == EXPECTED_MAILBOX_SAVED
+    assert client.selected_mailbox == "INBOX"
+
+
+def test_mailbox_sync_requires_credentials(tmp_path: Path) -> None:
+    config_path = _config_path(tmp_path, input_path=tmp_path / "mail", mode="gmail")
+    config = load_subscription_email_config(config_path, repo_root=tmp_path)
+
+    with pytest.raises(RuntimeError, match="missing SUBSCRIPTION_EMAIL_USERNAME"):
+        sync_mailbox_emails(config, env={})
+
+
+def test_monitor_analyzes_new_local_emails_once(tmp_path: Path) -> None:
+    mailbox = tmp_path / "mail"
+    mailbox.mkdir()
+    _write_message(
+        mailbox / "sa.eml",
+        sender="alerts@email.seekingalpha.com",
+        subject="Seeking Alpha article on AAPL",
+        body="AAPL analyst article.",
+    )
+    config_path = _config_path(tmp_path, input_path=mailbox)
+    state_path = tmp_path / "monitor-state.json"
+
+    first = monitor_subscription_emails_once(
+        config_path=config_path,
+        repo_root=tmp_path,
+        state_path=state_path,
+        summary_root=tmp_path / "summary",
+        clock=lambda: FETCHED_AT,
+    )
+    second = monitor_subscription_emails_once(
+        config_path=config_path,
+        repo_root=tmp_path,
+        state_path=state_path,
+        summary_root=tmp_path / "summary",
+        clock=lambda: FETCHED_AT,
+    )
+
+    assert first.status == "analyzed"
+    assert first.changed_files == EXPECTED_MONITOR_CHANGED
+    assert first.ingest is not None
+    assert first.ingest["news_rows"] == EXPECTED_MAILBOX_SAVED
+    assert second.status == "skipped"
+    assert second.ingest is None
+
+
+def test_monitor_syncs_mailbox_then_runs_analysis(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mailbox = tmp_path / "mail"
+    config_path = _config_path(tmp_path, input_path=mailbox, mode="gmail")
+    client = FakeImapClient(
+        {
+            "101": _message_bytes(
+                sender="alerts@email.seekingalpha.com",
+                subject="Seeking Alpha article on MSFT",
+                body="MSFT analyst article.",
+            )
+        }
+    )
+    monkeypatch.setenv("SUBSCRIPTION_EMAIL_USERNAME", "user@example.test")
+    monkeypatch.setenv("SUBSCRIPTION_EMAIL_PASSWORD", "app-password")
+
+    result = monitor_subscription_emails_once(
+        config_path=config_path,
+        repo_root=tmp_path,
+        state_path=tmp_path / "monitor-state.json",
+        summary_root=tmp_path / "summary",
+        clock=lambda: FETCHED_AT,
+        imap_factory=lambda _config: client,
+    )
+
+    assert result.status == "analyzed"
+    assert result.mailbox_sync.saved == EXPECTED_MAILBOX_SAVED
+    assert result.ingest is not None
+    assert result.ingest["event_rows"] == EXPECTED_MAILBOX_SAVED
+
+
 def test_html_to_text_removes_scripts_and_extracts_title() -> None:
     title, text = html_to_text(
         "<html><title>Example</title><script>secret()</script><p>AAPL upgraded</p></html>"
@@ -243,27 +359,30 @@ def _config_path(
     input_path: Path | None = None,
     services: list[str] | None = None,
     follow_article_links: bool = False,
+    mode: str = "local_eml",
 ) -> Path:
     path = tmp_path / "subscription-email.json"
+    payload: dict[str, object] = {
+        "mode": mode,
+        "input_path": str(input_path or tmp_path / "mail"),
+        "enabled_services": services or ["seeking_alpha", "tradevision", "zacks"],
+        "allowed_sender_domains": [
+            "seekingalpha.com",
+            "email.seekingalpha.com",
+            "tradevision.io",
+            "zacks.com",
+        ],
+        "tickers": ["AAPL", "MSFT", "NVDA"],
+        "lookback_days": 30,
+        "unmatched_ticker_policy": "manual_review",
+        "mailbox_label": "INBOX",
+        "mailbox_search": "UNSEEN",
+        "mailbox_mark_seen": False,
+        "follow_article_links": follow_article_links,
+        "article_link_domains": ["seekingalpha.com"],
+    }
     path.write_text(
-        json.dumps(
-            {
-                "mode": "local_eml",
-                "input_path": str(input_path or tmp_path / "mail"),
-                "enabled_services": services or ["seeking_alpha", "tradevision", "zacks"],
-                "allowed_sender_domains": [
-                    "seekingalpha.com",
-                    "email.seekingalpha.com",
-                    "tradevision.io",
-                    "zacks.com",
-                ],
-                "tickers": ["AAPL", "MSFT", "NVDA"],
-                "lookback_days": 30,
-                "unmatched_ticker_policy": "manual_review",
-                "follow_article_links": follow_article_links,
-                "article_link_domains": ["seekingalpha.com"],
-            }
-        ),
+        json.dumps(payload),
         encoding="utf-8",
     )
     return path
@@ -317,11 +436,65 @@ def _write_message(
     subtype: str = "plain",
     received_at: datetime = FETCHED_AT,
 ) -> None:
+    path.write_bytes(
+        _message_bytes(
+            sender=sender,
+            subject=subject,
+            body=body,
+            subtype=subtype,
+            received_at=received_at,
+            message_id=f"<{path.name}@example.test>",
+        )
+    )
+
+
+def _message_bytes(
+    *,
+    sender: str,
+    subject: str,
+    body: str,
+    subtype: str = "plain",
+    received_at: datetime = FETCHED_AT,
+    message_id: str = "<message@example.test>",
+) -> bytes:
     message = EmailMessage()
     message["From"] = sender
     message["To"] = "agency@example.test"
     message["Subject"] = subject
     message["Date"] = format_datetime(received_at)
-    message["Message-ID"] = f"<{path.name}@example.test>"
+    message["Message-ID"] = message_id
     message.set_content(body, subtype=subtype)
-    path.write_bytes(message.as_bytes())
+    return message.as_bytes()
+
+
+class FakeImapClient:
+    def __init__(self, messages: dict[str, bytes]) -> None:
+        self.messages = messages
+        self.selected_mailbox = ""
+        self.stored: list[tuple[str | None, ...]] = []
+
+    def login(self, user: str, password: str) -> object:
+        return (user, password)
+
+    def select(self, mailbox: str) -> object:
+        self.selected_mailbox = mailbox
+        return "OK"
+
+    def uid(
+        self,
+        command: str,
+        *args: str,
+    ) -> tuple[str, list[bytes | tuple[bytes, bytes]]]:
+        if command == "SEARCH":
+            payload = b" ".join(uid.encode("ascii") for uid in self.messages)
+            return "OK", [payload]
+        if command == "FETCH":
+            uid = str(args[0])
+            return "OK", [(b"BODY[]", self.messages[uid])]
+        if command == "STORE":
+            self.stored.append(args)
+            return "OK", []
+        raise AssertionError(f"unexpected IMAP command: {command}")
+
+    def logout(self) -> object:
+        return "OK"

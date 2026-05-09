@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 MIN_ARTICLE_CHARS = 100
+MIN_MONITOR_POLL_SECONDS = 5
 
 
 @dataclass(frozen=True)
@@ -24,6 +25,13 @@ class SubscriptionEmailConfig:
     article_max_links_per_email: int = 1
     article_fetch_timeout_seconds: int = 15
     article_max_chars: int = 12_000
+    mailbox_host: str | None = None
+    mailbox_port: int = 993
+    mailbox_username_env: str = "SUBSCRIPTION_EMAIL_USERNAME"
+    mailbox_password_env: str = "SUBSCRIPTION_EMAIL_PASSWORD"
+    mailbox_search: str = "UNSEEN"
+    mailbox_mark_seen: bool = False
+    monitor_poll_seconds: int = 60
 
 
 def load_subscription_email_config(path: Path, *, repo_root: Path) -> SubscriptionEmailConfig:
@@ -45,6 +53,21 @@ def load_subscription_email_config(path: Path, *, repo_root: Path) -> Subscripti
         article_max_links_per_email=_integer(payload, "article_max_links_per_email", 1),
         article_fetch_timeout_seconds=_integer(payload, "article_fetch_timeout_seconds", 15),
         article_max_chars=_integer(payload, "article_max_chars", 12_000),
+        mailbox_host=_optional_string(payload, "mailbox_host"),
+        mailbox_port=_integer(payload, "mailbox_port", 993),
+        mailbox_username_env=_string(
+            payload,
+            "mailbox_username_env",
+            "SUBSCRIPTION_EMAIL_USERNAME",
+        ),
+        mailbox_password_env=_string(
+            payload,
+            "mailbox_password_env",
+            "SUBSCRIPTION_EMAIL_PASSWORD",
+        ),
+        mailbox_search=_string(payload, "mailbox_search", "UNSEEN"),
+        mailbox_mark_seen=_boolean(payload, "mailbox_mark_seen", False),
+        monitor_poll_seconds=_integer(payload, "monitor_poll_seconds", 60),
     )
     _validate(config)
     return config
@@ -67,6 +90,12 @@ def _validate(config: SubscriptionEmailConfig) -> None:
         raise ValueError("article_fetch_timeout_seconds must be >= 1")
     if config.article_max_chars < MIN_ARTICLE_CHARS:
         raise ValueError("article_max_chars must be >= 100")
+    if config.mailbox_port < 1:
+        raise ValueError("mailbox_port must be >= 1")
+    if config.mode == "imap" and config.mailbox_host is None:
+        raise ValueError("mailbox_host is required when mode is imap")
+    if config.monitor_poll_seconds < MIN_MONITOR_POLL_SECONDS:
+        raise ValueError("monitor_poll_seconds must be >= 5")
 
 
 def _string(payload: dict[str, Any], key: str, default: str) -> str:
