@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
@@ -118,11 +119,22 @@ def _subscription_email_config_reasons(config: RefreshBatchConfig) -> list[str]:
     if mode == "local_eml":
         return _missing_local_email_input(payload, config.repo_root)
     if mode in {"gmail", "outlook", "imap"}:
+        missing = _missing_mailbox_env(payload)
+        if not missing:
+            return []
         token_path = _payload_path(payload, "token_path", config.repo_root)
         if token_path is None or not token_path.is_file():
-            return ["missing subscription mailbox token path"]
+            return [f"missing subscription mailbox credentials: {', '.join(missing)}"]
         return []
     return [f"unsupported subscription email mode: {mode}"]
+
+
+def _missing_mailbox_env(payload: dict[str, Any]) -> list[str]:
+    names = (
+        str(payload.get("mailbox_username_env") or "SUBSCRIPTION_EMAIL_USERNAME"),
+        str(payload.get("mailbox_password_env") or "SUBSCRIPTION_EMAIL_PASSWORD"),
+    )
+    return [name for name in names if os.environ.get(name, "").strip() == ""]
 
 
 def _missing_local_email_input(payload: dict[str, Any], repo_root: Path) -> list[str]:

@@ -133,6 +133,35 @@ def test_build_refresh_jobs_blocks_missing_subscription_email_input(tmp_path: Pa
     assert job.blocked_reasons == ("missing subscription email input: missing-mail",)
 
 
+def test_build_refresh_jobs_accepts_gmail_app_password_credentials(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SUBSCRIPTION_EMAIL_USERNAME", "user@example.test")
+    monkeypatch.setenv("SUBSCRIPTION_EMAIL_PASSWORD", "app-password")
+    config_path = tmp_path / "subscription-email.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "mode": "gmail",
+                "input_path": str(tmp_path / "mail"),
+                "mailbox_username_env": "SUBSCRIPTION_EMAIL_USERNAME",
+                "mailbox_password_env": "SUBSCRIPTION_EMAIL_PASSWORD",
+            }
+        ),
+        encoding="utf-8",
+    )
+    config = _config(
+        tmp_path,
+        datasets=("subscription_emails",),
+        subscription_email_config=config_path,
+    )
+
+    job = build_refresh_jobs(config)[0]
+
+    assert job.blocked_reasons == ()
+
+
 def test_build_refresh_jobs_blocks_stock_trades_without_massive_credentials(
     tmp_path: Path,
 ) -> None:
