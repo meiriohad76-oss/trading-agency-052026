@@ -28,6 +28,23 @@ def test_build_signal_result_creates_actionable_contract_payload() -> None:
     assert signal["suppression_reason"] is None
 
 
+def test_build_signal_result_can_carry_context_summary() -> None:
+    signal = build_signal_result(
+        cycle_id="cycle-1",
+        ticker="AAPL",
+        as_of="2026-05-07T09:30:00Z",
+        lane="subscription_thesis",
+        score=0.65,
+        provenance=_provenance(source="subscription-email-thesis"),
+        confidence=0.65,
+        actionability="CONTEXT_ONLY",
+        summary="Subscription article thesis: constructive context for AAPL.",
+    )
+
+    validate_contract("signal-result", signal)
+    assert signal["summary"] == "Subscription article thesis: constructive context for AAPL."
+
+
 def test_build_signal_result_suppresses_low_confidence_scores() -> None:
     signal = build_signal_result(
         cycle_id="cycle-1",

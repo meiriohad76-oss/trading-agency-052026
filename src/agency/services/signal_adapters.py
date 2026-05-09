@@ -29,6 +29,7 @@ def build_signal_result(
     reason_codes: Sequence[str] | None = None,
     actionability: str | None = None,
     suppression_reason: str | None = None,
+    summary: str | None = None,
     config: SignalActionabilityConfig | None = None,
 ) -> dict[str, object]:
     """Build one schema-valid SignalResult from a normalized lane score."""
@@ -67,6 +68,8 @@ def build_signal_result(
             normalized_confidence,
         ),
     }
+    if summary is not None:
+        signal["summary"] = summary
     validate_contract("signal-result", signal)
     return signal
 

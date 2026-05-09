@@ -205,6 +205,8 @@ def test_ingest_uses_linked_article_content_for_ticker_and_summary(tmp_path: Pat
     assert "Linked content thesis" in news.iloc[0]["summary"]
     assert "analyst/rating cue" in news.iloc[0]["summary"]
     assert events.iloc[0]["linked_content_status"] == "article_analyzed"
+    assert "Linked content thesis" in events.iloc[0]["linked_content_summary"]
+    assert events.iloc[0]["source_tier"] == "PAID_SUB_EMAIL"
     assert summary["linked_content"]["succeeded"] == 1
     assert "analyst upgrade" not in json.dumps(summary)
     assert "Paid article title" not in json.dumps(summary)

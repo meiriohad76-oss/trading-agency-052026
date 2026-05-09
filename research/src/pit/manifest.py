@@ -22,6 +22,7 @@ class DatasetName(StrEnum):
     UNIVERSE_MEMBERSHIP = "universe_membership"
     SECTOR_ETFS = "sector_etfs"
     NEWS_RSS = "news_rss"
+    SUBSCRIPTION_EMAILS = "subscription_emails"
     STOCK_TRADES = "stock_trades"
     OPTIONS_CHAINS = "options_chains"
     UNUSUAL_ACTIVITY_ALERTS = "unusual_activity_alerts"

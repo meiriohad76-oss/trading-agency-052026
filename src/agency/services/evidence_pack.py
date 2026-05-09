@@ -15,6 +15,7 @@ FRESHNESS_RANK = {
     "STALE": 2,
     "UNAVAILABLE": 3,
 }
+DATA_QUALITY_EXCLUDED_LANES = frozenset({"subscription_thesis"})
 
 
 def build_evidence_pack(
@@ -87,7 +88,12 @@ def _data_quality(signals: Sequence[Mapping[str, object]]) -> dict[str, object]:
 
 
 def _usable_signals(signals: Sequence[Mapping[str, object]]) -> list[Mapping[str, object]]:
-    return [signal for signal in signals if signal["actionability"] != "SUPPRESSED"]
+    return [
+        signal
+        for signal in signals
+        if signal["actionability"] != "SUPPRESSED"
+        and str(signal["lane"]) not in DATA_QUALITY_EXCLUDED_LANES
+    ]
 
 
 def _worst_freshness(signals: Sequence[Mapping[str, object]]) -> str:

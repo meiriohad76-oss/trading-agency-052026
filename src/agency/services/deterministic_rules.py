@@ -19,6 +19,7 @@ DEFAULT_LANE_WEIGHTS: Mapping[str, float] = {
     "options_anomaly": 0.4,
     "news": 0.6,
     "prepost": 0.5,
+    "subscription_thesis": 0.0,
 }
 DEFAULT_WATCH_THRESHOLD = 0.5
 DEFAULT_MINIMUM_SOURCE_COUNT = 2

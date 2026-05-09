@@ -91,6 +91,13 @@ def test_signal_result_rejects_unknown_fields() -> None:
         _validator("signal-result.schema.json").validate(invalid)
 
 
+def test_signal_result_allows_safe_summary_field() -> None:
+    signal = _signal_result()
+    signal["summary"] = "Subscription article thesis: context only."
+
+    _validator("signal-result.schema.json").validate(signal)
+
+
 def _validator(schema_name: str) -> Draft202012Validator:
     schemas = _schemas()
     resources = [

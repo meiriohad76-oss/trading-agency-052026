@@ -30,6 +30,7 @@ SIGNAL_DATASETS: Mapping[str, tuple[DatasetName, ...]] = {
     "options_anomaly": (DatasetName.OPTIONS_CHAINS,),
     "options_flow": (DatasetName.OPTIONS_CHAINS,),
     "sector_momentum": (DatasetName.PRICES_DAILY,),
+    "subscription_thesis": (DatasetName.SUBSCRIPTION_EMAILS,),
 }
 
 

@@ -15,6 +15,7 @@ from .forward_views import (
     news_from_loader,
     option_chains_from_loader,
     stock_trades_from_loader,
+    subscription_emails_from_loader,
 )
 from .manifest import DatasetName, ManifestRegistry
 from .records import (
@@ -176,6 +177,14 @@ class PITLoader:
         lookback_days: int,
     ) -> list[Provenanced[dict[str, object]]]:
         return activity_alerts_from_loader(self, tickers, as_of, lookback_days)
+
+    def subscription_emails(
+        self,
+        tickers: list[str],
+        as_of: date,
+        lookback_days: int,
+    ) -> list[Provenanced[dict[str, object]]]:
+        return subscription_emails_from_loader(self, tickers, as_of, lookback_days)
 
     def prepost_bars(self, tickers: list[str], as_of: date, lookback_days: int) -> pl.DataFrame:
         """Extended-hours bars placeholder until the pre/post puller lands."""

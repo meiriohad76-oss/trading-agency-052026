@@ -114,3 +114,39 @@ def activity_alerts_from_loader(
     if filtered.is_empty():
         raise DataNotAvailableAt(dataset.value, as_of, "no activity alert rows matched")
     return [row_to_provenanced(row, exclude=set()) for row in rows(filtered.sort("__as_of"))]
+
+
+def subscription_emails_from_loader(
+    loader: ForwardLoaderSupport,
+    tickers: list[str],
+    as_of: date,
+    lookback_days: int,
+) -> list[Provenanced[dict[str, object]]]:
+    loader._ensure_not_future(as_of)
+    loader._ensure_positive_lookback(lookback_days)
+    dataset = DatasetName.SUBSCRIPTION_EMAILS
+    frame = _with_subscription_defaults(loader._read(dataset, as_of))
+    frame = loader._with_date(frame, "timestamp_as_of", "__as_of", dataset, as_of)
+    start = as_of - timedelta(days=lookback_days - 1)
+    filtered = frame.filter(
+        pl.col("ticker").is_in([ticker.upper() for ticker in tickers]),
+        pl.col("__as_of").is_between(start, as_of),
+    )
+    if filtered.is_empty():
+        raise DataNotAvailableAt(dataset.value, as_of, "no subscription email rows matched")
+    return [row_to_provenanced(row, exclude=set()) for row in rows(filtered.sort("__as_of"))]
+
+
+def _with_subscription_defaults(frame: pl.DataFrame) -> pl.DataFrame:
+    defaults: dict[str, object] = {
+        "source": "subscription-email",
+        "source_tier": "PAID_SUB_EMAIL",
+        "freshness": "FRESH",
+        "linked_content_summary": None,
+    }
+    expressions = [
+        pl.lit(value).alias(column)
+        for column, value in defaults.items()
+        if column not in frame.columns
+    ]
+    return frame.with_columns(expressions) if expressions else frame

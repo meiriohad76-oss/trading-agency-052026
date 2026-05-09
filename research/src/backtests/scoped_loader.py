@@ -57,6 +57,13 @@ class LoaderLike(Protocol):
         lookback_days: int,
     ) -> Sequence[object]: ...
 
+    def subscription_emails(
+        self,
+        tickers: list[str],
+        as_of: date,
+        lookback_days: int,
+    ) -> Sequence[object]: ...
+
 
 SignalFn = Callable[[date, set[str], LoaderLike], dict[str, float]]
 
@@ -126,6 +133,15 @@ class ScopedPITLoader:
     ) -> Sequence[object]:
         self._ensure_in_scope(as_of)
         return self.loader.activity_alerts(tickers, as_of, lookback_days)
+
+    def subscription_emails(
+        self,
+        tickers: list[str],
+        as_of: date,
+        lookback_days: int,
+    ) -> Sequence[object]:
+        self._ensure_in_scope(as_of)
+        return self.loader.subscription_emails(tickers, as_of, lookback_days)
 
     def _ensure_in_scope(self, requested: date) -> None:
         if requested > self.as_of:

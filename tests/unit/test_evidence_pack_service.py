@@ -81,6 +81,32 @@ def test_build_evidence_pack_rejects_identity_mismatch() -> None:
         )
 
 
+def test_subscription_thesis_context_does_not_count_for_policy_breadth() -> None:
+    pack = build_evidence_pack(
+        cycle_id="cycle-1",
+        ticker="AAPL",
+        as_of="2026-05-07T09:30:00Z",
+        generated_at="2026-05-07T09:31:00Z",
+        signals=[
+            _signal_result(
+                "subscription_thesis",
+                "CONTEXT_ONLY",
+                "CONFIRMED",
+                "FRESH",
+            )
+        ],
+    )
+
+    assert len(pack["context_signals"]) == 1
+    assert pack["data_quality"] == {
+        "freshness": "UNAVAILABLE",
+        "source_count": 0,
+        "confirmed_signal_count": 0,
+        "inferred_signal_count": 0,
+        "blockers": ["no_usable_signal_results"],
+    }
+
+
 def _signal_result(
     lane: str,
     actionability: str,
