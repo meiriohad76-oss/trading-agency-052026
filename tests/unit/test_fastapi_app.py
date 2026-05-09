@@ -25,6 +25,7 @@ from agency.dashboard import (
     paper_review_status_from_runtime,
     policy_sections,
     portfolio_monitor_summary,
+    provider_readiness_view,
     readiness_view,
     risk_decision_rows,
     risk_summary,
@@ -72,8 +73,10 @@ def test_dashboard_renders_status_overview() -> None:
     assert "Candidates" in response.text
     assert "Live Readiness" in response.text
     assert "Live Config" in response.text
+    assert "Provider Readiness" in response.text
     assert "Review Queue" in response.text
     assert "Review config" in response.text
+    assert "Review providers" in response.text
     assert "Data Loading" in response.text
     assert "Review data sources" in response.text
     assert "Degraded Sources" in response.text
@@ -304,6 +307,36 @@ def test_live_config_view_exposes_check_rows() -> None:
     )
 
     assert view["check_rows"] == [{"label": "Market data", "status": "BLOCK"}]
+
+
+def test_provider_readiness_view_adds_provider_rows() -> None:
+    view = provider_readiness_view(
+        {
+            "provider_count": 1,
+            "configured_count": 0,
+            "active_required_count": 1,
+            "blocker_count": 1,
+            "warning_count": 0,
+            "status_class": "block",
+            "status_label": "Missing Provider Keys",
+            "providers": [
+                {
+                    "label": "Alpaca",
+                    "category": "market_data",
+                    "purpose": "Daily bars.",
+                    "required_now": True,
+                    "status": "BLOCK",
+                    "status_class": "block",
+                    "key_label": "ALPACA_API_KEY, ALPACA_SECRET_KEY",
+                    "detail": "Required now.",
+                }
+            ],
+        }
+    )
+
+    row = view["provider_rows"][0]
+    assert row["required_label"] == "Required now"
+    assert row["category"] == "Market Data"
 
 
 def test_final_selection_rows_follow_service_contract() -> None:

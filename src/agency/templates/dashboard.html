@@ -40,6 +40,10 @@
       <strong>{{ summary.source_count }}</strong>
     </div>
     <div>
+      <span class="metric-label">Providers</span>
+      <strong>{{ provider_readiness.configured_count }}/{{ provider_readiness.provider_count }}</strong>
+    </div>
+    <div>
       <span class="metric-label">Degraded Sources</span>
       <strong>{{ summary.degraded_source_count }}</strong>
     </div>
@@ -150,6 +154,58 @@
             <td>{{ check.label }}</td>
             <td><span class="tag tag-{{ check.status_class }}">{{ check.status }}</span></td>
             <td>{{ check.detail }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel" aria-labelledby="provider-readiness-heading">
+    <div class="section-heading">
+      <h2 id="provider-readiness-heading">Provider Readiness</h2>
+      <span class="tag tag-{{ provider_readiness.status_class }}">
+        {{ provider_readiness.status_label }}
+      </span>
+    </div>
+    <div class="readiness-grid">
+      <div>
+        <span class="metric-label">Configured</span>
+        <strong>{{ provider_readiness.configured_count }}/{{ provider_readiness.provider_count }}</strong>
+      </div>
+      <div>
+        <span class="metric-label">Required Now</span>
+        <strong>{{ provider_readiness.active_required_count }}</strong>
+      </div>
+      <div>
+        <span class="metric-label">Missing Required</span>
+        <strong>{{ provider_readiness.blocker_count }}</strong>
+      </div>
+      <div>
+        <span class="metric-label">Warnings</span>
+        <strong>{{ provider_readiness.warning_count }}</strong>
+      </div>
+    </div>
+    <p class="panel-note">Secret values stay local; this panel only reports key names.</p>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Provider</th>
+            <th>Status</th>
+            <th>Use</th>
+            <th>Keys</th>
+            <th>Detail</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for provider in provider_readiness.provider_rows %}
+          <tr>
+            <td>{{ provider.label }}</td>
+            <td><span class="tag tag-{{ provider.status_class }}">{{ provider.status }}</span></td>
+            <td>{{ provider.purpose }}</td>
+            <td>{{ provider.key_label }}</td>
+            <td>{{ provider.detail }}</td>
           </tr>
           {% endfor %}
         </tbody>

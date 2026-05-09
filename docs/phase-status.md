@@ -77,6 +77,9 @@ implementation scaffolding from accepted phase gates.
 21. Optional options/activity runtime wiring now supports forward option-chain
     anomaly scoring plus confirmed provider/export alerts for dark-pool,
     block-trade, and unusual-options activity.
+22. `/status/provider-readiness` and the Command dashboard now show the
+    whole-agency provider-key checklist without exposing secret values. Missing
+    future-provider keys stay planned instead of blocking the current paper flow.
 
 ## Next Ticket Candidates
 

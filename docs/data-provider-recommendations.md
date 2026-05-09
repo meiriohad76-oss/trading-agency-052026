@@ -1,8 +1,45 @@
 # Data Provider Recommendations
 
-**Last reviewed:** 2026-05-08
+**Last reviewed:** 2026-05-09
 
-The codebase now has three optional market-activity lanes:
+This is the provider stack for the whole agency. Current local operation is
+paper-only; optional providers become useful as we add their connectors and
+validate each signal lane.
+
+## Provider Matrix
+
+| Priority | Provider | Agency area | Local key | Current status |
+| --- | --- | --- | --- | --- |
+| 1 | Alpaca | Daily stock bars | `ALPACA_API_KEY`, `ALPACA_SECRET_KEY` | Wired |
+| 1 | SEC EDGAR | Company facts, Form 4, 13F | `SEC_USER_AGENT` | Wired |
+| 1 | RSS feeds | Forward public news | none | Wired |
+| 2 | OpenFIGI | CUSIP/ticker/security mapping | `OPENFIGI_API_KEY` | Planned |
+| 2 | Benzinga | News, calendars, ratings, unusual activity | `BENZINGA_API_KEY` | Planned |
+| 2 | Unusual Whales | Dark-pool, options flow, unusual activity | `UNUSUAL_WHALES_API_KEY` | Planned |
+| 3 | FRED | Macro/rate regime filters | `FRED_API_KEY` | Planned |
+| 3 | Polygon/Massive | Raw stock/options market data | `POLYGON_API_KEY` or `MASSIVE_API_KEY` | Planned |
+| 3 | ThetaData | Deep historical options research | `THETADATA_USERNAME`, `THETADATA_PASSWORD` | Planned |
+| 3 | FINRA OTC Transparency | Delayed market-structure context | none | Planned |
+| Later | OpenAI | Supervised LLM review calls | `OPENAI_API_KEY` | Optional |
+
+## Implementation Order
+
+1. Keep Alpaca, SEC EDGAR, and RSS as the operational stocks-only paper stack.
+2. Add OpenFIGI before expanding 13F coverage, so CUSIP mapping is repeatable.
+3. Add one confirmed activity provider next: Unusual Whales if the API plan is
+   acceptable, otherwise Benzinga unusual-activity endpoints.
+4. Import several weeks of confirmed activity alerts, then re-run H1/H2 before
+   enabling `activity_alerts`, `options_anomaly`, or `options_flow` in runtime.
+5. Add FRED only once macro filters are part of candidate scoring.
+6. Buy deep historical options data only after the alert lane proves useful.
+
+## Local Readiness
+
+Provider keys belong in `.env` only. The dashboard and
+`/status/provider-readiness` show key names and present/missing status without
+exposing secret values.
+
+Optional activity/options lanes are already represented in the data model:
 
 - `options_anomaly`: inferred from option-chain snapshots.
 - `options_flow`: inferred call/put pressure from option-chain snapshots.
@@ -10,44 +47,6 @@ The codebase now has three optional market-activity lanes:
   block trades, unusual options activity, options sweeps, and unusual stock
   activity.
 
-## Recommended Stack
-
-1. Keep the current core stack:
-   - Alpaca for current daily stock bars.
-   - SEC EDGAR for company facts, Form 4, and 13F.
-   - RSS feeds for public forward news.
-
-2. Add one confirmed activity provider first:
-   - Preferred first candidate: Unusual Whales API.
-   - Reason: one integration can cover options flow, dark-pool trades, off/lit
-     trades, alerts, and ticker-level options analytics.
-   - Use it to populate `unusual_activity_alerts`.
-
-3. If Unusual Whales API access or cost is not acceptable:
-   - Use Benzinga Unusual Options Activity for options alerts.
-   - Use Benzinga Block Trades API for large options block-trade alerts.
-   - Keep FINRA OTC/ATS transparency data as delayed context, not as a
-     real-time action trigger.
-
-4. Add raw historical options data only if H1/H2 research needs it:
-   - Polygon/Massive options is a good API-first candidate for historical and
-     real-time OPRA-based options trades/quotes.
-   - ThetaData is a strong research-data candidate if we need deeper historical
-     options and Greeks coverage.
-
-## Implementation Order
-
-1. Run current stocks-only paper testing.
-2. Choose the confirmed activity provider.
-3. Add one provider-specific puller that normalizes into the existing
-   `unusual_activity_alerts` schema.
-4. Import at least several weeks of forward or historical alerts.
-5. Re-run H1 for `activity_alerts`, `options_anomaly`, and `options_flow`.
-6. Enable optional runtime lanes only if coverage and validation are acceptable.
-
-## Current Decision
-
-Do not buy a raw OPRA/historical options package yet. The first missing data is
-confirmed alert coverage for dark-pool, block-trade, and unusual-options events.
-Buy or trial that first; add raw historical options only if the confirmed-alert
-lane is useful or if H1 needs deeper options history.
+Until provider-specific connectors exist, confirmed activity data enters through
+`research/config/activity-alerts.example.csv` copied to a local ignored CSV and
+referenced by `activity_alerts_csv` in `research/config/live-refresh.local.json`.
