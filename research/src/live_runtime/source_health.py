@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 
 from live_runtime.config import DATASET_CONFIGS, RuntimeDatasetConfig
-from live_runtime.freshness import effective_freshness_timestamp
+from live_runtime.freshness import effective_freshness_timestamp, next_quarterly_filing_date
 from pit.exceptions import DataNotAvailableAt
 from pit.manifest import DataManifest, DatasetName, ManifestRegistry
 
@@ -78,6 +78,10 @@ def _available(
         now=checked_at,
     )
     lag = max((checked_at - freshness_timestamp).total_seconds(), 0.0)
+    notes = [f"{manifest.dataset.value}: {manifest.row_count} rows"]
+    if config.dataset is DatasetName.SEC_13F:
+        next_filing = next_quarterly_filing_date(timestamp_as_of.date())
+        notes.append(f"lagged by design — next expected filing: {next_filing.isoformat()}")
     return {
         "schema_version": "0.1.0",
         "source": config.source,
@@ -90,7 +94,7 @@ def _available(
         "error_count": 0,
         "reliability_score": _reliability(freshness),
         "rate_limit_reset_at": None,
-        "notes": [f"{manifest.dataset.value}: {manifest.row_count} rows"],
+        "notes": notes,
     }
 
 
