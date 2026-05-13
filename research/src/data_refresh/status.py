@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from data_refresh.types import RefreshBatchResult, RefreshJobResult
 
-COMPLETE_STATUSES = {"planned", "passed", "failed", "blocked"}
+COMPLETE_STATUSES = {"planned", "passed", "failed", "blocked", "skipped"}
 IN_PROGRESS_STATUSES = {"pending", "running"}
 SECONDS_PER_MINUTE = 60
 ESTIMATED_JOB_SECONDS = {
@@ -44,6 +44,8 @@ def result_to_markdown(result: RefreshBatchResult) -> str:
         "",
         f"Window: {result.config.start.isoformat()} to {result.config.end.isoformat()}",
         f"Mode: {'dry-run' if result.config.dry_run else 'execute'}",
+        f"Extraction mode: {result.config.extraction_mode}",
+        *_stock_trade_guardrail_lines(result),
         f"Progress: {progress['percent_complete']}%",
         f"ETA: {progress['eta_label']}",
         "",
@@ -82,6 +84,29 @@ def result_to_json(result: RefreshBatchResult) -> str:
             "market_data_credentials_present": result.config.market_data_credentials_present,
             "massive_base_url": result.config.massive_base_url,
             "massive_credentials_present": result.config.massive_credentials_present,
+            "stock_trades_start": (
+                None
+                if result.config.stock_trades_start is None
+                else result.config.stock_trades_start.isoformat()
+            ),
+            "stock_trades_end": (
+                None
+                if result.config.stock_trades_end is None
+                else result.config.stock_trades_end.isoformat()
+            ),
+            "stock_trades_limit": result.config.stock_trades_limit,
+            "stock_trades_max_pages_per_day": result.config.stock_trades_max_pages_per_day,
+            "stock_trades_order": result.config.stock_trades_order,
+            "extraction_mode": result.config.extraction_mode,
+            "sec_company_facts_max_age_days": (
+                result.config.sec_company_facts_max_age_days
+            ),
+            "sec_form4_max_age_days": result.config.sec_form4_max_age_days,
+            "sec_13f_max_age_days": result.config.sec_13f_max_age_days,
+            "news_rss_max_age_minutes": result.config.news_rss_max_age_minutes,
+            "subscription_email_max_age_minutes": (
+                result.config.subscription_email_max_age_minutes
+            ),
         },
         "jobs": [asdict(job) for job in result.jobs],
         "progress": result_progress(result),
@@ -89,6 +114,8 @@ def result_to_json(result: RefreshBatchResult) -> str:
         "updated_at": result.updated_at,
         "blocked": result.blocked,
         "failed": result.failed,
+        "has_failures": result.failed,
+        "failed_datasets": [job.dataset for job in result.jobs if job.status == "failed"],
         "in_progress": result.in_progress,
         "written_paths": list(result.written_paths),
     }
@@ -119,13 +146,27 @@ def _command_text(command: tuple[str, ...]) -> str:
     return " ".join(command)
 
 
+def _stock_trade_guardrail_lines(result: RefreshBatchResult) -> list[str]:
+    if "stock_trades" not in result.config.datasets:
+        return []
+    pages = result.config.stock_trades_max_pages_per_day
+    page_text = "unbounded" if pages is None else str(pages)
+    return [
+        (
+            "Stock-trades coverage: "
+            f"page size {result.config.stock_trades_limit}; "
+            f"max pages/day {page_text}; order {result.config.stock_trades_order}"
+        )
+    ]
+
+
 def _state(result: RefreshBatchResult) -> str:
-    if result.in_progress:
-        return "running"
     if result.failed:
         return "failed"
     if result.blocked:
         return "blocked"
+    if result.in_progress:
+        return "running"
     if all(job.status == "planned" for job in result.jobs):
         return "planned"
     return "complete"
