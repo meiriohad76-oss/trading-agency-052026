@@ -564,15 +564,15 @@ These are scoped but not yet fully specced. Full specs are written when each tra
 
 ---
 
-## 9. Open Questions
+## 9. Resolved Questions
 
-| # | Question | Owner | Resolve by |
-|---|---|---|---|
-| OQ-1 | Which APScheduler job store? Memory (resets on restart) vs SQLite vs Postgres? | User + Claude Code | T118 spec |
-| OQ-2 | Should `sec_13f` use "LAGGED_BY_DESIGN" as a new status enum, or "CONTEXT_ONLY" to reuse existing vocabulary? | Claude Code | T115 spec |
-| OQ-3 | Is a Massive/Polygon API key available for T151? Cost/quota? | User | T151 start |
-| OQ-4 | Mobile layout: what is the primary mobile use case? Quick status check, or full review workflow? | User | T150 visual companion session |
-| OQ-5 | Policy editor: simple form in the Policy dashboard, or a separate admin page? | User | T128 spec |
+| # | Question | Decision |
+|---|---|---|
+| OQ-1 | APScheduler job store | **Postgres** — shares existing production DB, jobs survive restarts |
+| OQ-2 | `sec_13f` freshness label between filings | **FRESH with "next filing" metadata** — data is correct-as-of last filing, not stale; dashboard shows last filing date + next expected date |
+| OQ-3 | Massive/Polygon API key for T151 | **Key active, no daily limits** — T151 can target full-universe historical coverage directly, no bounded smoke run required first |
+| OQ-4 | Mobile layout primary use case | **Quick status check** — Command page only; full review workflow is desktop-only |
+| OQ-5 | Policy editor placement | **In the existing Policy dashboard** — read-only view gains an edit mode |
 
 ---
 
