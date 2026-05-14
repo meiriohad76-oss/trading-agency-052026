@@ -1,0 +1,249 @@
+{% extends "base.html" %}
+
+{% set active_nav = "market" %}
+
+{% block title %}Market Regime | Trading Agency v2{% endblock %}
+{% block eyebrow %}Sources{% endblock %}
+{% block page_title %}Universe &amp; Market Regime{% endblock %}
+{% block topbar_meta %}{{ summary.topbar_label }}{% endblock %}
+
+{% block content %}
+  <section class="next-action hero-{{ summary.status_class }}" aria-label="Market regime state">
+    <div class="next-action-step" aria-hidden="true">09</div>
+    <div class="next-action-copy">
+      <p class="eyebrow">Top-down worker / Local cached data</p>
+      <h2>{{ summary.headline }}</h2>
+      <p>{{ summary.interpretation }}</p>
+      <p class="next-action-sub">{{ summary.decision_guidance }}</p>
+      <p class="next-action-sub">This page is read-only. It shows locally cached market data and does not call any external provider.</p>
+    </div>
+    <div class="next-action-buttons">
+      <a class="primary-action" href="/signals">Open signals</a>
+      <a class="secondary-action" href="/final-selection">Open final selection</a>
+    </div>
+  </section>
+
+  <section class="kpi-grid" aria-label="Market regime metrics">
+    {% for kpi in kpis %}
+    <article class="kpi kpi-{{ kpi.class }}">
+      <span class="metric-label">{{ kpi.label }}</span>
+      <strong>{{ kpi.value }}</strong>
+      <p>{{ kpi.detail }}</p>
+    </article>
+    {% endfor %}
+  </section>
+
+  <section class="panel" aria-labelledby="regime-map-heading">
+    <div class="section-heading">
+      <div>
+        <h2 id="regime-map-heading">Market Map</h2>
+        <p class="section-subtitle">
+          Benchmarks define the broad tape. Breadth confirms whether the move is
+          supported by the active S&amp;P 100 + QQQ universe.
+        </p>
+      </div>
+      <span class="tag tag-{{ summary.status_class }}">{{ summary.regime_label }}</span>
+      <span class="tag tag-neutral">as of {{ summary.as_of }}</span>
+    </div>
+
+    <div class="market-map-grid">
+      <article class="market-breadth-card market-breadth-card-{{ breadth.state_class }}">
+        <div>
+          <span class="metric-label">Universe Breadth</span>
+          <strong>{{ breadth.breadth_score_label }}</strong>
+        </div>
+        <p>{{ breadth.detail }}</p>
+        <div class="market-mini-grid">
+          <div>
+            <span class="metric-label">Above 20D SMA</span>
+            <strong>{{ breadth.above_sma20_label }}</strong>
+          </div>
+          <div>
+            <span class="metric-label">Above 50D SMA</span>
+            <strong>{{ breadth.above_sma50_label }}</strong>
+          </div>
+          <div>
+            <span class="metric-label">5D Advancers</span>
+            <strong>{{ breadth.advancers_5d_label }}</strong>
+          </div>
+          <div>
+            <span class="metric-label">Coverage</span>
+            <strong>{{ breadth.coverage_label }}</strong>
+          </div>
+        </div>
+      </article>
+
+      <div class="table-wrap market-benchmark-table">
+        <table>
+          <thead>
+            <tr>
+              <th>Benchmark</th>
+              <th>Latest</th>
+              <th>5D</th>
+              <th>20D</th>
+              <th>60D</th>
+              <th>Bars</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in benchmark_rows %}
+            <tr>
+              <td>
+                <strong>{{ row.ticker }}</strong>
+                <span class="muted-line">{{ row.label }}</span>
+              </td>
+              <td>{{ row.latest_price }}</td>
+              <td>{{ row.return_5d }}</td>
+              <td><span class="tag tag-{{ row.tone_class }}">{{ row.return_20d }}</span></td>
+              <td>{{ row.return_60d }}</td>
+              <td>{{ row.observations }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" aria-labelledby="sector-heading">
+    <div class="section-heading">
+      <div>
+        <h2 id="sector-heading">Sector Leadership</h2>
+        <p class="section-subtitle">
+          Ranked by recent ETF momentum versus SPY. Tailwinds can corroborate a candidate;
+          headwinds should raise the evidence bar.
+        </p>
+      </div>
+      <span class="tag tag-pass">
+        {{ sector_rows | selectattr("stance", "equalto", "Tailwind") | list | length }} tailwinds
+      </span>
+      <span class="tag tag-block">
+        {{ sector_rows | selectattr("stance", "equalto", "Headwind") | list | length }} headwinds
+      </span>
+    </div>
+
+    <div class="sector-explainer-grid" aria-label="Sector metric explanations">
+      <article>
+        <span class="metric-label">Momentum score</span>
+        <p>
+          A relative-strength score across sectors: 20% 5D, 50% 20D, and
+          30% 60D excess return versus SPY, then normalized. Positive means
+          leadership; negative means lagging.
+        </p>
+      </article>
+      <article>
+        <span class="metric-label">20D / 60D</span>
+        <p>
+          Sector ETF price return over roughly one trading month and three
+          trading months. 20D is faster; 60D checks whether the move is durable.
+        </p>
+      </article>
+      <article>
+        <span class="metric-label">20D vs SPY</span>
+        <p>
+          Sector 20D return minus SPY 20D return. This is relative performance,
+          not a correlation coefficient. Green means the sector is beating the market.
+        </p>
+      </article>
+    </div>
+
+    <div class="sector-leadership-grid">
+      {% for row in sector_rows %}
+      <article class="sector-card sector-card-{{ row.stance_class }}">
+        <div class="sector-card-head">
+          <div>
+            <span class="metric-label">#{{ row.rank }} / {{ row.ticker }}</span>
+            <strong>{{ row.label }}</strong>
+          </div>
+          <span class="tag tag-{{ row.stance_class }}">{{ row.stance }}</span>
+        </div>
+        <div class="sector-card-score">
+          <strong>{{ row.score_label }}</strong>
+          <span>
+            momentum score
+            <span
+              class="info-tip"
+              title="Blend of 5D, 20D, and 60D relative returns versus SPY. Positive scores indicate sector leadership; negative scores indicate lagging sectors."
+              aria-label="Momentum score help"
+            >?</span>
+          </span>
+          <div class="metric-gauge metric-gauge-{{ row.stance_class }}" aria-hidden="true">
+            <span style="{{ row.score_gauge_style }}"></span>
+          </div>
+        </div>
+        <div class="market-mini-grid">
+          <div class="metric-cell metric-cell-{{ row.return_20d_class }}">
+            <span class="metric-label">20D return</span>
+            <strong>{{ row.return_20d }}</strong>
+            <div class="metric-gauge metric-gauge-{{ row.return_20d_class }}" aria-hidden="true">
+              <span style="{{ row.return_20d_gauge_style }}"></span>
+            </div>
+          </div>
+          <div class="metric-cell metric-cell-{{ row.excess_20d_class }}">
+            <span class="metric-label">20D vs SPY</span>
+            <strong>{{ row.excess_20d }}</strong>
+            <div class="metric-gauge metric-gauge-{{ row.excess_20d_class }}" aria-hidden="true">
+              <span style="{{ row.excess_20d_gauge_style }}"></span>
+            </div>
+          </div>
+          <div class="metric-cell metric-cell-{{ row.return_60d_class }}">
+            <span class="metric-label">60D return</span>
+            <strong>{{ row.return_60d }}</strong>
+            <div class="metric-gauge metric-gauge-{{ row.return_60d_class }}" aria-hidden="true">
+              <span style="{{ row.return_60d_gauge_style }}"></span>
+            </div>
+          </div>
+          <div>
+            <span class="metric-label">Bars loaded</span>
+            <strong>{{ row.observations }}</strong>
+          </div>
+        </div>
+        <details class="sector-inspector">
+          <summary>How to use this</summary>
+          <p>{{ row.guidance }}</p>
+          <p>
+            Read this as a top-down context signal. A positive 20D return says
+            the sector ETF itself is rising; a positive 20D vs SPY says it is
+            outperforming the market; 60D confirms whether that leadership has
+            lasted beyond a short burst.
+          </p>
+          <p>
+            Latest bar {{ row.latest_date }}. Relative performance versus SPY:
+            5D {{ row.excess_5d }}, 20D {{ row.excess_20d }}, 60D {{ row.excess_60d }}.
+          </p>
+        </details>
+      </article>
+      {% else %}
+      <p class="empty-block">No sector ETF rows are available yet.</p>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="panel" aria-labelledby="quality-heading">
+    <div class="section-heading">
+      <div>
+        <h2 id="quality-heading">Data Quality</h2>
+        <p class="section-subtitle">
+          This page reads the latest provider-fetched cache
+          ({{ data_source.provider_label }}) from local parquet files. Opening the
+          dashboard does not call Massive, Alpaca, Yahoo, or any other provider,
+          so it stays fast and does not spend API quota. Refresh jobs update the cache.
+        </p>
+      </div>
+      <span class="tag tag-neutral">{{ universe.priced_count }} priced tickers</span>
+      <span class="tag tag-neutral">{{ data_source.row_count_label }}</span>
+    </div>
+
+    <div class="quality-grid">
+      {% for row in quality_rows %}
+      <article class="quality-card quality-card-{{ row.status_class }}">
+        <div>
+          <span class="metric-label">{{ row.label }}</span>
+          <strong>{{ row.status }}</strong>
+        </div>
+        <p>{{ row.detail }}</p>
+      </article>
+      {% endfor %}
+    </div>
+  </section>
+{% endblock %}

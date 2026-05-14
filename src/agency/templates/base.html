@@ -1,42 +1,91 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}Trading Agency v2{% endblock %}</title>
-    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="stylesheet" href="/static/styles.css?v=ops-readiness-20260512">
   </head>
   <body>
     <div class="app-shell">
       <aside class="sidebar" aria-label="Main navigation">
         <a class="brand" href="/">
-          <strong>Trading Agency v2</strong>
-          <span>Paper trading &middot; S&amp;P 100 + QQQ</span>
+          <span class="brand-mark" aria-hidden="true">TA</span>
+          <span class="brand-text">
+            <strong class="brand-name">Trading Agency v2</strong>
+            <span class="brand-sub">Paper trading &middot; S&amp;P 100 + QQQ</span>
+          </span>
         </a>
         <nav class="nav-list">
-          <a class="nav-link {% if active_nav == 'command' %}active{% endif %}" href="/">Command</a>
-          <a class="nav-link disabled" href="/" aria-disabled="true">Universe</a>
-          <a class="nav-link disabled" href="/" aria-disabled="true">Signals</a>
-          <a class="nav-link {% if active_nav == 'final' %}active{% endif %}" href="/final-selection">Final selection</a>
-          <a class="nav-link {% if active_nav == 'risk' %}active{% endif %}" href="/risk">Risk</a>
-          <a class="nav-link {% if active_nav == 'execution' %}active{% endif %}" href="/execution-preview">Execution preview</a>
-          <a class="nav-link {% if active_nav == 'portfolio' %}active{% endif %}" href="/portfolio-monitor">Portfolio monitor</a>
-          <a class="nav-link {% if active_nav == 'learning' %}active{% endif %}" href="/learning">Learning</a>
-          <a class="nav-link {% if active_nav == 'audit' %}active{% endif %}" href="/audit">Audit</a>
-          <a class="nav-link {% if active_nav == 'policy' %}active{% endif %}" href="/policy">Policy</a>
+          <span class="nav-section">Operate</span>
+          <a class="nav-link {% if active_nav == 'command' %}active{% endif %}" href="/">
+            <span class="nav-icon" aria-hidden="true">01</span>
+            <span>Command</span>
+          </a>
+
+          <span class="nav-section">Research</span>
+          <a class="nav-link {% if active_nav == 'market' %}active{% endif %}" href="/market-regime">
+            <span class="nav-icon" aria-hidden="true">02</span>
+            <span>Universe &amp; market</span>
+          </a>
+          <a class="nav-link {% if active_nav == 'signals' %}active{% endif %}" href="/signals">
+            <span class="nav-icon" aria-hidden="true">03</span>
+            <span>Signals</span>
+          </a>
+
+          <span class="nav-section">Decide</span>
+          <a class="nav-link {% if active_nav == 'final' %}active{% endif %}" href="/final-selection">
+            <span class="nav-icon" aria-hidden="true">04</span>
+            <span>Candidates</span>
+          </a>
+          <a class="nav-link {% if active_nav == 'risk' %}active{% endif %}" href="/risk">
+            <span class="nav-icon" aria-hidden="true">05</span>
+            <span>Risk</span>
+          </a>
+          <a class="nav-link {% if active_nav == 'policy' %}active{% endif %}" href="/policy">
+            <span class="nav-icon" aria-hidden="true">06</span>
+            <span>Policy</span>
+          </a>
+
+          <span class="nav-section">Execute</span>
+          <a class="nav-link {% if active_nav == 'execution' %}active{% endif %}" href="/execution-preview">
+            <span class="nav-icon" aria-hidden="true">07</span>
+            <span>Execution preview</span>
+          </a>
+          <a class="nav-link {% if active_nav == 'portfolio' %}active{% endif %}" href="/portfolio-monitor">
+            <span class="nav-icon" aria-hidden="true">08</span>
+            <span>Portfolio monitor</span>
+          </a>
+
+          <span class="nav-section">Trust</span>
+          <a class="nav-link {% if active_nav == 'learning' %}active{% endif %}" href="/learning">
+            <span class="nav-icon" aria-hidden="true">09</span>
+            <span>Learning</span>
+          </a>
+          <a class="nav-link {% if active_nav == 'audit' %}active{% endif %}" href="/audit">
+            <span class="nav-icon" aria-hidden="true">10</span>
+            <span>Audit</span>
+          </a>
         </nav>
       </aside>
 
       <div class="page-frame">
         <header class="topbar">
-          <div>
+          <div class="topbar-title">
             <p class="eyebrow">{% block eyebrow %}Trading Agency v2{% endblock %}</p>
             <h1>{% block page_title %}Agency Status{% endblock %}</h1>
           </div>
-          <div class="topbar-actions">
-            <span class="status-dot" aria-hidden="true"></span>
+          <div
+            class="topbar-actions"
+            data-runtime-heartbeat
+            data-runtime-health-endpoint="/health"
+            data-runtime-broker-endpoint="/status/broker"
+          >
+            <span class="status-dot status-dot-warn" data-runtime-dot aria-hidden="true"></span>
             <span class="topbar-meta">{% block topbar_meta %}Runtime dashboard{% endblock %}</span>
-            <span class="status-pill">Paper</span>
+            <span class="status-pill status-pill-warn" data-runtime-server-status>Checking server</span>
+            <span class="status-pill status-pill-paper" data-runtime-broker-status>Checking broker</span>
+            <span class="status-pill status-pill-neutral" data-runtime-updated>Not checked</span>
           </div>
         </header>
 
@@ -45,6 +94,8 @@
         </main>
       </div>
     </div>
-    <script src="/static/data-refresh-progress.js" defer></script>
+    <script src="/static/data-refresh-progress.js?v=ops-readiness-20260512" defer></script>
+    <script src="/static/responsive-tables.js" defer></script>
+    {% block extra_scripts %}{% endblock %}
   </body>
 </html>

@@ -5,30 +5,166 @@
 {% block title %}Portfolio Monitor | Trading Agency v2{% endblock %}
 {% block eyebrow %}Action{% endblock %}
 {% block page_title %}Portfolio Monitor{% endblock %}
-{% block topbar_meta %}{{ summary.position_count }} positions &middot; read-only{% endblock %}
+{% block topbar_meta %}{{ summary.position_count }} positions &middot; Alpaca paper{% endblock %}
 
 {% block content %}
-  <section class="hero hero-info" aria-label="Portfolio monitor state">
-    <h2>{{ summary.headline }}</h2>
-    <p>{{ summary.detail }}</p>
+  <section class="next-action hero-info" aria-label="Portfolio monitor state">
+    <div class="next-action-step" aria-hidden="true">5</div>
+    <div class="next-action-copy">
+      <p class="eyebrow">Portfolio monitor</p>
+      <h2>{{ summary.headline }}</h2>
+      <p>{{ summary.detail }}</p>
+    </div>
   </section>
 
-  <section class="summary-band" aria-label="Portfolio monitor metrics">
-    <div>
+  <section class="kpi-grid kpi-grid-compact" aria-label="Portfolio monitor metrics">
+    <article class="kpi">
       <span class="metric-label">Positions</span>
       <strong>{{ summary.position_count }}</strong>
-    </div>
-    <div>
-      <span class="metric-label">Hold</span>
-      <strong>{{ summary.hold_count }}</strong>
-    </div>
-    <div>
-      <span class="metric-label">Review</span>
-      <strong>{{ summary.review_count }}</strong>
-    </div>
-    <div>
-      <span class="metric-label">Close Candidates</span>
+      <p>tracked symbols</p>
+    </article>
+    <article class="kpi">
+      <span class="metric-label">Hourly P/L</span>
+      <strong>
+        {% if summary.hourly_return_pct is not none %}
+          {{ "%.2f"|format(summary.hourly_return_pct) }}%
+        {% else %}
+          Baseline
+        {% endif %}
+      </strong>
+      <p>{{ summary.hourly_status_label }}</p>
+    </article>
+    <article class="kpi">
+      <span class="metric-label">Equity</span>
+      <strong>{% if summary.equity is not none %}${{ "%.0f"|format(summary.equity) }}{% else %}None{% endif %}</strong>
+      <p>broker account</p>
+    </article>
+    <article class="kpi kpi-urgent">
+      <span class="metric-label">Exposure</span>
+      <strong>{% if summary.gross_exposure_pct is not none %}{{ "%.0f"|format(summary.gross_exposure_pct) }}%{% else %}None{% endif %}</strong>
+      <p>gross market value</p>
+    </article>
+    <article class="kpi">
+      <span class="metric-label">Exit Review</span>
       <strong>{{ summary.close_candidate_count }}</strong>
+      <p>close candidates</p>
+    </article>
+  </section>
+
+  {% if summary.position_count == 0 and not broker.connected %}
+  <section class="panel empty-state-panel" aria-label="No portfolio data">
+    <div class="next-action-copy">
+      <p class="eyebrow">Nothing to monitor yet</p>
+      <h2>No positions and no broker connection</h2>
+      <p>
+        Connect an Alpaca paper account and run at least one approved execution cycle to see
+        live position tracking here. Rules and thresholds can be set in Policy.
+      </p>
+    </div>
+  </section>
+  {% endif %}
+
+  <section class="panel" aria-labelledby="portfolio-rules-heading">
+    <div class="section-heading">
+      <h2 id="portfolio-rules-heading">Portfolio Rules</h2>
+      <span class="tag tag-{{ summary.hourly_status_class }}">{{ summary.hourly_status_label }}</span>
+    </div>
+    <div class="decision-grid">
+      <div>
+        <span class="metric-label">Take Profit</span>
+        <strong>{{ "%.1f"|format(summary.take_profit_pct) }}%</strong>
+        <p>review close or trim when unrealized gain reaches this level</p>
+      </div>
+      <div>
+        <span class="metric-label">Stop Loss</span>
+        <strong>{{ "%.1f"|format(summary.stop_loss_pct) }}%</strong>
+        <p>urgent exit review when unrealized loss breaches this level</p>
+      </div>
+      <div>
+        <span class="metric-label">Trailing Stop</span>
+        <strong>{{ "%.1f"|format(summary.trailing_stop_pct) }}%</strong>
+        <p>policy target for profit protection once high-water tracking is available</p>
+      </div>
+      <div>
+        <span class="metric-label">Hourly Guardrail</span>
+        <strong>{{ "%.1f"|format(summary.hourly_loss_alert_pct) }}%</strong>
+        <p>{{ summary.hourly_reason }}</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" aria-labelledby="broker-heading">
+    <div class="section-heading">
+      <h2 id="broker-heading">Broker Account</h2>
+      <span class="tag tag-{{ broker.status_class | default('neutral') }}">{% if broker.connected %}Connected{% else %}Offline{% endif %}</span>
+    </div>
+    {% if broker.connected and broker.account %}
+    <form class="inline-form" method="post" action="/portfolio-monitor/snapshots">
+      <button class="mini-button" type="submit">Record snapshot</button>
+    </form>
+    <div class="decision-grid">
+      <div>
+        <span class="metric-label">Mode</span>
+        <strong>{{ broker.mode }}</strong>
+      </div>
+      <div>
+        <span class="metric-label">Cash</span>
+        <strong>${{ "%.0f"|format(summary.cash) }}</strong>
+      </div>
+      <div>
+        <span class="metric-label">Buying Power</span>
+        <strong>${{ "%.0f"|format(summary.buying_power) }}</strong>
+      </div>
+      <div>
+        <span class="metric-label">Open Orders</span>
+        <strong>{{ broker.orders | length }}</strong>
+      </div>
+    </div>
+    {% else %}
+    <p class="empty-block">{{ broker.detail }}</p>
+    {% endif %}
+  </section>
+
+  <section class="panel" aria-labelledby="snapshot-heading">
+    <div class="section-heading">
+      <h2 id="snapshot-heading">Snapshot History</h2>
+      <span class="tag tag-neutral">{{ snapshot_rows | length }} latest</span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Captured</th>
+            <th>Mode</th>
+            <th>Status</th>
+            <th>Equity</th>
+            <th>Cash</th>
+            <th>Portfolio Value</th>
+            <th>Exposure</th>
+            <th>Positions</th>
+            <th>Open Orders</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for snapshot in snapshot_rows %}
+          <tr>
+            <td>{{ snapshot.captured_at }}</td>
+            <td>{{ snapshot.mode }}</td>
+            <td>{{ snapshot.account_status }}</td>
+            <td>${{ "%.0f"|format(snapshot.equity) }}</td>
+            <td>${{ "%.0f"|format(snapshot.cash) }}</td>
+            <td>${{ "%.0f"|format(snapshot.portfolio_value) }}</td>
+            <td>{{ "%.2f"|format(snapshot.gross_exposure_pct) }}%</td>
+            <td>{{ snapshot.position_count }}</td>
+            <td>{{ snapshot.open_order_count }}</td>
+          </tr>
+          {% else %}
+          <tr>
+            <td class="empty-row" colspan="9">No portfolio snapshots recorded yet</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
   </section>
 
@@ -42,10 +178,13 @@
         <thead>
           <tr>
             <th>Ticker</th>
-            <th>Classification</th>
-            <th>Current Action</th>
-            <th>Conviction</th>
-            <th>Reason</th>
+            <th>State</th>
+            <th>Exit Signal</th>
+            <th>Current Thesis</th>
+            <th>Position</th>
+            <th>Unrealized P/L</th>
+            <th>Rule Trigger</th>
+            <th>What To Do</th>
           </tr>
         </thead>
         <tbody>
@@ -53,13 +192,29 @@
           <tr>
             <td>{{ position.ticker }}</td>
             <td>{{ position.classification }}</td>
-            <td>{{ position.current_action or "None" }}</td>
-            <td>{% if position.conviction is not none %}{{ "%.0f"|format(position.conviction * 100) }}%{% else %}None{% endif %}</td>
+            <td>
+              {% set exit_class = "block" if position.exit_priority == "URGENT" else "warn" if position.exit_signal != "NONE" else "pass" %}
+              <span class="tag tag-{{ exit_class }}">{{ position.exit_signal }}</span>
+            </td>
+            <td>
+              {{ position.current_action or "None" }}
+              {% if position.conviction is not none %}
+                <br><span class="muted">{{ "%.0f"|format(position.conviction * 100) }}% conviction</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if position.quantity is not none %}{{ "%.4f"|format(position.quantity) }} {{ position.side }}{% else %}None{% endif %}
+              {% if position.market_value is not none %}
+                <br><span class="muted">${{ "%.2f"|format(position.market_value) }}</span>
+              {% endif %}
+            </td>
+            <td>{% if position.unrealized_pl is not none %}${{ "%.2f"|format(position.unrealized_pl) }} / {{ "%.2f"|format(position.unrealized_plpc * 100) }}%{% else %}None{% endif %}</td>
             <td>{{ position.reason }}</td>
+            <td>{{ position.exit_reason }}</td>
           </tr>
           {% else %}
           <tr>
-            <td class="empty-row" colspan="5">No portfolio positions are tracked yet</td>
+            <td class="empty-row" colspan="8">No portfolio positions are tracked yet</td>
           </tr>
           {% endfor %}
         </tbody>

@@ -8,27 +8,106 @@
 {% block topbar_meta %}{{ summary.sample_count }} samples &middot; advisory{% endblock %}
 
 {% block content %}
-  <section class="hero hero-watch" aria-label="Learning state">
-    <h2>{{ summary.headline }}</h2>
-    <p>{{ summary.detail }}</p>
+  <section class="next-action hero-watch" aria-label="Learning state">
+    <div class="next-action-step" aria-hidden="true">6</div>
+    <div class="next-action-copy">
+      <p class="eyebrow">Learning loop</p>
+      <h2>{{ summary.headline }}</h2>
+      <p>{{ summary.detail }} The system can report evidence needs, but it will not tune thresholds without enough audited samples.</p>
+    </div>
   </section>
 
-  <section class="summary-band" aria-label="Learning metrics">
-    <div>
+  <section class="kpi-grid kpi-grid-compact" aria-label="Learning metrics">
+    <article class="kpi">
       <span class="metric-label">Status</span>
       <strong>{{ summary.status }}</strong>
-    </div>
-    <div>
+      <p>feedback state</p>
+    </article>
+    <article class="kpi">
       <span class="metric-label">Samples</span>
       <strong>{{ summary.sample_count }}</strong>
-    </div>
-    <div>
+      <p>audited outcomes</p>
+    </article>
+    <article class="kpi kpi-urgent">
       <span class="metric-label">Required</span>
       <strong>{{ summary.required_sample_count }}</strong>
+      <p>before tuning</p>
+    </article>
+    <article class="kpi">
+      <span class="metric-label">Near Misses</span>
+      <strong>{{ summary.near_miss_count }}</strong>
+      <p>tracked for what-if review</p>
+    </article>
+  </section>
+
+  {% if summary.sample_count == 0 %}
+  <section class="panel empty-state-panel" aria-label="No learning data">
+    <div class="next-action-copy">
+      <p class="eyebrow">Nothing to learn yet</p>
+      <h2>No audited samples</h2>
+      <p>
+        The learning loop needs {{ summary.required_sample_count }} audited outcomes before it can
+        report evidence needs. Complete paper review cycles and record outcomes to begin.
+      </p>
     </div>
-    <div>
-      <span class="metric-label">Mode</span>
-      <strong>Advisory</strong>
+  </section>
+  {% endif %}
+
+  <section class="panel" aria-labelledby="near-miss-heading">
+    <div class="section-heading">
+      <h2 id="near-miss-heading">Near-Miss What-If Journal</h2>
+      <span class="tag tag-neutral">Advisory</span>
+    </div>
+    <p class="section-subtitle">
+      These stocks were close to entering the review queue. The agency tracks
+      what would have happened if they had been selected, but never changes
+      thresholds automatically.
+    </p>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Ticker</th>
+            <th>Gap</th>
+            <th>Score</th>
+            <th>Why Missed</th>
+            <th>Evidence</th>
+            <th>What-If</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in near_miss.rows %}
+          <tr>
+            <td>{{ row.ticker }}</td>
+            <td>{{ "%.2f"|format(row.inclusion_gap) }}</td>
+            <td>{{ "%.2f"|format(row.deterministic_score) }}</td>
+            <td>{{ row.miss_reason }}</td>
+            <td>
+              {{ row.source_count or 0 }} source(s),
+              {{ row.confirmed_signal_count or 0 }} confirmed
+              {% if row.strongest_lanes %}
+                <br><span class="muted">{{ row.strongest_lanes | join(", ") }}</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if row.what_if.status == "complete" %}
+                {% for horizon in row.what_if.horizons %}
+                  {% if horizon.status == "complete" %}
+                    {{ horizon.horizon_days }}d: {{ "%.2f"|format(horizon.return_pct) }}%{% if not loop.last %}<br>{% endif %}
+                  {% endif %}
+                {% endfor %}
+              {% else %}
+                Pending price outcome
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td class="empty-row" colspan="6">No near-miss candidates in the latest cycle.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
   </section>
 

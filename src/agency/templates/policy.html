@@ -44,6 +44,29 @@
   </section>
 
   <div id="policy-content">
+    <section class="panel" aria-label="Policy safety tiers">
+      <div class="section-heading">
+        <h2>Safety Tiers</h2>
+        <span class="tag tag-neutral">Three levels</span>
+      </div>
+      <div class="ops-check-list">
+        <div class="ops-check-row">
+          <span class="tag tag-block">Never</span>
+          <strong>Hard limits</strong>
+          <span>Live broker submit, real money orders. Always disabled in paper mode. Cannot be changed here.</span>
+        </div>
+        <div class="ops-check-row">
+          <span class="tag tag-warn">Paper-only</span>
+          <strong>Paper constraints</strong>
+          <span>Max positions per cycle, max gross exposure. Control the size of paper activity.</span>
+        </div>
+        <div class="ops-check-row">
+          <span class="tag tag-pass">Adjustable</span>
+          <strong>Risk thresholds</strong>
+          <span>Conviction floor, take-profit, stop-loss, trailing stop. Safe to tune during paper review.</span>
+        </div>
+      </div>
+    </section>
     <section class="policy-grid" aria-label="Read-only policy">
       {% for section in policy_sections %}
       <article class="panel">

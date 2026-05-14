@@ -5,89 +5,339 @@
 {% block title %}Execution Preview | Trading Agency v2{% endblock %}
 {% block eyebrow %}Action{% endblock %}
 {% block page_title %}Execution Preview{% endblock %}
-{% block topbar_meta %}paper mode &middot; submit gate closed{% endblock %}
+{% block topbar_meta %}{{ summary.broker_mode }} broker &middot; submit gate {{ summary.submit_gate_label | lower }}{% endblock %}
+
+{% macro preview_card(row) %}
+  <article class="review-card review-card-{{ row.state_class }}">
+    <div class="review-card-head">
+      <div>
+        <span>{{ row.preview_state }} / {{ row.order_intent }}</span>
+        <h3><a class="text-link" href="/candidates/{{ row.ticker }}">{{ row.ticker }}</a></h3>
+      </div>
+      <span class="tag tag-{{ row.state_class }}">{{ row.submit_label }}</span>
+    </div>
+    <div class="review-card-metrics">
+      <div>
+        <span class="metric-label">Order Value</span>
+        <strong>{{ row.order_value_label }}</strong>
+      </div>
+      <div>
+        <span class="metric-label">Sizing</span>
+        <strong>{{ row.size_label }}</strong>
+      </div>
+      <div>
+        <span class="metric-label">Approval</span>
+        <strong>{{ row.approval_label }}</strong>
+      </div>
+      <div>
+        <span class="metric-label">Risk</span>
+        <strong>{{ row.risk_decision }}</strong>
+      </div>
+    </div>
+    <p class="card-reason">{{ row.reason }}</p>
+    <p class="card-next-step">{{ row.next_step }}</p>
+    {% if row.order_approval_available and not row.order_approved %}
+    <form method="post" action="{{ row.approve_order_action }}">
+      <button class="mini-button" type="submit">Approve order intent</button>
+    </form>
+    <p class="microcopy">Intent hash {{ row.order_intent_hash_label }}; approval expires if the computed order changes.</p>
+    {% endif %}
+    {% if row.submit_enabled %}
+    <form method="post" action="{{ row.submit_action }}">
+      <button class="mini-button" type="submit">{{ row.submit_label }}</button>
+    </form>
+    {% endif %}
+  </article>
+{% endmacro %}
 
 {% block content %}
-  <section class="hero hero-info" aria-label="Execution state">
-    <h2>{{ summary.headline }}</h2>
-    <p>{{ summary.detail }}</p>
+  <div class="paper-mode-banner" role="alert" aria-live="polite">
+    <span class="tag tag-warn">Paper mode</span>
+    <strong>No real money is at risk.</strong>
+    All orders shown here are paper-only. Broker submit is disabled until you explicitly enable it in Policy.
+  </div>
+
+  <section class="next-action execution-guard" aria-label="Execution state">
+    <div class="next-action-step" aria-hidden="true">4</div>
+    <div class="next-action-copy">
+      <p class="eyebrow">Paper-only execution</p>
+      <h2>{{ summary.headline }}</h2>
+      <p>{{ summary.detail }} {{ summary.no_order_explanation }}</p>
+    </div>
+    <div class="next-action-buttons">
+      <span class="primary-action {% if not summary.submit_gate_open %}primary-action-disabled{% endif %}">
+        Broker submit {{ summary.submit_gate_label | lower }}
+      </span>
+    </div>
   </section>
 
-  <section class="summary-band" aria-label="Execution metrics">
-    <div>
+  <section class="kpi-grid kpi-grid-compact" aria-label="Execution metrics">
+    <article class="kpi">
       <span class="metric-label">Previews</span>
       <strong>{{ summary.preview_count }}</strong>
-    </div>
-    <div>
+      <p>paper artifacts</p>
+    </article>
+    <article class="kpi">
       <span class="metric-label">Ready</span>
       <strong>{{ summary.ready_count }}</strong>
-    </div>
-    <div>
+      <p>orderable paper previews</p>
+    </article>
+    <article class="kpi">
       <span class="metric-label">Blocked</span>
       <strong>{{ summary.blocked_count }}</strong>
-    </div>
-    <div>
+      <p>stopped by risk; {{ summary.disabled_count }} review-only/no-order</p>
+    </article>
+    <article class="kpi kpi-urgent">
       <span class="metric-label">Submit Gate</span>
-      <strong>Closed</strong>
+      <strong>{{ summary.submit_gate_label }}</strong>
+      <p>{{ summary.submit_ready_count }} approved order(s)</p>
+    </article>
+  </section>
+
+  <section class="panel workflow-help" aria-labelledby="execution-help-heading">
+    <div class="section-heading">
+      <div>
+        <h2 id="execution-help-heading">What To Do Here</h2>
+        <p class="section-subtitle">{{ summary.workflow_guidance }}</p>
+      </div>
+      <span class="tag tag-{{ summary.submit_gate_class }}">Submit gate {{ summary.submit_gate_label }}</span>
+    </div>
+    <div class="guidance-grid">
+      <article class="guidance-card guidance-card-pass">
+        <span class="metric-label">READY</span>
+        <strong>Possible paper transaction</strong>
+        <p>Only these rows can show a submit button after human approval, order sizing, risk allow, and open broker gate.</p>
+      </article>
+      <article class="guidance-card guidance-card-warn">
+        <span class="metric-label">WATCH / HOLD</span>
+        <strong>Research approval only</strong>
+        <p>Approve, defer, or reject these on the candidate page. Approval does not place a trade.</p>
+      </article>
+      <article class="guidance-card guidance-card-block">
+        <span class="metric-label">NO_TRADE / BLOCKED</span>
+        <strong>No action</strong>
+        <p>These rows explain why no order exists. A later cycle must change the action before execution can proceed.</p>
+      </article>
+    </div>
+  </section>
+
+  <section class="panel workflow-help" aria-labelledby="portfolio-check-heading">
+    <div class="section-heading">
+      <div>
+        <h2 id="portfolio-check-heading">Portfolio Manager Check</h2>
+        <p class="section-subtitle">{{ summary.portfolio_check_detail }}</p>
+      </div>
+      <span class="tag tag-{{ summary.portfolio_check_class }}">
+        {{ summary.portfolio_check_label }}
+      </span>
+    </div>
+    <div class="guidance-grid">
+      <article class="guidance-card guidance-card-pass">
+        <span class="metric-label">Paper Account</span>
+        <strong>{{ summary.portfolio_equity_label }}</strong>
+        <p>Buying power {{ summary.portfolio_buying_power_label }}.</p>
+      </article>
+      <article class="guidance-card guidance-card-warn">
+        <span class="metric-label">Current Exposure</span>
+        <strong>{{ summary.portfolio_gross_exposure_label }}</strong>
+        <p>{{ summary.portfolio_position_count }} open position(s) before new orders.</p>
+      </article>
+      <article class="guidance-card guidance-card-neutral">
+        <span class="metric-label">Sizing Rule</span>
+        <strong>{{ summary.policy_default_position_label }}</strong>
+        <p>Max gross exposure {{ summary.policy_max_exposure_label }}.</p>
+      </article>
+      <article class="guidance-card guidance-card-block">
+        <span class="metric-label">Exit Rules</span>
+        <strong>Portfolio guardrails</strong>
+        <p>{{ summary.policy_exit_rules_label }}.</p>
+      </article>
+    </div>
+  </section>
+
+  <section class="panel workflow-help" aria-labelledby="execution-freshness-heading">
+    <div class="section-heading">
+      <div>
+        <h2 id="execution-freshness-heading">Execution Freshness Gate</h2>
+        <p class="section-subtitle">{{ execution_freshness_gate.detail }}</p>
+      </div>
+      <span class="tag tag-{{ execution_freshness_gate.status_class }}">
+        {{ execution_freshness_gate.status_label }}
+      </span>
+    </div>
+    <div class="ops-check-list">
+      {% for check in execution_freshness_gate.checks %}
+      <div class="ops-check-row">
+        <span class="tag tag-{{ check.status_class }}">{{ check.status }}</span>
+        <strong>{{ check.label }}</strong>
+        <span>{{ check.detail }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="panel" aria-labelledby="orderable-heading">
+    <div class="section-heading">
+      <div>
+        <h2 id="orderable-heading">Orderable Paper Orders</h2>
+        <p class="section-subtitle">This is the only place a transaction can be submitted.</p>
+      </div>
+      <span class="tag tag-pass">{{ orderable_rows | length }} READY</span>
+    </div>
+    <div class="review-card-list execution-card-list" aria-label="Orderable execution preview cards">
+      {% for row in orderable_rows %}
+        {{ preview_card(row) }}
+      {% else %}
+      <p class="empty-block">No transaction can be approved in this cycle because no BUY, SELL, SHORT, or COVER candidate passed risk with order sizing.</p>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="panel leveraged-panel" aria-labelledby="execution-leveraged-heading">
+    <div class="section-heading">
+      <div>
+        <h2 id="execution-leveraged-heading">Leveraged Alternative Advisor</h2>
+        <p class="section-subtitle">{{ leveraged_alternatives.detail }}</p>
+      </div>
+      <span class="tag tag-{{ leveraged_alternatives.status_class }}">{{ leveraged_alternatives.status_label }}</span>
+    </div>
+    <div class="guidance-grid">
+      <article class="guidance-card guidance-card-warn">
+        <span class="metric-label">Status</span>
+        <strong>{{ leveraged_alternatives.headline }}</strong>
+        <p>{{ leveraged_alternatives.triggered_count }} triggered candidate(s), {{ leveraged_alternatives.available_count }} available advisory alternative(s).</p>
+      </article>
+    </div>
+    <div class="review-card-list execution-card-list" aria-label="Execution leveraged alternatives">
+      {% for review in leveraged_alternatives.rows %}
+      <article class="review-card review-card-{{ review.status_class }}">
+        <div class="review-card-head">
+          <div>
+            <span>{{ review.baseline.action }} / {{ review.baseline.conviction_pct }}% conviction</span>
+            <h3><a class="text-link" href="/candidates/{{ review.ticker }}">{{ review.ticker }}</a></h3>
+          </div>
+          <span class="tag tag-{{ review.status_class }}">{{ review.status_label }}</span>
+        </div>
+        <p class="card-reason">{{ review.summary }}</p>
+        <div class="review-card-metrics">
+          <div>
+            <span class="metric-label">Sources</span>
+            <strong>{{ review.baseline.source_count }}</strong>
+          </div>
+          <div>
+            <span class="metric-label">Confirmed</span>
+            <strong>{{ review.baseline.confirmed_signal_count }}</strong>
+          </div>
+          <div>
+            <span class="metric-label">Risk</span>
+            <strong>{{ review.baseline.risk_decision }}</strong>
+          </div>
+          <div>
+            <span class="metric-label">Alternatives</span>
+            <strong>{{ review.available_alternative_count }}</strong>
+          </div>
+        </div>
+        {% for alternative in review.alternatives %}
+        <p class="card-next-step">
+          {{ alternative.ticker }}: {{ alternative.rationale }}
+        </p>
+        {% endfor %}
+      </article>
+      {% else %}
+      <p class="empty-block">{{ leveraged_alternatives.headline }}</p>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="panel" aria-labelledby="research-only-heading">
+    <div class="section-heading">
+      <div>
+        <h2 id="research-only-heading">Research-Only Approvals</h2>
+        <p class="section-subtitle">WATCH/HOLD candidates that can be reviewed but cannot create orders.</p>
+      </div>
+      <span class="tag tag-warn">{{ review_only_rows | length }} review-only</span>
+    </div>
+    <div class="review-card-list execution-card-list" aria-label="Research-only execution cards">
+      {% for row in review_only_rows %}
+        {{ preview_card(row) }}
+      {% else %}
+      <p class="empty-block">No review-only execution rows in this cycle.</p>
+      {% endfor %}
     </div>
   </section>
 
   <section class="panel" aria-labelledby="preview-heading">
     <div class="section-heading">
-      <h2 id="preview-heading">Preview Queue</h2>
-      <span class="tag tag-block">Submission disabled</span>
+      <div>
+        <h2 id="preview-heading">Preview Queue</h2>
+        <p class="section-subtitle">Full preview audit, with blocked rows collapsed below.</p>
+      </div>
+      <span class="tag tag-{{ summary.submit_gate_class }}">Paper broker {{ summary.submit_gate_label }}</span>
     </div>
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Ticker</th>
-            <th>State</th>
-            <th>Side</th>
-            <th>Risk</th>
-            <th>Size</th>
-            <th>Submit</th>
-            <th>Reason</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for row in preview_rows %}
-          <tr>
-            <td><a class="text-link" href="/candidates/{{ row.ticker }}">{{ row.ticker }}</a></td>
-            <td><span class="tag tag-{{ row.state_class }}">{{ row.preview_state }}</span></td>
-            <td>{{ row.side }}</td>
-            <td>{{ row.risk_decision }}</td>
-            <td>{{ "%.0f"|format(row.position_size_pct) }}%</td>
-            <td><button class="disabled-button" type="button" disabled>Closed</button></td>
-            <td>{{ row.reason }}</td>
-          </tr>
-          {% else %}
-          <tr>
-            <td class="empty-row" colspan="7">No execution previews yet</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
+    <details class="details-panel">
+      <summary>Show blocked/no-order preview table</summary>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Ticker</th>
+              <th>State</th>
+              <th>Side</th>
+              <th>Risk</th>
+              <th>Size</th>
+              <th>Order Value</th>
+              <th>Submit</th>
+              <th>Reason</th>
+              <th>Next Step</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in blocked_rows %}
+            <tr>
+              <td><a class="text-link" href="/candidates/{{ row.ticker }}">{{ row.ticker }}</a></td>
+              <td><span class="tag tag-{{ row.state_class }}">{{ row.preview_state }}</span></td>
+              <td>{{ row.side }}</td>
+              <td>{{ row.risk_decision }}</td>
+              <td>{{ "%.0f"|format(row.position_size_pct) }}%</td>
+              <td>{{ row.order_value_label }}</td>
+              <td><button class="disabled-button" type="button" disabled>{{ row.submit_label }}</button></td>
+              <td>{{ row.reason }}</td>
+              <td>{{ row.next_step }}</td>
+            </tr>
+            {% else %}
+            <tr>
+              <td class="empty-row" colspan="9">No execution previews yet</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
   </section>
 
   <section class="panel" aria-labelledby="submission-heading">
     <div class="section-heading">
       <h2 id="submission-heading">Submission Gate</h2>
-      <span class="tag tag-block">Closed</span>
+      <span class="tag tag-{{ summary.submit_gate_class }}">{{ summary.submit_gate_label }}</span>
     </div>
     <div class="gate-list">
-      <div class="gate-row gate-block">
+      <div class="gate-row gate-{{ summary.submit_gate_class }}">
         <span class="gate-indicator" aria-hidden="true"></span>
         <span>Broker submit enabled</span>
-        <strong>false</strong>
-        <em>Order submission remains closed regardless of preview state.</em>
+        <strong>{% if summary.submit_gate_open %}true{% else %}false{% endif %}</strong>
+        <em>{{ summary.detail }}</em>
+      </div>
+      <div class="gate-row gate-{{ broker.status_class | default('neutral') }}">
+        <span class="gate-indicator" aria-hidden="true"></span>
+        <span>Alpaca broker</span>
+        <strong>{% if broker.connected %}Connected{% else %}Offline{% endif %}</strong>
+        <em>{% if broker.connected %}{{ broker.mode }} account, {{ broker.positions | length }} open position(s).{% else %}{{ broker.detail }}{% endif %}</em>
       </div>
       <div class="gate-row gate-warn">
         <span class="gate-indicator" aria-hidden="true"></span>
-        <span>Execution service</span>
-        <strong>Preview only</strong>
-        <em>Quantities and prices remain null until broker and market-data inputs exist.</em>
+        <span>Order approval</span>
+        <strong>Required</strong>
+        <em>READY previews require a hash-bound order approval before paper submission.</em>
       </div>
     </div>
   </section>

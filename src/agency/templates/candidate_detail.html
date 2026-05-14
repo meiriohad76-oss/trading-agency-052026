@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% set active_nav = "command" %}
+{% set active_nav = "final" %}
 
 {% block title %}{{ ticker }} Brief | Trading Agency v2{% endblock %}
 {% block eyebrow %}Candidate Brief{% endblock %}
@@ -8,6 +8,25 @@
 {% block topbar_meta %}{{ decision_brief.state_label }} &middot; {{ summary.report_count }} reports{% endblock %}
 
 {% block content %}
+  {% if review.can_record %}
+  <div class="sticky-review-bar" role="navigation" aria-label="Quick review actions"
+       style="position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;padding:0.5rem 1rem;background:var(--bg-sidebar,#0f0f1a);border-bottom:1px solid var(--border-subtle,#2a2a3e);">
+    <span class="metric-label" style="white-space:nowrap;">{{ ticker }} &mdash; pending review</span>
+    <span class="inline-actions">
+      <form method="post" action="{{ review.approve_action }}" style="display:inline">
+        <button class="mini-button" type="submit">Approve</button>
+      </form>
+      <form method="post" action="{{ review.defer_action }}" style="display:inline">
+        <button class="mini-button" type="submit">Defer</button>
+      </form>
+      <form method="post" action="{{ review.reject_action }}" style="display:inline">
+        <button class="mini-button danger-button" type="submit">Reject</button>
+      </form>
+    </span>
+    <a class="text-link" href="#paper-review-heading" style="font-size:0.8rem;">Jump to review</a>
+  </div>
+  {% endif %}
+
   <section class="decision-brief decision-brief-{{ decision_brief.state_class }}" aria-label="Decision brief">
     <div class="brief-copy">
       <p class="brief-kicker">{{ decision_brief.state_label }}</p>
@@ -38,7 +57,7 @@
           <strong>{{ decision_brief.source_count }}</strong>
         </div>
         <div>
-          <span class="metric-label">Confirmed</span>
+          <span class="metric-label" title="Signals from independently verified data sources (filings, direct feeds). Inferred signals from price bars alone do not count.">Confirmed</span>
           <strong>{{ decision_brief.confirmed_signal_count }}</strong>
         </div>
       </div>
@@ -53,11 +72,6 @@
       <p>{{ item.detail }}</p>
     </article>
     {% endfor %}
-    <article class="brief-metric brief-metric-{{ email_evidence.status_class }}">
-      <span>Email Evidence</span>
-      <strong>{{ email_evidence.event_count }}</strong>
-      <p>{{ email_evidence.direction_summary }}</p>
-    </article>
   </section>
 
   <section class="panel action-summary-panel" aria-labelledby="why-heading">
@@ -132,11 +146,196 @@
     </section>
   </section>
 
+  <section class="panel signal-evidence-panel" aria-labelledby="signal-evidence-heading">
+    <div class="section-heading">
+      <div>
+        <h2 id="signal-evidence-heading">Primary Signal Evidence</h2>
+        <p class="section-subtitle">Market, technical, flow, fundamental, and filing signals used before subscription-email context.</p>
+      </div>
+      <a class="text-link" href="/signals">Open signal dashboard</a>
+    </div>
+    {% if latest_report %}
+    <div class="signal-evidence-groups">
+      <article class="signal-evidence-group">
+        <div class="evidence-cell-head">
+          <strong title="Signals that passed all freshness and source-quality gates. These directly drive the conviction score.">Active Signals</strong>
+          <span class="tag tag-pass">{{ latest_report.actionable_signals | length }}</span>
+        </div>
+        <div class="signal-mini-list">
+          {% for signal in latest_report.actionable_signals %}
+          <div class="signal-mini-row signal-mini-row-{{ signal.direction_class }}">
+            <span class="tag tag-{{ signal.direction_class }}">{{ signal.direction }}</span>
+            <div>
+              <strong>{{ signal.lane }}</strong>
+              <p>{{ signal.summary }}</p>
+              <details style="display:inline;font-size:0.8em;opacity:0.75;"><summary style="display:inline;cursor:pointer;list-style:none;color:inherit;opacity:0.6;">details</summary> {{ signal.score }} &middot; {{ signal.confidence_pct }}% confidence &middot; {{ signal.source }}</details>
+            </div>
+          </div>
+          {% else %}
+          <p class="empty-block">No actionable non-email signal is active.</p>
+          {% endfor %}
+        </div>
+      </article>
+
+      <article class="signal-evidence-group">
+        <div class="evidence-cell-head">
+          <strong title="Signals that are informational only — they explain context but are too uncertain to drive conviction.">Advisory Signals</strong>
+          <span class="tag tag-warn">{{ latest_report.context_signals | length }}</span>
+        </div>
+        <div class="signal-mini-list">
+          {% for signal in latest_report.context_signals %}
+          <div class="signal-mini-row signal-mini-row-{{ signal.direction_class }}">
+            <span class="tag tag-{{ signal.direction_class }}">{{ signal.direction }}</span>
+            <div>
+              <strong>{{ signal.lane }}</strong>
+              <p>{{ signal.summary }}</p>
+              <details style="display:inline;font-size:0.8em;opacity:0.75;"><summary style="display:inline;cursor:pointer;list-style:none;color:inherit;opacity:0.6;">reason</summary> {{ signal.reason_text }}</details>
+            </div>
+          </div>
+          {% else %}
+          <p class="empty-block">No context-only signal is active.</p>
+          {% endfor %}
+        </div>
+      </article>
+
+      <article class="signal-evidence-group">
+        <div class="evidence-cell-head">
+          <strong title="Signals blocked by freshness or data-quality gates. They are tracked but have no effect on the decision.">Blocked Signals</strong>
+          <span class="tag tag-neutral">{{ latest_report.suppressed_signals | length }}</span>
+        </div>
+        <div class="signal-mini-list">
+          {% for signal in latest_report.suppressed_signals %}
+          <div class="signal-mini-row signal-mini-row-{{ signal.direction_class }}">
+            <span class="tag tag-{{ signal.direction_class }}">{{ signal.direction }}</span>
+            <div>
+              <strong>{{ signal.lane }}</strong>
+              <p>{{ signal.summary }}</p>
+              <details style="display:inline;font-size:0.8em;opacity:0.75;"><summary style="display:inline;cursor:pointer;list-style:none;color:inherit;opacity:0.6;">reason</summary> {{ signal.reason_text }}</details>
+            </div>
+          </div>
+          {% else %}
+          <p class="empty-block">No suppressed/caution signal is active.</p>
+          {% endfor %}
+        </div>
+      </article>
+    </div>
+    {% else %}
+    <p class="empty-block">Signal evidence appears after the next runtime cycle persists a selection report.</p>
+    {% endif %}
+  </section>
+
+  <section class="panel review-panel" aria-labelledby="paper-review-heading">
+    <div class="section-heading">
+      <div>
+        <h2 id="paper-review-heading">Human Review</h2>
+        <p class="section-subtitle">{{ review.reason }}</p>
+      </div>
+      <span class="tag tag-{{ review.status_class }}">{{ review.decision }}</span>
+    </div>
+    {% if review.can_record %}
+    <span class="inline-actions">
+      <form method="post" action="{{ review.approve_action }}">
+        <button class="mini-button" type="submit">Approve Research</button>
+      </form>
+      <form method="post" action="{{ review.defer_action }}">
+        <button class="mini-button" type="submit">Defer</button>
+      </form>
+      <form method="post" action="{{ review.reject_action }}">
+        <button class="mini-button danger-button" type="submit">Reject</button>
+      </form>
+    </span>
+    {% else %}
+    <p class="empty-block">No selection report available for review</p>
+    {% endif %}
+  </section>
+
+  <section class="panel leveraged-panel" aria-labelledby="leveraged-heading">
+    <div class="section-heading">
+      <div>
+        <h2 id="leveraged-heading">Leveraged Alternative Advisor</h2>
+        <p class="section-subtitle">{{ leveraged_review.summary }}</p>
+      </div>
+      <span class="tag tag-{{ leveraged_review.status_class }}">{{ leveraged_review.status_label }}</span>
+    </div>
+
+    <div class="review-card-metrics">
+      <div>
+        <span class="metric-label">Trigger</span>
+        <strong>{{ leveraged_review.baseline.conviction_pct }}%</strong>
+      </div>
+      <div>
+        <span class="metric-label">Sources</span>
+        <strong>{{ leveraged_review.baseline.source_count }}</strong>
+      </div>
+      <div>
+        <span class="metric-label">Confirmed</span>
+        <strong>{{ leveraged_review.baseline.confirmed_signal_count }}</strong>
+      </div>
+      <div>
+        <span class="metric-label">Advisory Cap</span>
+        <strong>{{ "%.1f"|format(leveraged_review.baseline.max_leveraged_position_pct) }}%</strong>
+      </div>
+    </div>
+
+    <div class="gate-list">
+      {% for check in leveraged_review.trigger_checks %}
+      <div class="gate-row gate-{{ check.status | lower }}">
+        <span class="gate-indicator" aria-hidden="true"></span>
+        <span>{{ check.name | replace("_", " ") | title }}</span>
+        <strong>{{ check.status }}</strong>
+        <em>{{ check.reason }}</em>
+      </div>
+      {% else %}
+      <p class="empty-block">Leveraged review starts after a selection report exists.</p>
+      {% endfor %}
+    </div>
+
+    <div class="review-card-list execution-card-list" aria-label="Leveraged alternatives">
+      {% for alternative in leveraged_review.alternatives %}
+      <article class="review-card review-card-{{ alternative.status_class }}">
+        <div class="review-card-head">
+          <div>
+            <span>{{ alternative.type | replace("_", " ") | title }}</span>
+            <h3>{{ alternative.ticker }}</h3>
+          </div>
+          <span class="tag tag-{{ alternative.status_class }}">{{ alternative.status_label }}</span>
+        </div>
+        <div class="review-card-metrics">
+          <div>
+            <span class="metric-label">Leverage</span>
+            <strong>{% if alternative.leverage_factor %}{{ "%.1f"|format(alternative.leverage_factor) }}x{% else %}Defined risk{% endif %}</strong>
+          </div>
+          <div>
+            <span class="metric-label">Issuer</span>
+            <strong>{{ alternative.issuer }}</strong>
+          </div>
+          <div>
+            <span class="metric-label">Max Loss</span>
+            <strong>{% if alternative.max_loss %}${{ "%.2f"|format(alternative.max_loss) }}{% else %}Verify{% endif %}</strong>
+          </div>
+          <div>
+            <span class="metric-label">Orderable</span>
+            <strong>{% if alternative.orderable %}Yes{% else %}No{% endif %}</strong>
+          </div>
+        </div>
+        <p class="card-reason">{{ alternative.rationale }}</p>
+        {% if alternative.blocker %}
+        <p class="card-next-step">{{ alternative.blocker }}</p>
+        {% else %}
+        <p class="card-next-step">Review-only idea. It does not create a stock, ETF, or options order.</p>
+        {% endif %}
+      </article>
+      {% else %}
+      <p class="empty-block">No leveraged alternative is available for this candidate under current policy.</p>
+      {% endfor %}
+    </div>
+  </section>
+
   <section class="panel intelligence-panel" aria-labelledby="email-evidence-heading">
     <div class="section-heading">
       <div>
-        <h2 id="email-evidence-heading">Subscription Intelligence</h2>
-        <p class="section-subtitle">{{ decision_brief.email_takeaway }}</p>
+        <h2 id="email-evidence-heading">Supplementary Subscription Intelligence</h2>
+        <p class="section-subtitle">Supplementary email/article context. It explains the decision but does not replace the primary signal evidence above.</p>
       </div>
       <span class="tag tag-{{ email_evidence.status_class }}">{{ email_evidence.status_label }}</span>
     </div>
@@ -168,74 +367,127 @@
       {% endfor %}
     </div>
 
+    <div class="subscription-readout" aria-label="Subscription intelligence readout">
+      <article class="readout-card readout-card-{{ email_evidence.status_class }}">
+        <span class="metric-label">Judgment Impact</span>
+        <strong>{{ email_evidence.judgement_summary }}</strong>
+      </article>
+      <article class="readout-card">
+        <span class="metric-label">Pipeline Use</span>
+        <strong>{{ email_evidence.pipeline_summary }}</strong>
+      </article>
+      <article class="readout-card">
+        <span class="metric-label">Coverage Quality</span>
+        <strong>{{ email_evidence.quality_summary }}</strong>
+      </article>
+    </div>
+
+    <div class="subscription-pipeline" aria-label="Subscription processing pipeline">
+      <article class="pipeline-step {% if email_evidence.event_count > 0 %}pipeline-step-pass{% else %}pipeline-step-neutral{% endif %}">
+        <span>01</span>
+        <strong>Matched</strong>
+        <p>{{ email_evidence.event_count }} mailbox alert(s)</p>
+      </article>
+      <article class="pipeline-step {% if email_evidence.analyzed_count > 0 %}pipeline-step-pass{% elif email_evidence.event_count > 0 %}pipeline-step-warn{% else %}pipeline-step-neutral{% endif %}">
+        <span>02</span>
+        <strong>Opened</strong>
+        <p>{{ email_evidence.analyzed_count }} article thesis row(s)</p>
+      </article>
+      <article class="pipeline-step {% if email_evidence.analyzed_count > 0 %}pipeline-step-pass{% elif email_evidence.event_count > 0 %}pipeline-step-warn{% else %}pipeline-step-neutral{% endif %}">
+        <span>03</span>
+        <strong>Summarized</strong>
+        <p>{{ email_evidence.primary_takeaway }}</p>
+      </article>
+      <article class="pipeline-step {% if email_evidence.feed_count > 0 %}pipeline-step-pass{% else %}pipeline-step-neutral{% endif %}">
+        <span>04</span>
+        <strong>Scored</strong>
+        <p>{{ email_evidence.feed_count }} feed row(s), latest {{ email_evidence.latest_at }}</p>
+      </article>
+    </div>
+
     <details class="details-panel">
-      <summary>Show recent email and feed rows</summary>
-      <div class="evidence-columns compact-evidence">
-        <div>
-          <h3>Recent Email Matches</h3>
-          <div class="evidence-list">
-            {% for row in email_evidence.rows %}
-            <article class="evidence-row">
-              <div class="evidence-row-head">
-                <div>
-                  <strong>{{ row.title }}</strong>
-                  <span>{{ row.service }} / {{ row.event_type }} / {{ row.timestamp }}</span>
-                </div>
-                <span class="tag tag-{{ row.direction_class }}">{{ row.direction }}</span>
+      <summary>Open subscription article details and audit rows</summary>
+      <div class="article-insight-list" aria-label="Article-derived subscription evidence">
+        {% for card in email_evidence.insight_cards %}
+        <article class="article-insight-card article-insight-card-{{ card.direction_class }}">
+          <div class="article-insight-head">
+            <div>
+              <div class="article-insight-meta">
+                <span class="evidence-cell-label">{{ card.service }} / {{ card.event_type }}</span>
+                <span class="evidence-timestamp">{{ card.timestamp_label }}</span>
               </div>
-              <p>{{ row.summary }}</p>
-            </article>
-            {% else %}
-            <p class="empty-block">No subscription emails currently match {{ ticker }}</p>
-            {% endfor %}
+              <strong>{{ card.title }}</strong>
+            </div>
+            <span class="tag tag-{{ card.status_class }}">{{ card.status_label }}</span>
+          </div>
+          <p class="article-focus">{{ card.article_focus }}</p>
+          <p class="article-thesis">{{ card.relevance }}</p>
+          <div class="article-judgement article-judgement-{{ card.judgement_class }}">
+            <span>{{ card.judgement_label }}</span>
+            <strong>{{ card.judgement_contribution }}</strong>
+          </div>
+          <div class="insight-facts">
+            <div>
+              <span>Direction</span>
+              <strong>{{ card.direction }}</strong>
+            </div>
+            <div>
+              <span>Catalysts</span>
+              <strong>{{ card.catalyst_text }}</strong>
+            </div>
+            <div>
+              <span>Watch</span>
+              <strong>{{ card.risk_text }}</strong>
+            </div>
+          </div>
+          <p class="article-use">{{ card.decision_use }}</p>
+        </article>
+        {% else %}
+        <p class="empty-block">No subscription article evidence currently matches {{ ticker }}</p>
+        {% endfor %}
+      </div>
+
+      <div class="paired-evidence">
+        <div class="paired-evidence-legend">
+          <div>
+            <strong>Mailbox Alert</strong>
+            <span>The original subscription email that matched {{ ticker }}.</span>
+          </div>
+          <div>
+            <strong>Agency Interpretation</strong>
+            <span>The normalized evidence row the agency can score and review.</span>
           </div>
         </div>
 
-        <div>
-          <h3>Email-Derived Feed Rows</h3>
-          <div class="evidence-list">
-            {% for row in email_evidence.feed_rows %}
-            <article class="evidence-row">
-              <div class="evidence-row-head">
-                <div>
-                  <strong>{{ row.title }}</strong>
-                  <span>{{ row.feed_name }} / {{ row.timestamp }}</span>
-                </div>
+        <div class="paired-evidence-list">
+          {% for row in email_evidence.paired_rows %}
+          <article class="paired-evidence-row paired-evidence-row-{{ row.direction_class }}">
+            <div class="paired-evidence-cell">
+              <div class="evidence-cell-head">
+                <span class="evidence-cell-label">Mailbox Alert</span>
+                <span class="tag tag-{{ row.mailbox.status_class }}">{{ row.mailbox.status_label }}</span>
               </div>
-              <p>{{ row.summary }}</p>
-            </article>
-            {% else %}
-            <p class="empty-block">No email-derived feed rows currently match {{ ticker }}</p>
-            {% endfor %}
-          </div>
+              <strong>{{ row.mailbox.title }}</strong>
+              <span class="evidence-meta">{{ row.mailbox.meta }}</span>
+              <p>{{ row.mailbox.summary }}</p>
+            </div>
+
+            <div class="paired-evidence-cell paired-evidence-cell-interpretation">
+              <div class="evidence-cell-head">
+                <span class="evidence-cell-label">Agency Interpretation</span>
+                <span class="tag tag-{{ row.interpretation.status_class }}">{{ row.interpretation.status_label }}</span>
+              </div>
+              <strong>{{ row.interpretation.title }}</strong>
+              <span class="evidence-meta">{{ row.interpretation.meta }}</span>
+              <p>{{ row.interpretation.summary }}</p>
+            </div>
+          </article>
+          {% else %}
+          <p class="empty-block">No subscription email processing rows currently match {{ ticker }}</p>
+          {% endfor %}
         </div>
       </div>
     </details>
-  </section>
-
-  <section class="panel review-panel" aria-labelledby="paper-review-heading">
-    <div class="section-heading">
-      <div>
-        <h2 id="paper-review-heading">Human Review</h2>
-        <p class="section-subtitle">{{ review.reason }}</p>
-      </div>
-      <span class="tag tag-{{ review.status_class }}">{{ review.decision }}</span>
-    </div>
-    {% if review.can_record %}
-    <span class="inline-actions">
-      <form method="post" action="{{ review.approve_action }}">
-        <button class="mini-button" type="submit">Approve</button>
-      </form>
-      <form method="post" action="{{ review.defer_action }}">
-        <button class="mini-button" type="submit">Defer</button>
-      </form>
-      <form method="post" action="{{ review.reject_action }}">
-        <button class="mini-button danger-button" type="submit">Reject</button>
-      </form>
-    </span>
-    {% else %}
-    <p class="empty-block">No selection report available for review</p>
-    {% endif %}
   </section>
 
   <section class="panel" aria-labelledby="technical-heading">

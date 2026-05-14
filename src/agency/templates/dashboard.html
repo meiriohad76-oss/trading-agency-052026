@@ -40,148 +40,6 @@
     {% endfor %}
   </section>
 
-  <section
-    class="panel full-live-panel"
-    aria-labelledby="full-live-heading"
-    data-full-live-panel
-    data-full-live-endpoint="/status/full-live-readiness"
-  >
-    <div class="section-heading">
-      <div>
-        <h2 id="full-live-heading">Full-Live Readiness</h2>
-        <p class="section-subtitle" data-full-live-headline>{{ full_live_readiness.headline }}</p>
-      </div>
-      <span class="tag tag-{{ full_live_readiness.status_class }}" data-full-live-status>
-        {{ full_live_readiness.status_label }}
-      </span>
-    </div>
-
-    <div
-      class="progress-track data-load-track"
-      role="progressbar"
-      aria-valuemin="0"
-      aria-valuemax="100"
-      aria-valuenow="{{ full_live_readiness.coverage.overall_percent }}"
-      aria-label="Full-live readiness"
-      data-full-live-track
-    >
-      <div class="progress-fill" style="{{ full_live_readiness.progress_style }}" data-full-live-fill></div>
-    </div>
-
-    <div class="progress-grid data-load-grid">
-      <div>
-        <span class="metric-label">Verdict</span>
-        <strong data-full-live-verdict>{{ full_live_readiness.verdict | replace("_", " ") | title }}</strong>
-      </div>
-      <div>
-        <span class="metric-label">Core Data</span>
-        <strong data-full-live-core>{{ full_live_readiness.coverage.core_dataset_percent }}%</strong>
-      </div>
-      <div>
-        <span class="metric-label">Critical Agents</span>
-        <strong data-full-live-lanes>{{ full_live_readiness.coverage.critical_lane_percent }}%</strong>
-      </div>
-      <div>
-        <span class="metric-label">Universe</span>
-        <strong data-full-live-universe>{{ full_live_readiness.coverage.expected_ticker_count }} tickers</strong>
-      </div>
-      <div>
-        <span class="metric-label">Refresh</span>
-        <strong data-full-live-refresh>{{ full_live_readiness.active_refresh.status_label }}</strong>
-      </div>
-      <div>
-        <span class="metric-label">ETA</span>
-        <strong data-full-live-eta>{{ full_live_readiness.active_refresh.eta_label }}</strong>
-      </div>
-    </div>
-
-    {% set system_card = full_live_readiness.command_map.system %}
-    {% set freshness_card = full_live_readiness.command_map.freshness %}
-    {% set agents_card = full_live_readiness.command_map.agents %}
-    {% set loading_card = full_live_readiness.command_map.loading %}
-    <div class="command-status-grid" aria-label="Operational readiness summary">
-      <article class="command-status-card command-status-{{ system_card.status_class }}" data-command-card="system">
-        <span class="metric-label">System</span>
-        <strong data-full-live-system>{{ system_card.value }}</strong>
-        <p data-full-live-system-detail>{{ system_card.detail }}</p>
-      </article>
-      <article class="command-status-card command-status-{{ freshness_card.status_class }}" data-command-card="freshness">
-        <span class="metric-label">Data Freshness</span>
-        <strong data-full-live-freshness>{{ freshness_card.value }}</strong>
-        <p data-full-live-freshness-detail>{{ freshness_card.detail }}</p>
-      </article>
-      <article class="command-status-card command-status-{{ agents_card.status_class }}" data-command-card="agents">
-        <span class="metric-label">Agents</span>
-        <strong data-full-live-agents>{{ agents_card.value }}</strong>
-        <p data-full-live-agents-detail>{{ agents_card.detail }}</p>
-      </article>
-      <article class="command-status-card command-status-{{ loading_card.status_class }}" data-command-card="loading">
-        <span class="metric-label">Loading</span>
-        <strong data-full-live-loading>{{ loading_card.value }}</strong>
-        <p data-full-live-loading-detail>{{ loading_card.detail }}</p>
-      </article>
-    </div>
-
-    <p class="panel-note" data-full-live-detail>{{ full_live_readiness.detail }}</p>
-
-    <div class="ops-grid">
-      <div>
-        <h3>Next Action</h3>
-        <ol class="next-action-list">
-          {% for action in full_live_readiness.next_action_rows %}
-          <li>{{ action }}</li>
-          {% endfor %}
-        </ol>
-      </div>
-      <div>
-        <h3>Provider Usage</h3>
-        <div class="ops-check-list">
-          {% for provider in full_live_readiness.provider_usage_rows %}
-          <div class="ops-check-row">
-            <span class="tag tag-{{ provider.status_class }}">{{ provider.status }}</span>
-            <strong>{{ provider.label }}</strong>
-            <span>{{ provider.detail }}</span>
-          </div>
-          {% endfor %}
-        </div>
-      </div>
-    </div>
-
-    <details class="data-load-issues">
-      <summary>Inspect full-live blockers, warnings, and refresh jobs</summary>
-      <div class="split-panel data-load-split">
-        <div>
-          <h3>Issues</h3>
-          <div class="ops-check-list">
-            {% for issue in full_live_readiness.issue_rows %}
-            <div class="ops-check-row">
-              <span class="tag tag-warn">{{ issue.kind }}</span>
-              <strong>{{ issue.item }}</strong>
-              <span>{{ issue.reason }}</span>
-            </div>
-            {% else %}
-            <p class="empty-block">No full-live blockers or warnings.</p>
-            {% endfor %}
-          </div>
-        </div>
-        <div>
-          <h3>Refresh Jobs</h3>
-          <div class="ops-check-list">
-            {% for job in full_live_readiness.refresh_job_rows %}
-            <div class="ops-check-row">
-              <span class="tag tag-neutral">{{ job.status }}</span>
-              <strong>{{ job.dataset | replace("_", " ") | title }}</strong>
-              <span>{{ job.reason }}</span>
-            </div>
-            {% else %}
-            <p class="empty-block">No refresh job status file is available.</p>
-            {% endfor %}
-          </div>
-        </div>
-      </div>
-    </details>
-  </section>
-
   <section class="kpi-grid" aria-label="Current metrics">
     <article class="kpi kpi-urgent">
       <span class="metric-label">Needs Review</span>
@@ -213,663 +71,6 @@
       <strong>{{ summary.contract_count }}</strong>
       <p>schema checks loaded</p>
     </article>
-  </section>
-
-  <section
-    class="panel data-load-panel"
-    aria-labelledby="data-load-heading"
-    data-load-panel
-    data-load-endpoint="/status/data-load"
-    data-load-state="{{ data_load_status.state }}"
-  >
-    <div class="section-heading">
-      <div>
-        <h2 id="data-load-heading">Agency Data Readiness</h2>
-        <p class="section-subtitle" data-load-headline>{{ data_load_status.headline }}</p>
-      </div>
-      <span class="tag tag-{{ data_load_status.status_class }}" data-load-status>
-        {{ data_load_status.status_label }}
-      </span>
-    </div>
-
-    <div
-      class="progress-track data-load-track"
-      role="progressbar"
-      aria-valuemin="0"
-      aria-valuemax="100"
-      aria-valuenow="{{ data_load_status.overall_percent }}"
-      aria-label="Agency data readiness"
-      data-load-track
-    >
-      <div class="progress-fill" style="{{ data_load_status.progress_style }}" data-load-fill></div>
-    </div>
-
-    <div class="progress-grid data-load-grid">
-      <div>
-        <span class="metric-label">Overall Ready</span>
-        <strong data-load-overall>{{ data_load_status.overall_percent }}%</strong>
-      </div>
-      <div>
-        <span class="metric-label">Core Data</span>
-        <strong data-load-core>{{ data_load_status.core_dataset_percent }}%</strong>
-      </div>
-      <div>
-        <span class="metric-label">Critical Agents</span>
-        <strong data-load-lanes>{{ data_load_status.critical_lane_percent }}%</strong>
-      </div>
-      <div>
-        <span class="metric-label">Universe</span>
-        <strong data-load-universe>{{ data_load_status.expected_ticker_count }} tickers</strong>
-      </div>
-      <div>
-        <span class="metric-label">Cycle</span>
-        <strong data-load-cycle>{{ data_load_status.cycle_id }}</strong>
-      </div>
-      <div>
-        <span class="metric-label">Signals</span>
-        <strong data-load-signals>{{ data_load_status.signal_count }}</strong>
-      </div>
-    </div>
-
-    <p class="panel-note" data-load-detail>{{ data_load_status.detail }}</p>
-    <div class="data-load-status-strip" aria-label="Load status summary">
-      <span>As of <strong data-load-asof>{{ data_load_status.as_of }}</strong></span>
-      <span><strong data-load-blockers>{{ data_load_status.blocker_count }}</strong> blockers</span>
-      <span><strong data-load-warnings>{{ data_load_status.warning_count }}</strong> warnings</span>
-      <span>Refresh ETA <strong data-load-eta>{{ data_load_status.progress.eta_label }}</strong></span>
-    </div>
-
-    <div class="freshness-summary-grid" aria-label="Data freshness summary">
-      <article>
-        <span class="metric-label">Source Freshness</span>
-        <strong data-load-source-headline>{{ data_load_status.source_summary.headline }}</strong>
-        <p>
-          <span data-load-fresh-sources>{{ data_load_status.source_summary.fresh_count }}</span> fresh,
-          <span data-load-stale-sources>{{ data_load_status.source_summary.blocked_count }}</span> stale,
-          <span data-load-warning-sources>{{ data_load_status.source_summary.warning_count }}</span> warning.
-        </p>
-      </article>
-      <article>
-        <span class="metric-label">Datasets</span>
-        <strong data-load-dataset-ready>{{ data_load_status.dataset_summary.ready_label }}</strong>
-        <p>
-          <span data-load-dataset-blocked>{{ data_load_status.dataset_summary.blocked_count }}</span> blocked,
-          <span data-load-dataset-warning>{{ data_load_status.dataset_summary.warning_count }}</span> warning.
-        </p>
-      </article>
-      <article>
-        <span class="metric-label">Agent Lanes</span>
-        <strong data-load-agent-ready>{{ data_load_status.agent_summary.critical_ready_label }}</strong>
-        <p>
-          <span data-load-agent-blocked>{{ data_load_status.agent_summary.blocked_count }}</span> blocked,
-          <span data-load-agent-warning>{{ data_load_status.agent_summary.warning_count }}</span> warning.
-        </p>
-      </article>
-    </div>
-
-    <details class="data-load-details">
-      <summary>Inspect dataset, freshness, and agent-lane coverage</summary>
-      <div class="split-panel data-load-split">
-        <div>
-          <h3>Datasets</h3>
-          <div class="table-wrap data-load-table">
-            <table>
-              <thead>
-                <tr>
-                  <th>Dataset</th>
-                  <th>Status</th>
-                  <th>Coverage</th>
-                  <th>Freshness</th>
-                  <th>Rows / As-of</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for row in data_load_status.dataset_rows %}
-                <tr>
-                  <td>
-                    <strong>{{ row.name }}</strong>
-                    <span>{{ row.detail }}</span>
-                  </td>
-                  <td><span class="tag tag-{{ row.status_class }}">{{ row.status_label }}</span></td>
-                  <td>
-                    <div class="mini-meter" aria-label="{{ row.coverage_pct }}% coverage">
-                      <span style="{{ row.coverage_style }}"></span>
-                    </div>
-                    <span>{{ row.coverage_pct }}% &middot; {{ row.count_label }}</span>
-                  </td>
-                  <td>
-                    <span class="tag tag-{{ row.status_class }}">{{ row.source_freshness }}</span>
-                    <span>{{ row.source_status }}</span>
-                  </td>
-                  <td>
-                    <span>{{ row.row_count }}</span>
-                    <span>{{ row.max_as_of }}</span>
-                  </td>
-                </tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div>
-          <h3>Agent Lanes</h3>
-          <div class="table-wrap data-load-table">
-            <table>
-              <thead>
-                <tr>
-                  <th>Lane</th>
-                  <th>Status</th>
-                  <th>Coverage</th>
-                  <th>Interpretation</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for row in data_load_status.lane_rows %}
-                <tr>
-                  <td>
-                    <strong>{{ row.name }}</strong>
-                    <span>{{ row.group_label }}</span>
-                  </td>
-                  <td><span class="tag tag-{{ row.status_class }}">{{ row.status_label }}</span></td>
-                  <td>
-                    <div class="mini-meter" aria-label="{{ row.coverage_pct }}% coverage">
-                      <span style="{{ row.coverage_style }}"></span>
-                    </div>
-                    <span>{{ row.coverage_pct }}% &middot; {{ row.count_label }}</span>
-                  </td>
-                  <td>{{ row.detail }}</td>
-                </tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-      <div class="table-wrap data-load-table freshness-table">
-        <table>
-          <thead>
-            <tr>
-              <th>Source</th>
-              <th>Status</th>
-              <th>Freshness</th>
-              <th>Last Success</th>
-              <th>Meaning</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for row in data_load_status.freshness_rows %}
-            <tr>
-              <td>
-                <strong>{{ row.label }}</strong>
-                <span>{{ row.critical }}</span>
-              </td>
-              <td><span class="tag tag-{{ row.status_class }}">{{ row.status }}</span></td>
-              <td>{{ row.freshness }}</td>
-              <td>{{ row.last_success_at }}</td>
-              <td>{{ row.detail }}</td>
-            </tr>
-            {% else %}
-            <tr>
-              <td class="empty-row" colspan="5">No source freshness rows are available.</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </details>
-
-    <details class="data-load-issues">
-      <summary>Readiness issues and caveats</summary>
-      <div class="ops-check-list">
-        {% for issue in data_load_status.issue_rows %}
-        <div class="ops-check-row">
-          <span class="tag tag-warn">{{ issue.kind }}</span>
-          <strong>{{ issue.item }}</strong>
-          <span>{{ issue.reason }}</span>
-        </div>
-        {% else %}
-        <p class="empty-block">No data-load blockers or warnings in the latest cycle.</p>
-        {% endfor %}
-      </div>
-    </details>
-  </section>
-
-  <section
-    class="panel scheduler-panel"
-    aria-labelledby="scheduler-heading"
-    data-scheduler-panel
-    data-scheduler-endpoint="/status/scheduler-work-queue"
-  >
-    <div class="section-heading">
-      <div>
-        <h2 id="scheduler-heading">Scheduler Work Queue</h2>
-        <p class="section-subtitle" data-scheduler-headline>{{ scheduler.headline }}</p>
-      </div>
-      <span class="tag tag-{{ scheduler.status_class }}" data-scheduler-status>
-        {{ scheduler.status_label }}
-      </span>
-    </div>
-
-    <div class="readiness-grid">
-      <div>
-        <span class="metric-label">Market Phase</span>
-        <strong data-scheduler-phase>{{ scheduler.market_phase | replace("_", " ") | title }}</strong>
-      </div>
-      <div>
-        <span class="metric-label">Due Now</span>
-        <strong data-scheduler-due>{{ scheduler.summary.counts.due_now }}</strong>
-      </div>
-      <div>
-        <span class="metric-label">Running</span>
-        <strong data-scheduler-running>{{ scheduler.summary.counts.running }}</strong>
-      </div>
-      <div>
-        <span class="metric-label">Baseline Repair</span>
-        <strong data-scheduler-repair>{{ scheduler.repair.status_label }}</strong>
-      </div>
-    </div>
-
-    <p class="panel-note" data-scheduler-detail>{{ scheduler.tradability_detail }}</p>
-
-    <div class="split-panel scheduler-split">
-      <div>
-        <h3>Next Jobs</h3>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Job</th>
-                <th>Status</th>
-                <th>Tier</th>
-                <th>Cadence</th>
-                <th>ETA</th>
-                <th>Reason</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for job in scheduler.next_job_rows %}
-              <tr>
-                <td>
-                  <strong>{{ job.name | replace("_", " ") | title }}</strong>
-                  <span>{{ job.kind | replace("_", " ") }}</span>
-                </td>
-                <td><span class="tag tag-{{ job.status_class }}">{{ job.status }}</span></td>
-                <td>{{ job.ticker_tier }} &middot; {{ job.ticker_count }} tickers</td>
-                <td>{{ job.cadence_minutes or "event" }}</td>
-                <td>{{ job.eta_label }}</td>
-                <td>{{ job.reason }}</td>
-              </tr>
-              {% else %}
-              <tr>
-                <td class="empty-row" colspan="6">No immediate scheduler jobs are due.</td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <div>
-        <h3>Tier Manager</h3>
-        <div class="ops-check-list">
-          {% for tier in scheduler.tier_rows %}
-          <div class="ops-check-row">
-            <span class="tag tag-neutral">{{ tier.name }}</span>
-            <strong>{{ tier.count }} tickers</strong>
-            <span>{{ tier.detail }}{% if tier.sample %} Sample: {{ tier.sample | join(", ") }}{% endif %}</span>
-          </div>
-          {% endfor %}
-        </div>
-      </div>
-    </div>
-
-    <details class="data-load-details">
-      <summary>Inspect stale data, repair jobs, and execution freshness</summary>
-      <div class="split-panel scheduler-split">
-        <div>
-          <h3>Stale Or Warning Datasets</h3>
-          <div class="ops-check-list">
-            {% for row in scheduler.stale_rows %}
-            <div class="ops-check-row">
-              <span class="tag tag-{{ row.status_class }}">{{ row.status }}</span>
-              <strong>{{ row.dataset | replace("_", " ") | title }}</strong>
-              <span>{{ row.reason }}</span>
-            </div>
-            {% else %}
-            <p class="empty-block">No stale scheduler dataset rows are currently flagged.</p>
-            {% endfor %}
-          </div>
-        </div>
-        <div>
-          <h3>Execution Freshness Gate</h3>
-          <div class="ops-check-list">
-            {% for check in scheduler.freshness_checks %}
-            <div class="ops-check-row">
-              <span class="tag tag-{{ check.status_class }}">{{ check.status }}</span>
-              <strong>{{ check.label }}</strong>
-              <span>{{ check.detail }}</span>
-            </div>
-            {% endfor %}
-          </div>
-        </div>
-      </div>
-    </details>
-  </section>
-
-  <section class="panel operational-panel" aria-labelledby="operational-heading">
-    <div class="section-heading">
-      <div>
-        <h2 id="operational-heading">Operational Checklist</h2>
-        <p class="section-subtitle">The first-version gate before you start paper review.</p>
-      </div>
-      <span class="tag tag-{{ operational_readiness.status_class }}">
-        {{ operational_readiness.status_label }}
-      </span>
-    </div>
-
-    <div class="readiness-grid">
-      <div>
-        <span class="metric-label">Mode</span>
-        <strong>{{ operational_readiness.mode }}</strong>
-      </div>
-      <div>
-        <span class="metric-label">Blockers</span>
-        <strong>{{ operational_readiness.blocker_count }}</strong>
-      </div>
-      <div>
-        <span class="metric-label">Warnings</span>
-        <strong>{{ operational_readiness.warning_count }}</strong>
-      </div>
-      <div>
-        <span class="metric-label">Order Submission</span>
-        <strong>{{ operational_readiness.broker_execution_label }}</strong>
-      </div>
-    </div>
-
-    <div class="ops-grid">
-      <div>
-        <h3>Next Action</h3>
-        <ol class="next-action-list">
-          {% for action in operational_readiness.next_action_rows %}
-          <li>{{ action }}</li>
-          {% endfor %}
-        </ol>
-      </div>
-      <div>
-        <h3>Gate Checks</h3>
-        <div class="ops-check-list">
-          {% for check in operational_readiness.check_rows %}
-          <div class="ops-check-row">
-            <span class="tag tag-{{ check.status_class }}">{{ check.status }}</span>
-            <strong>{{ check.label }}</strong>
-            <span>{{ check.detail }}</span>
-          </div>
-          {% endfor %}
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <section
-    class="panel progress-panel"
-    aria-labelledby="data-refresh-heading"
-    data-progress-panel
-    data-progress-endpoint="/status/data-refresh"
-    data-loading-state="{{ data_refresh.state }}"
-  >
-    <div class="section-heading">
-      <h2 id="data-refresh-heading">Data Loading</h2>
-      <span class="tag tag-{{ data_refresh.status_class }}" data-progress-status>
-        {{ data_refresh.status_label }}
-      </span>
-    </div>
-    <div
-      class="progress-track"
-      role="progressbar"
-      aria-valuemin="0"
-      aria-valuemax="100"
-      aria-valuenow="{{ data_refresh.percent_complete }}"
-      aria-label="Data loading progress"
-      data-progress-track
-    >
-      <div class="progress-fill" style="{{ data_refresh.progress_style }}" data-progress-fill></div>
-    </div>
-    <div class="progress-grid">
-      <div>
-        <span class="metric-label">Progress</span>
-        <strong data-progress-percent>{{ data_refresh.percent_complete }}%</strong>
-      </div>
-      <div>
-        <span class="metric-label">Dataset</span>
-        <strong data-progress-current>{{ data_refresh.current_dataset }}</strong>
-      </div>
-      <div>
-        <span class="metric-label">Jobs</span>
-        <strong data-progress-jobs>{{ data_refresh.completed_jobs }}/{{ data_refresh.total_jobs }}</strong>
-      </div>
-      <div>
-        <span class="metric-label">ETA</span>
-        <strong data-progress-eta>{{ data_refresh.eta_label }}</strong>
-      </div>
-    </div>
-
-    {% if data_refresh.has_failures %}
-    <div class="ops-check-row" style="margin-top:0.75rem">
-      <span class="tag tag-block">Failed</span>
-      <strong>Dataset failure{{ data_refresh.failed_datasets|length > 1 and 's' or '' }}</strong>
-      <span>{{ data_refresh.failed_datasets | join(', ') }} did not complete — check logs and re-run refresh.</span>
-    </div>
-    {% endif %}
-
-    {% set trade_pull = data_refresh.trade_pull %}
-    <article
-      class="trade-pull-card"
-      data-trade-pull
-      data-trade-state="{{ trade_pull.state }}"
-      aria-label="Massive trade pull status"
-    >
-      <div class="trade-pull-head">
-        <div>
-          <span class="metric-label">Massive Trade Pull</span>
-          <h3 data-trade-headline>{{ trade_pull.status_label }}</h3>
-        </div>
-        <span class="tag tag-{{ trade_pull.status_class }}" data-trade-status>
-          {{ trade_pull.status_label }}
-        </span>
-      </div>
-      <div
-        class="progress-track trade-pull-track"
-        role="progressbar"
-        aria-valuemin="0"
-        aria-valuemax="100"
-        aria-valuenow="{{ trade_pull.percent_complete }}"
-        aria-label="Massive trade pull progress"
-        data-trade-track
-      >
-        <div class="progress-fill" style="{{ trade_pull.progress_style }}" data-trade-fill></div>
-      </div>
-      <div class="trade-pull-metrics">
-        <div>
-          <span class="metric-label">Progress</span>
-          <strong data-trade-percent>{{ trade_pull.percent_complete }}%</strong>
-          <span data-trade-ticker-days>{{ trade_pull.ticker_progress_label }}</span>
-        </div>
-        <div>
-          <span class="metric-label">Active Ticker</span>
-          <strong data-trade-current>{{ trade_pull.current_ticker }}</strong>
-          <span data-trade-current-date>{{ trade_pull.current_trade_date }}</span>
-        </div>
-        <div>
-          <span class="metric-label">Current Page Rows</span>
-          <strong data-trade-current-rows>{{ trade_pull.current_rows_downloaded }}</strong>
-          <span><span data-trade-current-pages>{{ trade_pull.current_pages_downloaded }}</span> page(s)</span>
-        </div>
-        <div>
-          <span class="metric-label">Stored Trades</span>
-          <strong data-trade-rows>{{ trade_pull.row_count_label }}</strong>
-          <span data-trade-latest>{{ trade_pull.latest_as_of }}</span>
-        </div>
-        <div>
-          <span class="metric-label">Window</span>
-          <strong data-trade-window>{{ trade_pull.window_label }}</strong>
-          <span data-trade-guardrail>{{ trade_pull.guardrail_label }}</span>
-        </div>
-      </div>
-      <p class="panel-note" data-trade-detail>{{ trade_pull.detail }}</p>
-      <p class="muted-line">
-        Trade pull updated: <span data-trade-updated>{{ trade_pull.updated_at }}</span>
-        &middot; <span data-trade-job>{{ trade_pull.job_position_label }}</span>
-      </p>
-    </article>
-
-    <p class="panel-note" data-progress-detail>{{ data_refresh.detail }}</p>
-    <p class="muted-line">Updated: <span data-progress-updated>{{ data_refresh.updated_at }}</span></p>
-  </section>
-
-  <section class="panel" aria-labelledby="live-config-heading">
-    <div class="section-heading">
-      <h2 id="live-config-heading">Live Config</h2>
-      <span class="tag tag-{{ live_config.status_class }}">{{ live_config.status_label }}</span>
-    </div>
-    <div class="readiness-grid">
-      <div>
-        <span class="metric-label">Provider</span>
-        <strong>{{ live_config.provider }}</strong>
-      </div>
-      <div>
-        <span class="metric-label">Datasets</span>
-        <strong>{{ live_config.dataset_count }}</strong>
-      </div>
-      <div>
-        <span class="metric-label">Tickers</span>
-        <strong>{{ live_config.ticker_count }}</strong>
-      </div>
-      <div>
-        <span class="metric-label">Blockers</span>
-        <strong>{{ live_config.blocker_count }}</strong>
-      </div>
-    </div>
-    <p class="panel-note">Config: {{ live_config.config_path }}</p>
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Check</th>
-            <th>Status</th>
-            <th>Detail</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for check in live_config.check_rows %}
-          <tr>
-            <td>{{ check.label }}</td>
-            <td><span class="tag tag-{{ check.status_class }}">{{ check.status }}</span></td>
-            <td>{{ check.detail }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </section>
-
-  <section class="panel" aria-labelledby="provider-readiness-heading">
-    <div class="section-heading">
-      <h2 id="provider-readiness-heading">Provider Readiness</h2>
-      <span class="tag tag-{{ provider_readiness.status_class }}">
-        {{ provider_readiness.status_label }}
-      </span>
-    </div>
-    <div class="readiness-grid">
-      <div>
-        <span class="metric-label">Configured</span>
-        <strong>{{ provider_readiness.configured_count }}/{{ provider_readiness.provider_count }}</strong>
-      </div>
-      <div>
-        <span class="metric-label">Required Now</span>
-        <strong>{{ provider_readiness.active_required_count }}</strong>
-      </div>
-      <div>
-        <span class="metric-label">Missing Required</span>
-        <strong>{{ provider_readiness.blocker_count }}</strong>
-      </div>
-      <div>
-        <span class="metric-label">Warnings</span>
-        <strong>{{ provider_readiness.warning_count }}</strong>
-      </div>
-    </div>
-    <p class="panel-note">Secret values stay local; this panel only reports key names.</p>
-    <div class="provider-list">
-      {% for provider in provider_readiness.provider_rows %}
-      <article class="provider-card provider-card-{{ provider.status_class }}">
-        <div class="provider-card-head">
-          <strong>{{ provider.label }}</strong>
-          <span class="tag tag-{{ provider.status_class }}">{{ provider.status }}</span>
-        </div>
-        <p>{{ provider.purpose }}</p>
-        <div class="provider-card-meta">
-          <div>
-            <span class="metric-label">Keys</span>
-            <strong>{{ provider.key_label }}</strong>
-          </div>
-          <div>
-            <span class="metric-label">Detail</span>
-            <strong>{{ provider.detail }}</strong>
-          </div>
-        </div>
-      </article>
-      {% endfor %}
-    </div>
-  </section>
-
-  <section class="panel" aria-labelledby="readiness-heading">
-    <div class="section-heading">
-      <h2 id="readiness-heading">Live Readiness</h2>
-      <span class="tag tag-{{ readiness.status_class }}">{{ readiness.verdict_label }}</span>
-    </div>
-    <div class="readiness-grid">
-      <div>
-        <span class="metric-label">Cycle</span>
-        <strong>{{ readiness.cycle_id or "None" }}</strong>
-      </div>
-      <div>
-        <span class="metric-label">Reviewable</span>
-        <strong>{{ readiness.reviewable_candidate_count }}</strong>
-      </div>
-      <div>
-        <span class="metric-label">Open Risk</span>
-        <strong>{{ readiness.open_risk_decision_count }}</strong>
-      </div>
-      <div>
-        <span class="metric-label">Blockers</span>
-        <strong>{{ readiness.blockers | length }}</strong>
-      </div>
-    </div>
-    <p class="panel-note">{{ readiness.detail }}</p>
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Blocker</th>
-            <th>Item</th>
-            <th>Reason</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for blocker in readiness.blocker_rows %}
-          <tr>
-            <td><span class="tag tag-{{ blocker.status_class }}">{{ blocker.kind }}</span></td>
-            <td>{{ blocker.item }}</td>
-            <td>{{ blocker.reason }}</td>
-          </tr>
-          {% else %}
-          <tr>
-            <td class="empty-row" colspan="3">No readiness blockers</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
   </section>
 
   <section class="panel" aria-labelledby="review-queue-heading">
@@ -910,6 +111,16 @@
             <span>{{ item.reason }}</span>
           </div>
           <span class="tag tag-{{ item.review_class }}">{{ item.review_state }}</span>
+        </div>
+
+        <div class="review-card-state">
+          {% if item.human_review_decision == "PENDING" and item.risk_decision not in ("BLOCK", "BLOCKED", "NO_TRADE") and item.review_class != "block" %}
+            <span class="tag tag-urgent">Ready to review</span>
+          {% elif item.risk_decision in ("BLOCK", "BLOCKED", "NO_TRADE") or item.review_class == "block" %}
+            <span class="tag tag-block">Blocked by risk</span>
+          {% else %}
+            <span class="tag tag-{{ item.review_class }}">{{ item.human_review_decision }}</span>
+          {% endif %}
         </div>
 
         <div class="review-card-metrics">
@@ -958,6 +169,858 @@
       <p class="empty-block">No reviewable paper candidates for the latest cycle</p>
       {% endfor %}
     </div>
+  </section>
+
+  <section class="panel system-status-panel" aria-labelledby="system-status-heading">
+    <div class="section-heading">
+      <h2 id="system-status-heading">System Status</h2>
+      <span class="tag tag-{{ data_load_status.status_class }}">{{ data_load_status.status_label }}</span>
+    </div>
+    <div class="ops-check-list">
+      <div class="ops-check-row">
+        <span class="tag tag-{{ data_load_status.status_class }}">{{ data_load_status.status_label }}</span>
+        <strong>Data</strong>
+        <span>{{ data_load_status.overall_percent }}% ready &middot; {{ data_load_status.source_summary.fresh_count }} fresh sources</span>
+      </div>
+      <div class="ops-check-row">
+        <span class="tag tag-{{ scheduler.status_class }}">{{ scheduler.status_label }}</span>
+        <strong>Agents</strong>
+        <span>{{ scheduler.summary.counts.running }} running &middot; {{ scheduler.summary.counts.due_now }} due now</span>
+      </div>
+      <div class="ops-check-row">
+        <span class="tag tag-{{ provider_readiness.status_class }}">{{ provider_readiness.status_label }}</span>
+        <strong>Broker</strong>
+        <span>{{ provider_readiness.configured_count }}/{{ provider_readiness.provider_count }} providers configured</span>
+      </div>
+    </div>
+    <details class="data-load-details">
+      <summary>Inspect operational detail</summary>
+
+      <section
+        class="panel full-live-panel"
+        aria-labelledby="full-live-heading"
+        data-full-live-panel
+        data-full-live-endpoint="/status/full-live-readiness"
+      >
+        <div class="section-heading">
+          <div>
+            <h2 id="full-live-heading">Full-Live Readiness</h2>
+            <p class="section-subtitle" data-full-live-headline>{{ full_live_readiness.headline }}</p>
+          </div>
+          <span class="tag tag-{{ full_live_readiness.status_class }}" data-full-live-status>
+            {{ full_live_readiness.status_label }}
+          </span>
+        </div>
+
+        <div
+          class="progress-track data-load-track"
+          role="progressbar"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          aria-valuenow="{{ full_live_readiness.coverage.overall_percent }}"
+          aria-label="Full-live readiness"
+          data-full-live-track
+        >
+          <div class="progress-fill" style="{{ full_live_readiness.progress_style }}" data-full-live-fill></div>
+        </div>
+
+        <div class="progress-grid data-load-grid">
+          <div>
+            <span class="metric-label">Verdict</span>
+            <strong data-full-live-verdict>{{ full_live_readiness.verdict | replace("_", " ") | title }}</strong>
+          </div>
+          <div>
+            <span class="metric-label">Scope</span>
+            <strong data-full-live-scope>{{ full_live_readiness.readiness_scope_label }}</strong>
+          </div>
+          <div>
+            <span class="metric-label">Trading Gate</span>
+            <strong data-full-live-tradable>{{ "Ready" if full_live_readiness.tradable_ready else "Gated" }}</strong>
+          </div>
+          <div>
+            <span class="metric-label">Core Data</span>
+            <strong data-full-live-core>{{ full_live_readiness.coverage.core_dataset_percent }}%</strong>
+          </div>
+          <div>
+            <span class="metric-label">Critical Agents</span>
+            <strong data-full-live-lanes>{{ full_live_readiness.coverage.critical_lane_percent }}%</strong>
+          </div>
+          <div>
+            <span class="metric-label">Universe</span>
+            <strong data-full-live-universe>{{ full_live_readiness.coverage.expected_ticker_count }} tickers</strong>
+          </div>
+          <div>
+            <span class="metric-label">Refresh</span>
+            <strong data-full-live-refresh>{{ full_live_readiness.active_refresh.status_label }}</strong>
+          </div>
+          <div>
+            <span class="metric-label">ETA</span>
+            <strong data-full-live-eta>{{ full_live_readiness.active_refresh.eta_label }}</strong>
+          </div>
+        </div>
+
+        {% set system_card = full_live_readiness.command_map.system %}
+        {% set freshness_card = full_live_readiness.command_map.freshness %}
+        {% set agents_card = full_live_readiness.command_map.agents %}
+        {% set loading_card = full_live_readiness.command_map.loading %}
+        <div class="command-status-grid" aria-label="Operational readiness summary">
+          <article class="command-status-card command-status-{{ system_card.status_class }}" data-command-card="system">
+            <span class="metric-label">System</span>
+            <strong data-full-live-system>{{ system_card.value }}</strong>
+            <p data-full-live-system-detail>{{ system_card.detail }}</p>
+          </article>
+          <article class="command-status-card command-status-{{ freshness_card.status_class }}" data-command-card="freshness">
+            <span class="metric-label">Data Freshness</span>
+            <strong data-full-live-freshness>{{ freshness_card.value }}</strong>
+            <p data-full-live-freshness-detail>{{ freshness_card.detail }}</p>
+          </article>
+          <article class="command-status-card command-status-{{ agents_card.status_class }}" data-command-card="agents">
+            <span class="metric-label">Agents</span>
+            <strong data-full-live-agents>{{ agents_card.value }}</strong>
+            <p data-full-live-agents-detail>{{ agents_card.detail }}</p>
+          </article>
+          <article class="command-status-card command-status-{{ loading_card.status_class }}" data-command-card="loading">
+            <span class="metric-label">Loading</span>
+            <strong data-full-live-loading>{{ loading_card.value }}</strong>
+            <p data-full-live-loading-detail>{{ loading_card.detail }}</p>
+          </article>
+        </div>
+
+        <p class="panel-note" data-full-live-detail>{{ full_live_readiness.detail }}</p>
+
+        <div class="ops-grid">
+          <div>
+            <h3>Next Action</h3>
+            <ol class="next-action-list">
+              {% for action in full_live_readiness.next_action_rows %}
+              <li>{{ action }}</li>
+              {% endfor %}
+            </ol>
+          </div>
+          <div>
+            <h3>Provider Usage</h3>
+            <div class="ops-check-list">
+              {% for provider in full_live_readiness.provider_usage_rows %}
+              <div class="ops-check-row">
+                <span class="tag tag-{{ provider.status_class }}">{{ provider.status }}</span>
+                <strong>{{ provider.label }}</strong>
+                <span>{{ provider.detail }}</span>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+
+        <details class="data-load-issues">
+          <summary>Inspect full-live blockers, warnings, and refresh jobs</summary>
+          <div class="split-panel data-load-split">
+            <div>
+              <h3>Issues</h3>
+              <div class="ops-check-list">
+                {% for issue in full_live_readiness.issue_rows %}
+                <div class="ops-check-row">
+                  <span class="tag tag-{{ issue.status_class }}">{{ issue.kind }}</span>
+                  <strong>{{ issue.item }}</strong>
+                  <span>{{ issue.reason }}</span>
+                </div>
+                {% else %}
+                <p class="empty-block">No full-live blockers or warnings.</p>
+                {% endfor %}
+              </div>
+            </div>
+            <div>
+              <h3>Refresh Jobs</h3>
+              <div class="ops-check-list">
+                {% for job in full_live_readiness.refresh_job_rows %}
+                <div class="ops-check-row">
+                  <span class="tag tag-neutral">{{ job.status }}</span>
+                  <strong>{{ job.dataset | replace("_", " ") | title }}</strong>
+                  <span>{{ job.reason }}</span>
+                </div>
+                {% else %}
+                <p class="empty-block">No refresh job status file is available.</p>
+                {% endfor %}
+              </div>
+            </div>
+          </div>
+        </details>
+      </section>
+
+      <section
+        class="panel data-load-panel"
+        aria-labelledby="data-load-heading"
+        data-load-panel
+        data-load-endpoint="/status/data-load"
+        data-load-state="{{ data_load_status.state }}"
+      >
+        <div class="section-heading">
+          <div>
+            <h2 id="data-load-heading">Agency Data Readiness</h2>
+            <p class="section-subtitle" data-load-headline>{{ data_load_status.headline }}</p>
+          </div>
+          <span class="tag tag-{{ data_load_status.status_class }}" data-load-status>
+            {{ data_load_status.status_label }}
+          </span>
+        </div>
+
+        <div
+          class="progress-track data-load-track"
+          role="progressbar"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          aria-valuenow="{{ data_load_status.overall_percent }}"
+          aria-label="Agency data readiness"
+          data-load-track
+        >
+          <div class="progress-fill" style="{{ data_load_status.progress_style }}" data-load-fill></div>
+        </div>
+
+        <div class="progress-grid data-load-grid">
+          <div>
+            <span class="metric-label">Overall Ready</span>
+            <strong data-load-overall>{{ data_load_status.overall_percent }}%</strong>
+          </div>
+          <div>
+            <span class="metric-label">Mode</span>
+            <strong data-load-mode>{{ data_load_status.mode_label }}</strong>
+          </div>
+          <div>
+            <span class="metric-label">Market Flow</span>
+            <strong data-load-market-flow>{{ data_load_status.market_flow_summary.status_label }}</strong>
+          </div>
+          <div>
+            <span class="metric-label">Core Data</span>
+            <strong data-load-core>{{ data_load_status.core_dataset_percent }}%</strong>
+          </div>
+          <div>
+            <span class="metric-label">Critical Agents</span>
+            <strong data-load-lanes>{{ data_load_status.critical_lane_percent }}%</strong>
+          </div>
+          <div>
+            <span class="metric-label">Universe</span>
+            <strong data-load-universe>{{ data_load_status.expected_ticker_count }} tickers</strong>
+          </div>
+          <div>
+            <span class="metric-label">Cycle</span>
+            <strong data-load-cycle>{{ data_load_status.cycle_id }}</strong>
+          </div>
+          <div>
+            <span class="metric-label">Signals</span>
+            <strong data-load-signals>{{ data_load_status.signal_count }}</strong>
+          </div>
+        </div>
+
+        <p class="panel-note" data-load-detail>{{ data_load_status.detail }}</p>
+        <div class="data-load-status-strip" aria-label="Load status summary">
+          <span>As of <strong data-load-asof>{{ data_load_status.as_of }}</strong></span>
+          <span>Status checked <strong data-load-checked>{{ data_load_status.status_checked_at }}</strong></span>
+          <span><strong data-load-blockers>{{ data_load_status.blocker_count }}</strong> blockers</span>
+          <span><strong data-load-warnings>{{ data_load_status.warning_count }}</strong> warnings</span>
+          <span>Refresh ETA <strong data-load-eta>{{ data_load_status.progress.eta_label }}</strong></span>
+        </div>
+
+        <div class="freshness-summary-grid" aria-label="Data freshness summary">
+          <article>
+            <span class="metric-label">Source Freshness</span>
+            <strong data-load-source-headline>{{ data_load_status.source_summary.headline }}</strong>
+            <p>
+              <span data-load-fresh-sources>{{ data_load_status.source_summary.fresh_count }}</span> fresh,
+              <span data-load-stale-sources>{{ data_load_status.source_summary.blocked_count }}</span> stale,
+              <span data-load-warning-sources>{{ data_load_status.source_summary.warning_count }}</span> warning.
+            </p>
+          </article>
+          <article>
+            <span class="metric-label">Datasets</span>
+            <strong data-load-dataset-ready>{{ data_load_status.dataset_summary.ready_label }}</strong>
+            <p>
+              <span data-load-dataset-blocked>{{ data_load_status.dataset_summary.blocked_count }}</span> blocked,
+              <span data-load-dataset-warning>{{ data_load_status.dataset_summary.warning_count }}</span> warning.
+            </p>
+          </article>
+          <article>
+            <span class="metric-label">Agent Lanes</span>
+            <strong data-load-agent-ready>{{ data_load_status.agent_summary.critical_ready_label }}</strong>
+            <p>
+              <span data-load-agent-blocked>{{ data_load_status.agent_summary.blocked_count }}</span> blocked,
+              <span data-load-agent-warning>{{ data_load_status.agent_summary.warning_count }}</span> warning.
+            </p>
+          </article>
+        </div>
+
+        <details class="data-load-details">
+          <summary>Inspect dataset, freshness, and agent-lane coverage</summary>
+          <div class="split-panel data-load-split">
+            <div>
+              <h3>Datasets</h3>
+              <div class="table-wrap data-load-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Dataset</th>
+                      <th>Status</th>
+                      <th>Coverage</th>
+                      <th>Freshness</th>
+                      <th>Rows / As-of</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for row in data_load_status.dataset_rows %}
+                    <tr>
+                      <td>
+                        <strong>{{ row.name }}</strong>
+                        <span>{{ row.detail }}</span>
+                      </td>
+                      <td><span class="tag tag-{{ row.status_class }}">{{ row.status_label }}</span></td>
+                      <td>
+                        <div class="mini-meter" aria-label="{{ row.coverage_pct }}% coverage">
+                          <span style="{{ row.coverage_style }}"></span>
+                        </div>
+                        <span>{{ row.coverage_pct }}% &middot; {{ row.count_label }}</span>
+                      </td>
+                      <td>
+                        <span class="tag tag-{{ row.status_class }}">{{ row.source_freshness }}</span>
+                        <span>{{ row.source_status }}</span>
+                      </td>
+                      <td>
+                        <span>{{ row.row_count }}</span>
+                        <span>{{ row.max_as_of }}</span>
+                      </td>
+                    </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div>
+              <h3>Agent Lanes</h3>
+              <div class="table-wrap data-load-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Lane</th>
+                      <th>Status</th>
+                      <th>Coverage</th>
+                      <th>Interpretation</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for row in data_load_status.lane_rows %}
+                    <tr>
+                      <td>
+                        <strong>{{ row.name }}</strong>
+                        <span>{{ row.group_label }}</span>
+                      </td>
+                      <td><span class="tag tag-{{ row.status_class }}">{{ row.status_label }}</span></td>
+                      <td>
+                        <div class="mini-meter" aria-label="{{ row.coverage_pct }}% coverage">
+                          <span style="{{ row.coverage_style }}"></span>
+                        </div>
+                        <span>{{ row.coverage_pct }}% &middot; {{ row.count_label }}</span>
+                      </td>
+                      <td>{{ row.detail }}</td>
+                    </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+          <div class="table-wrap data-load-table freshness-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>Source</th>
+                  <th>Status</th>
+                  <th>Freshness</th>
+                  <th>Last Success</th>
+                  <th>Checked</th>
+                  <th>Meaning</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in data_load_status.freshness_rows %}
+                <tr>
+                  <td>
+                    <strong>{{ row.label }}</strong>
+                    <span>{{ row.critical }}</span>
+                  </td>
+                  <td><span class="tag tag-{{ row.status_class }}">{{ row.status }}</span></td>
+                  <td>{{ row.freshness }}</td>
+                  <td>{{ row.last_success_at }}</td>
+                  <td>{{ row.checked_at }}</td>
+                  <td>{{ row.detail }}</td>
+                </tr>
+                {% else %}
+                <tr>
+                  <td class="empty-row" colspan="6">No source freshness rows are available.</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </details>
+
+        <details class="data-load-issues">
+          <summary>Readiness issues and caveats</summary>
+          <div class="ops-check-list">
+            {% for issue in data_load_status.issue_rows %}
+            <div class="ops-check-row">
+              <span class="tag tag-{{ issue.status_class }}">{{ issue.kind }}</span>
+              <strong>{{ issue.item }}</strong>
+              <span>{{ issue.reason }}</span>
+            </div>
+            {% else %}
+            <p class="empty-block">No data-load blockers or warnings in the latest cycle.</p>
+            {% endfor %}
+          </div>
+        </details>
+      </section>
+
+      <section
+        class="panel scheduler-panel"
+        aria-labelledby="scheduler-heading"
+        data-scheduler-panel
+        data-scheduler-endpoint="/status/scheduler-work-queue"
+      >
+        <div class="section-heading">
+          <div>
+            <h2 id="scheduler-heading">Scheduler Work Queue</h2>
+            <p class="section-subtitle" data-scheduler-headline>{{ scheduler.headline }}</p>
+          </div>
+          <span class="tag tag-{{ scheduler.status_class }}" data-scheduler-status>
+            {{ scheduler.status_label }}
+          </span>
+        </div>
+
+        <div class="readiness-grid">
+          <div>
+            <span class="metric-label">Market Phase</span>
+            <strong data-scheduler-phase>{{ scheduler.market_phase | replace("_", " ") | title }}</strong>
+          </div>
+          <div>
+            <span class="metric-label">Due Now</span>
+            <strong data-scheduler-due>{{ scheduler.summary.counts.due_now }}</strong>
+          </div>
+          <div>
+            <span class="metric-label">Running</span>
+            <strong data-scheduler-running>{{ scheduler.summary.counts.running }}</strong>
+          </div>
+          <div>
+            <span class="metric-label">Baseline Repair</span>
+            <strong data-scheduler-repair>{{ scheduler.repair.status_label }}</strong>
+          </div>
+          <div>
+            <span class="metric-label">Automation</span>
+            <strong data-scheduler-runtime>{{ scheduler.runtime.status_label }}</strong>
+          </div>
+        </div>
+
+        <p class="panel-note" data-scheduler-detail>
+          {{ scheduler.tradability_detail }} Scheduler: {{ scheduler.runtime.detail }}
+        </p>
+
+        <div class="split-panel scheduler-split">
+          <div>
+            <h3>Next Jobs</h3>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Job</th>
+                    <th>Status</th>
+                    <th>Tier</th>
+                    <th>Cadence</th>
+                    <th>ETA</th>
+                    <th>Reason</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for job in scheduler.next_job_rows %}
+                  <tr>
+                    <td>
+                      <strong>{{ job.name | replace("_", " ") | title }}</strong>
+                      <span>{{ job.kind | replace("_", " ") }}</span>
+                    </td>
+                    <td><span class="tag tag-{{ job.status_class }}">{{ job.status }}</span></td>
+                    <td>{{ job.ticker_tier }} &middot; {{ job.ticker_count }} tickers</td>
+                    <td>{{ job.cadence_minutes or "event" }}</td>
+                    <td>{{ job.eta_label }}</td>
+                    <td>{{ job.reason }}</td>
+                  </tr>
+                  {% else %}
+                  <tr>
+                    <td class="empty-row" colspan="6">No immediate scheduler jobs are due.</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div>
+            <h3>Tier Manager</h3>
+            <div class="ops-check-list">
+              {% for tier in scheduler.tier_rows %}
+              <div class="ops-check-row">
+                <span class="tag tag-neutral">{{ tier.name }}</span>
+                <strong>{{ tier.count }} tickers</strong>
+                <span>{{ tier.detail }}{% if tier.sample %} Sample: {{ tier.sample | join(", ") }}{% endif %}</span>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+
+        <details class="data-load-details">
+          <summary>Inspect stale data, repair jobs, and execution freshness</summary>
+          <div class="split-panel scheduler-split">
+            <div>
+              <h3>Stale Or Warning Datasets</h3>
+              <div class="ops-check-list">
+                {% for row in scheduler.stale_rows %}
+                <div class="ops-check-row">
+                  <span class="tag tag-{{ row.status_class }}">{{ row.status }}</span>
+                  <strong>{{ row.dataset | replace("_", " ") | title }}</strong>
+                  <span>{{ row.reason }}</span>
+                </div>
+                {% else %}
+                <p class="empty-block">No stale scheduler dataset rows are currently flagged.</p>
+                {% endfor %}
+              </div>
+            </div>
+            <div>
+              <h3>Execution Freshness Gate</h3>
+              <div class="ops-check-list">
+                {% for check in scheduler.freshness_checks %}
+                <div class="ops-check-row">
+                  <span class="tag tag-{{ check.status_class }}">{{ check.status }}</span>
+                  <strong>{{ check.label }}</strong>
+                  <span>{{ check.detail }}</span>
+                </div>
+                {% endfor %}
+              </div>
+            </div>
+          </div>
+        </details>
+      </section>
+
+      <section class="panel operational-panel" aria-labelledby="operational-heading">
+        <div class="section-heading">
+          <div>
+            <h2 id="operational-heading">Operational Checklist</h2>
+            <p class="section-subtitle">The first-version gate before you start paper review.</p>
+          </div>
+          <span class="tag tag-{{ operational_readiness.status_class }}">
+            {{ operational_readiness.status_label }}
+          </span>
+        </div>
+
+        <div class="readiness-grid">
+          <div>
+            <span class="metric-label">Mode</span>
+            <strong>{{ operational_readiness.mode }}</strong>
+          </div>
+          <div>
+            <span class="metric-label">Blockers</span>
+            <strong>{{ operational_readiness.blocker_count }}</strong>
+          </div>
+          <div>
+            <span class="metric-label">Warnings</span>
+            <strong>{{ operational_readiness.warning_count }}</strong>
+          </div>
+          <div>
+            <span class="metric-label">Order Submission</span>
+            <strong>{{ operational_readiness.broker_execution_label }}</strong>
+          </div>
+        </div>
+
+        <div class="ops-grid">
+          <div>
+            <h3>Next Action</h3>
+            <ol class="next-action-list">
+              {% for action in operational_readiness.next_action_rows %}
+              <li>{{ action }}</li>
+              {% endfor %}
+            </ol>
+          </div>
+          <div>
+            <h3>Gate Checks</h3>
+            <div class="ops-check-list">
+              {% for check in operational_readiness.check_rows %}
+              <div class="ops-check-row">
+                <span class="tag tag-{{ check.status_class }}">{{ check.status }}</span>
+                <strong>{{ check.label }}</strong>
+                <span>{{ check.detail }}</span>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section
+        class="panel progress-panel"
+        aria-labelledby="data-refresh-heading"
+        data-progress-panel
+        data-progress-endpoint="/status/data-refresh"
+        data-loading-state="{{ data_refresh.state }}"
+      >
+        <div class="section-heading">
+          <h2 id="data-refresh-heading">Data Loading</h2>
+          <span class="tag tag-{{ data_refresh.status_class }}" data-progress-status>
+            {{ data_refresh.status_label }}
+          </span>
+        </div>
+        <div
+          class="progress-track"
+          role="progressbar"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          aria-valuenow="{{ data_refresh.percent_complete }}"
+          aria-label="Data loading progress"
+          data-progress-track
+        >
+          <div class="progress-fill" style="{{ data_refresh.progress_style }}" data-progress-fill></div>
+        </div>
+        <div class="progress-grid">
+          <div>
+            <span class="metric-label">Progress</span>
+            <strong data-progress-percent>{{ data_refresh.percent_complete }}%</strong>
+          </div>
+          <div>
+            <span class="metric-label">Dataset</span>
+            <strong data-progress-current>{{ data_refresh.current_dataset }}</strong>
+          </div>
+          <div>
+            <span class="metric-label">Jobs</span>
+            <strong data-progress-jobs>{{ data_refresh.completed_jobs }}/{{ data_refresh.total_jobs }}</strong>
+          </div>
+          <div>
+            <span class="metric-label">ETA</span>
+            <strong data-progress-eta>{{ data_refresh.eta_label }}</strong>
+          </div>
+        </div>
+
+        {% if data_refresh.has_failures %}
+        <div class="ops-check-row" style="margin-top:0.75rem">
+          <span class="tag tag-block">Failed</span>
+          <strong>Dataset failure{{ data_refresh.failed_datasets|length > 1 and 's' or '' }}</strong>
+          <span>{{ data_refresh.failed_datasets | join(', ') }} did not complete — check logs and re-run refresh.</span>
+        </div>
+        {% endif %}
+
+        {% set trade_pull = data_refresh.trade_pull %}
+        <article
+          class="trade-pull-card"
+          data-trade-pull
+          data-trade-state="{{ trade_pull.state }}"
+          aria-label="Massive trade pull status"
+        >
+          <div class="trade-pull-head">
+            <div>
+              <span class="metric-label">Massive Trade Pull</span>
+              <h3 data-trade-headline>{{ trade_pull.status_label }}</h3>
+            </div>
+            <span class="tag tag-{{ trade_pull.status_class }}" data-trade-status>
+              {{ trade_pull.status_label }}
+            </span>
+          </div>
+          <div
+            class="progress-track trade-pull-track"
+            role="progressbar"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            aria-valuenow="{{ trade_pull.percent_complete }}"
+            aria-label="Massive trade pull progress"
+            data-trade-track
+          >
+            <div class="progress-fill" style="{{ trade_pull.progress_style }}" data-trade-fill></div>
+          </div>
+          <div class="trade-pull-metrics">
+            <div>
+              <span class="metric-label">Progress</span>
+              <strong data-trade-percent>{{ trade_pull.percent_complete }}%</strong>
+              <span data-trade-ticker-days>{{ trade_pull.ticker_progress_label }}</span>
+            </div>
+            <div>
+              <span class="metric-label">Active Ticker</span>
+              <strong data-trade-current>{{ trade_pull.current_ticker }}</strong>
+              <span data-trade-current-date>{{ trade_pull.current_trade_date }}</span>
+            </div>
+            <div>
+              <span class="metric-label">Current Page Rows</span>
+              <strong data-trade-current-rows>{{ trade_pull.current_rows_downloaded }}</strong>
+              <span><span data-trade-current-pages>{{ trade_pull.current_pages_downloaded }}</span> page(s)</span>
+            </div>
+            <div>
+              <span class="metric-label">Stored Trades</span>
+              <strong data-trade-rows>{{ trade_pull.row_count_label }}</strong>
+              <span data-trade-latest>{{ trade_pull.latest_as_of }}</span>
+            </div>
+            <div>
+              <span class="metric-label">Window</span>
+              <strong data-trade-window>{{ trade_pull.window_label }}</strong>
+              <span data-trade-guardrail>{{ trade_pull.guardrail_label }}</span>
+            </div>
+          </div>
+          <p class="panel-note" data-trade-detail>{{ trade_pull.detail }}</p>
+          <p class="muted-line">
+            Trade pull updated: <span data-trade-updated>{{ trade_pull.updated_at }}</span>
+            &middot; <span data-trade-job>{{ trade_pull.job_position_label }}</span>
+          </p>
+        </article>
+
+        <p class="panel-note" data-progress-detail>{{ data_refresh.detail }}</p>
+        <p class="muted-line">Updated: <span data-progress-updated>{{ data_refresh.updated_at }}</span></p>
+      </section>
+
+      <section class="panel" aria-labelledby="live-config-heading">
+        <div class="section-heading">
+          <h2 id="live-config-heading">Live Config</h2>
+          <span class="tag tag-{{ live_config.status_class }}">{{ live_config.status_label }}</span>
+        </div>
+        <div class="readiness-grid">
+          <div>
+            <span class="metric-label">Provider</span>
+            <strong>{{ live_config.provider }}</strong>
+          </div>
+          <div>
+            <span class="metric-label">Datasets</span>
+            <strong>{{ live_config.dataset_count }}</strong>
+          </div>
+          <div>
+            <span class="metric-label">Tickers</span>
+            <strong>{{ live_config.ticker_count }}</strong>
+          </div>
+          <div>
+            <span class="metric-label">Blockers</span>
+            <strong>{{ live_config.blocker_count }}</strong>
+          </div>
+        </div>
+        <p class="panel-note">Config: {{ live_config.config_path }}</p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Check</th>
+                <th>Status</th>
+                <th>Detail</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for check in live_config.check_rows %}
+              <tr>
+                <td>{{ check.label }}</td>
+                <td><span class="tag tag-{{ check.status_class }}">{{ check.status }}</span></td>
+                <td>{{ check.detail }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="provider-readiness-heading">
+        <div class="section-heading">
+          <h2 id="provider-readiness-heading">Provider Readiness</h2>
+          <span class="tag tag-{{ provider_readiness.status_class }}">
+            {{ provider_readiness.status_label }}
+          </span>
+        </div>
+        <div class="readiness-grid">
+          <div>
+            <span class="metric-label">Configured</span>
+            <strong>{{ provider_readiness.configured_count }}/{{ provider_readiness.provider_count }}</strong>
+          </div>
+          <div>
+            <span class="metric-label">Required Now</span>
+            <strong>{{ provider_readiness.active_required_count }}</strong>
+          </div>
+          <div>
+            <span class="metric-label">Missing Required</span>
+            <strong>{{ provider_readiness.blocker_count }}</strong>
+          </div>
+          <div>
+            <span class="metric-label">Warnings</span>
+            <strong>{{ provider_readiness.warning_count }}</strong>
+          </div>
+        </div>
+        <p class="panel-note">Secret values stay local; this panel only reports key names.</p>
+        <div class="provider-list">
+          {% for provider in provider_readiness.provider_rows %}
+          <article class="provider-card provider-card-{{ provider.status_class }}">
+            <div class="provider-card-head">
+              <strong>{{ provider.label }}</strong>
+              <span class="tag tag-{{ provider.status_class }}">{{ provider.status }}</span>
+            </div>
+            <p>{{ provider.purpose }}</p>
+            <div class="provider-card-meta">
+              <div>
+                <span class="metric-label">Keys</span>
+                <strong>{{ provider.key_label }}</strong>
+              </div>
+              <div>
+                <span class="metric-label">Detail</span>
+                <strong>{{ provider.detail }}</strong>
+              </div>
+            </div>
+          </article>
+          {% endfor %}
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="readiness-heading">
+        <div class="section-heading">
+          <h2 id="readiness-heading">Live Readiness</h2>
+          <span class="tag tag-{{ readiness.status_class }}">{{ readiness.verdict_label }}</span>
+        </div>
+        <div class="readiness-grid">
+          <div>
+            <span class="metric-label">Cycle</span>
+            <strong>{{ readiness.cycle_id or "None" }}</strong>
+          </div>
+          <div>
+            <span class="metric-label">Reviewable</span>
+            <strong>{{ readiness.reviewable_candidate_count }}</strong>
+          </div>
+          <div>
+            <span class="metric-label">Open Risk</span>
+            <strong>{{ readiness.open_risk_decision_count }}</strong>
+          </div>
+          <div>
+            <span class="metric-label">Blockers</span>
+            <strong>{{ readiness.blockers | length }}</strong>
+          </div>
+        </div>
+        <p class="panel-note">{{ readiness.detail }}</p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Blocker</th>
+                <th>Item</th>
+                <th>Reason</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for blocker in readiness.blocker_rows %}
+              <tr>
+                <td><span class="tag tag-{{ blocker.status_class }}">{{ blocker.kind }}</span></td>
+                <td>{{ blocker.item }}</td>
+                <td>{{ blocker.reason }}</td>
+              </tr>
+              {% else %}
+              <tr>
+                <td class="empty-row" colspan="3">No readiness blockers</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+    </details>
   </section>
 
   <section class="panel" aria-labelledby="candidates-heading">

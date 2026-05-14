@@ -8,28 +8,74 @@
 {% block topbar_meta %}{{ summary.run_count }} runs &middot; read-only{% endblock %}
 
 {% block content %}
-  <section class="hero hero-info" aria-label="Audit state">
-    <h2>{{ summary.headline }}</h2>
-    <p>{{ summary.detail }}</p>
+  <section class="next-action hero-info" aria-label="Audit state">
+    <div class="next-action-step" aria-hidden="true">7</div>
+    <div class="next-action-copy">
+      <p class="eyebrow">Traceability</p>
+      <h2>{{ summary.headline }}</h2>
+      <p>{{ summary.detail }} Use this page to confirm which agent produced each decision and what was recorded.</p>
+    </div>
+    <div class="next-action-buttons">
+      <a class="secondary-action" href="#prompt-audit-heading">Prompt audits</a>
+    </div>
   </section>
 
-  <section class="summary-band" aria-label="Audit metrics">
-    <div>
+  <section class="audit-tabs" aria-label="Audit sections">
+    <a href="#agent-runs-heading">Agent runs</a>
+    <a href="#risk-snapshot-heading">Risk snapshots</a>
+    <a href="#portfolio-snapshot-heading">Portfolio snapshots</a>
+    <a href="#execution-state-heading">Execution states</a>
+    <a href="#prompt-audit-heading">Prompt audits</a>
+  </section>
+
+  <section class="panel audit-filter-bar" aria-label="Audit filters">
+    <div class="section-heading">
+      <h2>Filter</h2>
+      <button type="button" id="audit-filter-clear" class="mini-button">Clear filters</button>
+    </div>
+    <div class="readiness-grid">
+      <div>
+        <label class="metric-label" for="audit-filter-ticker">Ticker</label>
+        <input id="audit-filter-ticker" type="text" placeholder="e.g. AAPL" style="width:100%;padding:0.3rem 0.5rem;background:var(--bg-2,#1e1e2e);border:1px solid var(--border,#444);color:inherit;border-radius:4px;" />
+      </div>
+      <div>
+        <label class="metric-label" for="audit-filter-cycle">Cycle ID</label>
+        <input id="audit-filter-cycle" type="text" placeholder="partial match" style="width:100%;padding:0.3rem 0.5rem;background:var(--bg-2,#1e1e2e);border:1px solid var(--border,#444);color:inherit;border-radius:4px;" />
+      </div>
+      <div>
+        <label class="metric-label" for="audit-filter-event">Event / State</label>
+        <input id="audit-filter-event" type="text" placeholder="e.g. APPROVED" style="width:100%;padding:0.3rem 0.5rem;background:var(--bg-2,#1e1e2e);border:1px solid var(--border,#444);color:inherit;border-radius:4px;" />
+      </div>
+    </div>
+    <p class="panel-note" id="audit-filter-count"></p>
+  </section>
+
+  <section class="kpi-grid kpi-grid-compact" aria-label="Audit metrics">
+    <article class="kpi">
       <span class="metric-label">Runs</span>
       <strong>{{ summary.run_count }}</strong>
-    </div>
-    <div>
+      <p>agent executions</p>
+    </article>
+    <article class="kpi">
       <span class="metric-label">Risk Snapshots</span>
       <strong>{{ summary.risk_snapshot_count }}</strong>
-    </div>
-    <div>
+      <p>stored checks</p>
+    </article>
+    <article class="kpi">
       <span class="metric-label">Execution States</span>
       <strong>{{ summary.execution_state_count }}</strong>
-    </div>
-    <div>
+      <p>paper events</p>
+    </article>
+    <article class="kpi">
+      <span class="metric-label">Portfolio</span>
+      <strong>{{ summary.portfolio_snapshot_count }}</strong>
+      <p>broker snapshots</p>
+    </article>
+    <article class="kpi">
       <span class="metric-label">Prompts</span>
       <strong>{{ summary.prompt_count }}</strong>
-    </div>
+      <p>LLM review audits</p>
+    </article>
   </section>
 
   <section class="panel" aria-labelledby="agent-runs-heading">
@@ -104,6 +150,47 @@
     </div>
   </section>
 
+  <section class="panel" aria-labelledby="portfolio-snapshot-heading">
+    <div class="section-heading">
+      <h2 id="portfolio-snapshot-heading">Portfolio Snapshots</h2>
+      <span class="tag tag-neutral">Alpaca paper</span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Captured</th>
+            <th>Mode</th>
+            <th>Status</th>
+            <th>Equity</th>
+            <th>Cash</th>
+            <th>Exposure</th>
+            <th>Positions</th>
+            <th>Open Orders</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for snapshot in portfolio_snapshots %}
+          <tr>
+            <td>{{ snapshot.captured_at }}</td>
+            <td>{{ snapshot.mode }}</td>
+            <td>{{ snapshot.account_status }}</td>
+            <td>${{ "%.0f"|format(snapshot.equity) }}</td>
+            <td>${{ "%.0f"|format(snapshot.cash) }}</td>
+            <td>{{ "%.2f"|format(snapshot.gross_exposure_pct) }}%</td>
+            <td>{{ snapshot.position_count }}</td>
+            <td>{{ snapshot.open_order_count }}</td>
+          </tr>
+          {% else %}
+          <tr>
+            <td class="empty-row" colspan="8">No portfolio snapshots yet</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
   <section class="panel" aria-labelledby="execution-state-heading">
     <div class="section-heading">
       <h2 id="execution-state-heading">Execution States</h2>
@@ -142,16 +229,17 @@
   <section class="panel" aria-labelledby="prompt-audit-heading">
     <div class="section-heading">
       <h2 id="prompt-audit-heading">Prompt Audits</h2>
-      <span class="tag tag-neutral">Ready for later</span>
+      <span class="tag tag-neutral">Supervised</span>
     </div>
     {% if prompt_audits %}
     <div class="table-wrap">
       <table>
         <thead>
           <tr>
-            <th>Prompt</th>
+            <th>Ticker</th>
+            <th>Result</th>
+            <th>Rationale</th>
             <th>Cycle</th>
-            <th>Agent</th>
             <th>Model</th>
             <th>Redaction</th>
           </tr>
@@ -159,9 +247,10 @@
         <tbody>
           {% for prompt in prompt_audits %}
           <tr>
-            <td>{{ prompt.prompt_id }}</td>
+            <td><strong>{{ prompt.ticker }}</strong></td>
+            <td><span class="tag tag-{{ prompt.status_class }}">{{ prompt.llm_action }}</span></td>
+            <td>{{ prompt.llm_rationale }}</td>
             <td>{{ prompt.cycle_id }}</td>
-            <td>{{ prompt.agent_name }}</td>
             <td>{{ prompt.model }}</td>
             <td>{{ prompt.redaction_status }}</td>
           </tr>
@@ -173,4 +262,54 @@
     <p class="empty-block">No prompt audits yet</p>
     {% endif %}
   </section>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+(function() {
+  var inputs = {
+    ticker: document.getElementById('audit-filter-ticker'),
+    cycle: document.getElementById('audit-filter-cycle'),
+    event: document.getElementById('audit-filter-event'),
+  };
+  var clearBtn = document.getElementById('audit-filter-clear');
+  var countEl = document.getElementById('audit-filter-count');
+
+  function normalize(s) { return (s || '').toLowerCase().trim(); }
+
+  function applyFilters() {
+    var ticker = normalize(inputs.ticker.value);
+    var cycle = normalize(inputs.cycle.value);
+    var event = normalize(inputs.event.value);
+    var visible = 0, total = 0;
+
+    document.querySelectorAll('table tbody tr:not(.empty-row-tr)').forEach(function(row) {
+      if (row.querySelector('.empty-row')) { return; }
+      var text = normalize(row.textContent);
+      var show = true;
+      if (ticker && text.indexOf(ticker) === -1) show = false;
+      if (cycle && text.indexOf(cycle) === -1) show = false;
+      if (event && text.indexOf(event) === -1) show = false;
+      row.style.display = show ? '' : 'none';
+      total++;
+      if (show) visible++;
+    });
+
+    if (ticker || cycle || event) {
+      countEl.textContent = visible + ' of ' + total + ' rows shown';
+    } else {
+      countEl.textContent = '';
+    }
+  }
+
+  Object.values(inputs).forEach(function(input) {
+    input.addEventListener('input', applyFilters);
+  });
+
+  clearBtn.addEventListener('click', function() {
+    Object.values(inputs).forEach(function(i) { i.value = ''; });
+    applyFilters();
+  });
+})();
+</script>
 {% endblock %}
