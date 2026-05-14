@@ -5,6 +5,7 @@ import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 import pandas as pd
 
@@ -28,6 +29,15 @@ EVENT_COLUMNS = [
     "linked_content_url",
     "linked_content_title_hash",
     "linked_content_summary",
+    "linked_content_direction",
+    "linked_content_thesis",
+    "linked_content_catalysts",
+    "linked_content_risk_flags",
+    "linked_content_key_points",
+    "linked_content_tickers",
+    "linked_content_decision_use",
+    "linked_content_signal_strength",
+    "linked_content_context_chars",
     "timestamp_observed",
     "timestamp_as_of",
     "freshness",
@@ -44,13 +54,35 @@ def write_event_frame(path: Path, frame: pd.DataFrame) -> int:
     if path.exists():
         existing = _with_event_defaults(pd.read_parquet(path))[EVENT_COLUMNS]
         output = pd.concat([existing, output], ignore_index=True)
+    output["_dedupe_key"] = output.apply(_dedupe_key, axis=1)
     output = (
-        output.drop_duplicates(subset=["source_id"], keep="last")
+        output.drop_duplicates(subset=["_dedupe_key"], keep="last")
+        .drop(columns=["_dedupe_key"])
         .sort_values(["timestamp_as_of", "ticker", "source_id"])
         .reset_index(drop=True)
     )
     output.to_parquet(path, engine="pyarrow", compression="snappy", index=False)
     return len(frame)
+
+
+def _dedupe_key(row: pd.Series) -> str:
+    ticker = str(row.get("ticker") or "").upper()
+    source_url = _normalize_url(str(row.get("source_url") or ""))
+    if ticker and source_url and source_url.startswith(("http://", "https://")):
+        return f"url:{ticker}:{source_url}"
+    return f"source:{row.get('source_id')}"
+
+
+def _normalize_url(url: str) -> str:
+    if not url:
+        return ""
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return url.strip()
+    netloc = parts.netloc.lower()
+    path = parts.path.rstrip("/") or parts.path
+    return urlunsplit((parts.scheme.lower(), netloc, path, "", ""))
 
 
 def _with_event_defaults(frame: pd.DataFrame) -> pd.DataFrame:
@@ -60,10 +92,24 @@ def _with_event_defaults(frame: pd.DataFrame) -> pd.DataFrame:
         "source_tier": "PAID_SUB_EMAIL",
         "freshness": "FRESH",
         "linked_content_summary": None,
+        "linked_content_direction": None,
+        "linked_content_thesis": None,
+        "linked_content_decision_use": None,
+        "linked_content_signal_strength": None,
     }
     for column, value in defaults.items():
         if column not in output.columns:
             output[column] = value
+    for column in (
+        "linked_content_catalysts",
+        "linked_content_risk_flags",
+        "linked_content_key_points",
+        "linked_content_tickers",
+    ):
+        if column not in output.columns:
+            output[column] = [[] for _ in range(len(output))]
+    if "linked_content_context_chars" not in output.columns:
+        output["linked_content_context_chars"] = None
     return output
 
 
@@ -117,8 +163,12 @@ def summary_to_markdown(summary: dict[str, Any]) -> str:
         f"| News rows | {summary['news_rows']} |",
         f"| Activity rows | {summary['activity_rows']} |",
         f"| Deduped events | {summary['event_rows']} |",
+        f"| Mailbox messages checked | {_mailbox_count(summary, 'attempted')} |",
+        f"| Real emails saved | {_mailbox_count(summary, 'saved')} |",
         f"| Linked content attempts | {_linked_count(summary, 'attempted')} |",
         f"| Linked content analyzed | {_linked_count(summary, 'succeeded')} |",
+        f"| Mailbox max messages | {_guardrail_count(summary, 'mailbox_max_messages')} |",
+        f"| Article max links/run | {_guardrail_count(summary, 'article_max_total_per_run')} |",
         f"| Manual review | {summary['manual_review_count']} |",
         f"| Ignored | {summary['ignored_count']} |",
         "",
@@ -131,6 +181,28 @@ def summary_to_markdown(summary: dict[str, Any]) -> str:
             lines.append(f"| {service} | {count} |")
     else:
         lines.append("| none | 0 |")
+    lines.extend(["", "## Recent Evidence", ""])
+    recent = summary.get("recent_evidence", [])
+    if isinstance(recent, list) and recent:
+        lines.extend(
+            [
+                "| Ticker | Direction | Status | Thesis | Agency Use |",
+                "| --- | --- | --- | --- | --- |",
+            ]
+        )
+        for item in recent:
+            if not isinstance(item, dict):
+                continue
+            lines.append(
+                "| "
+                f"{_markdown_cell(item.get('ticker'))} | "
+                f"{_markdown_cell(item.get('direction'))} | "
+                f"{_markdown_cell(item.get('linked_content_status'))} | "
+                f"{_markdown_cell(item.get('thesis'))} | "
+                f"{_markdown_cell(item.get('decision_use'))} |"
+            )
+    else:
+        lines.append("No recent evidence rows were written.")
     lines.append("")
     return "\n".join(lines)
 
@@ -140,6 +212,27 @@ def _linked_count(summary: dict[str, Any], key: str) -> object:
     if not isinstance(linked, dict):
         return 0
     return linked.get(key, 0)
+
+
+def _mailbox_count(summary: dict[str, Any], key: str) -> object:
+    mailbox = summary.get("mailbox_sync")
+    if not isinstance(mailbox, dict):
+        return 0
+    return mailbox.get(key, 0)
+
+
+def _guardrail_count(summary: dict[str, Any], key: str) -> object:
+    guardrails = summary.get("guardrails")
+    if not isinstance(guardrails, dict):
+        return 0
+    return guardrails.get(key, 0)
+
+
+def _markdown_cell(value: object) -> str:
+    if value is None:
+        return ""
+    text = " ".join(str(value).split())
+    return text.replace("|", "\\|")
 
 
 def _stats(path: Path) -> dict[str, int | str]:

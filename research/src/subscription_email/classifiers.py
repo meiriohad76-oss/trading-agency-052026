@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import re
 from datetime import datetime
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from subscription_email.config import SubscriptionEmailConfig
 from subscription_email.types import ClassifiedEmailRows, EmailRecord
@@ -13,6 +13,11 @@ from agency.provenance import FreshnessDomain, SourceTier, VerificationLevel, co
 URL_RE = re.compile(r"https?://[^\s<>)\"]+")
 MONEY_RE = re.compile(r"\$?\s*(?P<value>\d+(?:\.\d+)?)\s*(?P<unit>[KMB])?", re.IGNORECASE)
 TICKER_TEMPLATE = r"(?<![A-Z0-9])\$?{ticker}(?![A-Z0-9])"
+HEADLINE_FOCUS_RE = re.compile(r"(?: - |Email:\s+)\$?([A-Z]{1,5})(?=\s*:|\s+)")
+BLOCK_TRADE_RE = re.compile(
+    r"\bblock(?:s|\s+(?:trade|trades|print|prints|order|orders|activity))?\b"
+)
+OPTION_RE = re.compile(r"\boptions?\b")
 
 SERVICE_DOMAINS = {
     "seeking_alpha": ("seekingalpha.com", "email.seekingalpha.com"),
@@ -23,6 +28,30 @@ SERVICE_LABELS = {
     "seeking_alpha": "Seeking Alpha Email",
     "tradevision": "TradeVision Email",
     "zacks": "Zacks Email",
+}
+TAXONOMY_PAIR_COUNT = 2
+TERMINAL_NON_EVIDENCE_LINK_STATUSES = {
+    "login_or_security_email",
+    "no_configured_ticker_in_email",
+    "non_universe_ticker_email",
+}
+ANALYZED_LINK_STATUSES = {
+    "article_analyzed",
+    "article_analyzed_deterministic_fallback",
+}
+NO_TICKER_MATCH_STATUS = "article_analyzed_no_ticker_match"
+TRACKING_QUERY_KEYS = {
+    "campaign",
+    "cid",
+    "cmpid",
+    "feed",
+    "feed_item_type",
+    "icid",
+    "mailing_id",
+    "message_id",
+    "ref",
+    "source",
+    "source_id",
 }
 
 
@@ -44,6 +73,9 @@ def classify_subscription_emails(
             continue
         if service is None or service not in config.enabled_services:
             ignored.append(_audit_stub(record, service, "service_disabled_or_unknown"))
+            continue
+        if record.linked_content_status in TERMINAL_NON_EVIDENCE_LINK_STATUSES:
+            ignored.append(_audit_stub(record, service, record.linked_content_status))
             continue
         tickers = _tickers(record, config.tickers)
         if not tickers:
@@ -73,8 +105,16 @@ def _classify_service(
     if service == "tradevision":
         return _tradevision_rows(record, tickers, fetched_at=fetched_at)
     kind = _seeking_alpha_kind(record) if service == "seeking_alpha" else _zacks_kind(record)
+    direction = _record_direction(record)
     news_rows = [
-        _news_row(record, service, ticker, event_type=kind, fetched_at=fetched_at)
+        _news_row(
+            record,
+            service,
+            ticker,
+            event_type=kind,
+            direction=direction,
+            fetched_at=fetched_at,
+        )
         for ticker in tickers
     ]
     return ClassifiedEmailRows(
@@ -86,7 +126,7 @@ def _classify_service(
                 service,
                 ticker,
                 event_type=kind,
-                direction=_direction(_text(record)),
+                direction=direction,
                 source_url=str(row["source_url"]),
                 source_id=str(row["source_id"]),
                 confidence=_float(row["confidence"]),
@@ -108,13 +148,14 @@ def _tradevision_rows(
     text = _text(record)
     alert_type = _tradevision_alert_type(text)
     if alert_type is None:
-        direction = _direction(text)
+        direction = _record_direction(record)
         news_rows = [
             _news_row(
                 record,
                 "tradevision",
                 ticker,
                 event_type=f"tradevision_{direction.lower()}_news",
+                direction=direction,
                 fetched_at=fetched_at,
             )
             for ticker in tickers
@@ -171,10 +212,11 @@ def _news_row(
     ticker: str,
     *,
     event_type: str,
+    direction: str,
     fetched_at: datetime,
 ) -> dict[str, object]:
     url = _first_url(record)
-    source_url = url or f"email://{_hash(record.message_id)}"
+    source_url = _source_url(record)
     freshness = compute_freshness(
         record.received_at,
         FreshnessDomain.NEWS,
@@ -186,7 +228,7 @@ def _news_row(
         "feed_name": SERVICE_LABELS[service],
         "title": _title(record, service, event_type),
         "url": source_url,
-        "summary": _summary(service, event_type, _direction(_text(record)), record),
+        "summary": _summary(service, event_type, direction, record),
         "published_at": record.received_at,
         "source": f"{service}-email",
         "source_tier": SourceTier.PAID_SUB_EMAIL.value,
@@ -195,7 +237,7 @@ def _news_row(
         "timestamp_observed": record.received_at,
         "timestamp_as_of": record.received_at,
         "freshness": freshness,
-        "confidence": _confidence(service, event_type),
+        "confidence": _confidence(service, event_type, record),
         "verification_level": VerificationLevel.CONFIRMED.value,
     }
 
@@ -212,7 +254,7 @@ def _activity_row(
     notional = _amount_after(text, "notional")
     premium = _amount_after(text, "premium")
     url = _first_url(record)
-    source_url = url or f"email://{_hash(record.message_id)}"
+    source_url = _source_url(record)
     freshness = compute_freshness(
         record.received_at,
         FreshnessDomain.NEWS,
@@ -253,6 +295,16 @@ def _event_row(
     fetched_at: datetime,
 ) -> dict[str, object]:
     message_id_hash = _hash(record.message_id)
+    event_title = _title(record, service, event_type)
+    linked_status = _linked_content_status_for_ticker(record, ticker)
+    linked = _ticker_linked_content(
+        record,
+        ticker=ticker,
+        title=event_title,
+        event_type=event_type,
+        direction=direction,
+        linked_status=linked_status,
+    )
     freshness = compute_freshness(
         record.received_at,
         FreshnessDomain.NEWS,
@@ -265,7 +317,7 @@ def _event_row(
         "event_type": event_type,
         "event_types": [event_type],
         "direction": direction,
-        "title": _title(record, service, event_type),
+        "title": event_title,
         "source_refs": [
             {
                 "service": service,
@@ -281,16 +333,240 @@ def _event_row(
         "message_id_hash": message_id_hash,
         "sender_domain": record.sender_domain,
         "received_at": record.received_at.isoformat(),
-        "linked_content_status": record.linked_content_status,
+        "linked_content_status": linked_status,
         "linked_content_url": record.linked_content_url,
         "linked_content_title_hash": record.linked_content_title_hash,
-        "linked_content_summary": record.linked_content_summary,
+        "linked_content_summary": linked["summary"],
+        "linked_content_direction": record.linked_content_direction,
+        "linked_content_thesis": linked["thesis"],
+        "linked_content_catalysts": list(record.linked_content_catalysts),
+        "linked_content_risk_flags": list(record.linked_content_risk_flags),
+        "linked_content_key_points": linked["key_points"],
+        "linked_content_tickers": list(record.linked_content_tickers),
+        "linked_content_decision_use": linked["decision_use"],
+        "linked_content_signal_strength": record.linked_content_signal_strength,
+        "linked_content_context_chars": record.linked_content_context_chars,
         "timestamp_observed": record.received_at.isoformat(),
         "timestamp_as_of": record.received_at.isoformat(),
         "freshness": freshness,
         "confidence": confidence,
         "verification_level": VerificationLevel.CONFIRMED.value,
     }
+
+
+def _ticker_linked_content(
+    record: EmailRecord,
+    *,
+    ticker: str,
+    title: str,
+    event_type: str,
+    direction: str,
+    linked_status: str,
+) -> dict[str, object]:
+    if linked_status == NO_TICKER_MATCH_STATUS:
+        return {
+            "summary": (
+                f"Linked article was analyzed, but it did not materially mention {ticker}; "
+                "use only the mailbox headline as context."
+            ),
+            "thesis": None,
+            "key_points": [],
+            "decision_use": "Do not use this linked article as ticker-specific evidence.",
+        }
+    if not _is_analyzed_link_status(linked_status):
+        return {
+            "summary": record.linked_content_summary,
+            "thesis": record.linked_content_thesis,
+            "key_points": list(record.linked_content_key_points),
+            "decision_use": record.linked_content_decision_use,
+        }
+    catalysts = list(record.linked_content_catalysts)
+    risks = list(record.linked_content_risk_flags)
+    relevance = _ticker_relevance(
+        ticker=ticker,
+        title=title,
+        event_type=event_type,
+        direction=direction,
+        catalysts=catalysts,
+        risks=risks,
+    )
+    raw_thesis = _clean_sentence(record.linked_content_thesis)
+    signal = f"{direction.lower()} article signal"
+    catalyst_text = _taxonomy_list(catalysts)
+    risk_text = _taxonomy_list(risks)
+    if catalyst_text:
+        signal += f" from {catalyst_text}"
+    thesis = _ticker_specific_thesis(
+        relevance=relevance,
+        raw_thesis=raw_thesis,
+        signal=signal,
+    )
+    if risk_text:
+        thesis += f" Watch: {risk_text}."
+    decision_use = _ticker_decision_use(
+        ticker=ticker,
+        title=title,
+        direction=direction,
+        default=record.linked_content_decision_use,
+    )
+    key_points = [
+        relevance,
+        *([raw_thesis] if raw_thesis else []),
+        *list(record.linked_content_key_points),
+    ][:5]
+    context_detail = _summary_context_detail(record.linked_content_summary)
+    context_suffix = f" {context_detail}" if context_detail else ""
+    return {
+        "summary": (
+            f"Linked content thesis for {ticker}: {thesis} "
+            f"Agency use: {decision_use}{context_suffix}"
+        ),
+        "thesis": thesis,
+        "key_points": key_points,
+        "decision_use": decision_use,
+    }
+
+
+def _ticker_specific_thesis(
+    *,
+    relevance: str,
+    raw_thesis: str | None,
+    signal: str,
+) -> str:
+    if raw_thesis:
+        if relevance.lower() in raw_thesis.lower():
+            return raw_thesis.rstrip(".") + "."
+        return f"{relevance} Article thesis: {raw_thesis.rstrip('.')}."
+    return f"{relevance} Detected {signal}."
+
+
+def _clean_sentence(value: str | None) -> str | None:
+    if value is None:
+        return None
+    text = " ".join(value.split())
+    return text or None
+
+
+def _linked_content_status_for_ticker(record: EmailRecord, ticker: str) -> str:
+    status = record.linked_content_status
+    if not _is_analyzed_link_status(status):
+        return status
+    article_tickers = {item.upper() for item in record.linked_content_tickers}
+    if not article_tickers or ticker.upper() not in article_tickers:
+        return NO_TICKER_MATCH_STATUS
+    return status
+
+
+def _is_analyzed_link_status(status: str) -> bool:
+    return status in ANALYZED_LINK_STATUSES
+
+
+def _ticker_relevance(
+    *,
+    ticker: str,
+    title: str,
+    event_type: str,
+    direction: str,
+    catalysts: list[str],
+    risks: list[str],
+) -> str:
+    focus = _headline_focus_ticker(title)
+    topic = _topic_from_title(title, event_type)
+    if focus == ticker.upper():
+        opener = f"Direct relevance: headline focus is {ticker} and the article discusses {topic}."
+    elif focus is not None:
+        opener = (
+            f"Secondary relevance: headline focus is {focus}; {ticker} was detected in "
+            "the article/email context, so this is basket or theme evidence."
+        )
+    else:
+        opener = f"Ticker relevance: {ticker} was detected in analyzed article/email context."
+    details = [opener, f"Direction is {direction.lower()}."]
+    catalyst_text = _taxonomy_list(catalysts)
+    risk_text = _taxonomy_list(risks)
+    if catalyst_text:
+        details.append(f"Detected drivers: {catalyst_text}.")
+    if risk_text:
+        details.append(f"Watch items: {risk_text}.")
+    return " ".join(details)
+
+
+def _summary_context_detail(summary: str | None) -> str:
+    if not summary or "Context:" not in summary:
+        return ""
+    context = summary.split("Context:", 1)[1].strip()
+    if not context:
+        return ""
+    return f"Context: {context}"
+
+
+def _ticker_decision_use(
+    *,
+    ticker: str,
+    title: str,
+    direction: str,
+    default: str | None,
+) -> str:
+    focus = _headline_focus_ticker(title)
+    if focus is not None and focus != ticker.upper():
+        return (
+            "Use as secondary basket/theme context only; require direct ticker "
+            "confirmation before it can support a decision."
+        )
+    if default:
+        return default
+    if direction == "BULLISH":
+        return "Treat as context-only bullish thesis; require independent confirmation."
+    if direction == "BEARISH":
+        return "Treat as caution context and raise the review burden."
+    return "Treat as informational context only."
+
+
+def _headline_focus_ticker(title: str) -> str | None:
+    match = HEADLINE_FOCUS_RE.search(title)
+    return match.group(1).upper() if match is not None else None
+
+
+def _topic_from_title(title: str, event_type: str) -> str:
+    lowered = title.lower()
+    if "quantum" in lowered:
+        return "the quantum-computing theme"
+    if "insider" in lowered:
+        return "insider-trading activity"
+    if "adds" in lowered or "exits" in lowered or "q1 moves" in lowered:
+        return "fund holdings changes"
+    if "dark pool" in lowered or "block trade" in lowered:
+        return "unusual trading activity"
+    if "earnings" in lowered or "transcript" in lowered:
+        return "earnings or transcript context"
+    return event_type.replace("_", " ")
+
+
+def _taxonomy_list(values: list[str]) -> str:
+    labels = [_taxonomy_label(value) for value in values if value]
+    if not labels:
+        return ""
+    if len(labels) == 1:
+        return labels[0]
+    if len(labels) == TAXONOMY_PAIR_COUNT:
+        return f"{labels[0]} and {labels[1]}"
+    return ", ".join(labels[:-1]) + f", and {labels[-1]}"
+
+
+def _taxonomy_label(value: str) -> str:
+    labels = {
+        "analyst_rating": "analyst/rating",
+        "earnings": "earnings/guidance",
+        "execution": "execution risk",
+        "legal_or_regulatory": "legal/regulatory risk",
+        "macro": "macro",
+        "negative_revision": "negative revisions",
+        "quant_rating": "quant rating",
+        "rank_change": "rank change",
+        "unusual_activity": "unusual activity",
+        "valuation": "valuation",
+    }
+    return labels.get(value, value.replace("_", " "))
 
 
 def _service_for(record: EmailRecord) -> str | None:
@@ -354,11 +630,11 @@ def _tradevision_alert_type(text: str) -> str | None:
     lowered = text.lower()
     if "dark pool" in lowered or "darkpool" in lowered:
         return "dark_pool"
-    if "block trade" in lowered or "block" in lowered:
+    if BLOCK_TRADE_RE.search(lowered):
         return "block_trade"
     if "sweep" in lowered:
         return "options_sweep"
-    if "option" in lowered and ("flow" in lowered or "unusual" in lowered):
+    if OPTION_RE.search(lowered) and ("flow" in lowered or "unusual" in lowered):
         return "unusual_options_activity"
     if "unusual stock" in lowered:
         return "unusual_stock_activity"
@@ -372,6 +648,12 @@ def _direction(text: str) -> str:
     if any(term in lowered for term in ("bullish", "upgrade", "buy", "call", "positive")):
         return "BULLISH"
     return "NEUTRAL"
+
+
+def _record_direction(record: EmailRecord) -> str:
+    if record.linked_content_direction in {"BULLISH", "BEARISH", "NEUTRAL"}:
+        return record.linked_content_direction
+    return _direction(_text(record))
 
 
 def _title(record: EmailRecord, service: str, event_type: str) -> str:
@@ -391,14 +673,70 @@ def _summary(service: str, event_type: str, direction: str, record: EmailRecord)
 
 
 def _first_url(record: EmailRecord) -> str | None:
+    if record.linked_content_url:
+        return _normalize_url(record.linked_content_url)
     for match in URL_RE.findall(_text(record)):
-        return _normalize_url(match.rstrip(".,;"))
+        candidate = _normalize_url(match.rstrip(".,;"))
+        if not _sensitive_or_tracking_url(candidate):
+            return candidate
     return None
 
 
 def _normalize_url(value: str) -> str:
     parsed = urlsplit(value)
+    query = urlencode(
+        [
+            (key, value)
+            for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+            if not _sensitive_query_key(key)
+        ]
+    )
+    return urlunsplit((parsed.scheme, parsed.netloc.lower(), parsed.path, query, ""))
+
+
+def _source_url(record: EmailRecord) -> str:
+    url = _first_url(record)
+    if url is None:
+        return f"email://{_hash(record.message_id)}"
+    parsed = urlsplit(url)
     return urlunsplit((parsed.scheme, parsed.netloc.lower(), parsed.path, "", ""))
+
+
+def _sensitive_or_tracking_url(value: str) -> bool:
+    parsed = urlsplit(value)
+    domain = parsed.netloc.lower()
+    path = parsed.path.lower()
+    if any(domain.startswith(prefix) for prefix in ("click.", "links.", "link.", "email.")):
+        return True
+    return any(
+        token in path
+        for token in (
+            "unsubscribe",
+            "login",
+            "signin",
+            "sign-in",
+            "account",
+            "auth",
+            "preferences",
+            "manage-email",
+        )
+    )
+
+
+def _sensitive_query_key(key: str) -> bool:
+    normalized = key.lower()
+    return normalized in {
+        "token",
+        "auth",
+        "signature",
+        "sig",
+        "key",
+        "apikey",
+        "api_key",
+        "email",
+        "user",
+        "uid",
+    } or normalized in TRACKING_QUERY_KEYS or normalized.startswith(("utm_", "mc_", "mkt_"))
 
 
 def _amount_after(text: str, label: str) -> float | None:
@@ -415,12 +753,16 @@ def _amount_after(text: str, label: str) -> float | None:
     return value * multiplier
 
 
-def _confidence(service: str, event_type: str) -> float:
+def _confidence(service: str, event_type: str, record: EmailRecord) -> float:
     if service == "tradevision":
-        return 0.85
-    if "rating" in event_type or "rank" in event_type:
-        return 0.8
-    return 0.7
+        base = 0.85
+    elif "rating" in event_type or "rank" in event_type:
+        base = 0.8
+    else:
+        base = 0.7
+    if record.linked_content_status == "article_analyzed":
+        return min(0.95, base + 0.1)
+    return base
 
 
 def _source_id(
@@ -456,13 +798,14 @@ def _dedupe_news(rows: list[dict[str, object]]) -> list[dict[str, object]]:
 
 
 def _dedupe_activity(rows: list[dict[str, object]]) -> list[dict[str, object]]:
-    seen: set[tuple[str, str, str, str]] = set()
+    seen: set[tuple[str, str, str]] = set()
     output: list[dict[str, object]] = []
     for row in rows:
+        # Do not include event_time: the same alert re-processed near midnight UTC
+        # would otherwise produce a duplicate with a shifted timestamp.
         key = (
             str(row["ticker"]),
             str(row["alert_type"]),
-            str(row["event_time"]),
             str(row["source_id"]),
         )
         if key not in seen:
@@ -524,6 +867,52 @@ def _merge_event(
             "linked_content_summary": _merge_summary(existing, row),
         }
     )
+    if _linked_content_rank(row) > _linked_content_rank(existing) or (
+        _linked_content_rank(row) == _linked_content_rank(existing)
+        and _linked_content_quality(row) >= _linked_content_quality(existing)
+    ):
+        for field in (
+            "linked_content_status",
+            "linked_content_url",
+            "linked_content_title_hash",
+            "linked_content_direction",
+            "linked_content_thesis",
+            "linked_content_catalysts",
+            "linked_content_risk_flags",
+            "linked_content_key_points",
+            "linked_content_decision_use",
+            "linked_content_signal_strength",
+            "linked_content_context_chars",
+            "linked_content_summary",
+        ):
+            if field in row:
+                existing[field] = row[field]
+
+
+def _linked_content_rank(row: dict[str, object]) -> int:
+    status = str(row.get("linked_content_status", ""))
+    if status == "article_analyzed":
+        return 3
+    if status and status not in {"None", "no_allowed_article_link"}:
+        return 2
+    return 1
+
+
+def _linked_content_quality(row: dict[str, object]) -> int:
+    summary = str(row.get("linked_content_summary") or "")
+    score = len(summary)
+    for field in (
+        "linked_content_thesis",
+        "linked_content_decision_use",
+        "linked_content_key_points",
+        "linked_content_catalysts",
+        "linked_content_risk_flags",
+    ):
+        if row.get(field):
+            score += 100
+    if "openai_llm_article_analysis" in summary:
+        score += 500
+    return score
 
 
 def _string_items(value: object) -> list[str]:
