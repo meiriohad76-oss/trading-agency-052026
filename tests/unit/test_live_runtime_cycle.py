@@ -4,13 +4,17 @@ import json
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from unittest.mock import patch
 
 import polars as pl
+import pytest
 from live_runtime.config import DEFAULT_RUNTIME_SIGNALS
-from live_runtime.cycle import build_live_pit_runtime_cycle, required_runtime_datasets
+from live_runtime.cycle import LlmEnhancedCycleResult, build_live_pit_runtime_cycle, required_runtime_datasets
 from live_runtime.summary import build_live_runtime_summary, summary_to_markdown
 from pit.manifest import DatasetName
-from pit_fixtures import loader_with, price
+from pit_fixtures import loader_with, price, write_manifest
+
+from agency.services import LlmReviewBatchResult, RuntimeCycleResult
 
 GENERATED_AT = datetime(2026, 5, 6, 22, 0, tzinfo=UTC)  # 22:00 UTC = after bar publication window
 EXPECTED_PRICE_SIGNAL_COUNT = 2
@@ -499,24 +503,24 @@ def test_live_pit_runtime_cycle_can_emit_technical_analysis_signals(tmp_path: Pa
 
 
 def test_live_pit_runtime_cycle_can_emit_market_flow_signals(tmp_path: Path) -> None:
-    loader = loader_with(
-        tmp_path,
-        {
-            DatasetName.STOCK_TRADES: pl.DataFrame(
-                [
-                    stock_trade("AAPL", 100_000.0, 1, True),
-                    stock_trade("MSFT", 100_000.0, -1, True),
-                ]
-            )
-        },
+    parquet_root = tmp_path / "parquet"
+    manifest_root = tmp_path / "manifests"
+    _write_stock_trade_partitions(
+        parquet_root,
+        manifest_root,
+        [
+            stock_trade("AAPL", 100_000.0, 1, True),
+            stock_trade("MSFT", 100_000.0, -1, True),
+        ],
+        coverage_status="complete",
     )
 
     cycle = build_live_pit_runtime_cycle(
         cycle_id="cycle-flow",
         as_of=date(2026, 5, 6),
         tickers={"AAPL", "MSFT"},
-        manifest_root=loader.manifest_root,
-        parquet_root=loader.parquet_root,
+        manifest_root=manifest_root,
+        parquet_root=parquet_root,
         lanes=(
             "buy_sell_pressure",
             "unusual_trade_activity",
@@ -529,6 +533,177 @@ def test_live_pit_runtime_cycle_can_emit_market_flow_signals(tmp_path: Path) -> 
 
     assert cycle.source_health[0]["source"] == "massive-stock-trades"
     assert summary["signal_count"] == EXPECTED_MARKET_FLOW_SIGNAL_COUNT
+
+
+def test_live_pit_runtime_cycle_emits_market_flow_for_complete_tickers_only(
+    tmp_path: Path,
+) -> None:
+    parquet_root = tmp_path / "parquet"
+    manifest_root = tmp_path / "manifests"
+    _write_stock_trade_partitions(
+        parquet_root,
+        manifest_root,
+        [
+            stock_trade("AAPL", 100_000.0, 1, True),
+            stock_trade("MSFT", 100_000.0, -1, True),
+        ],
+        coverage_status="complete",
+    )
+    coverage_path = parquet_root / "stock_trades" / "_coverage.json"
+    coverage = json.loads(coverage_path.read_text(encoding="utf-8"))
+    coverage["ticker_days"].pop("MSFT|2026-05-06")
+    coverage_path.write_text(json.dumps(coverage), encoding="utf-8")
+
+    cycle = build_live_pit_runtime_cycle(
+        cycle_id="cycle-flow-complete-only",
+        as_of=date(2026, 5, 6),
+        tickers={"AAPL", "MSFT"},
+        manifest_root=manifest_root,
+        parquet_root=parquet_root,
+        lanes=(
+            "buy_sell_pressure",
+            "unusual_trade_activity",
+            "pre_market_unusual_activity",
+            "market_flow_trend",
+        ),
+        generated_at=GENERATED_AT,
+    )
+    signals = [
+        signal
+        for pack in cycle.evidence_packs
+        for bucket in ("actionable_signals", "context_signals", "suppressed_signals")
+        for signal in pack[bucket]
+    ]
+
+    assert {signal["ticker"] for signal in signals} == {"AAPL"}
+    assert {signal["lane"] for signal in signals} == {
+        "buy_sell_pressure",
+        "unusual_trade_activity",
+        "pre_market_unusual_activity",
+        "market_flow_trend",
+    }
+
+
+def test_live_pit_runtime_cycle_uses_current_day_market_flow_snapshot_when_full_lookback_missing(
+    tmp_path: Path,
+) -> None:
+    parquet_root = tmp_path / "parquet"
+    manifest_root = tmp_path / "manifests"
+    _write_stock_trade_partitions(
+        parquet_root,
+        manifest_root,
+        [stock_trade("AAPL", 100_000.0, 1, True)],
+        coverage_status="complete",
+    )
+    coverage_path = parquet_root / "stock_trades" / "_coverage.json"
+    coverage = json.loads(coverage_path.read_text(encoding="utf-8"))
+    coverage["ticker_days"].pop("AAPL|2026-05-04")
+    coverage["ticker_days"].pop("AAPL|2026-05-05")
+    coverage_path.write_text(json.dumps(coverage), encoding="utf-8")
+
+    cycle = build_live_pit_runtime_cycle(
+        cycle_id="cycle-flow-current-day-snapshot",
+        as_of=date(2026, 5, 6),
+        tickers={"AAPL"},
+        manifest_root=manifest_root,
+        parquet_root=parquet_root,
+        lanes=(
+            "buy_sell_pressure",
+            "block_trade_pressure",
+            "unusual_trade_activity",
+            "market_flow_trend",
+        ),
+        generated_at=GENERATED_AT,
+    )
+    signals = [
+        signal
+        for pack in cycle.evidence_packs
+        for bucket in ("actionable_signals", "context_signals", "suppressed_signals")
+        for signal in pack[bucket]
+    ]
+
+    assert {signal["ticker"] for signal in signals} == {"AAPL"}
+    assert {signal["lane"] for signal in signals} == {
+        "buy_sell_pressure",
+        "block_trade_pressure",
+        "unusual_trade_activity",
+        "market_flow_trend",
+    }
+
+
+def test_live_pit_runtime_cycle_blocks_stock_trades_without_coverage_metadata(
+    tmp_path: Path,
+) -> None:
+    parquet_root = tmp_path / "parquet"
+    manifest_root = tmp_path / "manifests"
+    _write_stock_trade_partitions(
+        parquet_root,
+        manifest_root,
+        [stock_trade("AAPL", 100_000.0, 1, True)],
+        write_coverage=False,
+    )
+
+    cycle = build_live_pit_runtime_cycle(
+        cycle_id="cycle-flow-no-coverage",
+        as_of=date(2026, 5, 6),
+        tickers={"AAPL"},
+        manifest_root=manifest_root,
+        parquet_root=parquet_root,
+        lanes=("buy_sell_pressure", "unusual_trade_activity"),
+        generated_at=GENERATED_AT,
+    )
+    signals = [
+        signal
+        for pack in cycle.evidence_packs
+        for bucket in ("actionable_signals", "context_signals", "suppressed_signals")
+        for signal in pack[bucket]
+    ]
+
+    assert signals == []
+
+
+def test_live_pit_runtime_cycle_ignores_partial_market_flow_latest_slice(tmp_path: Path) -> None:
+    parquet_root = tmp_path / "parquet"
+    manifest_root = tmp_path / "manifests"
+    trade_root = parquet_root / "stock_trades"
+    trade_path = trade_root / "ticker=AAPL" / "year=2026" / "trades.parquet"
+    trade_path.parent.mkdir(parents=True)
+    manifest_root.mkdir()
+    pl.DataFrame([stock_trade("AAPL", 100_000.0, 1, True)]).write_parquet(trade_path)
+    (trade_root / "_coverage.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "0.1.0",
+                "ticker_days": {
+                    "AAPL|2026-05-06": {
+                        "ticker": "AAPL",
+                        "trade_date": "2026-05-06",
+                        "coverage_status": "partial",
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    write_manifest(manifest_root, DatasetName.STOCK_TRADES, "stock_trades", 1)
+
+    cycle = build_live_pit_runtime_cycle(
+        cycle_id="cycle-flow-partial",
+        as_of=date(2026, 5, 6),
+        tickers={"AAPL"},
+        manifest_root=manifest_root,
+        parquet_root=parquet_root,
+        lanes=("buy_sell_pressure", "unusual_trade_activity"),
+        generated_at=GENERATED_AT,
+    )
+    signals = [
+        signal
+        for pack in cycle.evidence_packs
+        for bucket in ("actionable_signals", "context_signals", "suppressed_signals")
+        for signal in pack[bucket]
+    ]
+
+    assert signals == []
 
 
 def test_live_pit_runtime_cycle_keeps_subscription_thesis_context_only(
@@ -636,6 +811,45 @@ def stock_trade(
     }
 
 
+def _write_stock_trade_partitions(
+    parquet_root: Path,
+    manifest_root: Path,
+    rows: list[dict[str, object]],
+    *,
+    coverage_status: str = "complete",
+    write_coverage: bool = True,
+) -> None:
+    trade_root = parquet_root / "stock_trades"
+    manifest_root.mkdir(parents=True, exist_ok=True)
+    by_ticker: dict[str, list[dict[str, object]]] = {}
+    for row in rows:
+        by_ticker.setdefault(str(row["ticker"]), []).append(row)
+    for ticker, ticker_rows in by_ticker.items():
+        trade_path = trade_root / f"ticker={ticker}" / "year=2026" / "trades.parquet"
+        trade_path.parent.mkdir(parents=True, exist_ok=True)
+        pl.DataFrame(ticker_rows).write_parquet(trade_path)
+    if write_coverage:
+        ticker_days = {}
+        for row in rows:
+            trade_date = row["trade_date"]
+            if not isinstance(trade_date, date):
+                continue
+            current = trade_date - timedelta(days=2)
+            while current <= trade_date:
+                if current.weekday() < 5:
+                    ticker_days[f"{row['ticker']}|{current}"] = {
+                        "ticker": row["ticker"],
+                        "trade_date": str(current),
+                        "coverage_status": coverage_status,
+                    }
+                current += timedelta(days=1)
+        (trade_root / "_coverage.json").write_text(
+            json.dumps({"schema_version": "0.1.0", "ticker_days": ticker_days}),
+            encoding="utf-8",
+        )
+    write_manifest(manifest_root, DatasetName.STOCK_TRADES, "stock_trades", len(rows))
+
+
 def option_chain(
     ticker: str,
     option_type: str,
@@ -701,3 +915,163 @@ def _set_manifest_max_as_of(
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["max_timestamp_as_of"] = timestamp
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# T137 — structured JSON logging for cycle runs
+# ---------------------------------------------------------------------------
+
+
+def test_cycle_start_log_is_emitted(capsys: pytest.CaptureFixture[str]) -> None:
+    """build_live_pit_runtime_cycle prints a JSON cycle_start event on stdout."""
+    build_live_pit_runtime_cycle(
+        cycle_id="cycle-log-start",
+        as_of=date(2026, 5, 6),
+        tickers={"AAPL"},
+        manifest_root=Path("missing-manifests"),
+        parquet_root=Path("missing-parquet"),
+        lanes=("fundamentals",),
+        generated_at=GENERATED_AT,
+    )
+
+    captured = capsys.readouterr()
+    start_events = []
+    for line in captured.out.splitlines():
+        if not line.strip():
+            continue
+        try:
+            obj = json.loads(line)
+            if obj.get("event") == "cycle_start":
+                start_events.append(obj)
+        except (json.JSONDecodeError, AttributeError):
+            pass
+
+    assert start_events, f"No cycle_start log line found in stdout. Got:\n{captured.out!r}"
+    evt = start_events[0]
+    assert evt["cycle_id"] == "cycle-log-start"
+    assert evt["ticker_count"] == 1
+    assert "as_of" in evt
+    assert "lanes" in evt
+    assert "ts" in evt
+
+
+def test_cycle_complete_log_is_emitted(capsys: pytest.CaptureFixture[str]) -> None:
+    """build_live_pit_runtime_cycle prints a JSON cycle_complete event on stdout."""
+    build_live_pit_runtime_cycle(
+        cycle_id="cycle-log-complete",
+        as_of=date(2026, 5, 6),
+        tickers={"AAPL", "MSFT"},
+        manifest_root=Path("missing-manifests"),
+        parquet_root=Path("missing-parquet"),
+        lanes=("fundamentals",),
+        generated_at=GENERATED_AT,
+    )
+
+    captured = capsys.readouterr()
+    complete_events = []
+    for line in captured.out.splitlines():
+        if not line.strip():
+            continue
+        try:
+            obj = json.loads(line)
+            if obj.get("event") == "cycle_complete":
+                complete_events.append(obj)
+        except (json.JSONDecodeError, AttributeError):
+            pass
+
+    assert complete_events, f"No cycle_complete log line found in stdout. Got:\n{captured.out!r}"
+    evt = complete_events[0]
+    assert evt["cycle_id"] == "cycle-log-complete"
+    assert evt["ticker_count"] == 2
+    assert "as_of" in evt
+    assert "candidate_count" in evt
+    assert "ts" in evt
+
+
+# ---------------------------------------------------------------------------
+# T129 — LLM reviewer wiring
+# ---------------------------------------------------------------------------
+
+
+def test_llm_review_is_skipped_when_env_not_set(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """When AGENCY_ENABLE_LLM_REVIEW is absent, the base RuntimeCycleResult is returned
+    and review_evidence_packs is never called."""
+    monkeypatch.delenv("AGENCY_ENABLE_LLM_REVIEW", raising=False)
+    loader = loader_with(
+        tmp_path,
+        {
+            DatasetName.PRICES_DAILY: pl.DataFrame(
+                [
+                    price("AAPL", date(2026, 5, 6), 110.0, date(2026, 5, 6), "a1"),
+                ]
+            )
+        },
+    )
+
+    with patch(
+        "live_runtime.cycle.review_evidence_packs",
+        side_effect=AssertionError("review_evidence_packs must not be called when LLM review is disabled"),
+    ):
+        result = build_live_pit_runtime_cycle(
+            cycle_id="cycle-no-llm",
+            as_of=date(2026, 5, 6),
+            tickers={"AAPL"},
+            manifest_root=loader.manifest_root,
+            parquet_root=loader.parquet_root,
+            lanes=("abnormal_volume",),
+            generated_at=GENERATED_AT,
+        )
+
+    assert isinstance(result, RuntimeCycleResult)
+    assert not isinstance(result, LlmEnhancedCycleResult)
+
+
+def test_llm_review_runs_on_watch_candidates_when_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """When AGENCY_ENABLE_LLM_REVIEW=true, review_evidence_packs is called and the result
+    is wrapped in LlmEnhancedCycleResult with the batch attached."""
+    monkeypatch.setenv("AGENCY_ENABLE_LLM_REVIEW", "true")
+    loader = loader_with(
+        tmp_path,
+        {
+            DatasetName.PRICES_DAILY: pl.DataFrame(
+                [
+                    price("AAPL", date(2026, 5, 6), 110.0, date(2026, 5, 6), "a1"),
+                ]
+            )
+        },
+    )
+
+    fake_batch = LlmReviewBatchResult(
+        reviews_by_ticker={"AAPL": {"action": "AGREE", "confidence": 0.8, "rationale": "ok", "supporting_factors": [], "concerns": []}},
+        lifecycle_events=[],
+        prompt_audits=[],
+        reviewed_tickers=["AAPL"],
+    )
+
+    async def _fake_review_evidence_packs(evidence_packs, *, provider, **kwargs):  # noqa: ANN001
+        return fake_batch
+
+    with patch(
+        "live_runtime.cycle.review_evidence_packs",
+        side_effect=_fake_review_evidence_packs,
+    ):
+        result = build_live_pit_runtime_cycle(
+            cycle_id="cycle-llm-enabled",
+            as_of=date(2026, 5, 6),
+            tickers={"AAPL"},
+            manifest_root=loader.manifest_root,
+            parquet_root=loader.parquet_root,
+            lanes=("abnormal_volume",),
+            generated_at=GENERATED_AT,
+        )
+
+    assert isinstance(result, LlmEnhancedCycleResult)
+    assert isinstance(result.cycle, RuntimeCycleResult)
+    assert result.llm_batch is fake_batch
+    assert result.llm_batch.reviewed_tickers == ["AAPL"]
