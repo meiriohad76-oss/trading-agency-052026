@@ -1,48 +1,100 @@
 from __future__ import annotations
 
 import asyncio
-from collections import Counter
-from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, cast
-from urllib.parse import urlencode
 
-import pandas as pd
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.exc import SQLAlchemyError
 
-from agency.api.candidates import runtime_candidate_timeline
-from agency.api.health import contract_summaries, runtime_data_source_status
-from agency.api.reports import runtime_selection_reports
-from agency.api.risk import runtime_risk_decisions
+from agency.api.health import runtime_data_source_status
+from agency.broker import (
+    AlpacaBrokerClient,
+    AlpacaBrokerError,
+    AlpacaTradingConfig,
+    build_market_order_payload,
+)
 from agency.db import MissingDatabaseConfigurationError, get_session
-from agency.runtime import build_live_readiness
-from agency.runtime.data_refresh_progress import load_data_refresh_progress
+from agency.runtime import execution_freshness_gate, record_candidate_lifecycle_event
+from agency.runtime.lane_promotion import load_lane_promotion_status
 from agency.runtime.live_config_readiness import load_live_config_readiness
-from agency.runtime.operational_readiness import build_operational_readiness
-from agency.runtime.provider_readiness import load_provider_readiness
 from agency.services import (
+    PortfolioPolicy,
     build_and_persist_human_review_event,
-    build_execution_previews,
-    build_learning_outcome,
-    build_portfolio_monitor,
-    build_risk_decisions,
+    build_order_approval_event,
+    persist_portfolio_snapshot,
+)
+from agency.views._shared import _env_bool_text, _mapping_field, _optional_float_field
+
+# Route handlers below reference these view-model constructors. Helper symbols
+# that are not used directly by routes are still re-exported here so existing
+# callers of ``agency.dashboard`` (and tests) keep working after the split.
+from agency.views.candidates import (  # noqa: F401
+    _candidate_review_redirect_url,
+    candidate_decision_brief,
+    candidate_detail_context,
+    candidate_detail_report_rows,
+    candidate_detail_summary,
+    candidate_email_evidence,
+    candidate_email_evidence_with_judgement,
+    candidate_review_summary,
+    candidate_rows,
+    timeline_rows,
+)
+from agency.views.command import (  # noqa: F401
+    command_summary,
+    dashboard_context,
+    data_load_status_view,
+    data_refresh_progress_view,
+    human_review_events_for_reports,
+    live_config_view,
+    operational_readiness_context,
+    paper_review_progress,
+    paper_review_queue,
+    paper_review_status_context,
+    paper_review_status_from_runtime,
+    policy_sections,
+    policy_summary,
+    provider_readiness_view,
+    readiness_view,
+    scheduler_work_queue_status_context,
+    source_status_rows,
+)
+from agency.views.execution import (  # noqa: F401
+    _record_submitted_order,
+    execution_preview_context,
+    execution_preview_order_row,
+    execution_preview_rows,
+)
+from agency.views.final_selection import (  # noqa: F401
+    final_selection_context,
+    final_selection_rows,
+    final_selection_summary,
+)
+from agency.views.learning import learning_context, learning_summary  # noqa: F401
+from agency.views.market_regime import (  # noqa: F401
+    broker_status_context,
+    market_regime_context,
+)
+from agency.views.portfolio import (  # noqa: F401
+    portfolio_monitor_context,
+    portfolio_monitor_summary,
+)
+from agency.views.risk import (  # noqa: F401
+    risk_context,
+    risk_decision_rows,
+    risk_summary,
+)
+from agency.views.signals import (  # noqa: F401
+    signal_dashboard_rows,
+    signal_dashboard_summary,
+    signal_lane_rows,
+    signals_context,
 )
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent / "templates"))
-REPO_ROOT = Path(__file__).resolve().parents[2]
-EMAIL_EVENTS_PATH = REPO_ROOT / "research" / "data" / "parquet" / "subscription_emails.parquet"
-NEWS_RSS_PATH = REPO_ROOT / "research" / "data" / "parquet" / "news_rss.parquet"
-
-ACTIONABLE_ACTIONS = {"BUY", "SELL", "SHORT", "COVER", "WATCH", "HOLD"}
-OPEN_RISK_DECISIONS = {"ALLOW", "WARN"}
-DEGRADED_SOURCE_STATUSES = {"DEGRADED", "STALE", "UNAVAILABLE", "RATE_LIMITED"}
-DEGRADED_FRESHNESS = {"AGING", "STALE", "UNAVAILABLE"}
-MIN_BRIEF_SOURCE_COUNT = 2
-MIN_BRIEF_CONFIRMED_COUNT = 1
 
 
 @router.get("/")
@@ -54,51 +106,6 @@ async def dashboard(request: Request) -> Response:
     )
 
 
-async def dashboard_context() -> dict[str, object]:
-    reports, data_sources, risk_decisions = await asyncio.gather(
-        runtime_selection_reports(limit=10),
-        runtime_data_source_status(),
-        runtime_risk_decisions(limit=25),
-    )
-    candidates = candidate_rows(reports)
-    contracts = contract_summaries()
-    readiness = readiness_view(
-        build_live_readiness(
-            source_health=data_sources,
-            selection_reports=reports,
-            risk_decisions=risk_decisions,
-        )
-    )
-    paper_status = await paper_review_status_from_runtime(
-        reports=reports,
-        risk_decisions=risk_decisions,
-        readiness=readiness,
-    )
-    review_queue = _mapping_list_field(paper_status, "queue")
-    review_progress = _mapping_field(paper_status, "progress")
-    summary = command_summary(
-        candidates=candidates,
-        data_sources=data_sources,
-        contracts=contracts,
-        review_queue=review_queue,
-    )
-    live_config = load_live_config_readiness()
-    provider_readiness = load_provider_readiness(live_config)
-    return {
-        "actions": command_actions(),
-        "contracts": contracts,
-        "data_sources": source_status_rows(data_sources),
-        "candidates": candidates,
-        "data_refresh": data_refresh_progress_view(load_data_refresh_progress()),
-        "live_config": live_config_view(live_config),
-        "provider_readiness": provider_readiness_view(provider_readiness),
-        "readiness": readiness,
-        "review_progress": review_progress,
-        "review_queue": review_queue,
-        "summary": summary,
-    }
-
-
 @router.get("/status/paper-review")
 async def paper_review_status() -> dict[str, object]:
     return await paper_review_status_context()
@@ -107,6 +114,19 @@ async def paper_review_status() -> dict[str, object]:
 @router.get("/status/operational-readiness")
 async def operational_readiness_status() -> dict[str, object]:
     return await operational_readiness_context()
+
+
+@router.get("/status/lane-promotion")
+async def lane_promotion_status() -> dict[str, object]:
+    live_config = load_live_config_readiness()
+    runtime_signals = live_config.get("runtime_signals", [])
+    signals = [str(item) for item in runtime_signals] if isinstance(runtime_signals, list) else []
+    return load_lane_promotion_status(signals)
+
+
+@router.get("/status/scheduler-work-queue")
+async def scheduler_work_queue_status() -> dict[str, object]:
+    return await scheduler_work_queue_status_context()
 
 
 @router.get("/candidates/{ticker}")
@@ -124,6 +144,8 @@ async def record_candidate_review(
     cycle_id: str,
     as_of: str,
     decision: str,
+    review_reason: str | None = None,
+    notes: str | None = None,
 ) -> Response:
     try:
         async with get_session() as session:
@@ -133,39 +155,18 @@ async def record_candidate_review(
                 ticker=ticker,
                 as_of=as_of,
                 decision=decision,
+                review_reason=review_reason,
+                notes=notes,
             )
             await session.commit()
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except (MissingDatabaseConfigurationError, OSError, SQLAlchemyError) as exc:
         raise HTTPException(status_code=503, detail="review persistence unavailable") from exc
-    return RedirectResponse(url=f"/candidates/{ticker.upper()}", status_code=303)
-
-
-async def candidate_detail_context(ticker: str) -> dict[str, object]:
-    normalized_ticker = ticker.upper()
-    reports = await runtime_selection_reports(ticker=normalized_ticker, limit=5)
-    timeline = await runtime_candidate_timeline(ticker=normalized_ticker, limit=25)
-    report_rows = final_selection_rows(reports)
-    latest_report = report_rows[0] if report_rows else None
-    email_evidence = candidate_email_evidence(normalized_ticker)
-    review = candidate_review_summary(report_rows, timeline)
-    return {
-        "ticker": normalized_ticker,
-        "decision_brief": candidate_decision_brief(
-            normalized_ticker,
-            latest_report,
-            email_evidence,
-            review,
-        ),
-        "email_evidence": email_evidence,
-        "latest_report": latest_report,
-        "previous_reports": report_rows[1:],
-        "reports": report_rows,
-        "review": review,
-        "timeline": timeline_rows(timeline),
-        "summary": candidate_detail_summary(normalized_ticker, report_rows, timeline),
-    }
+    return RedirectResponse(
+        url=_candidate_review_redirect_url(ticker=ticker, decision=decision),
+        status_code=303,
+    )
 
 
 @router.get("/final-selection")
@@ -175,15 +176,6 @@ async def final_selection(request: Request) -> Response:
         "final_selection.html",
         await final_selection_context(),
     )
-
-
-async def final_selection_context() -> dict[str, object]:
-    reports = await runtime_selection_reports(limit=25)
-    rows = final_selection_rows(reports)
-    return {
-        "final_rows": rows,
-        "summary": final_selection_summary(rows),
-    }
 
 
 @router.get("/risk")
@@ -202,6 +194,104 @@ async def execution_preview(request: Request) -> Response:
         "execution_preview.html",
         await execution_preview_context(),
     )
+
+
+@router.post("/execution-preview/orders/approve")
+async def approve_execution_order(
+    cycle_id: str,
+    ticker: str,
+    as_of: str,
+    order_intent_hash: str,
+) -> Response:
+    broker, data_sources = await asyncio.gather(
+        broker_status_context(),
+        runtime_data_source_status(),
+    )
+    gate = execution_freshness_gate(broker, data_sources)
+    if gate["ready"] is not True:
+        raise HTTPException(status_code=409, detail=str(gate["detail"]))
+    row = await execution_preview_order_row(
+        cycle_id=cycle_id,
+        ticker=ticker,
+        as_of=as_of,
+        broker=broker,
+        data_sources=data_sources,
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="execution preview not found")
+    if row.get("order_approval_available") is not True:
+        raise HTTPException(status_code=400, detail="only READY paper orders can be approved")
+    if str(row["order_intent_hash"]) != order_intent_hash:
+        raise HTTPException(status_code=409, detail="order intent changed; refresh and approve again")
+    try:
+        event = build_order_approval_event(_mapping_field(row, "preview"))
+        async with get_session() as session:
+            await record_candidate_lifecycle_event(session, event)
+            await session.commit()
+    except (MissingDatabaseConfigurationError, OSError, SQLAlchemyError) as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="order approval could not be persisted",
+        ) from exc
+    return RedirectResponse(url="/execution-preview#orderable-heading", status_code=303)
+
+
+@router.post("/execution-preview/orders")
+async def submit_execution_order(
+    cycle_id: str,
+    ticker: str,
+    as_of: str,
+    order_intent_hash: str,
+) -> Response:
+    if not _env_bool_text("AGENCY_ALPACA_BROKER_ENABLED"):
+        raise HTTPException(status_code=403, detail="Alpaca broker is disabled")
+    policy = PortfolioPolicy.from_env()
+    if not policy.broker_submit_enabled:
+        raise HTTPException(status_code=403, detail="broker submission is disabled")
+    broker, data_sources = await asyncio.gather(
+        broker_status_context(),
+        runtime_data_source_status(),
+    )
+    gate = execution_freshness_gate(broker, data_sources)
+    if gate["ready"] is not True:
+        raise HTTPException(status_code=409, detail=str(gate["detail"]))
+    row = await execution_preview_order_row(
+        cycle_id=cycle_id,
+        ticker=ticker,
+        as_of=as_of,
+        broker=broker,
+        data_sources=data_sources,
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="execution preview not found")
+    if str(row["order_intent_hash"]) != order_intent_hash:
+        raise HTTPException(status_code=409, detail="order intent changed; refresh and approve again")
+    if row["order_approved"] is not True:
+        raise HTTPException(status_code=403, detail="hash-bound order approval required")
+    if row["submit_enabled"] is not True:
+        raise HTTPException(status_code=400, detail=str(row["submit_blocker"]))
+    try:
+        config = AlpacaTradingConfig.from_env()
+        config.require_paper(purpose="execution preview order submission")
+        client = AlpacaBrokerClient(config)
+        order_payload = build_market_order_payload(
+            cycle_id=cycle_id,
+            ticker=ticker,
+            side=str(row["side"]),
+            quantity=_optional_float_field(row, "quantity"),
+            notional=_optional_float_field(row, "notional"),
+            time_in_force=str(row["time_in_force"]),
+        )
+        order = await client.submit_order(order_payload)
+        await _record_submitted_order(row, order)
+    except AlpacaBrokerError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except (MissingDatabaseConfigurationError, OSError, SQLAlchemyError) as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="order was submitted, but execution audit persistence failed",
+        ) from exc
+    return RedirectResponse(url="/execution-preview", status_code=303)
 
 
 @router.get("/policy")
@@ -225,1761 +315,55 @@ async def portfolio_monitor(request: Request) -> Response:
     )
 
 
+@router.get("/signals")
+async def signals(request: Request) -> Response:
+    return templates.TemplateResponse(
+        request,
+        "signals.html",
+        await signals_context(),
+    )
+
+
+@router.get("/market-regime")
+async def market_regime(request: Request) -> Response:
+    return templates.TemplateResponse(
+        request,
+        "market_regime.html",
+        await market_regime_context(),
+    )
+
+
+@router.get("/universe")
+async def universe() -> RedirectResponse:
+    return RedirectResponse("/market-regime", status_code=303)
+
+
+@router.post("/portfolio-monitor/snapshots")
+async def record_portfolio_snapshot() -> Response:
+    broker = await broker_status_context()
+    if broker.get("connected") is not True:
+        raise HTTPException(status_code=503, detail=str(broker.get("detail", "broker offline")))
+    try:
+        async with get_session() as session:
+            await persist_portfolio_snapshot(session, broker)
+            await session.commit()
+    except (MissingDatabaseConfigurationError, OSError, SQLAlchemyError) as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="portfolio snapshot persistence unavailable",
+        ) from exc
+    return RedirectResponse(url="/portfolio-monitor", status_code=303)
+
+
+@router.get("/status/broker")
+async def broker_status() -> dict[str, object]:
+    return await broker_status_context()
+
+
 @router.get("/learning")
 async def learning(request: Request) -> Response:
     return templates.TemplateResponse(
         request,
         "learning.html",
-        learning_context(),
+        await learning_context(),
     )
-
-
-async def risk_context() -> dict[str, object]:
-    reports, data_sources = await asyncio.gather(
-        runtime_selection_reports(limit=10),
-        runtime_data_source_status(),
-    )
-    risk_results = build_risk_decisions(reports, data_sources)
-    risk_rows = risk_decision_rows([result.risk_decision for result in risk_results])
-    return {
-        "risk_rows": risk_rows,
-        "data_sources": source_status_rows(data_sources),
-        "summary": risk_summary(risk_rows, data_sources),
-    }
-
-
-async def execution_preview_context() -> dict[str, object]:
-    reports, data_sources = await asyncio.gather(
-        runtime_selection_reports(limit=10),
-        runtime_data_source_status(),
-    )
-    risk_results = build_risk_decisions(reports, data_sources)
-    preview_results = build_execution_previews(
-        [result.risk_decision for result in risk_results]
-    )
-    preview_rows = execution_preview_rows([result.preview for result in preview_results])
-    return {
-        "preview_rows": preview_rows,
-        "summary": execution_preview_summary(preview_rows),
-    }
-
-
-async def portfolio_monitor_context() -> dict[str, object]:
-    reports = await runtime_selection_reports(limit=25)
-    demo_positions = [str(report["ticker"]) for report in reports[:5]]
-    snapshot = build_portfolio_monitor(reports, positions=demo_positions)
-    return {
-        "positions": snapshot["positions"],
-        "summary": portfolio_monitor_summary(snapshot),
-    }
-
-
-def learning_context() -> dict[str, object]:
-    outcome = build_learning_outcome()
-    return {
-        "outcome": outcome,
-        "summary": learning_summary(outcome),
-    }
-
-
-def command_summary(
-    *,
-    candidates: Sequence[Mapping[str, object]],
-    data_sources: Sequence[Mapping[str, object]],
-    contracts: Sequence[Mapping[str, object]],
-    review_queue: Sequence[Mapping[str, object]] = (),
-) -> dict[str, object]:
-    degraded_source_count = sum(1 for source in data_sources if _source_is_degraded(source))
-    candidate_count = len(candidates)
-    actionable_candidate_count = sum(
-        1 for candidate in candidates if _is_actionable_candidate(candidate)
-    )
-    blocked_candidate_count = sum(
-        1 for candidate in candidates if candidate["gate_status"] == "BLOCK"
-    )
-    return {
-        "candidate_count": candidate_count,
-        "actionable_candidate_count": actionable_candidate_count,
-        "blocked_candidate_count": blocked_candidate_count,
-        "source_count": len(data_sources),
-        "degraded_source_count": degraded_source_count,
-        "contract_count": len(contracts),
-        "review_queue_count": len(review_queue),
-        "hero_class": _command_hero_class(candidate_count, degraded_source_count),
-        "headline": _command_headline(candidate_count, actionable_candidate_count),
-        "detail": _command_detail(candidate_count, degraded_source_count),
-    }
-
-
-def command_actions() -> list[dict[str, str]]:
-    return [
-        {"label": "Review config", "href": "#live-config-heading"},
-        {"label": "Review providers", "href": "#provider-readiness-heading"},
-        {"label": "Review readiness", "href": "#readiness-heading"},
-        {"label": "Review queue", "href": "#review-queue-heading"},
-        {"label": "Review candidates", "href": "#candidates-heading"},
-        {"label": "Review data sources", "href": "#source-heading"},
-        {"label": "Review contracts", "href": "#contracts-heading"},
-    ]
-
-
-def candidate_rows(reports: Sequence[Mapping[str, object]]) -> list[dict[str, object]]:
-    return [_candidate_row(report) for report in reports]
-
-
-def source_status_rows(sources: Sequence[Mapping[str, object]]) -> list[dict[str, object]]:
-    return [
-        {
-            "source": str(source["source"]),
-            "status": str(source["status"]),
-            "freshness": str(source["freshness"]),
-            "reliability_pct": round(_float_field(source, "reliability_score") * 100),
-            "status_class": _source_status_class(source),
-            "checked_at": str(source["checked_at"]),
-        }
-        for source in sources
-    ]
-
-
-def final_selection_rows(reports: Sequence[Mapping[str, object]]) -> list[dict[str, object]]:
-    return [_final_selection_row(report) for report in reports]
-
-
-def risk_decision_rows(decisions: Sequence[Mapping[str, object]]) -> list[dict[str, object]]:
-    return [_risk_decision_row(decision) for decision in decisions]
-
-
-def execution_preview_rows(previews: Sequence[Mapping[str, object]]) -> list[dict[str, object]]:
-    return [_execution_preview_row(preview) for preview in previews]
-
-
-def readiness_view(summary: Mapping[str, object]) -> dict[str, object]:
-    view = dict(summary)
-    verdict = str(summary["verdict"])
-    view["verdict_label"] = _label_text(verdict)
-    view["status_class"] = _readiness_status_class(verdict)
-    view["blocker_rows"] = _readiness_blocker_rows(summary)
-    return view
-
-
-def data_refresh_progress_view(progress: Mapping[str, object]) -> dict[str, object]:
-    view = dict(progress)
-    view["progress_style"] = f"width: {_int_field(progress, 'percent_complete')}%"
-    return view
-
-
-def live_config_view(readiness: Mapping[str, object]) -> dict[str, object]:
-    view = dict(readiness)
-    view["check_rows"] = _list_field(readiness, "checks")
-    return view
-
-
-def provider_readiness_view(readiness: Mapping[str, object]) -> dict[str, object]:
-    view = dict(readiness)
-    view["provider_rows"] = [
-        _provider_readiness_row(cast(Mapping[str, object], row))
-        for row in _list_field(readiness, "providers")
-    ]
-    return view
-
-
-async def paper_review_status_context() -> dict[str, object]:
-    reports, data_sources, risk_decisions = await asyncio.gather(
-        runtime_selection_reports(limit=10),
-        runtime_data_source_status(),
-        runtime_risk_decisions(limit=25),
-    )
-    readiness = readiness_view(
-        build_live_readiness(
-            source_health=data_sources,
-            selection_reports=reports,
-            risk_decisions=risk_decisions,
-        )
-    )
-    return await paper_review_status_from_runtime(
-        reports=reports,
-        risk_decisions=risk_decisions,
-        readiness=readiness,
-    )
-
-
-async def operational_readiness_context() -> dict[str, object]:
-    reports, data_sources, risk_decisions = await asyncio.gather(
-        runtime_selection_reports(limit=10),
-        runtime_data_source_status(),
-        runtime_risk_decisions(limit=25),
-    )
-    readiness = build_live_readiness(
-        source_health=data_sources,
-        selection_reports=reports,
-        risk_decisions=risk_decisions,
-    )
-    paper_status = await paper_review_status_from_runtime(
-        reports=reports,
-        risk_decisions=risk_decisions,
-        readiness=readiness,
-    )
-    return build_operational_readiness(
-        health={"status": "ok", "service": "trading-agency-v2"},
-        live_config=load_live_config_readiness(),
-        data_refresh=load_data_refresh_progress(),
-        live_readiness=readiness,
-        paper_review=paper_status,
-    )
-
-
-async def paper_review_status_from_runtime(
-    *,
-    reports: Sequence[Mapping[str, object]],
-    risk_decisions: Sequence[Mapping[str, object]],
-    readiness: Mapping[str, object],
-) -> dict[str, object]:
-    review_events = await human_review_events_for_reports(reports, readiness)
-    queue = paper_review_queue(
-        reports,
-        risk_decisions,
-        readiness,
-        review_events=review_events,
-    )
-    return {
-        "schema_version": "0.1.0",
-        "cycle_id": readiness.get("cycle_id"),
-        "ready": readiness.get("ready"),
-        "verdict": readiness.get("verdict"),
-        "progress": paper_review_progress(queue),
-        "queue": queue,
-    }
-
-
-async def human_review_events_for_reports(
-    reports: Sequence[Mapping[str, object]],
-    readiness: Mapping[str, object],
-) -> list[dict[str, object]]:
-    cycle_id = readiness.get("cycle_id")
-    if not isinstance(cycle_id, str) or not cycle_id:
-        return []
-    tickers = sorted(
-        {
-            str(report["ticker"])
-            for report in reports
-            if report.get("cycle_id") == cycle_id
-        }
-    )
-    timelines = await asyncio.gather(
-        *(
-            runtime_candidate_timeline(ticker=ticker, cycle_id=cycle_id, limit=50)
-            for ticker in tickers
-        )
-    )
-    return [
-        event
-        for timeline in timelines
-        for event in timeline
-        if event.get("event_type") == "HUMAN_REVIEW"
-    ]
-
-
-def paper_review_queue(
-    reports: Sequence[Mapping[str, object]],
-    risk_decisions: Sequence[Mapping[str, object]],
-    readiness: Mapping[str, object],
-    *,
-    review_events: Sequence[Mapping[str, object]] = (),
-) -> list[dict[str, object]]:
-    cycle_id = readiness.get("cycle_id")
-    if not isinstance(cycle_id, str) or not cycle_id:
-        return []
-    risks = _risk_decision_index(risk_decisions)
-    reviews = _human_review_index(review_events)
-    rows = [
-        _paper_review_row(
-            report,
-            risks.get(_runtime_payload_key(report)),
-            reviews.get(_runtime_payload_key(report)),
-        )
-        for report in reports
-        if report.get("cycle_id") == cycle_id
-        and str(report.get("final_action")) in ACTIONABLE_ACTIONS
-    ]
-    return sorted(rows, key=_paper_review_sort_key)
-
-
-def paper_review_progress(
-    review_queue: Sequence[Mapping[str, object]],
-) -> dict[str, object]:
-    total_count = len(review_queue)
-    pending_count = sum(1 for row in review_queue if row["human_review_decision"] == "Pending")
-    approve_count = sum(1 for row in review_queue if row["human_review_decision"] == "Approve")
-    defer_count = sum(1 for row in review_queue if row["human_review_decision"] == "Defer")
-    reject_count = sum(1 for row in review_queue if row["human_review_decision"] == "Reject")
-    reviewed_count = total_count - pending_count
-    return {
-        "total_count": total_count,
-        "reviewed_count": reviewed_count,
-        "pending_count": pending_count,
-        "approve_count": approve_count,
-        "defer_count": defer_count,
-        "reject_count": reject_count,
-        "reviewed_label": f"{reviewed_count}/{total_count}" if total_count else "0/0",
-        "status_label": _review_progress_status_label(total_count, pending_count),
-        "status_class": _review_progress_status_class(total_count, pending_count),
-        "detail": _review_progress_detail(total_count, pending_count),
-    }
-
-
-def final_selection_summary(rows: Sequence[Mapping[str, object]]) -> dict[str, object]:
-    actionable_count = sum(1 for row in rows if _is_actionable_candidate(row))
-    blocked_count = sum(1 for row in rows if row["gate_status"] == "BLOCK")
-    return {
-        "report_count": len(rows),
-        "actionable_count": actionable_count,
-        "blocked_count": blocked_count,
-        "headline": _final_selection_headline(len(rows), actionable_count),
-        "detail": "Selection reports are read-only runtime artifacts.",
-    }
-
-
-def candidate_detail_summary(
-    ticker: str,
-    reports: Sequence[Mapping[str, object]],
-    timeline: Sequence[Mapping[str, object]],
-) -> dict[str, object]:
-    latest_action = str(reports[0]["action"]) if reports else "None"
-    latest = reports[0] if reports else None
-    return {
-        "ticker": ticker,
-        "report_count": len(reports),
-        "event_count": len(timeline),
-        "latest_action": latest_action,
-        "headline": _candidate_detail_headline(ticker, latest_action),
-        "detail": _candidate_detail_text(ticker, latest),
-    }
-
-
-def candidate_review_summary(
-    reports: Sequence[Mapping[str, object]],
-    timeline: Sequence[Mapping[str, object]],
-) -> dict[str, object]:
-    if not reports:
-        return {
-            "can_record": False,
-            "cycle_id": "None",
-            "as_of": "None",
-            "decision": "No Report",
-            "status_class": "neutral",
-            "reason": "No selection report available for review.",
-            "event_time": "None",
-            "approve_action": "#",
-            "defer_action": "#",
-            "reject_action": "#",
-        }
-    report = reports[0]
-    ticker = str(report["ticker"])
-    cycle_id = str(report["cycle_id"])
-    as_of = str(report["as_of"])
-    review_event = _human_review_index(timeline).get((cycle_id, ticker, as_of))
-    review = _human_review_summary(review_event)
-    return {
-        "can_record": True,
-        "cycle_id": cycle_id,
-        "as_of": as_of,
-        "decision": review["decision"],
-        "status_class": review["status_class"],
-        "reason": review["reason"],
-        "event_time": review["event_time"],
-        "approve_action": _review_action_url(
-            ticker=ticker,
-            cycle_id=cycle_id,
-            as_of=as_of,
-            decision="APPROVE",
-        ),
-        "defer_action": _review_action_url(
-            ticker=ticker,
-            cycle_id=cycle_id,
-            as_of=as_of,
-            decision="DEFER",
-        ),
-        "reject_action": _review_action_url(
-            ticker=ticker,
-            cycle_id=cycle_id,
-            as_of=as_of,
-            decision="REJECT",
-        ),
-    }
-
-
-def risk_summary(
-    rows: Sequence[Mapping[str, object]],
-    data_sources: Sequence[Mapping[str, object]],
-) -> dict[str, object]:
-    degraded_source_count = sum(1 for source in data_sources if _source_is_degraded(source))
-    allow_count = sum(1 for row in rows if row["decision"] == "ALLOW")
-    warn_count = sum(1 for row in rows if row["decision"] == "WARN")
-    block_count = sum(1 for row in rows if row["decision"] == "BLOCK")
-    return {
-        "decision_count": len(rows),
-        "allow_count": allow_count,
-        "warn_count": warn_count,
-        "block_count": block_count,
-        "degraded_source_count": degraded_source_count,
-        "headline": _risk_headline(len(rows), allow_count, warn_count, block_count),
-        "detail": "V0 risk checks use final selection, policy defaults, and runtime health.",
-    }
-
-
-def execution_preview_summary(rows: Sequence[Mapping[str, object]]) -> dict[str, object]:
-    ready_count = sum(1 for row in rows if row["preview_state"] == "READY")
-    blocked_count = sum(1 for row in rows if row["preview_state"] == "BLOCKED")
-    disabled_count = sum(1 for row in rows if row["preview_state"] == "DISABLED")
-    return {
-        "preview_count": len(rows),
-        "ready_count": ready_count,
-        "blocked_count": blocked_count,
-        "disabled_count": disabled_count,
-        "headline": _execution_headline(len(rows), ready_count),
-        "detail": "Previews are paper-only artifacts; broker submission remains gated.",
-    }
-
-
-def portfolio_monitor_summary(snapshot: Mapping[str, object]) -> dict[str, object]:
-    summary = _mapping_field(snapshot, "summary")
-    position_count = _int_field(summary, "position_count")
-    return {
-        **dict(summary),
-        "headline": _portfolio_headline(position_count),
-        "detail": "Monitor output is read-only and never closes positions automatically.",
-    }
-
-
-def learning_summary(outcome: Mapping[str, object]) -> dict[str, object]:
-    sample_count = _int_field(outcome, "sample_count")
-    required_count = _int_field(outcome, "required_sample_count")
-    return {
-        "status": str(outcome["status"]),
-        "sample_count": sample_count,
-        "required_sample_count": required_count,
-        "headline": str(outcome["message"]),
-        "detail": "Learning feedback is advisory until audit persistence and review exist.",
-    }
-
-
-def policy_sections() -> list[dict[str, object]]:
-    return [
-        {
-            "title": "Targets and Discipline",
-            "items": [
-                {"label": "Weekly planning target", "value": "3.0%"},
-                {"label": "Minimum final conviction", "value": "0.62"},
-                {"label": "Maximum weekly drawdown", "value": "6.0%"},
-                {"label": "Minimum hold", "value": "2 days"},
-            ],
-        },
-        {
-            "title": "Capacity",
-            "items": [
-                {"label": "Maximum positions", "value": "10"},
-                {"label": "Maximum new per cycle", "value": "3"},
-                {"label": "Maximum single name", "value": "25%"},
-                {"label": "Maximum sector exposure", "value": "30%"},
-                {"label": "Cash reserve", "value": "10%"},
-                {"label": "Maximum gross exposure", "value": "100%"},
-            ],
-        },
-        {
-            "title": "Trade Defaults",
-            "items": [
-                {"label": "Default stop", "value": "5%"},
-                {"label": "Default take profit", "value": "9%"},
-                {"label": "Trailing stop", "value": "3%"},
-                {"label": "Bracket orders", "value": "Enabled for preview design"},
-            ],
-        },
-        {
-            "title": "Permissions",
-            "items": [
-                {"label": "Shorts", "value": "Disabled"},
-                {"label": "Live trading", "value": "Disabled"},
-                {"label": "Broker submission", "value": "Disabled"},
-                {"label": "Policy editing", "value": "Disabled until audit persistence exists"},
-            ],
-        },
-    ]
-
-
-def policy_summary() -> dict[str, str]:
-    return {
-        "headline": "Portfolio policy is read-only.",
-        "detail": "Editable controls wait for validation, audit logging, and persistence.",
-    }
-
-
-def timeline_rows(events: Sequence[Mapping[str, object]]) -> list[dict[str, object]]:
-    return [
-        {
-            "event_type": str(event["event_type"]),
-            "event_time": str(event["event_time"]),
-            "status": str(event["status"]),
-            "reason": event["reason"],
-        }
-        for event in events
-    ]
-
-
-def candidate_email_evidence(
-    ticker: str,
-    *,
-    event_path: Path = EMAIL_EVENTS_PATH,
-    news_path: Path = NEWS_RSS_PATH,
-    limit: int = 5,
-) -> dict[str, object]:
-    normalized = ticker.upper()
-    events = _candidate_email_event_rows(normalized, event_path=event_path, limit=limit)
-    feed_rows = _candidate_email_feed_rows(normalized, news_path=news_path, limit=limit)
-    service_counts = _candidate_email_service_counts(normalized, event_path)
-    direction_counts = _candidate_email_direction_counts(normalized, event_path)
-    analyzed_count = _candidate_email_analyzed_count(normalized, event_path)
-    event_count = _candidate_email_count(normalized, event_path)
-    feed_count = _candidate_email_feed_count(normalized, news_path)
-    latest_at = _latest_text([*events, *feed_rows])
-    return {
-        "ticker": normalized,
-        "event_count": event_count,
-        "feed_count": feed_count,
-        "analyzed_count": analyzed_count,
-        "latest_at": latest_at or "None",
-        "direction_rows": _direction_count_rows(direction_counts),
-        "direction_summary": _direction_summary(direction_counts),
-        "meaning": _email_evidence_meaning(event_count, direction_counts, analyzed_count),
-        "service_summary": _service_summary(service_counts),
-        "rows": events,
-        "feed_rows": feed_rows,
-        "status_label": "Email Matches" if event_count else "No Email Evidence",
-        "status_class": "pass" if event_count else "neutral",
-        "detail": _email_evidence_detail(event_count, feed_count, analyzed_count),
-    }
-
-
-def _candidate_email_event_rows(
-    ticker: str,
-    *,
-    event_path: Path,
-    limit: int,
-) -> list[dict[str, object]]:
-    frame = _ticker_frame(event_path, ticker)
-    if frame.empty:
-        return []
-    frame = frame.sort_values("timestamp_as_of", ascending=False).head(limit)
-    rows: list[dict[str, object]] = []
-    for row in _records(frame):
-        status = _clean_text(row.get("linked_content_status")) or "not_requested"
-        linked_summary = _clean_text(row.get("linked_content_summary"))
-        title = _clean_text(row.get("title"))
-        direction = (_clean_text(row.get("direction")) or "NEUTRAL").upper()
-        rows.append(
-            {
-                "service": _service_label(_clean_text(row.get("service")) or "subscription"),
-                "event_type": _label_text(_clean_text(row.get("event_type")) or "email evidence"),
-                "direction": direction,
-                "direction_class": _direction_class(direction),
-                "linked_content_status": status,
-                "linked_status_label": _linked_status_label(status),
-                "linked_status_class": _linked_status_class(status),
-                "timestamp": _clean_text(row.get("timestamp_as_of")) or "unknown",
-                "detail": _linked_status_detail(status),
-                "title": _clip_text(title or "Subscription email evidence", 120),
-                "summary": _clip_text(linked_summary or _linked_status_detail(status), 180),
-            }
-        )
-    return rows
-
-
-def _candidate_email_feed_rows(
-    ticker: str,
-    *,
-    news_path: Path,
-    limit: int,
-) -> list[dict[str, object]]:
-    frame = _ticker_frame(news_path, ticker)
-    if frame.empty or "source_tier" not in frame.columns:
-        return []
-    frame = frame[frame["source_tier"].astype(str).eq("PAID_SUB_EMAIL")]
-    if frame.empty:
-        return []
-    frame = frame.sort_values("timestamp_as_of", ascending=False).head(limit)
-    rows: list[dict[str, object]] = []
-    for row in _records(frame):
-        title = _clean_text(row.get("title"))
-        summary = _clean_text(row.get("summary"))
-        rows.append(
-            {
-                "feed_name": _service_label(_clean_text(row.get("feed_name")) or "email feed"),
-                "title": _clip_text(title or "Email-derived feed item", 110),
-                "summary": _clip_text(summary or "No summary recorded", 180),
-                "timestamp": _clean_text(row.get("timestamp_as_of")) or "unknown",
-            }
-        )
-    return rows
-
-
-def _candidate_email_count(ticker: str, event_path: Path) -> int:
-    return len(_ticker_frame(event_path, ticker))
-
-
-def _candidate_email_analyzed_count(ticker: str, event_path: Path) -> int:
-    frame = _ticker_frame(event_path, ticker)
-    if frame.empty or "linked_content_status" not in frame.columns:
-        return 0
-    return int(frame["linked_content_status"].astype(str).eq("article_analyzed").sum())
-
-
-def _candidate_email_feed_count(ticker: str, news_path: Path) -> int:
-    frame = _ticker_frame(news_path, ticker)
-    if frame.empty or "source_tier" not in frame.columns:
-        return 0
-    return int(frame[frame["source_tier"].astype(str).eq("PAID_SUB_EMAIL")].shape[0])
-
-
-def _candidate_email_service_counts(ticker: str, event_path: Path) -> Counter[str]:
-    frame = _ticker_frame(event_path, ticker)
-    if frame.empty or "service" not in frame.columns:
-        return Counter()
-    return Counter(
-        _service_label(_clean_text(service) or "subscription")
-        for service in frame["service"].to_list()
-    )
-
-
-def _candidate_email_direction_counts(ticker: str, event_path: Path) -> Counter[str]:
-    frame = _ticker_frame(event_path, ticker)
-    if frame.empty or "direction" not in frame.columns:
-        return Counter()
-    return Counter(
-        (_clean_text(direction) or "NEUTRAL").upper()
-        for direction in frame["direction"].to_list()
-    )
-
-
-def _ticker_frame(path: Path, ticker: str) -> pd.DataFrame:
-    if not path.is_file():
-        return pd.DataFrame()
-    try:
-        frame = pd.read_parquet(path)
-    except (OSError, ValueError, ImportError):
-        return pd.DataFrame()
-    if "ticker" not in frame.columns:
-        return pd.DataFrame()
-    return frame[frame["ticker"].astype(str).str.upper().eq(ticker.upper())].copy()
-
-
-def _records(frame: pd.DataFrame) -> list[dict[str, Any]]:
-    return cast(list[dict[str, Any]], frame.to_dict(orient="records"))
-
-
-def _latest_text(rows: Sequence[Mapping[str, object]]) -> str | None:
-    values = [str(row["timestamp"]) for row in rows if row.get("timestamp")]
-    return max(values) if values else None
-
-
-def _service_summary(counts: Counter[str]) -> str:
-    if not counts:
-        return "No matching email services"
-    return ", ".join(
-        f"{_service_label(service)} {count}"
-        for service, count in counts.most_common()
-    )
-
-
-def _direction_count_rows(counts: Counter[str]) -> list[dict[str, object]]:
-    directions = ("BULLISH", "BEARISH", "NEUTRAL")
-    return [
-        {
-            "label": direction.title(),
-            "direction": direction,
-            "count": counts.get(direction, 0),
-            "status_class": _direction_class(direction),
-        }
-        for direction in directions
-        if counts.get(direction, 0) > 0
-    ]
-
-
-def _direction_summary(counts: Counter[str]) -> str:
-    rows = _direction_count_rows(counts)
-    if not rows:
-        return "No directional email evidence"
-    return ", ".join(f"{row['label']} {row['count']}" for row in rows)
-
-
-def _email_evidence_meaning(
-    event_count: int,
-    direction_counts: Counter[str],
-    analyzed_count: int,
-) -> str:
-    if event_count == 0:
-        return "No subscription email intelligence is currently attached to this ticker."
-    bullish = direction_counts.get("BULLISH", 0)
-    bearish = direction_counts.get("BEARISH", 0)
-    neutral = direction_counts.get("NEUTRAL", 0)
-    if bullish > bearish:
-        tilt = f"Email alerts lean bullish ({bullish} bullish vs {bearish} bearish)."
-    elif bearish > bullish:
-        tilt = f"Email alerts lean bearish ({bearish} bearish vs {bullish} bullish)."
-    elif bullish or bearish:
-        tilt = f"Email alerts are mixed ({bullish} bullish and {bearish} bearish)."
-    else:
-        tilt = f"Email alerts are mostly neutral ({neutral} neutral)."
-    if analyzed_count == 0:
-        return f"{tilt} Article links have not been analyzed yet, so this is context only."
-    return f"{tilt} {analyzed_count} linked article thesis row(s) are ready for review."
-
-
-def _email_evidence_detail(event_count: int, feed_count: int, analyzed_count: int) -> str:
-    if event_count == 0:
-        return "No subscription emails currently match this ticker."
-    if analyzed_count:
-        return (
-            f"{event_count} matching email events and {feed_count} feed rows. "
-            f"{analyzed_count} linked article thesis rows are ready for context review."
-        )
-    return (
-        f"{event_count} matching email events and {feed_count} feed rows. "
-        "No linked article thesis has been analyzed yet, so these are shown as evidence only."
-    )
-
-
-def _linked_status_label(status: str) -> str:
-    labels = {
-        "article_analyzed": "Article Analyzed",
-        "article_fetch_failed": "Link Failed",
-        "not_requested": "Email Only",
-    }
-    return labels.get(status, _label_text(status))
-
-
-def _linked_status_class(status: str) -> str:
-    if status == "article_analyzed":
-        return "pass"
-    if status == "article_fetch_failed":
-        return "warn"
-    return "neutral"
-
-
-def _linked_status_detail(status: str) -> str:
-    if status == "article_analyzed":
-        return "The linked article was analyzed and can appear as a thesis context signal."
-    if status == "article_fetch_failed":
-        return "The email matched this ticker, but the linked page could not be analyzed."
-    return "The email matched this ticker; linked article analysis was not available for this row."
-
-
-def _service_label(value: str) -> str:
-    cleaned = value.replace("-email", "").replace("_", " ").replace("-", " ").strip()
-    if cleaned.lower() == "seeking alpha email":
-        return "Seeking Alpha"
-    return cleaned.title() if cleaned else "Email"
-
-
-def candidate_decision_brief(
-    ticker: str,
-    latest_report: Mapping[str, object] | None,
-    email_evidence: Mapping[str, object],
-    review: Mapping[str, object],
-) -> dict[str, object]:
-    if latest_report is None:
-        return _empty_decision_brief(ticker, email_evidence)
-    action = str(latest_report["action"])
-    gate_status = str(latest_report["gate_status"])
-    conviction_pct = _int_field(latest_report, "conviction_pct")
-    actionable = _mapping_rows(latest_report, "actionable_signals")
-    context = _mapping_rows(latest_report, "context_signals")
-    suppressed = _mapping_rows(latest_report, "suppressed_signals")
-    all_signals = [*actionable, *context, *suppressed]
-    direction_counts = _signal_direction_counts(all_signals)
-    state_class = _candidate_state_class(action, gate_status)
-    return {
-        "ticker": ticker,
-        "action": action,
-        "action_label": _candidate_action_label(action),
-        "state_label": _candidate_state_label(action, gate_status),
-        "state_class": state_class,
-        "headline": _candidate_brief_headline(ticker, action, gate_status),
-        "detail": _candidate_brief_detail(action, actionable, context, suppressed),
-        "next_step": _candidate_next_step(action, gate_status, review),
-        "conviction_pct": conviction_pct,
-        "conviction_style": f"--meter-value: {conviction_pct}%",
-        "gate_status": gate_status,
-        "gate_class": gate_status.lower(),
-        "generated_at": str(latest_report["generated_at"]),
-        "source_count": _int_field(latest_report, "source_count"),
-        "confirmed_signal_count": _int_field(latest_report, "confirmed_signal_count"),
-        "signal_counts": _signal_count_cards(actionable, context, suppressed),
-        "signal_balance": _signal_balance(direction_counts),
-        "support_cards": _signal_driver_cards(all_signals, "BULLISH", default_tone="pass"),
-        "caution_cards": _signal_driver_cards(all_signals, "BEARISH", default_tone="block"),
-        "decision_points": _decision_points(latest_report, email_evidence),
-        "email_takeaway": str(email_evidence["meaning"]),
-        "email_status_class": str(email_evidence["status_class"]),
-    }
-
-
-def _empty_decision_brief(
-    ticker: str,
-    email_evidence: Mapping[str, object],
-) -> dict[str, object]:
-    return {
-        "ticker": ticker,
-        "action": "NONE",
-        "action_label": "No Report",
-        "state_label": "Waiting For Runtime",
-        "state_class": "neutral",
-        "headline": f"{ticker} has not been evaluated yet.",
-        "detail": "Run a runtime cycle to produce a decision brief and evidence summary.",
-        "next_step": "Run the live runtime cycle, then review the generated candidate report.",
-        "conviction_pct": 0,
-        "conviction_style": "--meter-value: 0%",
-        "gate_status": "UNKNOWN",
-        "gate_class": "unknown",
-        "generated_at": "None",
-        "source_count": 0,
-        "confirmed_signal_count": 0,
-        "signal_counts": _signal_count_cards([], [], []),
-        "signal_balance": _signal_balance(Counter()),
-        "support_cards": [],
-        "caution_cards": [],
-        "decision_points": [
-            {
-                "label": "No selection report",
-                "detail": "There is no persisted decision for this ticker yet.",
-                "tone": "neutral",
-            },
-            {
-                "label": "Email context",
-                "detail": str(email_evidence["detail"]),
-                "tone": str(email_evidence["status_class"]),
-            },
-        ],
-        "email_takeaway": str(email_evidence["meaning"]),
-        "email_status_class": str(email_evidence["status_class"]),
-    }
-
-
-def _mapping_rows(payload: Mapping[str, object], key: str) -> list[Mapping[str, object]]:
-    value = payload.get(key, [])
-    if not isinstance(value, list):
-        return []
-    return [cast(Mapping[str, object], item) for item in value if isinstance(item, Mapping)]
-
-
-def _candidate_state_class(action: str, gate_status: str) -> str:
-    if gate_status == "BLOCK" or action in {"NO_TRADE", "CLOSE_REVIEW"}:
-        return "block"
-    if action == "WATCH":
-        return "warn"
-    if action in {"BUY", "SELL", "SHORT", "COVER", "HOLD"}:
-        return "pass"
-    return "neutral"
-
-
-def _candidate_state_label(action: str, gate_status: str) -> str:
-    if gate_status == "BLOCK":
-        return "Blocked By Policy"
-    if action == "WATCH":
-        return "Selected For Review"
-    if action in {"NO_TRADE", "CLOSE_REVIEW"}:
-        return "Rejected For Now"
-    if action in {"BUY", "SELL", "SHORT", "COVER"}:
-        return "Trade Candidate"
-    if action == "HOLD":
-        return "Hold / Monitor"
-    return "No Decision"
-
-
-def _candidate_action_label(action: str) -> str:
-    labels = {
-        "WATCH": "Watch",
-        "NO_TRADE": "No Trade",
-        "CLOSE_REVIEW": "Close Review",
-        "BUY": "Buy Candidate",
-        "SELL": "Sell Candidate",
-        "SHORT": "Short Candidate",
-        "COVER": "Cover Candidate",
-        "HOLD": "Hold",
-    }
-    return labels.get(action, _label_text(action))
-
-
-def _candidate_brief_headline(ticker: str, action: str, gate_status: str) -> str:
-    if gate_status == "BLOCK":
-        return f"{ticker} was blocked by policy gates."
-    headlines = {
-        "WATCH": f"{ticker} is selected for human review, not automatic trading.",
-        "NO_TRADE": f"{ticker} was rejected for now.",
-        "CLOSE_REVIEW": f"{ticker} needs closer review before any action.",
-        "HOLD": f"{ticker} is a hold/monitor candidate.",
-    }
-    if action in {"BUY", "SELL", "SHORT", "COVER"}:
-        return f"{ticker} is a {action.lower()} candidate pending risk review."
-    return headlines.get(action, f"{ticker} has a recorded decision.")
-
-
-def _candidate_brief_detail(
-    action: str,
-    actionable: Sequence[Mapping[str, object]],
-    context: Sequence[Mapping[str, object]],
-    suppressed: Sequence[Mapping[str, object]],
-) -> str:
-    support = _first_signal_summary([*actionable, *context], "BULLISH")
-    caution = _first_signal_summary([*actionable, *context, *suppressed], "BEARISH")
-    if action == "WATCH":
-        if support and caution:
-            return f"Selected because {support} Main caution: {caution}"
-        if support:
-            return f"Selected because {support}"
-    if action in {"NO_TRADE", "CLOSE_REVIEW"} and caution:
-        return f"Rejected or held back because {caution}"
-    if support:
-        return f"Primary constructive evidence: {support}"
-    if caution:
-        return f"Primary caution: {caution}"
-    return "The latest report did not surface a strong directional driver."
-
-
-def _first_signal_summary(
-    signals: Sequence[Mapping[str, object]],
-    direction: str,
-) -> str | None:
-    for signal in _sorted_signals(signals):
-        if str(signal.get("direction")) == direction:
-            return str(signal["summary"])
-    return None
-
-
-def _candidate_next_step(
-    action: str,
-    gate_status: str,
-    review: Mapping[str, object],
-) -> str:
-    if gate_status == "BLOCK":
-        return "Do not approve. Fix the blocking gate or wait for stronger evidence."
-    if action == "WATCH":
-        decision = str(review.get("decision", "Pending"))
-        if decision == "Pending":
-            return "Review the drivers below, then approve, defer, or reject the paper candidate."
-        return f"Human review is recorded as {decision}; monitor the next runtime cycle."
-    if action in {"NO_TRADE", "CLOSE_REVIEW"}:
-        return "No trade. Revisit only if a later cycle adds stronger independent evidence."
-    if action in {"BUY", "SELL", "SHORT", "COVER"}:
-        return "Send to risk review and paper preview before any broker action."
-    return "Monitor the next refresh for a clearer setup."
-
-
-def _signal_count_cards(
-    actionable: Sequence[Mapping[str, object]],
-    context: Sequence[Mapping[str, object]],
-    suppressed: Sequence[Mapping[str, object]],
-) -> list[dict[str, object]]:
-    return [
-        {
-            "label": "Actionable",
-            "value": len(actionable),
-            "detail": "can drive the decision",
-            "tone": "pass" if actionable else "neutral",
-        },
-        {
-            "label": "Context",
-            "value": len(context),
-            "detail": "useful but not decisive",
-            "tone": "warn" if context else "neutral",
-        },
-        {
-            "label": "Suppressed",
-            "value": len(suppressed),
-            "detail": "ignored or too weak",
-            "tone": "block" if suppressed else "pass",
-        },
-    ]
-
-
-def _signal_direction_counts(signals: Sequence[Mapping[str, object]]) -> Counter[str]:
-    return Counter(str(signal.get("direction", "NEUTRAL")) for signal in signals)
-
-
-def _signal_balance(counts: Counter[str]) -> list[dict[str, object]]:
-    total = sum(counts.values())
-    if total == 0:
-        return [
-            {
-                "label": "No signals",
-                "count": 0,
-                "tone": "neutral",
-                "style": "width: 100%",
-            }
-        ]
-    rows: list[dict[str, object]] = []
-    for direction, tone in (("BULLISH", "pass"), ("BEARISH", "block"), ("NEUTRAL", "neutral")):
-        count = counts.get(direction, 0)
-        if count == 0:
-            continue
-        pct = round((count / total) * 100, 2)
-        rows.append(
-            {
-                "label": direction.title(),
-                "count": count,
-                "tone": tone,
-                "style": f"width: {pct}%",
-            }
-        )
-    return rows
-
-
-def _signal_driver_cards(
-    signals: Sequence[Mapping[str, object]],
-    direction: str,
-    *,
-    default_tone: str,
-    limit: int = 3,
-) -> list[dict[str, object]]:
-    rows = [
-        signal
-        for signal in _sorted_signals(signals)
-        if str(signal.get("direction")) == direction
-    ][:limit]
-    if not rows and direction == "BEARISH":
-        return [
-            {
-                "label": "No major negative driver",
-                "detail": "The latest report did not surface a bearish actionable driver.",
-                "meta": "risk check",
-                "tone": "pass",
-            }
-        ]
-    cards: list[dict[str, object]] = [
-        {
-            "label": str(signal["lane"]),
-            "detail": str(signal["summary"]),
-            "meta": f"{signal['score']} / {signal['confidence_pct']}% confidence",
-            "tone": default_tone,
-        }
-        for signal in rows
-    ]
-    return cards
-
-
-def _sorted_signals(signals: Sequence[Mapping[str, object]]) -> list[Mapping[str, object]]:
-    return sorted(
-        signals,
-        key=lambda signal: abs(_numeric_value(signal.get("score_value"))),
-        reverse=True,
-    )
-
-
-def _numeric_value(value: object) -> float:
-    if isinstance(value, int | float):
-        return float(value)
-    return 0.0
-
-
-def _decision_points(
-    latest_report: Mapping[str, object],
-    email_evidence: Mapping[str, object],
-) -> list[dict[str, object]]:
-    action = str(latest_report["action"])
-    gate_status = str(latest_report["gate_status"])
-    source_count = _int_field(latest_report, "source_count")
-    confirmed = _int_field(latest_report, "confirmed_signal_count")
-    points: list[dict[str, object]] = [
-        {
-            "label": _candidate_state_label(action, gate_status),
-            "detail": _decision_explanation(
-                latest_report,
-                {"action": str(latest_report["deterministic_action"])},
-                {
-                    "source_count": source_count,
-                    "confirmed_signal_count": confirmed,
-                    "freshness": str(latest_report["freshness"]),
-                },
-            ),
-            "tone": _candidate_state_class(action, gate_status),
-        },
-        {
-            "label": "Evidence breadth",
-            "detail": f"{source_count} independent source(s), {confirmed} confirmed signal(s).",
-            "tone": (
-                "pass"
-                if source_count >= MIN_BRIEF_SOURCE_COUNT
-                and confirmed >= MIN_BRIEF_CONFIRMED_COUNT
-                else "warn"
-            ),
-        },
-        {
-            "label": "Subscription context",
-            "detail": str(email_evidence["meaning"]),
-            "tone": str(email_evidence["status_class"]),
-        },
-    ]
-    if gate_status == "PASS":
-        points.append(
-            {
-                "label": "Policy gates",
-                "detail": "No blocking policy gate is active for the latest report.",
-                "tone": "pass",
-            }
-        )
-    else:
-        points.append(
-            {
-                "label": "Policy gates",
-                "detail": f"Latest policy gate state is {gate_status}.",
-                "tone": "block" if gate_status == "BLOCK" else "warn",
-            }
-        )
-    return points
-
-
-def _final_selection_row(report: Mapping[str, object]) -> dict[str, object]:
-    base = _candidate_row(report)
-    deterministic = _mapping_field(report, "deterministic")
-    llm_review = _mapping_field(report, "llm_review")
-    evidence_pack = _mapping_field(report, "evidence_pack")
-    data_quality = _mapping_field(evidence_pack, "data_quality")
-    risk_flags = _string_list(report, "risk_flags")
-    return {
-        **base,
-        "cycle_id": str(report["cycle_id"]),
-        "generated_at": str(report["generated_at"]),
-        "deterministic_action": str(deterministic["action"]),
-        "deterministic_conviction_pct": _percent(deterministic, "conviction"),
-        "deterministic_reason": _reason_text(deterministic),
-        "llm_action": str(llm_review["action"]),
-        "llm_confidence_pct": _percent(llm_review, "confidence"),
-        "llm_rationale": str(llm_review["rationale"]),
-        "policy_gates": _gate_rows(report),
-        "risk_flags": risk_flags,
-        "risk_flag_text": ", ".join(risk_flags) if risk_flags else "none",
-        "freshness": str(data_quality["freshness"]),
-        "source_count": _int_field(data_quality, "source_count"),
-        "confirmed_signal_count": _int_field(data_quality, "confirmed_signal_count"),
-        "context_signals": _context_signal_rows(evidence_pack),
-        "actionable_signals": _signal_rows(evidence_pack, "actionable_signals"),
-        "suppressed_signals": _signal_rows(evidence_pack, "suppressed_signals"),
-        "decision_explanation": _decision_explanation(base, deterministic, data_quality),
-    }
-
-
-def _risk_decision_row(decision: Mapping[str, object]) -> dict[str, object]:
-    reasons = _string_list(decision, "reasons")
-    return {
-        "cycle_id": str(decision["cycle_id"]),
-        "ticker": str(decision["ticker"]),
-        "decision": str(decision["decision"]),
-        "decision_class": _decision_class(str(decision["decision"])),
-        "final_action": str(decision["final_action"]),
-        "conviction_pct": _percent(decision, "final_conviction"),
-        "position_size_pct": _float_field(decision, "position_size_pct"),
-        "projected_gross_exposure_pct": _float_field(
-            decision,
-            "projected_gross_exposure_pct",
-        ),
-        "reason": reasons[0] if reasons else "risk decision recorded",
-        "checks": _check_rows(decision, "checks"),
-    }
-
-
-def _paper_review_row(
-    report: Mapping[str, object],
-    risk_decision: Mapping[str, object] | None,
-    human_review_event: Mapping[str, object] | None,
-) -> dict[str, object]:
-    candidate = _candidate_row(report)
-    evidence_pack = _mapping_field(report, "evidence_pack")
-    data_quality = _mapping_field(evidence_pack, "data_quality")
-    decision = "PENDING"
-    decision_class = "neutral"
-    reason = "waiting for risk decision"
-    if risk_decision is not None:
-        decision = str(risk_decision["decision"])
-        decision_class = _decision_class(decision)
-        reasons = _string_list(risk_decision, "reasons")
-        reason = reasons[0] if reasons else "risk decision recorded"
-    ticker = str(candidate["ticker"])
-    human_review = _human_review_summary(human_review_event)
-    return {
-        **candidate,
-        "cycle_id": str(report["cycle_id"]),
-        "candidate_href": f"/candidates/{ticker}",
-        "risk_href": "/risk",
-        "final_selection_href": "/final-selection",
-        "approve_review_action": _review_action_url(
-            ticker=ticker,
-            cycle_id=str(report["cycle_id"]),
-            as_of=str(report["as_of"]),
-            decision="APPROVE",
-        ),
-        "defer_review_action": _review_action_url(
-            ticker=ticker,
-            cycle_id=str(report["cycle_id"]),
-            as_of=str(report["as_of"]),
-            decision="DEFER",
-        ),
-        "reject_review_action": _review_action_url(
-            ticker=ticker,
-            cycle_id=str(report["cycle_id"]),
-            as_of=str(report["as_of"]),
-            decision="REJECT",
-        ),
-        "risk_decision": decision,
-        "risk_class": decision_class,
-        "review_state": _paper_review_state(decision),
-        "review_class": _paper_review_class(decision),
-        "human_review_decision": human_review["decision"],
-        "human_review_class": human_review["status_class"],
-        "human_review_reason": human_review["reason"],
-        "human_review_time": human_review["event_time"],
-        "reason": reason,
-        "source_count": _int_field(data_quality, "source_count"),
-        "confirmed_signal_count": _int_field(data_quality, "confirmed_signal_count"),
-    }
-
-
-def _execution_preview_row(preview: Mapping[str, object]) -> dict[str, object]:
-    reasons = _string_list(preview, "reasons")
-    return {
-        "ticker": str(preview["ticker"]),
-        "preview_state": str(preview["preview_state"]),
-        "state_class": _preview_state_class(str(preview["preview_state"])),
-        "side": str(preview["side"]),
-        "risk_decision": str(preview["risk_decision"]),
-        "submit_enabled": preview["submit_enabled"],
-        "position_size_pct": _float_field(preview, "position_size_pct"),
-        "time_in_force": preview["time_in_force"] or "None",
-        "reason": reasons[0] if reasons else "preview recorded",
-    }
-
-
-def _context_signal_rows(evidence_pack: Mapping[str, object]) -> list[dict[str, object]]:
-    return _signal_rows(evidence_pack, "context_signals")
-
-
-def _signal_rows(evidence_pack: Mapping[str, object], key: str) -> list[dict[str, object]]:
-    rows: list[dict[str, object]] = []
-    for item in _list_field(evidence_pack, key):
-        signal = cast(Mapping[str, object], item)
-        rows.append(
-            {
-                "lane": _label_text(str(signal["lane"])),
-                "lane_key": str(signal["lane"]),
-                "direction": str(signal["direction"]),
-                "direction_class": _direction_class(str(signal["direction"])),
-                "confidence_pct": _percent(signal, "confidence"),
-                "score": _score_text(signal),
-                "score_value": _float_field(signal, "score"),
-                "summary": _signal_summary(signal),
-                "source": _signal_source(signal),
-            }
-        )
-    return rows
-
-
-def _decision_explanation(
-    base: Mapping[str, object],
-    deterministic: Mapping[str, object],
-    data_quality: Mapping[str, object],
-) -> str:
-    action = str(base["action"])
-    gate_status = str(base["gate_status"])
-    deterministic_action = str(deterministic["action"])
-    source_count = _int_field(data_quality, "source_count")
-    confirmed_count = _int_field(data_quality, "confirmed_signal_count")
-    freshness = str(data_quality["freshness"]).lower()
-    if action == "NO_TRADE":
-        return (
-            "The engine is not asking for a trade right now. "
-            f"It saw {source_count} independent source(s), {confirmed_count} confirmed "
-            f"signal(s), and {freshness} evidence; the current gate state is {gate_status}."
-        )
-    return (
-        f"The final action is {action} because the deterministic pass produced "
-        f"{deterministic_action} with {source_count} independent source(s) and "
-        f"{confirmed_count} confirmed signal(s). Gate state: {gate_status}."
-    )
-
-
-def _score_text(signal: Mapping[str, object]) -> str:
-    score = _float_field(signal, "score")
-    if score > 0:
-        bias = "bullish"
-    elif score < 0:
-        bias = "bearish"
-    else:
-        bias = "neutral"
-    return f"{score:+.2f} {bias}"
-
-
-def _signal_summary(signal: Mapping[str, object]) -> str:
-    explicit = _clean_text(signal.get("summary"))
-    if explicit:
-        return _clip_text(explicit, 220)
-    reason_codes = _string_list(signal, "reason_codes")
-    if reason_codes:
-        return " ".join(_reason_summary(code) for code in reason_codes)
-    lane = _label_text(str(signal["lane"]))
-    direction = str(signal["direction"]).lower()
-    return f"{lane} signal is {direction}."
-
-
-def _reason_summary(reason_code: str) -> str:
-    summaries = {
-        "abnormal_volume_bullish": "Volume activity is constructive.",
-        "abnormal_volume_bearish": "Volume activity is negative.",
-        "activity_alerts_bullish": "Unusual activity alerts are constructive.",
-        "activity_alerts_bearish": "Unusual activity alerts are negative.",
-        "bearish_action_not_enabled": "Bearish actions are not enabled in this runtime.",
-        "below_actionability_threshold": "Signal is below the actionability threshold.",
-        "block_trade_pressure_bullish": "Block-trade pressure is constructive.",
-        "block_trade_pressure_bearish": "Block-trade pressure is negative.",
-        "buy_sell_pressure_bullish": "Buy/sell pressure is constructive.",
-        "buy_sell_pressure_bearish": "Buy/sell pressure is negative.",
-        "duplicate_signal_source": "Duplicate source was ignored.",
-        "fundamentals_bullish": "Fundamental metrics are constructive.",
-        "fundamentals_bearish": "Fundamental metrics are negative.",
-        "insider_bullish": "Insider activity is constructive.",
-        "insider_bearish": "Insider activity is negative.",
-        "institutional_bullish": "Institutional positioning is constructive.",
-        "institutional_bearish": "Institutional positioning is negative.",
-        "insufficient_confirmed_sources": "Needs more confirmed corroboration.",
-        "insufficient_independent_sources": "Needs more independent source coverage.",
-        "news_bullish": "News flow is constructive.",
-        "news_bearish": "News flow is negative.",
-        "not_actionable": "Useful context, but not actionable by itself.",
-        "options_anomaly_bullish": "Options anomaly activity is constructive.",
-        "options_anomaly_bearish": "Options anomaly activity is negative.",
-        "options_flow_bullish": "Options flow is constructive.",
-        "options_flow_bearish": "Options flow is negative.",
-        "prepost_bullish": "Pre/post-market activity is constructive.",
-        "prepost_bearish": "Pre/post-market activity is negative.",
-        "requires_confirmed_corroboration": "Inferred signal needs confirmed corroboration.",
-        "sector_momentum_bullish": "Sector momentum is constructive.",
-        "sector_momentum_bearish": "Sector momentum is negative.",
-        "signal_strength_below_threshold": "Combined signal strength is below threshold.",
-        "source_unavailable": "Source was unavailable.",
-        "stale_evidence": "Evidence is stale, so it is context only.",
-        "subscription_thesis_context_only": "Subscription article thesis is context only.",
-        "zero_confidence": "Signal confidence is zero.",
-    }
-    return summaries.get(reason_code, f"{_label_text(reason_code)}.")
-
-
-def _signal_source(signal: Mapping[str, object]) -> str:
-    provenance = _mapping_field(signal, "provenance")
-    source = _service_label(str(provenance.get("source") or signal.get("source_tier") or "source"))
-    tier = _label_text(str(signal.get("source_tier") or provenance.get("source_tier") or "source"))
-    return f"{source} / {tier}"
-
-
-def _candidate_row(report: Mapping[str, object]) -> dict[str, object]:
-    conviction = _float_field(report, "final_conviction")
-    return {
-        "ticker": str(report["ticker"]),
-        "action": str(report["final_action"]),
-        "conviction_pct": round(conviction * 100),
-        "gate_status": _gate_status(report),
-        "as_of": str(report["as_of"]),
-        "risk_flag_count": _risk_flag_count(report),
-    }
-
-
-def _gate_status(report: Mapping[str, object]) -> str:
-    gates = _list_field(report, "policy_gates")
-    statuses = [
-        str(cast(Mapping[str, object], gate)["status"])
-        for gate in gates
-        if isinstance(gate, Mapping)
-    ]
-    if "BLOCK" in statuses:
-        return "BLOCK"
-    if "WARN" in statuses:
-        return "WARN"
-    if "PASS" in statuses:
-        return "PASS"
-    return "UNKNOWN"
-
-
-def _gate_rows(report: Mapping[str, object]) -> list[dict[str, str]]:
-    return _check_rows(report, "policy_gates")
-
-
-def _check_rows(payload: Mapping[str, object], key: str) -> list[dict[str, str]]:
-    rows: list[dict[str, str]] = []
-    for item in _list_field(payload, key):
-        item_payload = cast(Mapping[str, object], item)
-        rows.append(
-            {
-                "name": str(item_payload["name"]),
-                "status": str(item_payload["status"]),
-                "reason": str(item_payload["reason"]),
-                "status_class": str(item_payload["status"]).lower(),
-            }
-        )
-    return rows
-
-
-def _is_actionable_candidate(candidate: Mapping[str, object]) -> bool:
-    return str(candidate["action"]) in ACTIONABLE_ACTIONS and candidate["gate_status"] != "BLOCK"
-
-
-def _risk_decision_index(
-    risk_decisions: Sequence[Mapping[str, object]],
-) -> dict[tuple[str, str, str], Mapping[str, object]]:
-    indexed: dict[tuple[str, str, str], Mapping[str, object]] = {}
-    for decision in risk_decisions:
-        key = _runtime_payload_key(decision)
-        if all(key) and key not in indexed:
-            indexed[key] = decision
-    return indexed
-
-
-def _human_review_index(
-    review_events: Sequence[Mapping[str, object]],
-) -> dict[tuple[str, str, str], Mapping[str, object]]:
-    indexed: dict[tuple[str, str, str], Mapping[str, object]] = {}
-    for event in review_events:
-        key = _human_review_key(event)
-        if all(key) and key not in indexed:
-            indexed[key] = event
-    return indexed
-
-
-def _runtime_payload_key(payload: Mapping[str, object]) -> tuple[str, str, str]:
-    return (
-        str(payload.get("cycle_id", "")),
-        str(payload.get("ticker", "")),
-        str(payload.get("as_of", "")),
-    )
-
-
-def _human_review_key(event: Mapping[str, object]) -> tuple[str, str, str]:
-    payload = event.get("payload", {})
-    as_of = ""
-    if isinstance(payload, Mapping):
-        as_of = str(payload.get("as_of", ""))
-    return (
-        str(event.get("cycle_id", "")),
-        str(event.get("ticker", "")),
-        as_of,
-    )
-
-
-def _human_review_summary(event: Mapping[str, object] | None) -> dict[str, str]:
-    if event is None:
-        return {
-            "decision": "Pending",
-            "status_class": "neutral",
-            "reason": "no human review recorded",
-            "event_time": "None",
-        }
-    payload = _mapping_field(event, "payload")
-    decision = str(payload.get("review_decision", "RECORDED"))
-    status = str(event["status"])
-    return {
-        "decision": _label_text(decision),
-        "status_class": _human_review_status_class(status),
-        "reason": str(event["reason"]),
-        "event_time": str(event["event_time"]),
-    }
-
-
-def _review_action_url(*, ticker: str, cycle_id: str, as_of: str, decision: str) -> str:
-    query = urlencode({"cycle_id": cycle_id, "as_of": as_of, "decision": decision})
-    return f"/candidates/{ticker}/reviews?{query}"
-
-
-def _paper_review_sort_key(row: Mapping[str, object]) -> tuple[int, int, str]:
-    decision = str(row["risk_decision"])
-    if decision in OPEN_RISK_DECISIONS:
-        priority = 0
-    elif decision == "PENDING":
-        priority = 1
-    else:
-        priority = 2
-    return (priority, -_int_field(row, "conviction_pct"), str(row["ticker"]))
-
-
-def _source_is_degraded(source: Mapping[str, object]) -> bool:
-    return (
-        str(source["status"]) in DEGRADED_SOURCE_STATUSES
-        or str(source["freshness"]) in DEGRADED_FRESHNESS
-    )
-
-
-def _source_status_class(source: Mapping[str, object]) -> str:
-    return "warn" if _source_is_degraded(source) else "pass"
-
-
-def _readiness_status_class(verdict: str) -> str:
-    if verdict == "ready_for_paper_validation":
-        return "pass"
-    if verdict == "context_only_source_health":
-        return "warn"
-    return "block"
-
-
-def _readiness_blocker_rows(summary: Mapping[str, object]) -> list[dict[str, str]]:
-    rows: list[dict[str, str]] = []
-    for blocker in _list_field(summary, "blockers"):
-        payload = cast(Mapping[str, object], blocker)
-        kind = str(payload["kind"])
-        rows.append(
-            {
-                "kind": _label_text(kind),
-                "item": str(payload["item"]),
-                "reason": str(payload["reason"]),
-                "status_class": "warn" if kind == "source_health" else "block",
-            }
-        )
-    return rows
-
-
-def _provider_readiness_row(row: Mapping[str, object]) -> dict[str, object]:
-    return {
-        "label": str(row["label"]),
-        "category": _label_text(str(row["category"])),
-        "purpose": str(row["purpose"]),
-        "required_label": "Required now" if row["required_now"] is True else "Planned",
-        "status": str(row["status"]),
-        "status_class": str(row["status_class"]),
-        "key_label": str(row["key_label"]),
-        "detail": str(row["detail"]),
-    }
-
-
-def _label_text(value: str) -> str:
-    return value.replace("_", " ").title()
-
-
-def _clip_text(value: str, max_chars: int) -> str:
-    cleaned = " ".join(value.split())
-    if len(cleaned) <= max_chars:
-        return cleaned
-    return cleaned[: max_chars - 3].rstrip() + "..."
-
-
-def _clean_text(value: object) -> str | None:
-    if value is None:
-        return None
-    if isinstance(value, float) and pd.isna(value):
-        return None
-    text = " ".join(str(value).split())
-    if not text or text.lower() in {"nan", "none", "nat"}:
-        return None
-    return text
-
-
-def _command_hero_class(candidate_count: int, degraded_source_count: int) -> str:
-    if degraded_source_count > 0:
-        return "hero-watch"
-    if candidate_count > 0:
-        return "hero-success"
-    return "hero-info"
-
-
-def _command_headline(candidate_count: int, actionable_candidate_count: int) -> str:
-    if candidate_count == 0:
-        return "Runtime online. No final candidates yet."
-    return (
-        f"Runtime online. {actionable_candidate_count} "
-        f"{_plural('actionable candidate', actionable_candidate_count)} across "
-        f"{candidate_count} {_plural('report', candidate_count)}."
-    )
-
-
-def _plural(label: str, count: int) -> str:
-    return label if count == 1 else f"{label}s"
-
-
-def _command_detail(candidate_count: int, degraded_source_count: int) -> str:
-    if degraded_source_count == 0:
-        source_note = "All runtime sources look ready"
-    elif degraded_source_count == 1:
-        source_note = "1 source needs attention"
-    else:
-        source_note = f"{degraded_source_count} sources need attention"
-    if candidate_count == 0:
-        return f"{source_note}; candidate rows will appear after selection reports persist."
-    return f"{source_note}; dashboard counts are backed by runtime readers."
-
-
-def _final_selection_headline(report_count: int, actionable_count: int) -> str:
-    if report_count == 0:
-        return "No final selection reports yet."
-    return f"{actionable_count} final candidates ready for human review."
-
-
-def _candidate_detail_headline(ticker: str, latest_action: str) -> str:
-    if latest_action == "None":
-        return f"{ticker} has no persisted selection reports yet."
-    return f"{ticker} latest action: {latest_action}."
-
-
-def _candidate_detail_text(ticker: str, latest_report: Mapping[str, object] | None) -> str:
-    if latest_report is None:
-        return f"{ticker} will show decision evidence after the first runtime cycle persists."
-    action = str(latest_report["action"])
-    conviction = _int_field(latest_report, "conviction_pct")
-    source_count = _int_field(latest_report, "source_count")
-    confirmed_count = _int_field(latest_report, "confirmed_signal_count")
-    gate_status = str(latest_report["gate_status"])
-    return (
-        f"Latest report is {action} at {conviction}% conviction, backed by "
-        f"{source_count} independent source(s) and {confirmed_count} confirmed signal(s). "
-        f"Policy gate state is {gate_status}."
-    )
-
-
-def _risk_headline(
-    decision_count: int,
-    allow_count: int,
-    warn_count: int,
-    block_count: int,
-) -> str:
-    if decision_count == 0:
-        return "No risk decisions yet."
-    return f"{allow_count} allowed, {warn_count} warned, {block_count} blocked."
-
-
-def _execution_headline(preview_count: int, ready_count: int) -> str:
-    if preview_count == 0:
-        return "No execution previews yet."
-    return f"{ready_count} paper previews are ready."
-
-
-def _portfolio_headline(position_count: int) -> str:
-    if position_count == 0:
-        return "No portfolio positions are tracked yet."
-    return f"{position_count} positions reviewed."
-
-
-def _decision_class(decision: str) -> str:
-    if decision == "ALLOW":
-        return "pass"
-    if decision == "WARN":
-        return "warn"
-    return "block"
-
-
-def _direction_class(direction: str) -> str:
-    if direction == "BULLISH":
-        return "pass"
-    if direction == "BEARISH":
-        return "block"
-    return "neutral"
-
-
-def _paper_review_state(decision: str) -> str:
-    if decision in OPEN_RISK_DECISIONS:
-        return "Ready"
-    if decision == "PENDING":
-        return "Waiting"
-    return "Blocked"
-
-
-def _paper_review_class(decision: str) -> str:
-    if decision in OPEN_RISK_DECISIONS:
-        return _decision_class(decision)
-    if decision == "PENDING":
-        return "neutral"
-    return "block"
-
-
-def _human_review_status_class(status: str) -> str:
-    if status == "PASSED":
-        return "pass"
-    if status == "WARN":
-        return "warn"
-    if status == "BLOCKED":
-        return "block"
-    return "neutral"
-
-
-def _review_progress_status_label(total_count: int, pending_count: int) -> str:
-    if total_count == 0:
-        return "No Queue"
-    if pending_count == 0:
-        return "Review Complete"
-    return f"{pending_count} Pending"
-
-
-def _review_progress_status_class(total_count: int, pending_count: int) -> str:
-    if total_count == 0:
-        return "neutral"
-    if pending_count == 0:
-        return "pass"
-    return "warn"
-
-
-def _review_progress_detail(total_count: int, pending_count: int) -> str:
-    if total_count == 0:
-        return "No latest-cycle paper candidates are waiting for review."
-    reviewed_count = total_count - pending_count
-    if pending_count == 0:
-        return f"All {total_count} queued paper candidates have a recorded review state."
-    return (
-        f"{reviewed_count} of {total_count} queued paper candidates have a recorded "
-        "review state."
-    )
-
-
-def _preview_state_class(state: str) -> str:
-    if state == "READY":
-        return "pass"
-    if state == "DISABLED":
-        return "neutral"
-    return "block"
-
-
-def _reason_text(payload: Mapping[str, object]) -> str:
-    reasons = _string_list(payload, "reason_codes")
-    return ", ".join(reasons) if reasons else "none"
-
-
-def _risk_flag_count(report: Mapping[str, object]) -> int:
-    return len(_list_field(report, "risk_flags"))
-
-
-def _string_list(payload: Mapping[str, object], key: str) -> list[str]:
-    return [str(item) for item in _list_field(payload, key)]
-
-
-def _list_field(payload: Mapping[str, object], key: str) -> list[object]:
-    value = payload[key]
-    if not isinstance(value, list):
-        raise TypeError(f"{key} must be a list")
-    return value
-
-
-def _mapping_field(payload: Mapping[str, object], key: str) -> Mapping[str, object]:
-    value = payload[key]
-    if not isinstance(value, Mapping):
-        raise TypeError(f"{key} must be a mapping")
-    return cast(Mapping[str, object], value)
-
-
-def _mapping_list_field(payload: Mapping[str, object], key: str) -> list[Mapping[str, object]]:
-    return [cast(Mapping[str, object], item) for item in _list_field(payload, key)]
-
-
-def _float_field(payload: Mapping[str, object], key: str) -> float:
-    value = payload[key]
-    if not isinstance(value, int | float):
-        raise TypeError(f"{key} must be numeric")
-    return float(value)
-
-
-def _int_field(payload: Mapping[str, object], key: str) -> int:
-    value = payload[key]
-    if not isinstance(value, int):
-        raise TypeError(f"{key} must be an integer")
-    return value
-
-
-def _percent(payload: Mapping[str, object], key: str) -> int:
-    return round(_float_field(payload, key) * 100)
