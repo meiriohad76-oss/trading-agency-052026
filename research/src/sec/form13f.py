@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
@@ -147,6 +148,12 @@ def _holding_row(
         return None
     ticker = cusip_to_ticker.get(cusip.upper())
     if ticker is None:
+        warnings.warn(
+            f"cusip_not_mapped: CUSIP {cusip.upper()!r} not found in cusip_map"
+            f" (filing_date={filing_date})",
+            category=UserWarning,
+            stacklevel=2,
+        )
         return None
     source_url = archive_url(filing.cik, filing.accession_number, document)
     source_id = f"sec:13f:{filing.accession_number}:{cusip}"
