@@ -39,6 +39,7 @@ class DataManifest:
     max_timestamp_as_of: datetime
     stale_after: datetime
     source_url: str | None
+    provider: str | None = None
 
 
 class ManifestRegistry:
@@ -85,7 +86,10 @@ def _parse_manifest(
     manifest_path: Path,
     parquet_root: Path,
 ) -> DataManifest:
-    dataset = DatasetName(_text(payload, "dataset", manifest_path))
+    try:
+        dataset = DatasetName(_text(payload, "dataset", manifest_path))
+    except ValueError as exc:
+        raise DataNotAvailableAt(manifest_path.name, None, "dataset must be known") from exc
     parquet_path = _resolve_parquet_path(_text(payload, "path", manifest_path), parquet_root)
     return DataManifest(
         dataset=dataset,
@@ -97,6 +101,7 @@ def _parse_manifest(
         max_timestamp_as_of=_datetime(payload, "max_timestamp_as_of", manifest_path),
         stale_after=_datetime(payload, "stale_after", manifest_path),
         source_url=_optional_text(payload, "source_url", manifest_path),
+        provider=_optional_text(payload, "source", manifest_path),
     )
 
 
@@ -137,7 +142,10 @@ def _integer(payload: Mapping[str, object], key: str, path: Path) -> int:
 
 def _datetime(payload: Mapping[str, object], key: str, path: Path) -> datetime:
     raw = _text(payload, key, path).replace("Z", "+00:00")
-    parsed = datetime.fromisoformat(raw)
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError as exc:
+        raise DataNotAvailableAt(path.name, None, f"{key} must be an ISO datetime") from exc
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         raise DataNotAvailableAt(path.name, None, f"{key} must include timezone")
     return parsed.astimezone(UTC)

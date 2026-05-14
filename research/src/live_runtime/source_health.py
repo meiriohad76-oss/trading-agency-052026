@@ -82,6 +82,8 @@ def _available(
     if config.dataset is DatasetName.SEC_13F:
         next_filing = next_quarterly_filing_date(timestamp_as_of.date())
         notes.append(f"lagged by design — next expected filing: {next_filing.isoformat()}")
+    if config.dataset is DatasetName.PRICES_DAILY and manifest.provider == "yfinance":
+        notes.append("provider_fallback_active: yfinance")
     return {
         "schema_version": "0.1.0",
         "source": config.source,
