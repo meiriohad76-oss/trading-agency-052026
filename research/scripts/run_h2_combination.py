@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "research" / "src"))
 sys.path.insert(0, str(ROOT / "src"))
 
+from evaluation.combination import SignalWeight, combined_signal_fn, weights_from_ic  # noqa: E402
 from evaluation.h1_ic import H1ICConfig, evaluate_signal_ic  # noqa: E402
 from evaluation.signal_registry import SIGNALS  # noqa: E402
 from evaluation.verdicts import (  # noqa: E402
@@ -22,27 +23,37 @@ from pit.loader import PITLoader  # noqa: E402
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run H1 signal IC evaluation.")
-    signal_group = parser.add_mutually_exclusive_group(required=True)
-    signal_group.add_argument("--signal", choices=sorted(SIGNALS), action="append", dest="signal")
-    signal_group.add_argument(
-        "--all-signals",
-        action="store_true",
-        default=False,
-        help="Evaluate all signals in SIGNALS.",
-    )
+    parser = argparse.ArgumentParser(description="Run H2 weighted-combination signal evaluation.")
+    parser.add_argument("--h1-csv", type=Path, required=True, help="CSV from run_h1_ic.py.")
     parser.add_argument("--start", required=True)
     parser.add_argument("--end", required=True)
     parser.add_argument("--horizon", type=int, action="append")
     parser.add_argument("--step-days", type=int, default=1)
     parser.add_argument("--ticker", action="append", help="Static universe ticker; repeatable.")
     parser.add_argument("--bootstrap-iterations", type=int, default=1000)
-    parser.add_argument("--bootstrap-seed", type=int, default=1729)
+    parser.add_argument("--min-weight", type=float, default=0.0)
     parser.add_argument("--output-csv", type=Path)
     parser.add_argument("--output-md", type=Path)
     args = parser.parse_args()
 
-    signal_names = sorted(SIGNALS) if args.all_signals else list(args.signal)
+    ic_results = pd.read_csv(args.h1_csv)
+    weights = weights_from_ic(ic_results, weight_column="information_ratio")
+
+    surviving = {name: w for name, w in weights.items() if w >= args.min_weight}
+    if not surviving:
+        print("no surviving signals; combination not evaluable")
+        raise SystemExit(0)
+
+    components = [
+        SignalWeight(name=name, signal_fn=SIGNALS[name], weight=weight)
+        for name, weight in sorted(surviving.items())
+        if name in SIGNALS
+    ]
+    if not components:
+        print("no surviving signals; combination not evaluable")
+        raise SystemExit(0)
+
+    signal_fn = combined_signal_fn(components)
 
     config = H1ICConfig(
         start=date.fromisoformat(args.start),
@@ -51,19 +62,15 @@ def main() -> None:
         step_size_days=args.step_days,
         static_universe=None if args.ticker is None else {ticker.upper() for ticker in args.ticker},
         bootstrap_iterations=args.bootstrap_iterations,
-        bootstrap_seed=args.bootstrap_seed,
     )
     loader = PITLoader()
-    results = [
-        evaluate_signal_ic(
-            signal_name=name,
-            signal_fn=SIGNALS[name],
-            loader=loader,
-            config=config,
-        ).results
-        for name in signal_names
-    ]
-    horizon_verdicts = synthesize_horizon_verdicts(pd.concat(results))
+    report = evaluate_signal_ic(
+        signal_name="combined",
+        signal_fn=signal_fn,
+        loader=loader,
+        config=config,
+    )
+    horizon_verdicts = synthesize_horizon_verdicts(report.results)
     summary = summarize_signal_verdicts(horizon_verdicts)
     if args.output_csv is not None:
         args.output_csv.parent.mkdir(parents=True, exist_ok=True)
