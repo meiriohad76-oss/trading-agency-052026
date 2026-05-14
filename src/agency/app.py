@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
@@ -12,11 +15,27 @@ from agency.audit_dashboard import router as audit_dashboard_router
 from agency.dashboard import router as dashboard_router
 
 
+@asynccontextmanager
+async def _lifespan(app: FastAPI):  # type: ignore[type-arg]
+    db_url = os.environ.get("DATABASE_URL", "")
+    scheduler = None
+    if db_url and os.environ.get("AGENCY_SCHEDULER_ENABLED", "").lower() == "true":
+        from agency.runtime.scheduler_runner import build_scheduler
+        scheduler = build_scheduler(db_url)
+        scheduler.start()
+        print("[scheduler] started", flush=True)
+    yield
+    if scheduler is not None:
+        scheduler.shutdown(wait=False)
+        print("[scheduler] stopped", flush=True)
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
         title="Trading Agency v2",
         version="0.1.0",
         description="Supervised equity research and paper-trading assistant.",
+        lifespan=_lifespan,
     )
     app.mount(
         "/static",
