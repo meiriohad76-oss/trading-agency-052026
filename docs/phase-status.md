@@ -1,6 +1,6 @@
 # Phase Status
 
-**Status:** reconciled after T151-T162 (Track 3 / Research Validation)
+**Status:** reconciled after T138-T150 (Track 2 / UX & Dashboard Usability)
 **Owner:** Ohad Meiri
 **Last updated:** 2026-05-14
 
@@ -13,7 +13,11 @@ implementation scaffolding from accepted phase gates.
   wired LLM into live cycles, persisted portfolio policy to DB, and completed e2e
   coverage. Track 3 (T151-T162) widened Massive coverage, improved the H1 harness,
   wrote H2/H3/H4/H5 run scripts, formalized the Phase 1 gate, wrote Phase 2 design,
-  finalized four core schemas, and wrote the N2 three-layer test plan.
+  finalized four core schemas, and wrote the N2 three-layer test plan. Track 2
+  (T138-T150) completed the UX prototype: Command page consolidated, Review Queue
+  above fold, sticky review actions, subscription pipeline visible, empty states,
+  paper-mode banner, policy safety taxonomy, audit filters, mobile layout, and
+  product-language vocabulary with progressive disclosure.
 - The repo contains Phase 0 foundation, Phase 1 research machinery, Phase 2 design
   and finalized contracts, and Phase 3/4 runtime scaffolding for local paper cycles.
 - T29-T64 are provisional build scaffolding. They remain valid for local paper/demo
@@ -29,7 +33,7 @@ implementation scaffolding from accepted phase gates.
 | --- | --- | --- | --- |
 | Phase 0 setup | Repo runnable; provenance-wrapped values persist end to end. | Complete. | Keep Docker/Python setup green. |
 | Phase 1 research | Validated lanes, realistic profile, thresholds, plan revision. | **Gate formally assessed: not accepted.** No lane survived Bonferroni H1. Conservative thresholds active (T73). Phase 1 design doc (`findings.md`) updated with formal gate acceptance and constraint set. | Widen Massive coverage (T151), rerun `run_h1_ic.py --all-signals`, run H4 profile. Accept gate when CAGR ≥ 15% + Sharpe ≥ 0.8 at realistic cost. |
-| Phase 2 design | Design doc, finalized schemas, UX prototype, test plan. | **Design doc written (`docs/phase2-design.md`). Four core schemas finalized (T158-T161). N2 test plan written (T162).** UX prototype not yet started. | Complete UX prototype (Track 2 T138-T150). Accept after UX prototype passes first-version inspection. |
+| Phase 2 design | Design doc, finalized schemas, UX prototype, test plan. | **Design doc written (`docs/phase2-design.md`). Four core schemas finalized (T158-T161). N2 test plan written (T162). UX prototype complete (T138-T150).** | Accept Phase 2 gate after first-version inspection of the UX prototype confirms review workflow is usable. |
 | Phase 3 build | Components built with all three test layers green. | Runtime persists seeded, PIT-backed, and stocks-only paper cycles. Unit and integration test layers green. e2e coverage for happy path + edge cases added (T121, T135-T136). | Keep first-version path stable; complete N2 test plan coverage (T162). |
 | Phase 4 validate | Paper-test against live data; user testing; threshold adjustment. | Live data refresh, real Alpaca paper-broker reads, persisted paper cycles ready for inspection. Portfolio policy now DB-persisted and UI-editable (T128). Trailing stops wired (T134). | Inspect paper validation cycles from Command review queue; adjust policy thresholds. |
 | Phase 5 operate | Production paper trading and learning loop. | Not started. | Wait for Phase 4 validation. |
