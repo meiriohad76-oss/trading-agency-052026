@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from typing import Any, cast
 
 import pandas as pd
@@ -25,11 +26,34 @@ def score_dict(frame: pd.DataFrame, score_column: str) -> dict[str, float]:
 
 def zscore(series: pd.Series) -> pd.Series:
     if len(series.dropna()) < MIN_CROSS_SECTION:
+        warnings.warn(
+            f"zscore: insufficient_cross_section (n={len(series.dropna())})",
+            UserWarning,
+            stacklevel=2,
+        )
         return pd.Series([0.0 for _ in series], index=series.index)
     std = series.std(ddof=0)
     if std == 0.0 or pd.isna(std):
         return pd.Series([0.0 for _ in series], index=series.index)
     return (series - series.mean()) / std
+
+
+def directional_rank_score(series: pd.Series) -> pd.Series:
+    """Rank directional magnitudes without changing the raw pressure sign."""
+    numeric = pd.to_numeric(series, errors="coerce")
+    result = pd.Series([0.0 for _ in numeric], index=numeric.index)
+    valid = numeric.dropna()
+    nonzero = valid[valid != 0.0]
+    if len(nonzero) == 0:
+        return result
+    if len(nonzero) == 1:
+        value = float(nonzero.iloc[0])
+        result.loc[nonzero.index[0]] = 1.0 if value > 0 else -1.0
+        return result
+    magnitude_rank = nonzero.abs().rank(method="average", pct=True)
+    signed = magnitude_rank * nonzero.apply(lambda value: 1.0 if value > 0 else -1.0)
+    result.loc[signed.index] = signed
+    return result
 
 
 def float_or_none(value: object) -> float | None:
