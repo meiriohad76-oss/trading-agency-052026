@@ -8,11 +8,17 @@ from signals.buy_sell_pressure import buy_sell_pressure_score
 from signals.fundamentals import fundamental_score
 from signals.insider import insider_score
 from signals.institutional import institutional_score
+from signals.market_flow_activity import (
+    market_flow_trend_score,
+    pre_market_unusual_activity_score,
+    unusual_trade_activity_score,
+)
 from signals.news import news_score
 from signals.options_anomaly import options_anomaly_score
 from signals.options_flow import options_flow_score
 from signals.sector_momentum import sector_momentum_score
 from signals.subscription_thesis import subscription_thesis_score
+from signals.technical_analysis import technical_analysis_score
 
 SIGNALS: dict[str, SignalFn] = {
     "abnormal_volume": abnormal_volume_score,
@@ -22,9 +28,13 @@ SIGNALS: dict[str, SignalFn] = {
     "fundamentals": fundamental_score,
     "insider": insider_score,
     "institutional": institutional_score,
+    "market_flow_trend": market_flow_trend_score,
     "news": news_score,
     "options_anomaly": options_anomaly_score,
     "options_flow": options_flow_score,
+    "pre_market_unusual_activity": pre_market_unusual_activity_score,
     "sector_momentum": sector_momentum_score,
     "subscription_thesis": subscription_thesis_score,
+    "technical_analysis": technical_analysis_score,
+    "unusual_trade_activity": unusual_trade_activity_score,
 }

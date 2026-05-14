@@ -26,11 +26,15 @@ SIGNAL_DATASETS: Mapping[str, tuple[DatasetName, ...]] = {
     "fundamentals": (DatasetName.SEC_COMPANY_FACTS,),
     "insider": (DatasetName.SEC_FORM4,),
     "institutional": (DatasetName.SEC_13F,),
+    "market_flow_trend": (DatasetName.STOCK_TRADES,),
     "news": (DatasetName.NEWS_RSS,),
     "options_anomaly": (DatasetName.OPTIONS_CHAINS,),
     "options_flow": (DatasetName.OPTIONS_CHAINS,),
+    "pre_market_unusual_activity": (DatasetName.STOCK_TRADES,),
     "sector_momentum": (DatasetName.PRICES_DAILY,),
     "subscription_thesis": (DatasetName.SUBSCRIPTION_EMAILS,),
+    "technical_analysis": (DatasetName.PRICES_DAILY,),
+    "unusual_trade_activity": (DatasetName.STOCK_TRADES,),
 }
 
 

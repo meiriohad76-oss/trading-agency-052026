@@ -8,6 +8,7 @@ from statistics.forward_returns import RETURN_PREFIX, compute_forward_returns
 from statistics.ic import compute_ic
 
 import pandas as pd
+import numpy as np
 from backtests.scoped_loader import LoaderLike, ScopedPITLoader
 
 SignalFn = Callable[[date, set[str], LoaderLike], dict[str, float]]
@@ -20,6 +21,8 @@ class H1ICConfig:
     horizons: tuple[int, ...] = (5, 20)
     step_size_days: int = 1
     static_universe: set[str] | None = None
+    bootstrap_iterations: int = 1000
+    bootstrap_seed: int = 1729
 
 
 @dataclass(frozen=True)
@@ -46,7 +49,7 @@ def evaluate_signal_ic(
         if prices.empty
         else compute_forward_returns(prices, list(config.horizons))
     )
-    results = _ic_results(signal_name, scores, forward_returns, config.horizons)
+    results = _ic_results(signal_name, scores, forward_returns, config)
     return H1ICReport(signal_name, scores, forward_returns, results)
 
 
@@ -78,25 +81,52 @@ def _ic_results(
     signal_name: str,
     scores: pd.DataFrame,
     forward_returns: pd.DataFrame,
-    horizons: tuple[int, ...],
+    config: H1ICConfig,
 ) -> pd.DataFrame:
     rows = []
     if scores.empty or forward_returns.empty:
         return _empty_results()
     merged = scores.merge(forward_returns, on=["date", "ticker"], how="inner")
-    for horizon in horizons:
+    for horizon in config.horizons:
         column = f"{RETURN_PREFIX}{horizon}"
         ic = compute_ic(_indexed(merged, "score"), _indexed(merged, column))
+        lag = _hac_lag(horizon, config.step_size_days)
+        hac_t_stat = _hac_t_stat(ic.ic_series, lag)
+        p_value_hac = _two_sided_p_value(hac_t_stat, ic.n_observations)
+        p_value_bootstrap = _moving_block_bootstrap_p_value(
+            ic.ic_series,
+            block_size=max(lag + 1, 1),
+            iterations=config.bootstrap_iterations,
+            seed=config.bootstrap_seed + horizon,
+        )
+        if lag > 0:
+            p_values = [
+                value
+                for value in (p_value_hac, p_value_bootstrap)
+                if math.isfinite(value)
+            ]
+            p_value = max(p_values) if p_values else float("nan")
+            p_value_method = "hac_max_moving_block_bootstrap"
+        else:
+            p_value = _two_sided_p_value(ic.t_stat, ic.n_observations)
+            p_value_method = "student_t"
         rows.append(
             {
                 "signal": signal_name,
                 "horizon": horizon,
                 "mean_ic": ic.mean_ic,
                 "ic_std": ic.ic_std,
-                "t_stat": ic.t_stat,
+                "t_stat": hac_t_stat if lag > 0 and math.isfinite(hac_t_stat) else ic.t_stat,
+                "t_stat_iid": ic.t_stat,
+                "t_stat_hac": hac_t_stat,
                 "information_ratio": ic.information_ratio,
                 "n_observations": ic.n_observations,
-                "p_value": _two_sided_p_value(ic.t_stat, ic.n_observations),
+                "hac_lag": lag,
+                "p_value": p_value,
+                "p_value_iid": _two_sided_p_value(ic.t_stat, ic.n_observations),
+                "p_value_hac": p_value_hac,
+                "p_value_bootstrap": p_value_bootstrap,
+                "p_value_method": p_value_method,
             }
         )
     return pd.DataFrame(rows)
@@ -110,7 +140,71 @@ def _indexed(frame: pd.DataFrame, column: str) -> pd.Series:
 def _two_sided_p_value(t_stat: float, n_observations: int) -> float:
     if n_observations <= 1 or not math.isfinite(t_stat):
         return float("nan")
-    return math.erfc(abs(t_stat) / math.sqrt(2.0))
+    from scipy import stats  # type: ignore[import-untyped]
+
+    return float(2.0 * stats.t.sf(abs(t_stat), df=n_observations - 1))
+
+
+def _hac_lag(horizon: int, step_size_days: int) -> int:
+    if horizon <= step_size_days:
+        return 0
+    return max(0, math.ceil(horizon / step_size_days) - 1)
+
+
+def _hac_t_stat(ic_series: pd.Series, lag: int) -> float:
+    clean = ic_series.dropna().astype("float64")
+    n_observations = len(clean)
+    if n_observations <= 1:
+        return float("nan")
+    if lag <= 0:
+        std = float(clean.std(ddof=1))
+        if std <= 0.0 or not math.isfinite(std):
+            return float("nan")
+        return float(clean.mean()) / (std / math.sqrt(n_observations))
+    lag = min(lag, n_observations - 1)
+    values = clean.to_numpy(dtype="float64")
+    mean_value = float(values.mean())
+    centered = values - mean_value
+    long_run_variance = float(np.dot(centered, centered) / n_observations)
+    for item_lag in range(1, lag + 1):
+        covariance = float(np.dot(centered[item_lag:], centered[:-item_lag]) / n_observations)
+        weight = 1.0 - item_lag / (lag + 1.0)
+        long_run_variance += 2.0 * weight * covariance
+    if long_run_variance <= 0.0 or not math.isfinite(long_run_variance):
+        return float("nan")
+    standard_error = math.sqrt(long_run_variance / n_observations)
+    return mean_value / standard_error if standard_error > 0 else float("nan")
+
+
+def _moving_block_bootstrap_p_value(
+    ic_series: pd.Series,
+    *,
+    block_size: int,
+    iterations: int,
+    seed: int,
+) -> float:
+    clean = ic_series.dropna().astype("float64")
+    n_observations = len(clean)
+    if n_observations <= 1:
+        return float("nan")
+    if iterations < 1:
+        return float("nan")
+    values = clean.to_numpy(dtype="float64")
+    observed = abs(float(values.mean()))
+    centered = values - float(values.mean())
+    block_size = max(1, min(block_size, n_observations))
+    starts = np.arange(0, n_observations - block_size + 1)
+    rng = np.random.default_rng(seed)
+    exceedances = 0
+    for _index in range(iterations):
+        sampled: list[np.ndarray] = []
+        while sum(len(block) for block in sampled) < n_observations:
+            start = int(rng.choice(starts))
+            sampled.append(centered[start : start + block_size])
+        bootstrap_values = np.concatenate(sampled)[:n_observations]
+        if abs(float(bootstrap_values.mean())) >= observed:
+            exceedances += 1
+    return float((exceedances + 1) / (iterations + 1))
 
 
 def _evaluation_dates(config: H1ICConfig) -> list[date]:
@@ -129,6 +223,8 @@ def _validate_config(config: H1ICConfig) -> None:
         raise ValueError("horizons must be positive")
     if len(config.horizons) != len(set(config.horizons)):
         raise ValueError("horizons must be unique")
+    if config.bootstrap_iterations < 0:
+        raise ValueError("bootstrap_iterations must be >= 0")
 
 
 def _empty_results() -> pd.DataFrame:
@@ -141,6 +237,13 @@ def _empty_results() -> pd.DataFrame:
             "t_stat",
             "information_ratio",
             "n_observations",
+            "t_stat_iid",
+            "t_stat_hac",
+            "hac_lag",
             "p_value",
+            "p_value_iid",
+            "p_value_hac",
+            "p_value_bootstrap",
+            "p_value_method",
         ]
     )

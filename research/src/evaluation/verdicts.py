@@ -11,6 +11,15 @@ import pandas as pd
 DEFAULT_ALPHA = 0.05
 DEFAULT_MIN_OBSERVATIONS = 20
 DEFAULT_MIN_ABS_IC = 0.01
+SIGNAL_VERDICT_COLUMNS = [
+    "signal",
+    "best_horizon",
+    "mean_ic",
+    "t_stat",
+    "information_ratio",
+    "p_value_bonferroni",
+    "verdict",
+]
 
 
 def synthesize_horizon_verdicts(
@@ -49,20 +58,12 @@ def summarize_signal_verdicts(horizon_verdicts: pd.DataFrame) -> pd.DataFrame:
                 "verdict": _signal_verdict(group),
             }
         )
-    return pd.DataFrame(rows)
+    return pd.DataFrame(rows, columns=SIGNAL_VERDICT_COLUMNS)
 
 
 def verdicts_to_markdown(signal_verdicts: pd.DataFrame) -> str:
     """Render compact Markdown suitable for a findings document."""
-    columns = [
-        "signal",
-        "best_horizon",
-        "mean_ic",
-        "t_stat",
-        "information_ratio",
-        "p_value_bonferroni",
-        "verdict",
-    ]
+    columns = SIGNAL_VERDICT_COLUMNS
     header = "| " + " | ".join(columns) + " |"
     separator = "| " + " | ".join("---" for _ in columns) + " |"
     lines = [header, separator]
