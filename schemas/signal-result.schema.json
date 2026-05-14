@@ -2,7 +2,12 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://trading-agency.local/schemas/signal-result.schema.json",
   "title": "SignalResult",
-  "x-version": "0.1.0",
+  "description": "The output of one signal lane evaluation for one ticker in one cycle.",
+  "x-version": "0.2.0",
+  "x-changelog": {
+    "0.2.0": "T159 Phase 2 finalization: add suppression_reason_code enum; add weight field; add descriptions",
+    "0.1.0": "Initial schema"
+  },
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -24,53 +29,68 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "0.1.0"
+      "description": "Schema version.",
+      "type": "string",
+      "enum": ["0.1.0", "0.2.0"]
     },
     "cycle_id": {
+      "description": "Opaque identifier for the evaluation cycle.",
       "type": "string",
       "minLength": 1
     },
     "ticker": {
+      "description": "Exchange ticker symbol in uppercase.",
       "type": "string",
       "pattern": "^[A-Z][A-Z0-9.-]{0,9}$"
     },
     "as_of": {
+      "description": "Point-in-time boundary at which this signal was evaluated (ISO 8601).",
       "type": "string",
       "format": "date-time"
     },
     "lane": {
+      "description": "Name of the signal lane (e.g. 'fundamentals', 'insider', 'buy_sell_pressure').",
       "type": "string",
       "minLength": 1
     },
     "score": {
+      "description": "Normalized signal score. Interpretation is lane-specific; typically a z-score.",
       "type": "number"
     },
     "direction": {
+      "description": "Directional signal implied by the score.",
       "type": "string",
       "enum": ["BULLISH", "BEARISH", "NEUTRAL", "MIXED"]
     },
     "actionability": {
+      "description": "Gate result. ACTIONABLE contributes to conviction; CONTEXT_ONLY is advisory; SUPPRESSED is blocked.",
       "type": "string",
       "enum": ["ACTIONABLE", "CONTEXT_ONLY", "SUPPRESSED"]
     },
     "source_tier": {
+      "description": "Data quality tier of the primary source for this signal.",
       "$ref": "https://trading-agency.local/schemas/provenance.schema.json#/$defs/SourceTier"
     },
     "verification_level": {
+      "description": "Whether this signal comes from a confirmed data source or is inferred from bars/prints.",
       "$ref": "https://trading-agency.local/schemas/provenance.schema.json#/$defs/VerificationLevel"
     },
     "freshness": {
+      "description": "Freshness of the underlying data at as_of.",
       "$ref": "https://trading-agency.local/schemas/provenance.schema.json#/$defs/FreshnessStatus"
     },
     "confidence": {
+      "description": "Model confidence in this signal in [0, 1].",
       "type": "number",
       "minimum": 0,
       "maximum": 1
     },
     "provenance": {
+      "description": "Full provenance record for the primary source observation.",
       "$ref": "https://trading-agency.local/schemas/provenance.schema.json#/$defs/Provenance"
     },
     "reason_codes": {
+      "description": "Machine-readable codes explaining why this actionability label was assigned.",
       "type": "array",
       "items": {
         "type": "string",
@@ -78,10 +98,31 @@
       }
     },
     "suppression_reason": {
+      "description": "Human-readable description of why this signal was suppressed, or null.",
       "type": ["string", "null"],
       "minLength": 1
     },
+    "suppression_reason_code": {
+      "description": "Standardized machine-readable suppression code. Absent when actionability != SUPPRESSED.",
+      "type": "string",
+      "enum": [
+        "FRESHNESS_STALE",
+        "FRESHNESS_UNAVAILABLE",
+        "INSUFFICIENT_SOURCES",
+        "INFERRED_NO_CONFIRMED_CORROBORATION",
+        "DATA_UNAVAILABLE",
+        "BELOW_SCORE_THRESHOLD",
+        "POLICY_GATE_BLOCKED",
+        "MANUAL_SUPPRESSION"
+      ]
+    },
+    "weight": {
+      "description": "Lane weight applied in a combination signal evaluation. Absent for single-lane evaluations.",
+      "type": "number",
+      "minimum": 0
+    },
     "summary": {
+      "description": "Optional human-readable summary of this signal for display in the review UI.",
       "type": "string",
       "minLength": 1
     }

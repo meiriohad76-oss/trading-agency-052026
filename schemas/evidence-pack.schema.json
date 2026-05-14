@@ -2,7 +2,12 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://trading-agency.local/schemas/evidence-pack.schema.json",
   "title": "EvidencePack",
-  "x-version": "0.1.0",
+  "description": "All signal evidence available for one ticker in one cycle. Shared by the deterministic engine and the LLM reviewer.",
+  "x-version": "0.2.0",
+  "x-changelog": {
+    "0.2.0": "T158 Phase 2 finalization: add evaluation_method and lane_weights fields",
+    "0.1.0": "Initial schema"
+  },
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -18,43 +23,66 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "0.1.0"
+      "description": "Schema version. Bump minor on additive changes, major on breaking changes.",
+      "type": "string",
+      "enum": ["0.1.0", "0.2.0"]
     },
     "cycle_id": {
+      "description": "Opaque identifier for the evaluation cycle that produced this pack.",
       "type": "string",
       "minLength": 1
     },
     "ticker": {
+      "description": "Exchange ticker symbol in uppercase.",
       "type": "string",
       "pattern": "^[A-Z][A-Z0-9.-]{0,9}$"
     },
     "as_of": {
+      "description": "Point-in-time boundary for all data in this pack (ISO 8601).",
       "type": "string",
       "format": "date-time"
     },
     "generated_at": {
+      "description": "Wall-clock time at which this pack was built (ISO 8601).",
       "type": "string",
       "format": "date-time"
     },
+    "evaluation_method": {
+      "description": "Which evaluation path produced this pack. Absent or 'deterministic' means the deterministic engine only.",
+      "type": "string",
+      "enum": ["deterministic", "llm_enhanced"]
+    },
+    "lane_weights": {
+      "description": "Per-lane weight used when a combination signal generated the evidence scores. Keys are lane names; values are non-negative floats summing to 1.0.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "number",
+        "minimum": 0
+      }
+    },
     "actionable_signals": {
+      "description": "Signal results that passed all freshness, source-count, and corroboration gates.",
       "type": "array",
       "items": {
         "$ref": "https://trading-agency.local/schemas/signal-result.schema.json"
       }
     },
     "context_signals": {
+      "description": "Signal results that are informational only (inferred lanes, insufficient corroboration).",
       "type": "array",
       "items": {
         "$ref": "https://trading-agency.local/schemas/signal-result.schema.json"
       }
     },
     "suppressed_signals": {
+      "description": "Signal results blocked by freshness or data-quality gates.",
       "type": "array",
       "items": {
         "$ref": "https://trading-agency.local/schemas/signal-result.schema.json"
       }
     },
     "data_quality": {
+      "description": "Aggregate data-quality metrics for this pack.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -69,18 +97,22 @@
           "$ref": "https://trading-agency.local/schemas/provenance.schema.json#/$defs/FreshnessStatus"
         },
         "source_count": {
+          "description": "Number of distinct data sources contributing actionable signals.",
           "type": "integer",
           "minimum": 0
         },
         "confirmed_signal_count": {
+          "description": "Count of signals with verification_level == CONFIRMED.",
           "type": "integer",
           "minimum": 0
         },
         "inferred_signal_count": {
+          "description": "Count of signals with verification_level == INFERRED.",
           "type": "integer",
           "minimum": 0
         },
         "blockers": {
+          "description": "Human-readable reasons why some signals were suppressed.",
           "type": "array",
           "items": {
             "type": "string",

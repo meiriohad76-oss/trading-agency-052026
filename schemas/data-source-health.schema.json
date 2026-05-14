@@ -2,7 +2,12 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://trading-agency.local/schemas/data-source-health.schema.json",
   "title": "DataSourceHealth",
-  "x-version": "0.1.0",
+  "description": "Health and freshness status for one data source, used by the actionability gate and Command dashboard.",
+  "x-version": "0.2.0",
+  "x-changelog": {
+    "0.2.0": "T161 Phase 2 finalization: add dataset and next_expected_refresh_at fields; FRESH added to status enum for LAGGED sources (via notes convention); descriptions added",
+    "0.1.0": "Initial schema"
+  },
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -21,48 +26,71 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "0.1.0"
+      "description": "Schema version.",
+      "type": "string",
+      "enum": ["0.1.0", "0.2.0"]
     },
     "source": {
+      "description": "Human-readable source name (e.g. 'massive-daily', 'yfinance-daily', 'sec-form4').",
+      "type": "string",
+      "minLength": 1
+    },
+    "dataset": {
+      "description": "DatasetName enum value this health record corresponds to (e.g. 'prices_daily', 'sec_form4'). Absent for legacy records.",
       "type": "string",
       "minLength": 1
     },
     "source_tier": {
+      "description": "Quality tier of this source.",
       "$ref": "https://trading-agency.local/schemas/provenance.schema.json#/$defs/SourceTier"
     },
     "status": {
+      "description": "Operational status. HEALTHY = normal. DEGRADED = partial data or elevated errors. STALE = data not refreshed within window. UNAVAILABLE = no data accessible. RATE_LIMITED = API quota exhausted.",
       "type": "string",
       "enum": ["HEALTHY", "DEGRADED", "STALE", "UNAVAILABLE", "RATE_LIMITED"]
     },
     "checked_at": {
+      "description": "Wall-clock time this health check was performed (ISO 8601).",
       "type": "string",
       "format": "date-time"
     },
     "freshness": {
+      "description": "Freshness of the most recent data from this source. FRESH = within expected window. AGING = approaching stale boundary. STALE = past window. UNAVAILABLE = no data.",
       "$ref": "https://trading-agency.local/schemas/provenance.schema.json#/$defs/FreshnessStatus"
     },
     "last_success_at": {
+      "description": "Timestamp of the most recent successful refresh (ISO 8601). Null if never succeeded.",
       "type": ["string", "null"],
       "format": "date-time"
     },
     "observed_lag_seconds": {
+      "description": "Measured lag in seconds between data as-of and the time it was available for use. Null if not measured.",
       "type": ["number", "null"],
       "minimum": 0
     },
     "error_count": {
+      "description": "Number of consecutive errors before this check.",
       "type": "integer",
       "minimum": 0
     },
     "reliability_score": {
+      "description": "Rolling reliability estimate in [0, 1]. 1.0 = no recent errors.",
       "type": "number",
       "minimum": 0,
       "maximum": 1
     },
     "rate_limit_reset_at": {
+      "description": "When the rate limit resets, if status is RATE_LIMITED (ISO 8601). Null otherwise.",
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
+    "next_expected_refresh_at": {
+      "description": "For lagged sources (e.g. SEC 13F between filings), the expected time of the next filing or refresh. Absent for continuously-refreshed sources.",
       "type": ["string", "null"],
       "format": "date-time"
     },
     "notes": {
+      "description": "Human-readable notes for the dashboard. Structured codes may appear here (e.g. 'provider_fallback_active: yfinance', 'lagged_by_design: next_filing_expected 2026-08-15').",
       "type": "array",
       "items": {
         "type": "string",

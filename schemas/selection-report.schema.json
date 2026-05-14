@@ -2,7 +2,12 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://trading-agency.local/schemas/selection-report.schema.json",
   "title": "SelectionReport",
-  "x-version": "0.1.0",
+  "description": "The combined output of deterministic + optional LLM evaluation for one ticker in one cycle.",
+  "x-version": "0.2.0",
+  "x-changelog": {
+    "0.2.0": "T160 Phase 2 finalization: trade_plan gains trailing_stop_pct and position_pct; descriptions added; schema_version accepts both 0.1.0 and 0.2.0",
+    "0.1.0": "Initial schema"
+  },
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -22,46 +27,58 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "0.1.0"
+      "description": "Schema version.",
+      "type": "string",
+      "enum": ["0.1.0", "0.2.0"]
     },
     "cycle_id": {
+      "description": "Opaque identifier for the evaluation cycle.",
       "type": "string",
       "minLength": 1
     },
     "ticker": {
+      "description": "Exchange ticker symbol in uppercase.",
       "type": "string",
       "pattern": "^[A-Z][A-Z0-9.-]{0,9}$"
     },
     "as_of": {
+      "description": "Point-in-time boundary for all data in this report (ISO 8601).",
       "type": "string",
       "format": "date-time"
     },
     "generated_at": {
+      "description": "Wall-clock time this report was produced (ISO 8601).",
       "type": "string",
       "format": "date-time"
     },
     "final_action": {
+      "description": "The reconciled action recommendation after all evaluation paths.",
       "type": "string",
       "enum": ["BUY", "SELL", "SHORT", "COVER", "WATCH", "HOLD", "NO_TRADE", "CLOSE_REVIEW"]
     },
     "final_conviction": {
+      "description": "Normalized conviction score in [0, 1] driving the final action.",
       "type": "number",
       "minimum": 0,
       "maximum": 1
     },
     "deterministic": {
+      "description": "Output of the deterministic selection engine.",
       "$ref": "#/$defs/EngineDecision"
     },
     "llm_review": {
+      "description": "Output of the LLM reviewer, if enabled. Contains context-only rationale even when LLM does not change the action.",
       "$ref": "#/$defs/LlmReview"
     },
     "policy_gates": {
+      "description": "Results of all policy-level gate checks applied to this ticker.",
       "type": "array",
       "items": {
         "$ref": "#/$defs/GateResult"
       }
     },
     "risk_flags": {
+      "description": "Human-readable risk flag strings surfaced in the review UI.",
       "type": "array",
       "items": {
         "type": "string",
@@ -69,31 +86,51 @@
       }
     },
     "evidence_pack": {
+      "description": "Full evidence pack that was the input to this report.",
       "$ref": "https://trading-agency.local/schemas/evidence-pack.schema.json"
     },
     "trade_plan": {
+      "description": "Provisional trade parameters when final_action is BUY, SELL, SHORT, or COVER. Null otherwise.",
       "type": ["object", "null"],
       "additionalProperties": false,
       "required": ["entry", "stop_loss", "take_profit", "position_size", "time_in_force"],
       "properties": {
         "entry": {
+          "description": "Suggested entry price. Null means market order.",
           "type": ["number", "null"]
         },
         "stop_loss": {
+          "description": "Absolute stop-loss price level.",
           "type": ["number", "null"]
         },
         "take_profit": {
+          "description": "Absolute take-profit price level.",
           "type": ["number", "null"]
         },
+        "trailing_stop_pct": {
+          "description": "Trailing stop percentage expressed as a fraction (e.g. 0.07 = 7%). Mirrors the policy trailing_stop_pct at time of selection.",
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 1
+        },
         "position_size": {
+          "description": "Target position size in shares or contracts.",
           "type": ["number", "null"],
           "minimum": 0
         },
+        "position_pct": {
+          "description": "Target position as a fraction of portfolio equity (e.g. 0.05 = 5%). Mirrors the policy default_position_pct at time of selection.",
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 1
+        },
         "time_in_force": {
+          "description": "Order time-in-force instruction (e.g. 'day', 'gtc').",
           "type": ["string", "null"],
           "minLength": 1
         },
         "notes": {
+          "description": "Human-readable notes about this trade plan.",
           "type": "array",
           "items": {
             "type": "string",
@@ -105,22 +142,27 @@
   },
   "$defs": {
     "EngineDecision": {
+      "description": "Output of the deterministic selection engine for one ticker.",
       "type": "object",
       "additionalProperties": false,
       "required": ["action", "score", "conviction", "reason_codes", "blockers"],
       "properties": {
         "action": {
+          "description": "Action recommended by the deterministic engine.",
           "type": "string"
         },
         "score": {
+          "description": "Raw aggregate score before conviction normalization.",
           "type": "number"
         },
         "conviction": {
+          "description": "Normalized conviction in [0, 1].",
           "type": "number",
           "minimum": 0,
           "maximum": 1
         },
         "reason_codes": {
+          "description": "Machine-readable codes explaining the action recommendation.",
           "type": "array",
           "items": {
             "type": "string",
@@ -128,6 +170,7 @@
           }
         },
         "blockers": {
+          "description": "Reasons why a higher action was blocked (e.g. insufficient confirmed signals).",
           "type": "array",
           "items": {
             "type": "string",
@@ -137,40 +180,49 @@
       }
     },
     "GateResult": {
+      "description": "Result of one policy-level gate check.",
       "type": "object",
       "additionalProperties": false,
       "required": ["name", "status", "reason"],
       "properties": {
         "name": {
+          "description": "Gate identifier (e.g. 'freshness_gate', 'source_count_gate').",
           "type": "string",
           "minLength": 1
         },
         "status": {
+          "description": "Gate outcome.",
           "type": "string",
           "enum": ["PASS", "WARN", "BLOCK"]
         },
         "reason": {
+          "description": "Human-readable explanation of the gate result.",
           "type": "string"
         }
       }
     },
     "LlmReview": {
+      "description": "Output of the LLM reviewer. Populated even when AGENCY_ENABLE_LLM_REVIEW is false (with empty/stub values).",
       "type": "object",
       "additionalProperties": false,
       "required": ["action", "confidence", "rationale", "supporting_factors", "concerns"],
       "properties": {
         "action": {
+          "description": "Action recommended by the LLM, or 'CONTEXT_ONLY' when LLM review is disabled.",
           "type": "string"
         },
         "confidence": {
+          "description": "LLM self-reported confidence in [0, 1]. Zero when review is disabled.",
           "type": "number",
           "minimum": 0,
           "maximum": 1
         },
         "rationale": {
+          "description": "LLM free-text rationale. Empty string when review is disabled.",
           "type": "string"
         },
         "supporting_factors": {
+          "description": "Bullet-point factors supporting the LLM's action recommendation.",
           "type": "array",
           "items": {
             "type": "string",
@@ -178,6 +230,7 @@
           }
         },
         "concerns": {
+          "description": "Bullet-point concerns or risks flagged by the LLM.",
           "type": "array",
           "items": {
             "type": "string",
