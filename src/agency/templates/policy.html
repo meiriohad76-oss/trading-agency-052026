@@ -5,61 +5,189 @@
 {% block title %}Policy | Trading Agency v2{% endblock %}
 {% block eyebrow %}Configuration{% endblock %}
 {% block page_title %}Policy{% endblock %}
-{% block topbar_meta %}read-only &middot; audit pending{% endblock %}
+{% block topbar_meta %}local controls &middot; paper safety{% endblock %}
 
 {% block content %}
-  <section class="hero hero-disabled" aria-label="Policy state">
-    <h2>{{ summary.headline }}</h2>
-    <p>{{ summary.detail }}</p>
+  <section class="next-action hero-disabled" aria-label="Policy state">
+    <div class="next-action-step" aria-hidden="true">8</div>
+    <div class="next-action-copy">
+      <p class="eyebrow">Policy controls</p>
+      <h2>{{ summary.headline }}</h2>
+      <p>{{ summary.detail }} These values are intentionally visible and compact so risk gates can be checked before paper execution.</p>
+    </div>
+    <div class="next-action-buttons">
+      <span class="primary-action primary-action-disabled">{{ summary.source_label }}</span>
+    </div>
   </section>
 
-  <section class="summary-band" aria-label="Policy metrics">
-    <div>
+  <section class="kpi-grid kpi-grid-compact" aria-label="Policy metrics">
+    <article class="kpi">
       <span class="metric-label">Policy Version</span>
       <strong>v0</strong>
-    </div>
-    <div>
-      <span class="metric-label">Persistence</span>
-      <strong>Pending</strong>
-    </div>
-    <div>
-      <span class="metric-label">Audit Log</span>
-      <strong>Pending</strong>
-    </div>
-    <div>
-      <span class="metric-label">Editing</span>
-      <strong>Disabled</strong>
-    </div>
-  </section>
-
-  <section class="policy-grid" aria-label="Read-only policy">
-    {% for section in policy_sections %}
-    <article class="panel">
-      <div class="section-heading">
-        <h2>{{ section.title }}</h2>
-        <span class="tag tag-neutral">Read-only</span>
-      </div>
-      <div class="readonly-grid">
-        {% for item in section["items"] %}
-        <div class="readonly-field">
-          <span>{{ item.label }}</span>
-          <strong>{{ item.value }}</strong>
-        </div>
-        {% endfor %}
-      </div>
+      <p>baseline policy</p>
     </article>
-    {% endfor %}
+    <article class="kpi {% if summary.db_backed %}kpi-positive{% else %}kpi-urgent{% endif %}">
+      <span class="metric-label">Persistence</span>
+      <strong>{% if summary.db_backed %}DB{% else %}Local{% endif %}</strong>
+      <p>{% if summary.db_backed %}db-backed{% else %}env/json backed{% endif %}</p>
+    </article>
+    <article class="kpi">
+      <span class="metric-label">Audit Log</span>
+      <strong>Planned</strong>
+      <p>before UI editing</p>
+    </article>
+    <article class="kpi">
+      <span class="metric-label">Editing</span>
+      <strong>{% if summary.db_backed %}DB&#x2011;backed{% else %}Manual{% endif %}</strong>
+      <p>{% if summary.db_backed %}via UI form{% else %}local config only{% endif %}</p>
+    </article>
   </section>
 
-  <section class="panel" aria-labelledby="policy-actions-heading">
-    <div class="section-heading">
-      <h2 id="policy-actions-heading">Policy Actions</h2>
-      <span class="tag tag-block">Disabled</span>
-    </div>
-    <div class="button-row">
-      <button class="disabled-button" type="button" disabled>Save disabled</button>
-      <button class="disabled-button" type="button" disabled>Reset disabled</button>
-      <button class="disabled-button" type="button" disabled>Audit disabled</button>
-    </div>
-  </section>
+  <div id="policy-content">
+    <section class="policy-grid" aria-label="Read-only policy">
+      {% for section in policy_sections %}
+      <article class="panel">
+        <div class="section-heading">
+          <h2>{{ section.title }}</h2>
+          <span class="tag tag-neutral">Loaded</span>
+        </div>
+        <div class="readonly-grid">
+          {% for item in section["items"] %}
+          <div class="readonly-field">
+            <span>{{ item.label }}</span>
+            <strong>{{ item.value }}</strong>
+          </div>
+          {% endfor %}
+        </div>
+      </article>
+      {% endfor %}
+    </section>
+
+    <section class="panel" aria-labelledby="policy-actions-heading">
+      <div class="section-heading">
+        <h2 id="policy-actions-heading">Policy Actions</h2>
+        <span class="tag tag-neutral">DB Backed</span>
+      </div>
+      <div class="button-row">
+        <button
+          type="button"
+          onclick="document.getElementById('policy-edit-form').style.display='block'; this.style.display='none';"
+        >Edit Policy</button>
+        <button class="disabled-button" type="button" disabled>Reset planned</button>
+        <button class="disabled-button" type="button" disabled>Audit planned</button>
+      </div>
+    </section>
+
+    <section id="policy-edit-form" class="panel" style="display:none;" aria-labelledby="policy-form-heading">
+      <div class="section-heading">
+        <h2 id="policy-form-heading">Edit Policy Thresholds</h2>
+        <span class="tag tag-warn">Editable</span>
+      </div>
+      <form
+        hx-post="/api/policy"
+        hx-target="#policy-content"
+        hx-swap="outerHTML"
+        hx-ext="json-enc"
+      >
+        <div class="readonly-grid">
+          <div class="readonly-field">
+            <label for="min_final_conviction">Min Final Conviction</label>
+            <input
+              id="min_final_conviction"
+              name="min_final_conviction"
+              type="number"
+              step="0.01"
+              min="0"
+              max="1"
+              value="{{ policy.min_final_conviction }}"
+            />
+          </div>
+          <div class="readonly-field">
+            <label for="max_new_positions_per_cycle">Max New Positions / Cycle</label>
+            <input
+              id="max_new_positions_per_cycle"
+              name="max_new_positions_per_cycle"
+              type="number"
+              step="1"
+              min="0"
+              value="{{ policy.max_new_positions_per_cycle }}"
+            />
+          </div>
+          <div class="readonly-field">
+            <label for="max_gross_exposure_pct">Max Gross Exposure %</label>
+            <input
+              id="max_gross_exposure_pct"
+              name="max_gross_exposure_pct"
+              type="number"
+              step="0.1"
+              min="0"
+              value="{{ policy.max_gross_exposure_pct }}"
+            />
+          </div>
+          <div class="readonly-field">
+            <label for="default_position_pct">Default Position Size %</label>
+            <input
+              id="default_position_pct"
+              name="default_position_pct"
+              type="number"
+              step="0.1"
+              min="0"
+              value="{{ policy.default_position_pct }}"
+            />
+          </div>
+          <div class="readonly-field">
+            <label for="take_profit_pct">Take Profit %</label>
+            <input
+              id="take_profit_pct"
+              name="take_profit_pct"
+              type="number"
+              step="0.1"
+              min="0"
+              value="{{ policy.take_profit_pct }}"
+            />
+          </div>
+          <div class="readonly-field">
+            <label for="stop_loss_pct">Stop Loss %</label>
+            <input
+              id="stop_loss_pct"
+              name="stop_loss_pct"
+              type="number"
+              step="0.1"
+              min="0"
+              value="{{ policy.stop_loss_pct }}"
+            />
+          </div>
+          <div class="readonly-field">
+            <label for="trailing_stop_pct">Trailing Stop %</label>
+            <input
+              id="trailing_stop_pct"
+              name="trailing_stop_pct"
+              type="number"
+              step="0.1"
+              min="0"
+              value="{{ policy.trailing_stop_pct }}"
+            />
+          </div>
+          <div class="readonly-field">
+            <label for="hourly_loss_alert_pct">Hourly Loss Alert %</label>
+            <input
+              id="hourly_loss_alert_pct"
+              name="hourly_loss_alert_pct"
+              type="number"
+              step="0.1"
+              min="0"
+              value="{{ policy.hourly_loss_alert_pct }}"
+            />
+          </div>
+        </div>
+        <div class="button-row" style="margin-top:1rem;">
+          <button type="submit">Save to DB</button>
+          <button
+            type="button"
+            onclick="document.getElementById('policy-edit-form').style.display='none'; document.querySelector('.button-row button:first-of-type') && null;"
+          >Cancel</button>
+        </div>
+      </form>
+    </section>
+  </div>
 {% endblock %}

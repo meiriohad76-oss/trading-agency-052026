@@ -10,6 +10,7 @@ from agency.persistence import (
     data_source_health,
     execution_state_history,
     metadata,
+    portfolio_snapshots,
     prompt_audits,
     risk_decisions,
     risk_snapshots,
@@ -26,6 +27,7 @@ def test_metadata_includes_data_source_health_table() -> None:
     assert metadata.tables["prompt_audits"] is prompt_audits
     assert metadata.tables["execution_state_history"] is execution_state_history
     assert metadata.tables["risk_snapshots"] is risk_snapshots
+    assert metadata.tables["portfolio_snapshots"] is portfolio_snapshots
 
 
 def test_data_source_health_table_has_runtime_status_columns() -> None:
@@ -120,11 +122,36 @@ def test_runtime_audit_tables_have_key_columns() -> None:
     assert risk_snapshots.primary_key.columns.keys() == ["snapshot_id"]
 
 
+def test_portfolio_snapshots_table_has_broker_history_columns() -> None:
+    columns = set(portfolio_snapshots.c.keys())
+
+    assert {
+        "snapshot_id",
+        "provider",
+        "mode",
+        "captured_at",
+        "equity",
+        "cash",
+        "position_count",
+        "open_order_count",
+        "gross_exposure_pct",
+        "payload",
+    }.issubset(columns)
+    assert portfolio_snapshots.primary_key.columns.keys() == ["snapshot_id"]
+
+
 def test_runtime_audit_migration_links_to_risk_decision_revision() -> None:
     migration = _load_migration("0006_runtime_audit_tables.py")
 
     assert migration.revision == "0006_runtime_audit_tables"
     assert migration.down_revision == "0005_risk_decisions"
+
+
+def test_portfolio_snapshot_migration_links_to_runtime_audit_revision() -> None:
+    migration = _load_migration("0007_portfolio_snapshots.py")
+
+    assert migration.revision == "0007_portfolio_snapshots"
+    assert migration.down_revision == "0006_runtime_audit_tables"
 
 
 def _load_migration(filename: str) -> ModuleType:

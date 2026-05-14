@@ -93,6 +93,25 @@ prompt_audits = Table(
     Col("inserted_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
 
+portfolio_snapshots = Table(
+    "portfolio_snapshots",
+    metadata,
+    Col("snapshot_id", String(length=120), primary_key=True),
+    Col("provider", String(length=40), nullable=False),
+    Col("mode", String(length=40), nullable=False),
+    Col("captured_at", DateTime(timezone=True), nullable=False),
+    Col("account_status", String(length=40), nullable=False),
+    Col("equity", Float, nullable=False),
+    Col("cash", Float, nullable=False),
+    Col("buying_power", Float, nullable=False),
+    Col("portfolio_value", Float, nullable=False),
+    Col("position_count", Integer, nullable=False),
+    Col("open_order_count", Integer, nullable=False),
+    Col("gross_exposure_pct", Float, nullable=False),
+    Col("payload", JSON, nullable=False),
+    Col("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
 execution_state_history = Table(
     "execution_state_history",
     metadata,
@@ -133,4 +152,12 @@ candidate_lifecycle_events = Table(
     Col("reason", Text),
     Col("payload", JSON, nullable=False),
     Col("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
+portfolio_policy = Table(
+    "portfolio_policy",
+    metadata,
+    Col("id", Integer, primary_key=True),
+    Col("data", JSON, nullable=False),
+    Col("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
