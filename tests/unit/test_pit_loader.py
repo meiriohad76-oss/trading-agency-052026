@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import date
+import json
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import polars as pl
@@ -41,6 +42,32 @@ def test_prices_filter_record_date_and_timestamp_as_of(tmp_path: Path) -> None:
 
     assert result.get_column("close").to_list() == [140.0, 141.0]
     assert set(result.columns).issuperset({"source", "timestamp_as_of", "verification_level"})
+
+
+def test_prices_filter_intraday_timestamp_as_of_for_same_day_replay(tmp_path: Path) -> None:
+    frame = pl.DataFrame(
+        [
+            {
+                **price("AAPL", date(2026, 5, 6), 141.0, date(2026, 5, 6), "known"),
+                "timestamp_as_of": datetime(2026, 5, 6, 14, 55, tzinfo=UTC),
+            },
+            {
+                **price("AAPL", date(2026, 5, 6), 999.0, date(2026, 5, 6), "later"),
+                "timestamp_as_of": datetime(2026, 5, 6, 15, 5, tzinfo=UTC),
+            },
+        ]
+    )
+    loader = loader_with(tmp_path, {DatasetName.PRICES_DAILY: frame})
+    loader = PITLoader(
+        parquet_root=loader.parquet_root,
+        manifest_root=loader.manifest_root,
+        today=lambda: date(2026, 5, 6),
+        clock=lambda: datetime(2026, 5, 6, 15, 0, tzinfo=UTC),
+    )
+
+    result = loader.prices(["AAPL"], date(2026, 5, 6), lookback_days=1)
+
+    assert result.get_column("source_id").to_list() == ["known"]
 
 
 def test_fundamentals_use_latest_filing_before_as_of(tmp_path: Path) -> None:
@@ -152,6 +179,23 @@ def test_universe_membership_uses_historical_boundaries(tmp_path: Path) -> None:
     assert isinstance(after, ProvenancedTickerSet)
 
 
+def test_universe_membership_uses_conservative_provenance_for_full_set(tmp_path: Path) -> None:
+    frame = pl.DataFrame(
+        [
+            member("OLDER", date(2020, 1, 1), None),
+            member("NEWER", date(2022, 1, 1), None),
+        ]
+    )
+    loader = loader_with(tmp_path, {DatasetName.UNIVERSE_MEMBERSHIP: frame})
+
+    result = loader.universe_members(date(2022, 6, 15))
+
+    assert result == {"OLDER", "NEWER"}
+    assert isinstance(result, ProvenancedTickerSet)
+    assert str(result.provenance.source_id).startswith("universe-membership:2:")
+    assert result.provenance.timestamp_as_of.date() == date(2022, 1, 1)
+
+
 def test_sector_etfs_are_pit_filtered(tmp_path: Path) -> None:
     frame = pl.DataFrame(
         [
@@ -184,6 +228,206 @@ def test_stock_trades_filter_trade_date_and_timestamp_as_of(tmp_path: Path) -> N
     assert result.get_column("source_id").to_list() == ["a1", "a2"]
 
 
+def test_stock_trades_read_only_requested_partitions(tmp_path: Path) -> None:
+    parquet_root = tmp_path / "parquet"
+    manifest_root = tmp_path / "manifests"
+    trade_root = parquet_root / "stock_trades"
+    aapl_path = trade_root / "ticker=AAPL" / "year=2026" / "trades.parquet"
+    bad_msft_path = trade_root / "ticker=MSFT" / "year=2026" / "trades.parquet"
+    aapl_path.parent.mkdir(parents=True)
+    bad_msft_path.parent.mkdir(parents=True)
+    manifest_root.mkdir()
+    pl.DataFrame(
+        [
+            stock_trade("AAPL", date(2026, 5, 6), date(2026, 5, 6), "a1"),
+        ]
+    ).write_parquet(aapl_path)
+    bad_msft_path.write_text("this is deliberately not parquet", encoding="utf-8")
+    write_manifest(manifest_root, DatasetName.STOCK_TRADES, "stock_trades", row_count=1)
+    loader = PITLoader(parquet_root=parquet_root, manifest_root=manifest_root, today=lambda: TODAY)
+
+    result = loader.stock_trades(["AAPL"], date(2026, 5, 6), lookback_days=1)
+
+    assert result.get_column("source_id").to_list() == ["a1"]
+
+
+def test_stock_trades_reject_partial_coverage_partitions(tmp_path: Path) -> None:
+    parquet_root = tmp_path / "parquet"
+    manifest_root = tmp_path / "manifests"
+    trade_root = parquet_root / "stock_trades"
+    aapl_path = trade_root / "ticker=AAPL" / "year=2026" / "trades.parquet"
+    aapl_path.parent.mkdir(parents=True)
+    manifest_root.mkdir()
+    pl.DataFrame(
+        [
+            stock_trade("AAPL", date(2026, 5, 6), date(2026, 5, 6), "a1"),
+        ]
+    ).write_parquet(aapl_path)
+    (trade_root / "_coverage.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "0.1.0",
+                "ticker_days": {
+                    "AAPL|2026-05-06": {
+                        "ticker": "AAPL",
+                        "trade_date": "2026-05-06",
+                        "coverage_status": "partial",
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    write_manifest(manifest_root, DatasetName.STOCK_TRADES, "stock_trades", row_count=1)
+    loader = PITLoader(parquet_root=parquet_root, manifest_root=manifest_root, today=lambda: TODAY)
+
+    with pytest.raises(DataNotAvailableAt, match="incomplete stock trade coverage"):
+        loader.stock_trades(["AAPL"], date(2026, 5, 6), lookback_days=1)
+
+
+def test_stock_trade_activity_frames_can_allow_partial_live_slice(tmp_path: Path) -> None:
+    parquet_root = tmp_path / "parquet"
+    manifest_root = tmp_path / "manifests"
+    trade_root = parquet_root / "stock_trades"
+    aapl_path = trade_root / "ticker=AAPL" / "year=2026" / "trades.parquet"
+    aapl_path.parent.mkdir(parents=True)
+    manifest_root.mkdir()
+    pl.DataFrame(
+        [
+            stock_trade("AAPL", date(2026, 5, 6), date(2026, 5, 6), "a1"),
+        ]
+    ).write_parquet(aapl_path)
+    (trade_root / "_coverage.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "0.1.0",
+                "ticker_days": {
+                    "AAPL|2026-05-06": {
+                        "ticker": "AAPL",
+                        "trade_date": "2026-05-06",
+                        "coverage_status": "partial",
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    write_manifest(manifest_root, DatasetName.STOCK_TRADES, "stock_trades", row_count=1)
+    loader = PITLoader(parquet_root=parquet_root, manifest_root=manifest_root, today=lambda: TODAY)
+
+    with pytest.raises(DataNotAvailableAt, match="incomplete stock trade coverage"):
+        loader.stock_trade_activity_frames(["AAPL"], date(2026, 5, 6), lookback_days=1)
+
+    total, daily = loader.stock_trade_activity_frames(
+        ["AAPL"],
+        date(2026, 5, 6),
+        lookback_days=3,
+        allow_partial_coverage=True,
+    )
+
+    assert total.get_column("ticker").to_list() == ["AAPL"]
+    assert daily.get_column("date").to_list() == [date(2026, 5, 6)]
+
+
+def test_stock_trades_reject_missing_requested_coverage_rows(tmp_path: Path) -> None:
+    parquet_root = tmp_path / "parquet"
+    manifest_root = tmp_path / "manifests"
+    trade_root = parquet_root / "stock_trades"
+    aapl_path = trade_root / "ticker=AAPL" / "year=2026" / "trades.parquet"
+    aapl_path.parent.mkdir(parents=True)
+    manifest_root.mkdir()
+    pl.DataFrame(
+        [
+            stock_trade("AAPL", date(2026, 5, 6), date(2026, 5, 6), "a1"),
+        ]
+    ).write_parquet(aapl_path)
+    (trade_root / "_coverage.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "0.1.0",
+                "ticker_days": {
+                    "AAPL|2026-05-06": {
+                        "ticker": "AAPL",
+                        "trade_date": "2026-05-06",
+                        "coverage_status": "complete",
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    write_manifest(manifest_root, DatasetName.STOCK_TRADES, "stock_trades", row_count=1)
+    loader = PITLoader(parquet_root=parquet_root, manifest_root=manifest_root, today=lambda: TODAY)
+
+    with pytest.raises(DataNotAvailableAt, match="MSFT\\|2026-05-06:missing"):
+        loader.stock_trades(["AAPL", "MSFT"], date(2026, 5, 6), lookback_days=1)
+
+
+def test_stock_trades_today_filter_uses_intraday_timestamp_cutoff(tmp_path: Path) -> None:
+    frame = pl.DataFrame(
+        [
+            {
+                **stock_trade("AAPL", date(2026, 5, 6), date(2026, 5, 6), "known"),
+                "timestamp_as_of": datetime(2026, 5, 6, 14, 55, tzinfo=UTC),
+            },
+            {
+                **stock_trade("AAPL", date(2026, 5, 6), date(2026, 5, 6), "later"),
+                "timestamp_as_of": datetime(2026, 5, 6, 15, 5, tzinfo=UTC),
+            },
+        ]
+    )
+    loader = loader_with(tmp_path, {DatasetName.STOCK_TRADES: frame})
+    loader = PITLoader(
+        parquet_root=loader.parquet_root,
+        manifest_root=loader.manifest_root,
+        today=lambda: date(2026, 5, 6),
+        clock=lambda: datetime(2026, 5, 6, 15, 0, tzinfo=UTC),
+    )
+
+    result = loader.stock_trades(["AAPL"], date(2026, 5, 6), lookback_days=1)
+
+    assert result.get_column("source_id").to_list() == ["known"]
+
+
+def test_prices_returns_empty_on_date_with_no_data(tmp_path: Path) -> None:
+    """prices() must return an empty DataFrame (not raise) when the parquet file
+    exists but no records fall within the requested date window.  This guards the
+    contract that callers can safely check `result.is_empty()` rather than catching
+    DataNotAvailableAt for the "no rows" case.
+    """
+    # Parquet contains data on 2023-01-03; querying as_of=2023-01-02 (before any data)
+    frame = pl.DataFrame(
+        [
+            price("AAPL", date(2023, 1, 3), 130.0, date(2023, 1, 3), "p1"),
+            price("AAPL", date(2023, 1, 4), 131.0, date(2023, 1, 4), "p2"),
+        ]
+    )
+    loader = loader_with(tmp_path, {DatasetName.PRICES_DAILY: frame})
+
+    result = loader.prices(["AAPL"], date(2023, 1, 2), lookback_days=1)
+
+    assert isinstance(result, pl.DataFrame)
+    assert len(result) == 0
+
+
+def test_sector_etfs_returns_empty_on_date_with_no_data(tmp_path: Path) -> None:
+    """sector_etfs() must return an empty DataFrame (not raise) when no sector-ETF
+    rows fall within the requested window.  Same contract as prices().
+    """
+    frame = pl.DataFrame(
+        [
+            # XLK data is only on 2023-01-03; querying as_of=2023-01-02 will match nothing
+            price("XLK", date(2023, 1, 3), 120.0, date(2023, 1, 3), "xlk-1"),
+        ]
+    )
+    loader = loader_with(tmp_path, {DatasetName.PRICES_DAILY: frame})
+
+    result = loader.sector_etfs(date(2023, 1, 2), lookback_days=1)
+
+    assert isinstance(result, pl.DataFrame)
+    assert len(result) == 0
+
+
 def test_future_as_of_dates_raise_before_manifest_access(tmp_path: Path) -> None:
     loader = PITLoader(parquet_root=tmp_path, manifest_root=tmp_path, today=lambda: TODAY)
 
@@ -210,6 +454,35 @@ def test_missing_parquet_raises_data_not_available(tmp_path: Path) -> None:
         loader.prices(["AAPL"], date(2022, 6, 15), lookback_days=1)
 
 
+def test_loader_cache_invalidates_when_manifest_identity_changes(tmp_path: Path) -> None:
+    parquet_root = tmp_path / "parquet"
+    manifest_root = tmp_path / "manifests"
+    parquet_root.mkdir()
+    manifest_root.mkdir()
+    parquet_path = parquet_root / "prices_daily.parquet"
+    pl.DataFrame(
+        [price("AAPL", date(2022, 6, 15), 141.0, date(2022, 6, 15), "p1")]
+    ).write_parquet(parquet_path)
+    write_manifest(manifest_root, DatasetName.PRICES_DAILY, parquet_path.name, row_count=1)
+    loader = PITLoader(parquet_root=parquet_root, manifest_root=manifest_root, today=lambda: TODAY)
+
+    first = loader.prices(["AAPL"], date(2022, 6, 15), lookback_days=1)
+    pl.DataFrame(
+        [price("AAPL", date(2022, 6, 15), 200.0, date(2022, 6, 15), "p2")]
+    ).write_parquet(parquet_path)
+    manifest_path = manifest_root / "prices_daily.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["checksum"] = "fixture-v2"
+    manifest["fetched_at"] = "2026-05-06T01:00:00+00:00"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    second = loader.prices(["AAPL"], date(2022, 6, 15), lookback_days=1)
+
+    assert first.get_column("close").to_list() == [141.0]
+    assert second.get_column("close").to_list() == [200.0]
+    assert second.get_column("source_id").to_list() == ["p2"]
+
+
 def test_stale_manifest_raises_data_not_available(tmp_path: Path) -> None:
     parquet_root = tmp_path / "parquet"
     manifest_root = tmp_path / "manifests"
@@ -227,6 +500,24 @@ def test_stale_manifest_raises_data_not_available(tmp_path: Path) -> None:
     loader = PITLoader(parquet_root=parquet_root, manifest_root=manifest_root, today=lambda: TODAY)
 
     with pytest.raises(DataNotAvailableAt, match="stale"):
+        loader.prices(["AAPL"], date(2022, 6, 15), lookback_days=1)
+
+
+def test_malformed_manifest_timestamp_raises_data_not_available(tmp_path: Path) -> None:
+    parquet_root = tmp_path / "parquet"
+    manifest_root = tmp_path / "manifests"
+    parquet_root.mkdir()
+    manifest_root.mkdir()
+    frame = pl.DataFrame([price("AAPL", date(2022, 6, 15), 141.0, date(2022, 6, 15), "p1")])
+    frame.write_parquet(parquet_root / "prices_daily.parquet")
+    write_manifest(manifest_root, DatasetName.PRICES_DAILY, "prices_daily.parquet", frame.height)
+    manifest_path = manifest_root / "prices_daily.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["fetched_at"] = "not-a-timestamp"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    loader = PITLoader(parquet_root=parquet_root, manifest_root=manifest_root, today=lambda: TODAY)
+
+    with pytest.raises(DataNotAvailableAt, match="fetched_at must be an ISO datetime"):
         loader.prices(["AAPL"], date(2022, 6, 15), lookback_days=1)
 
 
