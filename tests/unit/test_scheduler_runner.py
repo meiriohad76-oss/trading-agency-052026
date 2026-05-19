@@ -124,6 +124,7 @@ def test_work_queue_tick_prefers_massive_lanes_and_refreshes_runtime(monkeypatch
         "agency.runtime.scheduler_work_queue.scheduler_work_queue_context",
         fake_context,
     )
+    monkeypatch.setattr(scheduler_runner, "_load_live_scheduler_work_queue", lambda: None)
     monkeypatch.setattr(scheduler_runner, "_run_queue_command", fake_run)
     monkeypatch.setattr(
         scheduler_runner,
@@ -310,6 +311,7 @@ def test_work_queue_tick_marks_timed_out_dataset_refresh_status_failed(
         "agency.runtime.scheduler_work_queue.scheduler_work_queue_context",
         fake_context,
     )
+    monkeypatch.setattr(scheduler_runner, "_load_live_scheduler_work_queue", lambda: None)
     monkeypatch.setattr(scheduler_runner, "_run_queue_command", fake_run)
     monkeypatch.setattr(scheduler_runner, "WORK_QUEUE_MAX_COMMANDS", 1)
     monkeypatch.setattr(scheduler_runner, "RUNTIME_CYCLE_AFTER_DATA_REFRESH", False)
@@ -353,6 +355,7 @@ def test_work_queue_tick_records_job_success_cadence_memory(monkeypatch) -> None
         "agency.runtime.scheduler_work_queue.scheduler_work_queue_context",
         fake_context,
     )
+    monkeypatch.setattr(scheduler_runner, "_load_live_scheduler_work_queue", lambda: None)
     monkeypatch.setattr(
         scheduler_runner,
         "_run_queue_command",
@@ -412,7 +415,8 @@ def test_runtime_cycle_command_scopes_to_refreshed_tickers(monkeypatch) -> None:
     assert command.count("--ticker") == 2
     assert command[command.index("--ticker") + 1] == "MSFT"
     assert "AAPL" in command
-    assert "--persist" in command
+    assert "--persist" not in command
+    assert "--no-persist" in command
     assert command[command.index("--output-root") + 1] == "research\\results\\latest-mini-runtime-cycle"
 
 
@@ -493,6 +497,7 @@ def test_work_queue_skip_preserves_stale_running_tick(monkeypatch) -> None:
     monkeypatch.setattr(scheduler_status, "_RUNTIME_STATUS", dict(previous))
     monkeypatch.setattr(scheduler_status, "DEFAULT_TICK_STALE_SECONDS", 60)
     monkeypatch.setattr(scheduler_runner, "_WORK_QUEUE_TICK_RUNNING", True)
+    monkeypatch.setattr(scheduler_runner, "_load_live_scheduler_work_queue", lambda: None)
 
     scheduler_runner._run_work_queue_tick()
 

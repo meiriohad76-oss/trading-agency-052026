@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import hashlib
+import asyncio
 import math
 import os
 import ssl
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from functools import lru_cache
 from typing import Self, cast
 from urllib.parse import urlparse
 
@@ -209,9 +211,11 @@ async def broker_snapshot(
     resolved = AlpacaTradingConfig.from_env() if config is None else config
     client = AlpacaBrokerClient(resolved, transport=transport)
     checked_at = datetime.now(UTC)
-    account = await client.account()
-    positions = await client.positions()
-    orders = await client.orders(status="open")
+    account, positions, orders = await asyncio.gather(
+        client.account(),
+        client.positions(),
+        client.orders(status="open"),
+    )
     return {
         "provider": "alpaca",
         "mode": resolved.mode,
@@ -353,6 +357,7 @@ def _headers(config: AlpacaTradingConfig) -> dict[str, str]:
     }
 
 
+@lru_cache(maxsize=1)
 def _ssl_context() -> ssl.SSLContext:
     return truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
 

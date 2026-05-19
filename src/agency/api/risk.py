@@ -188,7 +188,7 @@ def _bounded_int(
 
 @router.get("/decisions")
 async def risk_decisions(
-    limit: int = Query(default=50, ge=1, le=1000),
+    limit: int = Query(default=20, ge=1, le=1000),
 ) -> list[dict[str, object]]:
     try:
         return await runtime_risk_decisions(limit=limit)
@@ -199,7 +199,7 @@ async def risk_decisions(
 @router.get("/decisions/{ticker}")
 async def risk_decisions_for_ticker(
     ticker: str,
-    limit: int = Query(default=50, ge=1, le=1000),
+    limit: int = Query(default=20, ge=1, le=1000),
 ) -> list[dict[str, object]]:
     try:
         return await runtime_risk_decisions(ticker=ticker, limit=limit)
@@ -210,7 +210,7 @@ async def risk_decisions_for_ticker(
 async def runtime_risk_decisions(
     *,
     ticker: str | None = None,
-    limit: int = 50,
+    limit: int = 20,
     session_provider: SessionProvider = get_session,
     reader: RiskDecisionReader | None = None,
     validate_payloads: bool = True,

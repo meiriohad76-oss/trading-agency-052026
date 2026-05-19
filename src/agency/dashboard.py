@@ -80,6 +80,7 @@ from agency.views.command import (  # noqa: F401
     policy_summary,
     provider_readiness_view,
     readiness_view,
+    scheduler_work_queue_raw_context,
     scheduler_work_queue_status_context,
     source_status_rows,
 )
@@ -164,7 +165,12 @@ async def refresh_massive_lane(
     lane_id: str,
     background_tasks: BackgroundTasks,
 ) -> Response:
-    background_tasks.add_task(run_manual_massive_lane_refresh, lane_id)
+    queue_context = await scheduler_work_queue_raw_context()
+    background_tasks.add_task(
+        run_manual_massive_lane_refresh,
+        lane_id,
+        queue_provider=lambda: queue_context,
+    )
     return RedirectResponse(url="/#scheduler-heading", status_code=303)
 
 

@@ -56,11 +56,33 @@ def _format_market_regime_timestamps(context: dict[str, object]) -> None:
     if isinstance(summary, dict):
         summary["as_of_label"] = _format_timestamp_label(summary.get("as_of"))
 
-async def broker_status_context(*, use_cache: bool = True) -> dict[str, object]:
+async def broker_status_context(
+    *,
+    use_cache: bool = True,
+    allow_live_read: bool = True,
+) -> dict[str, object]:
     cache_key = _broker_status_cache_key()
     cached = _cached_broker_status_context(cache_key) if use_cache else None
     if cached is not None:
         return cached
+    if not allow_live_read:
+        return {
+            "provider": "alpaca",
+            "mode": "paper",
+            "connected": False,
+            "checked_at": datetime.now(UTC).isoformat(),
+            "account": None,
+            "positions": [],
+            "orders": [],
+            "gross_exposure_pct": 0.0,
+            "status_label": "Broker Check Pending",
+            "status_class": "warn",
+            "detail": (
+                "Dashboard did not block on a live broker read. Execution preview "
+                "and paper submit still perform strict fresh Alpaca checks before "
+                "any order can be submitted."
+            ),
+        }
     if not _env_bool_text("AGENCY_ALPACA_BROKER_ENABLED"):
         context = {
             "provider": "alpaca",

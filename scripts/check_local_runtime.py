@@ -6,7 +6,7 @@ import time
 from collections.abc import Callable, Mapping
 from typing import Any
 from urllib.error import URLError
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8000"
 HTTP_OK = 200
@@ -111,22 +111,30 @@ def _fetch_json_with_timing(base_url: str, path: str) -> dict[str, object]:
 
 
 def _fetch_text_with_timing(base_url: str, path: str) -> dict[str, object]:
-    started = time.perf_counter()
-    try:
-        with urlopen(f"{base_url}{path}", timeout=10) as response:
-            first_byte_at = time.perf_counter()
-            if response.status != HTTP_OK:
-                raise RuntimeError(f"{path} returned HTTP {response.status}")
-            text: str = response.read().decode("utf-8")
-            finished = time.perf_counter()
-            return {
-                "path": path,
-                "payload": text,
-                "first_byte_seconds": round(first_byte_at - started, 3),
-                "total_seconds": round(finished - started, 3),
-            }
-    except URLError as exc:
-        raise RuntimeError(f"{path} is unavailable") from exc
+    last_error: BaseException | None = None
+    for attempt in range(2):
+        started = time.perf_counter()
+        try:
+            request = Request(f"{base_url}{path}", headers={"Connection": "close"})
+            with urlopen(request, timeout=10) as response:
+                first_byte_at = time.perf_counter()
+                if response.status != HTTP_OK:
+                    raise RuntimeError(f"{path} returned HTTP {response.status}")
+                text: str = response.read().decode("utf-8")
+                finished = time.perf_counter()
+                return {
+                    "path": path,
+                    "payload": text,
+                    "first_byte_seconds": round(first_byte_at - started, 3),
+                    "total_seconds": round(finished - started, 3),
+                    "attempt": attempt + 1,
+                }
+        except (ConnectionResetError, TimeoutError, URLError) as exc:
+            last_error = exc
+            if attempt == 0:
+                time.sleep(0.25)
+                continue
+    raise RuntimeError(f"{path} is unavailable") from last_error
 
 
 def _payload(result: TimedFetchResult | Any) -> Any:

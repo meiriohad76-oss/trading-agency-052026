@@ -46,6 +46,7 @@ from agency.views._shared import (
 )
 
 DASHBOARD_RUNTIME_QUERY_TIMEOUT_SECONDS = 5.0
+COMMAND_DASHBOARD_REPORT_LIMIT = 20
 LIVE_CRITICAL_SCHEDULER_DATASETS = {"prices_daily", "stock_trades"}
 LIVE_CRITICAL_SCHEDULER_SIGNALS = {
     "abnormal_volume",
@@ -63,11 +64,23 @@ async def dashboard_context() -> dict[str, object]:
     from agency.views.candidates import candidate_rows
     from agency.views.market_regime import broker_status_context
     from agency.views.portfolio import _broker_execution_enabled
-    reports, data_sources, risk_decisions, broker = await asyncio.gather(
-        _dashboard_selection_reports_live(FINAL_SELECTION_REPORT_LIMIT),
+
+    live_config_task = asyncio.to_thread(load_live_config_readiness)
+    data_refresh_task = asyncio.to_thread(load_data_refresh_progress)
+    active_policy_task = load_active_portfolio_policy()
+    reports, data_sources, risk_decisions, broker, live_config, data_refresh, active_policy = await asyncio.gather(
+        _dashboard_selection_reports_live(COMMAND_DASHBOARD_REPORT_LIMIT),
         _runtime_data_source_status_live(),
-        _dashboard_risk_decisions_live(FINAL_SELECTION_REPORT_LIMIT),
-        broker_status_context(),
+        _dashboard_risk_decisions_live(COMMAND_DASHBOARD_REPORT_LIMIT),
+        broker_status_context(allow_live_read=False),
+        live_config_task,
+        data_refresh_task,
+        active_policy_task,
+    )
+    data_load_task = asyncio.to_thread(
+        load_data_load_status,
+        source_health_rows=data_sources,
+        source_health_origin=_source_health_origin_label(data_sources),
     )
     active_reports = _active_cycle_reports(reports)
     active_risk_decisions = _risk_decisions_for_reports(risk_decisions, active_reports)
@@ -94,17 +107,14 @@ async def dashboard_context() -> dict[str, object]:
         readiness=readiness,
         review_queue=review_queue,
     )
-    readiness_inputs = await _dashboard_readiness_inputs(data_sources=data_sources)
-    live_config = _mapping_field(readiness_inputs, "live_config")
-    data_refresh = _mapping_field(readiness_inputs, "data_refresh")
-    data_load_status = _mapping_field(readiness_inputs, "data_load_status")
-    active_policy = cast(PortfolioPolicy | None, readiness_inputs.get("active_policy"))
+    data_load_status = await data_load_task
     full_live_readiness = load_full_live_readiness(
         live_config=live_config,
         data_refresh=data_refresh,
         data_load_status=data_load_status,
     )
-    scheduler_status = scheduler_work_queue_context(
+    scheduler_status_task = asyncio.to_thread(
+        scheduler_work_queue_context,
         reports=active_reports,
         review_queue=review_queue,
         source_health=data_sources,
@@ -125,6 +135,7 @@ async def dashboard_context() -> dict[str, object]:
     data_refresh_view = data_refresh_progress_view(data_refresh)
     data_load_status_view_model = data_load_status_view(data_load_status)
     full_live_readiness_view_model = full_live_readiness_view(full_live_readiness)
+    scheduler_status = await scheduler_status_task
     scheduler_view_model = scheduler_work_queue_view(scheduler_status)
     operational_readiness_view_model = operational_readiness_view(operational_readiness)
     provider_readiness_view_model = provider_readiness_view(provider_readiness)
@@ -2964,8 +2975,9 @@ async def operational_readiness_context() -> dict[str, object]:
         broker_execution_enabled=_broker_execution_enabled(),
     )
 
-async def scheduler_work_queue_status_context() -> dict[str, object]:
+async def scheduler_work_queue_raw_context() -> dict[str, object]:
     from agency.views.market_regime import broker_status_context
+
     raw_reports, data_sources, raw_risk_decisions, broker = await asyncio.gather(
         _dashboard_selection_reports_live(FINAL_SELECTION_REPORT_LIMIT),
         _runtime_data_source_status_live(),
@@ -2984,19 +2996,22 @@ async def scheduler_work_queue_status_context() -> dict[str, object]:
         risk_decisions=risk_decisions,
         readiness=readiness,
     )
-    return scheduler_work_queue_view(
-        scheduler_work_queue_context(
-            reports=reports,
-            review_queue=_mapping_list_field(paper_status, "queue"),
-            source_health=data_sources,
-            broker=broker,
-            data_load_status=load_data_load_status(
-                source_health_rows=data_sources,
-                source_health_origin=_source_health_origin_label(data_sources),
-            ),
-            data_refresh_progress=load_data_refresh_progress(),
-        )
+    return scheduler_work_queue_context(
+        reports=reports,
+        review_queue=_mapping_list_field(paper_status, "queue"),
+        source_health=data_sources,
+        broker=broker,
+        data_load_status=load_data_load_status(
+            source_health_rows=data_sources,
+            source_health_origin=_source_health_origin_label(data_sources),
+        ),
+        data_refresh_progress=load_data_refresh_progress(),
     )
+
+
+async def scheduler_work_queue_status_context() -> dict[str, object]:
+    return scheduler_work_queue_view(await scheduler_work_queue_raw_context())
+
 
 async def paper_review_status_from_runtime(
     *,

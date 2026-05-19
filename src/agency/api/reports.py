@@ -28,7 +28,7 @@ class RuntimeSelectionReportsUnavailable(RuntimeError):
 
 @router.get("/selection")
 async def selection_reports(
-    limit: int = Query(default=50, ge=1, le=1000),
+    limit: int = Query(default=20, ge=1, le=1000),
 ) -> list[dict[str, object]]:
     try:
         return await runtime_selection_reports(limit=limit)
@@ -39,7 +39,7 @@ async def selection_reports(
 @router.get("/selection/{ticker}")
 async def selection_reports_for_ticker(
     ticker: str,
-    limit: int = Query(default=50, ge=1, le=1000),
+    limit: int = Query(default=20, ge=1, le=1000),
 ) -> list[dict[str, object]]:
     try:
         return await runtime_selection_reports(ticker=ticker, limit=limit)
@@ -50,7 +50,7 @@ async def selection_reports_for_ticker(
 async def runtime_selection_reports(
     *,
     ticker: str | None = None,
-    limit: int = 50,
+    limit: int = 20,
     session_provider: SessionProvider = get_session,
     reader: SelectionReportReader | None = None,
     validate_payloads: bool = True,

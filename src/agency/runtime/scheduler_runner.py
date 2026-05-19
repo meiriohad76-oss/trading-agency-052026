@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import subprocess
@@ -236,7 +237,7 @@ def _run_work_queue_tick() -> None:
         while len(executed) < WORK_QUEUE_MAX_COMMANDS:
             data_load = load_data_load_status()
             progress = load_data_refresh_progress()
-            queue = scheduler_work_queue_context(
+            queue = _work_queue_for_runner(
                 data_load_status=data_load,
                 data_refresh_progress=progress,
             )
@@ -592,6 +593,9 @@ def run_manual_massive_lane_refresh(
 
 
 def _manual_lane_queue() -> Mapping[str, object]:
+    live_queue = _load_live_scheduler_work_queue()
+    if live_queue is not None:
+        return live_queue
     from agency.runtime.data_load_status import load_data_load_status
     from agency.runtime.data_refresh_progress import load_data_refresh_progress
     from agency.runtime.scheduler_work_queue import scheduler_work_queue_context
@@ -600,6 +604,37 @@ def _manual_lane_queue() -> Mapping[str, object]:
         data_load_status=load_data_load_status(),
         data_refresh_progress=load_data_refresh_progress(),
     )
+
+
+def _work_queue_for_runner(
+    *,
+    data_load_status: Mapping[str, object],
+    data_refresh_progress: Mapping[str, object],
+) -> dict[str, object]:
+    live_queue = _load_live_scheduler_work_queue()
+    if live_queue is not None:
+        return dict(live_queue)
+    from agency.runtime.scheduler_work_queue import scheduler_work_queue_context
+
+    return scheduler_work_queue_context(
+        data_load_status=data_load_status,
+        data_refresh_progress=data_refresh_progress,
+    )
+
+
+def _load_live_scheduler_work_queue() -> Mapping[str, object] | None:
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        pass
+    else:
+        return None
+    try:
+        from agency.views.command import scheduler_work_queue_raw_context
+
+        return asyncio.run(scheduler_work_queue_raw_context())
+    except Exception:
+        return None
 
 
 def _manual_massive_lane(
@@ -815,7 +850,8 @@ def _runtime_cycle_command(*, tickers: list[str] | None = None) -> list[str]:
         output_root,
     ]
     command.append("--enable-llm-review" if _scheduler_enable_llm_review() else "--no-enable-llm-review")
-    if RUNTIME_CYCLE_PERSIST:
+    should_persist = RUNTIME_CYCLE_PERSIST and not scoped_tickers
+    if should_persist:
         command.append("--persist")
     else:
         command.append("--no-persist")

@@ -711,6 +711,23 @@ async def test_broker_status_context_bounds_dashboard_broker_reads(
     assert datetime.fromisoformat(str(context["checked_at"])) >= started
 
 
+async def test_broker_status_context_can_return_nonblocking_pending_status(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    async def failing_broker_snapshot(*, config: object) -> dict[str, object]:
+        raise AssertionError("dashboard shell should not call live broker")
+
+    market_regime_module._broker_status_context_cache.clear()
+    monkeypatch.setenv("AGENCY_ALPACA_BROKER_ENABLED", "true")
+    monkeypatch.setattr(market_regime_module, "broker_snapshot", failing_broker_snapshot)
+
+    context = await market_regime_module.broker_status_context(allow_live_read=False)
+
+    assert context["connected"] is False
+    assert context["status_label"] == "Broker Check Pending"
+    assert "strict fresh Alpaca checks" in str(context["detail"])
+
+
 async def test_dashboard_readiness_inputs_load_blocking_artifacts_concurrently(
     monkeypatch: MonkeyPatch,
 ) -> None:
@@ -1594,13 +1611,24 @@ def test_scheduler_work_queue_view_translates_massive_lanes_for_users() -> None:
 def test_manual_massive_lane_refresh_endpoint_schedules_background_task(
     monkeypatch: MonkeyPatch,
 ) -> None:
-    calls: list[str] = []
+    calls: list[tuple[str, dict[str, object]]] = []
+    queue_context = {"massive_orchestrator": {"lanes": []}, "jobs": []}
 
-    def fake_refresh(lane_id: str) -> dict[str, object]:
-        calls.append(lane_id)
+    async def fake_queue_context() -> dict[str, object]:
+        return queue_context
+
+    def fake_refresh(lane_id: str, **kwargs: object) -> dict[str, object]:
+        queue_provider = kwargs.get("queue_provider")
+        assert callable(queue_provider)
+        calls.append((lane_id, queue_provider()))
         return {"state": "completed", "lane_id": lane_id}
 
     monkeypatch.setattr(dashboard_module, "run_manual_massive_lane_refresh", fake_refresh)
+    monkeypatch.setattr(
+        dashboard_module,
+        "scheduler_work_queue_raw_context",
+        fake_queue_context,
+    )
 
     response = TestClient(create_app()).post(
         "/scheduler/massive-lanes/massive_live_trade_slices/refresh",
@@ -1609,7 +1637,7 @@ def test_manual_massive_lane_refresh_endpoint_schedules_background_task(
 
     assert response.status_code == HTTP_SEE_OTHER
     assert response.headers["location"] == "/#scheduler-heading"
-    assert calls == ["massive_live_trade_slices"]
+    assert calls == [("massive_live_trade_slices", queue_context)]
 
 
 def test_full_live_readiness_view_uses_plain_readiness_and_tooltip_labels() -> None:

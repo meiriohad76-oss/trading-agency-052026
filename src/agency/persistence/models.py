@@ -4,6 +4,7 @@ from sqlalchemy import (
     JSON,
     DateTime,
     Float,
+    Index,
     Integer,
     MetaData,
     String,
@@ -48,6 +49,12 @@ selection_reports = Table(
     Col("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Col("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
+Index("ix_selection_reports_generated_at", selection_reports.c.generated_at)
+Index(
+    "ix_selection_reports_ticker_generated_at",
+    selection_reports.c.ticker,
+    selection_reports.c.generated_at,
+)
 
 risk_decisions = Table(
     "risk_decisions",
@@ -60,6 +67,12 @@ risk_decisions = Table(
     Col("payload", JSON, nullable=False),
     Col("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Col("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+Index("ix_risk_decisions_generated_at", risk_decisions.c.generated_at)
+Index(
+    "ix_risk_decisions_ticker_generated_at",
+    risk_decisions.c.ticker,
+    risk_decisions.c.generated_at,
 )
 
 agent_runs = Table(
