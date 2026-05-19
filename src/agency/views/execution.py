@@ -70,7 +70,7 @@ async def execution_preview_context(
         fetched_reports, fetched_sources, fetched_broker = await asyncio.gather(
             _dashboard_selection_reports(limit=FINAL_SELECTION_REPORT_LIMIT),
             live_runtime_source_health_rows(runtime_data_source_status),
-            broker_status_context(),
+            broker_status_context(use_cache=False),
         )
         if raw_reports is None:
             raw_reports = fetched_reports

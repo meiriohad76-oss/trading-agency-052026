@@ -80,6 +80,28 @@ def test_execution_preview_hash_is_stable_and_bound_to_order_intent() -> None:
     assert first["order_intent_hash"] != resized["order_intent_hash"]
 
 
+def test_execution_preview_hash_ignores_minor_account_mark_to_market_drift() -> None:
+    risk_decision = _risk_decision(action="BUY", decision_source="ALLOW")
+    policy = PortfolioPolicy(broker_submit_enabled=True)
+
+    first = build_execution_preview(
+        risk_decision,
+        generated_at=GENERATED_AT,
+        policy=policy,
+        account={"status": "ACTIVE", "equity": 10000.95, "buying_power": 19900.94},
+    ).preview
+    drifted = build_execution_preview(
+        risk_decision,
+        generated_at="2026-05-07T09:34:00Z",
+        policy=policy,
+        account={"status": "ACTIVE", "equity": 10000.12, "buying_power": 19900.55},
+    ).preview
+
+    assert first["notional"] == 1000.0
+    assert drifted["notional"] == 1000.0
+    assert first["order_intent_hash"] == drifted["order_intent_hash"]
+
+
 def test_execution_preview_hash_is_bound_to_full_portfolio_policy() -> None:
     risk_decision = _risk_decision(action="BUY", decision_source="ALLOW")
     account = {"status": "ACTIVE", "equity": 10000.0, "buying_power": 10000.0}

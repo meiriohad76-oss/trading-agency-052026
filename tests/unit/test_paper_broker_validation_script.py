@@ -136,13 +136,15 @@ def test_validation_runtime_cycle_uses_no_persist_artifacts(
     tmp_path: Path,
 ) -> None:
     commands: list[list[str]] = []
+    environments: list[dict[str, str]] = []
 
     class Result:
         returncode = 0
         stderr = ""
 
-    def fake_run(command, **_kwargs):  # type: ignore[no-untyped-def]
+    def fake_run(command, **kwargs):  # type: ignore[no-untyped-def]
         commands.append(list(command))
+        environments.append(dict(kwargs["env"]))
         return Result()
 
     monkeypatch.setattr("scripts.run_paper_broker_validation.subprocess.run", fake_run)
@@ -164,6 +166,9 @@ def test_validation_runtime_cycle_uses_no_persist_artifacts(
     assert output_root == tmp_path / "cycle-1"
     assert "--no-persist" in commands[0]
     assert "--persist" not in commands[0]
+    assert "--no-broker-snapshot" in commands[0]
+    assert environments[0]["AGENCY_ALPACA_BROKER_ENABLED"] == "false"
+    assert environments[0]["AGENCY_BROKER_SUBMIT_ENABLED"] == "false"
 
 
 def test_summary_flags_unsafe_paper_trade_test() -> None:

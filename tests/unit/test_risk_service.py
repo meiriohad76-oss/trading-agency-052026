@@ -35,6 +35,23 @@ def test_risk_decision_warns_for_degraded_runtime_source() -> None:
     assert result.risk_decision["reasons"] == ["runtime source degradation present"]
 
 
+def test_execution_preview_for_warned_trade_candidate_is_ready_with_caution() -> None:
+    risk = build_risk_decision(
+        selection_report(action="BUY"),
+        {"source_count": 1, "degraded_source_count": 1},
+        generated_at=GENERATED_AT,
+    ).risk_decision
+
+    preview = build_execution_preview(risk).preview
+
+    validate_contract("execution-preview", preview)
+    assert preview["risk_decision"] == "WARN"
+    assert preview["preview_state"] == "READY"
+    assert preview["side"] == "BUY"
+    assert preview["submit_enabled"] is False
+    assert "runtime source degradation present" in preview["reasons"]
+
+
 def test_risk_decisions_block_missing_report_source_health() -> None:
     unrelated_source = {**source_health(), "source": "daily-market-bars"}
 

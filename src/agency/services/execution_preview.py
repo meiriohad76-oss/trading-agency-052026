@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -201,7 +202,9 @@ def _preview_state(risk_state: str, side: str) -> str:
         return "BLOCKED"
     if side == "NONE":
         return "DISABLED"
-    return "READY" if risk_state == "ALLOW" else "BLOCKED"
+    if risk_state in {"ALLOW", "WARN"}:
+        return "READY"
+    return "BLOCKED"
 
 
 def _order_intent_payload(
@@ -285,8 +288,6 @@ def _account_intent(account: Mapping[str, object] | None) -> dict[str, object] |
         return None
     return {
         "status": account.get("status"),
-        "equity": _round_optional(_float_field(account, "equity"), 2),
-        "buying_power": _round_optional(_float_field(account, "buying_power"), 2),
         "trading_blocked": _bool_field(account, "trading_blocked"),
         "account_blocked": _bool_field(account, "account_blocked"),
     }
@@ -346,9 +347,15 @@ def _preview_reasons(
     if preview_state == "READY":
         if order_conflict:
             return ["active broker order already exists for this ticker"]
+        risk_reasons = [str(reason) for reason in _list_field(risk_decision, "reasons")]
         promotion_reason = _paper_promotion_reason(risk_decision)
         if promotion_reason is not None:
-            return [promotion_reason]
+            return [
+                promotion_reason,
+                *[reason for reason in risk_reasons if reason != promotion_reason],
+            ]
+        if risk_reasons:
+            return risk_reasons
         return ["paper preview generated; broker submission remains gated"]
     if side == "NONE":
         cautions = [
@@ -414,7 +421,9 @@ def _order_notional(
         return None
     notional = round(equity * position_size_pct / 100.0, 2)
     if buying_power > 0:
-        return min(notional, buying_power)
+        notional = min(notional, buying_power)
+    if notional >= 100:
+        return float(math.floor(notional))
     return notional
 
 

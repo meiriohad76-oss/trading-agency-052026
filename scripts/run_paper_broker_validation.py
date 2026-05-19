@@ -323,6 +323,7 @@ def run_cycle(args: argparse.Namespace, *, cycle_id: str, index: int) -> Path:
         "--output-root",
         str(output_root),
         "--no-persist",
+        "--no-broker-snapshot",
     ]
     if args.as_of is not None:
         command.extend(["--as-of", str(args.as_of)])
@@ -330,11 +331,15 @@ def run_cycle(args: argparse.Namespace, *, cycle_id: str, index: int) -> Path:
         command.append("--replay-freshness")
     if not args.enable_llm_review:
         command.append("--no-enable-llm-review")
+    env = os.environ.copy()
+    env["AGENCY_ALPACA_BROKER_ENABLED"] = "false"
+    env["AGENCY_BROKER_SUBMIT_ENABLED"] = "false"
     completed = subprocess.run(
         command,
         cwd=ROOT,
         capture_output=True,
         check=False,
+        env=env,
         text=True,
     )
     if completed.returncode != 0:

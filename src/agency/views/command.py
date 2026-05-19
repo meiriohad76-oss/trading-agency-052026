@@ -10,6 +10,7 @@ import re
 from agency.api.health import (
     contract_summaries,
     runtime_data_source_status,
+    runtime_data_source_status_with_load_status,
     unavailable_data_source_status,
 )
 from agency.runtime import build_live_readiness, scheduler_work_queue_context
@@ -65,23 +66,28 @@ async def dashboard_context() -> dict[str, object]:
     from agency.views.market_regime import broker_status_context
     from agency.views.portfolio import _broker_execution_enabled
 
-    live_config_task = asyncio.to_thread(load_live_config_readiness)
     data_refresh_task = asyncio.to_thread(load_data_refresh_progress)
     active_policy_task = load_active_portfolio_policy()
-    reports, data_sources, risk_decisions, broker, live_config, data_refresh, active_policy = await asyncio.gather(
+    (
+        reports,
+        source_load_status,
+        risk_decisions,
+        broker,
+        data_refresh,
+        active_policy,
+    ) = await asyncio.gather(
         _dashboard_selection_reports_live(COMMAND_DASHBOARD_REPORT_LIMIT),
-        _runtime_data_source_status_live(),
+        _runtime_data_source_status_with_load_status_live(),
         _dashboard_risk_decisions_live(COMMAND_DASHBOARD_REPORT_LIMIT),
         broker_status_context(allow_live_read=False),
-        live_config_task,
         data_refresh_task,
         active_policy_task,
     )
-    data_load_task = asyncio.to_thread(
-        load_data_load_status,
-        source_health_rows=data_sources,
-        source_health_origin=_source_health_origin_label(data_sources),
-    )
+    data_sources = _mapping_list_field(source_load_status, "data_sources")
+    data_load_status = _mapping_field(source_load_status, "data_load_status")
+    live_config = _mapping_field(data_load_status, "live_config")
+    if not live_config:
+        live_config = await asyncio.to_thread(load_live_config_readiness)
     active_reports = _active_cycle_reports(reports)
     active_risk_decisions = _risk_decisions_for_reports(risk_decisions, active_reports)
     candidates = candidate_rows(active_reports)
@@ -107,7 +113,6 @@ async def dashboard_context() -> dict[str, object]:
         readiness=readiness,
         review_queue=review_queue,
     )
-    data_load_status = await data_load_task
     full_live_readiness = load_full_live_readiness(
         live_config=live_config,
         data_refresh=data_refresh,
@@ -267,18 +272,48 @@ async def _dashboard_selection_reports_live(
 
 
 async def _runtime_data_source_status_live() -> list[dict[str, object]]:
+    payload = await _runtime_data_source_status_with_load_status_live()
+    data_sources = _mapping_list_field(payload, "data_sources")
+    return list(data_sources) if data_sources else unavailable_data_source_status(
+        "live source-health reader returned no rows"
+    )
+
+
+async def _runtime_data_source_status_with_load_status_live() -> dict[str, object]:
     try:
-        rows = await asyncio.wait_for(
-            runtime_data_source_status(),
+        payload = await asyncio.wait_for(
+            runtime_data_source_status_with_load_status(),
             timeout=DASHBOARD_RUNTIME_QUERY_TIMEOUT_SECONDS,
         )
     except Exception:  # noqa: BLE001
-        return unavailable_data_source_status(
+        rows = unavailable_data_source_status(
             "live source-health reader timed out or failed"
         )
-    return list(rows) if rows else unavailable_data_source_status(
-        "live source-health reader returned no rows"
-    )
+        return {
+            "data_sources": rows,
+            "data_load_status": await asyncio.to_thread(
+                load_data_load_status,
+                source_health_rows=rows,
+                source_health_origin=_source_health_origin_label(rows),
+            ),
+        }
+    data_sources = _mapping_list_field(payload, "data_sources")
+    if not data_sources:
+        data_sources = unavailable_data_source_status(
+            "live source-health reader returned no rows"
+        )
+    data_load_status = _mapping_field(payload, "data_load_status")
+    if not data_load_status:
+        data_load_status = await asyncio.to_thread(
+            load_data_load_status,
+            source_health_rows=data_sources,
+            source_health_origin=_source_health_origin_label(data_sources),
+        )
+    return {
+        "data_sources": list(data_sources),
+        "data_load_status": data_load_status,
+    }
+
 
 
 async def _dashboard_risk_decisions_live(
@@ -2947,11 +2982,16 @@ async def paper_review_status_context() -> dict[str, object]:
 
 async def operational_readiness_context() -> dict[str, object]:
     from agency.views.portfolio import _broker_execution_enabled
-    reports, data_sources, risk_decisions = await asyncio.gather(
+    reports, source_load_status, risk_decisions = await asyncio.gather(
         _dashboard_selection_reports_live(FINAL_SELECTION_REPORT_LIMIT),
-        _runtime_data_source_status_live(),
+        _runtime_data_source_status_with_load_status_live(),
         _dashboard_risk_decisions_live(FINAL_SELECTION_REPORT_LIMIT),
     )
+    data_sources = _mapping_list_field(source_load_status, "data_sources")
+    data_load_status = _mapping_field(source_load_status, "data_load_status")
+    live_config = _mapping_field(data_load_status, "live_config")
+    if not live_config:
+        live_config = await asyncio.to_thread(load_live_config_readiness)
     readiness = build_live_readiness(
         source_health=data_sources,
         selection_reports=reports,
@@ -2964,12 +3004,9 @@ async def operational_readiness_context() -> dict[str, object]:
     )
     return build_operational_readiness(
         health={"status": "ok", "service": "trading-agency-v2"},
-        live_config=load_live_config_readiness(),
+        live_config=live_config,
         data_refresh=load_data_refresh_progress(),
-        data_load_status=load_data_load_status(
-            source_health_rows=data_sources,
-            source_health_origin=_source_health_origin_label(data_sources),
-        ),
+        data_load_status=data_load_status,
         live_readiness=readiness,
         paper_review=paper_status,
         broker_execution_enabled=_broker_execution_enabled(),

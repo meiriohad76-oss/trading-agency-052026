@@ -117,6 +117,13 @@ def test_restore_command_reads_sql_from_stdin() -> None:
     ]
 
 
+def test_start_dev_respects_dotenv_database_url_before_sqlite_fallback() -> None:
+    script = Path("scripts/start_dev.ps1").read_text(encoding="utf-8")
+
+    assert "Get-DotEnvValue" in script
+    assert "DATABASE_URL is configured from .env" in script
+
+
 def test_start_local_runtime_requires_explicit_demo_seed() -> None:
     script = Path("scripts/start_local_runtime.ps1").read_text(encoding="utf-8")
 
@@ -398,6 +405,23 @@ def test_canonical_runtime_output_keeps_last_persisted_summary_on_persist_failur
     )
 
 
+@pytest.mark.asyncio
+async def test_runtime_cycle_broker_snapshot_cli_disable_overrides_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fail_broker_snapshot() -> dict[str, object]:
+        raise AssertionError("broker snapshot should not run")
+
+    monkeypatch.setenv("AGENCY_ALPACA_BROKER_ENABLED", "true")
+    monkeypatch.setattr(
+        live_runtime_cycle_script,
+        "broker_snapshot",
+        fail_broker_snapshot,
+    )
+
+    assert await live_runtime_cycle_script._broker_snapshot_if_enabled(enabled=False) is None
+
+
 def test_check_paper_review_status_summarizes_progress(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -434,6 +458,46 @@ def test_check_paper_review_status_summarizes_progress(
         "defer_count": 1,
         "reject_count": 0,
     }
+
+
+@pytest.mark.parametrize(
+    "module_name",
+    [
+        "scripts.check_operational_readiness",
+        "scripts.check_paper_review_status",
+        "scripts.check_paper_trade_path",
+    ],
+)
+def test_status_check_fetch_json_retries_connection_reset(
+    monkeypatch: pytest.MonkeyPatch,
+    module_name: str,
+) -> None:
+    module = importlib.import_module(module_name)
+    attempts = 0
+
+    class Response:
+        status = 200
+
+        def __enter__(self) -> "Response":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return b'{"ready": true}'
+
+    def fake_urlopen(*_args: object, **_kwargs: object) -> Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise ConnectionResetError("reset")
+        return Response()
+
+    monkeypatch.setattr(module, "urlopen", fake_urlopen)
+
+    assert module._fetch_json("http://example.test", "/status") == {"ready": True}
+    assert attempts == 2
 
 
 def test_check_paper_trade_path_summarizes_orderability(

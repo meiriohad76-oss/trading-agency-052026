@@ -905,14 +905,22 @@ def _source_freshness_check(
     blocked = freshness in {"STALE", "UNAVAILABLE"} or status in {
         "STALE",
         "UNAVAILABLE",
-        "DEGRADED",
         "RATE_LIMITED",
     }
+    warned = (
+        not blocked
+        and (
+            status in {"DEGRADED", "UNKNOWN"}
+            or freshness in {"AGING", "PARTIAL", "UNKNOWN"}
+        )
+    )
     if checked_at is None:
         blocked = True
+        warned = False
         detail = f"{source} has no checked_at timestamp; execution freshness is unverified."
     elif age_seconds is not None and age_seconds > max_source_age_seconds:
         blocked = True
+        warned = False
         detail = (
             f"{source} source-health row is {age_seconds}s old; refresh critical "
             "evidence before submitting."
@@ -922,10 +930,11 @@ def _source_freshness_check(
             f"{source} freshness is {freshness}; source status is {status}; "
             f"checked {age_seconds}s ago."
         )
+    result_status = "BLOCK" if blocked else "WARN" if warned else "PASS"
     return {
         "label": source.replace("-", " ").title(),
-        "status": "BLOCK" if blocked else "PASS",
-        "status_class": "block" if blocked else "pass",
+        "status": result_status,
+        "status_class": "block" if blocked else "warn" if warned else "pass",
         "detail": detail,
     }
 
@@ -942,9 +951,6 @@ def _tradability(
     if execution_gate.get("ready") is not True:
         state = "context_only"
         detail = str(execution_gate.get("detail", "Execution freshness gate is closed."))
-    elif execution_gate.get("state") == "warning":
-        state = "context_only"
-        detail = str(execution_gate.get("detail", "Broker freshness still needs review."))
     elif refresh_state in {"stale", "blocked", "failed", "unavailable"}:
         state = "context_only"
         detail = str(
@@ -977,11 +983,24 @@ def _tradability(
         detail = "Some datasets are stale or warning; keep decisions in review mode."
     else:
         state = "tradable"
-        detail = "Broker, critical evidence, and scheduler queue are fresh enough for paper orders."
+        if execution_gate.get("state") == "warning":
+            detail = (
+                "Broker and critical evidence are fresh enough for paper orders "
+                f"with caution: {execution_gate.get('detail', 'review freshness warnings.')}"
+            )
+        else:
+            detail = "Broker, critical evidence, and scheduler queue are fresh enough for paper orders."
+    tradable_with_warning = state == "tradable" and execution_gate.get("state") == "warning"
     return {
         "state": state,
-        "status_label": "Tradable" if state == "tradable" else "Context Only",
-        "status_class": "pass" if state == "tradable" else "warn",
+        "status_label": (
+            "Tradable With Caution"
+            if tradable_with_warning
+            else "Tradable"
+            if state == "tradable"
+            else "Context Only"
+        ),
+        "status_class": "warn" if tradable_with_warning else "pass" if state == "tradable" else "warn",
         "detail": detail,
     }
 

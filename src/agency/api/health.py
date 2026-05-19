@@ -150,6 +150,45 @@ async def runtime_data_source_status(
     reader: SourceHealthReader = list_source_health,
     artifact_root: Path | None = None,
 ) -> list[dict[str, object]]:
+    payload = await runtime_data_source_status_with_load_status(
+        session_provider=session_provider,
+        reader=reader,
+        artifact_root=artifact_root,
+    )
+    data_sources = payload.get("data_sources", [])
+    return [dict(row) for row in data_sources if isinstance(row, Mapping)]
+
+
+async def runtime_data_source_status_with_load_status(
+    *,
+    session_provider: SessionProvider = get_session,
+    reader: SourceHealthReader = list_source_health,
+    artifact_root: Path | None = None,
+) -> dict[str, object]:
+    payloads = await _runtime_data_source_payloads(
+        session_provider=session_provider,
+        reader=reader,
+        artifact_root=artifact_root,
+    )
+    load_status = load_data_load_status(
+        source_health_rows=payloads,
+        source_health_origin=_source_health_origin_label(payloads),
+    )
+    data_sources = _with_unified_readiness_overlay(payloads, load_status=load_status)
+    for payload in data_sources:
+        validate_contract("data-source-health", payload)
+    return {
+        "data_sources": data_sources,
+        "data_load_status": load_status,
+    }
+
+
+async def _runtime_data_source_payloads(
+    *,
+    session_provider: SessionProvider,
+    reader: SourceHealthReader,
+    artifact_root: Path | None,
+) -> list[dict[str, object]]:
     try:
         async with session_provider() as session:
             payloads = await reader(session)
@@ -168,19 +207,19 @@ async def runtime_data_source_status(
         payloads = _artifact_source_health(artifact_root=artifact_root)
     if not payloads:
         return unavailable_data_source_status("live source-health reader returned no rows")
-    payloads = _with_unified_readiness_overlay(payloads)
-    for payload in payloads:
-        validate_contract("data-source-health", payload)
     return payloads
 
 
 def _with_unified_readiness_overlay(
     payloads: list[dict[str, object]],
+    *,
+    load_status: Mapping[str, object] | None = None,
 ) -> list[dict[str, object]]:
-    load_status = load_data_load_status(
-        source_health_rows=payloads,
-        source_health_origin=_source_health_origin_label(payloads),
-    )
+    if load_status is None:
+        load_status = load_data_load_status(
+            source_health_rows=payloads,
+            source_health_origin=_source_health_origin_label(payloads),
+        )
     readiness_by_source = {
         str(row.get("source") or ""): row
         for row in _mapping_rows(load_status.get("freshness_rows"))
@@ -200,7 +239,10 @@ def _with_unified_readiness_overlay(
         freshness = str(readiness.get("freshness") or "").upper()
         if freshness in FRESHNESS_STATUSES:
             merged["freshness"] = freshness
-        checked_at = _valid_iso_datetime(readiness.get("checked_at"))
+        checked_at = _latest_iso_datetime(
+            _valid_iso_datetime(merged.get("checked_at")),
+            _valid_iso_datetime(readiness.get("checked_at")),
+        )
         if checked_at:
             merged["checked_at"] = checked_at
         last_success_at = _valid_iso_datetime(readiness.get("last_success_at"))
@@ -232,6 +274,16 @@ def _valid_iso_datetime(value: object) -> str | None:
     except ValueError:
         return None
     return text
+
+
+def _latest_iso_datetime(left: str | None, right: str | None) -> str | None:
+    if left is None:
+        return right
+    if right is None:
+        return left
+    left_dt = datetime.fromisoformat(left.replace("Z", "+00:00"))
+    right_dt = datetime.fromisoformat(right.replace("Z", "+00:00"))
+    return right if right_dt > left_dt else left
 
 
 def _mapping_rows(value: object) -> list[Mapping[str, object]]:

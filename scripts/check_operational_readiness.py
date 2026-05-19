@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 from collections.abc import Mapping
 from typing import Any
 from urllib.error import URLError
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8000"
 HTTP_OK = 200
@@ -106,13 +107,20 @@ def _int_value(payload: Mapping[str, object], key: str) -> int:
 
 
 def _fetch_json(base_url: str, path: str) -> Any:
-    try:
-        with urlopen(f"{base_url}{path}", timeout=HTTP_TIMEOUT_SECONDS) as response:
-            if response.status != HTTP_OK:
-                raise RuntimeError(f"{path} returned HTTP {response.status}")
-            return json.loads(response.read().decode("utf-8"))
-    except URLError as exc:
-        raise RuntimeError(f"{path} is unavailable") from exc
+    last_error: BaseException | None = None
+    for attempt in range(2):
+        try:
+            request = Request(f"{base_url}{path}", headers={"Connection": "close"})
+            with urlopen(request, timeout=HTTP_TIMEOUT_SECONDS) as response:
+                if response.status != HTTP_OK:
+                    raise RuntimeError(f"{path} returned HTTP {response.status}")
+                return json.loads(response.read().decode("utf-8"))
+        except (ConnectionResetError, TimeoutError, URLError) as exc:
+            last_error = exc
+            if attempt == 0:
+                time.sleep(0.25)
+                continue
+    raise RuntimeError(f"{path} is unavailable") from last_error
 
 
 def _parse_args() -> argparse.Namespace:

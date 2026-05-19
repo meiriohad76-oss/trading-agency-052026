@@ -64,7 +64,7 @@ async def main() -> int:
     max_tickers = _max_tickers(args, config)
     generated_at = datetime.now(UTC)
     freshness_checked_at = _freshness_checked_at(as_of, replay=args.replay_freshness)
-    broker = await _broker_snapshot_if_enabled()
+    broker = await _broker_snapshot_if_enabled(enabled=args.broker_snapshot)
     base_cycle = cast(
         RuntimeCycleResult,
         build_live_pit_runtime_cycle(
@@ -193,6 +193,16 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--max-tickers", type=int)
     parser.add_argument("--enable-llm-review", action=argparse.BooleanOptionalAction, default=None)
+    parser.add_argument(
+        "--broker-snapshot",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Include a broker snapshot in the runtime cycle when broker env is enabled. "
+            "Use --no-broker-snapshot for no-persist validation cycles that must not "
+            "reload .env broker settings."
+        ),
+    )
     parser.add_argument(
         "--llm-review-max-candidates",
         type=int,
@@ -366,7 +376,9 @@ def _date(value: str) -> date:
     return date.fromisoformat(value)
 
 
-async def _broker_snapshot_if_enabled() -> Mapping[str, object] | None:
+async def _broker_snapshot_if_enabled(*, enabled: bool = True) -> Mapping[str, object] | None:
+    if not enabled:
+        return None
     if not _env_bool("AGENCY_ALPACA_BROKER_ENABLED"):
         return None
     try:

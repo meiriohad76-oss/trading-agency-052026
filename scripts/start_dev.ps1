@@ -13,14 +13,39 @@ if (-not (Test-Path ".env")) {
     Copy-Item ".env.example" ".env"
 }
 
+function Get-DotEnvValue {
+    param([string]$Name)
+
+    if (-not (Test-Path ".env")) {
+        return ""
+    }
+
+    $escaped = [regex]::Escape($Name)
+    $line = Get-Content ".env" |
+        Where-Object { $_ -match "^\s*$escaped\s*=" } |
+        Select-Object -Last 1
+    if (-not $line) {
+        return ""
+    }
+
+    $value = ($line -split "=", 2)[1].Trim()
+    return $value.Trim('"').Trim("'")
+}
+
 if (-not (Test-Path $Python)) {
     py -3.14 -m venv .venv
 }
 
 $env:PYTHONPATH = "$RepoRoot\src;$RepoRoot\research\src"
 
+$DotEnvDatabaseUrl = Get-DotEnvValue "DATABASE_URL"
 if (-not $env:DATABASE_URL -or -not $env:DATABASE_URL.Trim()) {
-    $env:DATABASE_URL = "sqlite+aiosqlite:///./agency_local.db"
+    if ($DotEnvDatabaseUrl) {
+        Write-Host "DATABASE_URL is configured from .env"
+    } else {
+        $env:DATABASE_URL = "sqlite+aiosqlite:///./agency_local.db"
+        Write-Host "DATABASE_URL fallback configured for local SQLite persistence."
+    }
 } elseif ($env:DATABASE_URL.Trim().ToLowerInvariant().StartsWith("sqlite:///")) {
     $env:DATABASE_URL = $env:DATABASE_URL -replace "^sqlite:///", "sqlite+aiosqlite:///"
 }
@@ -60,5 +85,9 @@ if ($null -ne $health) {
 }
 
 Write-Host "Starting Trading Agency dev server at http://127.0.0.1:$Port/"
-Write-Host "DATABASE_URL is configured for local persistence."
+if ($env:DATABASE_URL -and $env:DATABASE_URL.Trim()) {
+    Write-Host "DATABASE_URL is configured in the current shell."
+} else {
+    Write-Host "DATABASE_URL is configured from .env."
+}
 & $Python -m uvicorn agency.app:app --host 127.0.0.1 --port $Port

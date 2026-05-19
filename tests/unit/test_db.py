@@ -64,24 +64,43 @@ def test_effective_database_url_falls_back_to_local_sqlite() -> None:
     assert url == "sqlite+aiosqlite:///./agency_local.db"
 
 
-def test_create_engine_omits_asyncpg_connect_args_for_sqlite_fallback(
+def test_create_engine_configures_sqlite_busy_timeout_for_local_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured: dict[str, object] = {}
     monkeypatch.setenv("DATABASE_URL", "")
+    monkeypatch.setenv("DB_SQLITE_BUSY_TIMEOUT_SECONDS", "30")
 
     def fake_create_async_engine(url: object, **kwargs: object) -> object:
         captured["url"] = str(url)
         captured["kwargs"] = kwargs
         return object()
 
+    def fake_install_sqlite_pragmas(
+        engine: object,
+        *,
+        busy_timeout_ms: int,
+    ) -> None:
+        captured["sqlite_engine"] = engine
+        captured["busy_timeout_ms"] = busy_timeout_ms
+
     monkeypatch.setattr(db_module, "create_async_engine", fake_create_async_engine)
+    monkeypatch.setattr(
+        db_module,
+        "_install_sqlite_pragmas",
+        fake_install_sqlite_pragmas,
+        raising=False,
+    )
 
     engine = create_engine()
 
     assert engine is not None
     assert captured["url"] == "sqlite+aiosqlite:///./agency_local.db"
-    assert "connect_args" not in captured["kwargs"]
+    kwargs = captured["kwargs"]
+    assert isinstance(kwargs, dict)
+    assert kwargs["connect_args"] == {"timeout": 30.0}
+    assert captured["sqlite_engine"] is engine
+    assert captured["busy_timeout_ms"] == 30_000
 
 
 def _env(overrides: dict[str, str] | None = None) -> dict[str, str]:

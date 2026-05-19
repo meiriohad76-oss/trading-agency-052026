@@ -370,6 +370,41 @@ def test_execution_freshness_gate_blocks_stale_broker_or_critical_sources() -> N
     assert stale_source["ready"] is False
 
 
+def test_execution_freshness_gate_warns_for_fresh_degraded_trade_lane() -> None:
+    gate = execution_freshness_gate(
+        {"connected": True, "checked_at": NOW.isoformat()},
+        [
+            _source("daily-market-bars", freshness="FRESH", status="HEALTHY"),
+            _source("massive-stock-trades", freshness="FRESH", status="DEGRADED"),
+        ],
+        now=NOW,
+    )
+
+    assert gate["ready"] is True
+    assert gate["state"] == "warning"
+    assert gate["blocker_count"] == 0
+    assert gate["warning_count"] == 1
+
+
+def test_scheduler_queue_stays_tradable_for_fresh_degraded_trade_lane() -> None:
+    queue = build_scheduler_work_queue(
+        _market_plan("regular_market"),
+        tiers=build_ticker_tiers(active_universe=["AAPL", "MSFT"]),
+        data_load_status={"state": "attention", "review_operational_ready": True, "datasets": []},
+        source_health=[
+            _source("daily-market-bars", freshness="FRESH", status="HEALTHY"),
+            _source("massive-stock-trades", freshness="FRESH", status="DEGRADED"),
+        ],
+        broker={"connected": True, "mode": "paper", "checked_at": NOW.isoformat()},
+        now=NOW,
+    )
+
+    assert queue["execution_freshness_gate"]["ready"] is True
+    assert queue["execution_freshness_gate"]["state"] == "warning"
+    assert queue["tradability"]["state"] == "tradable"
+    assert queue["tradability"]["status_class"] == "warn"
+
+
 def test_execution_freshness_gate_blocks_missing_critical_source() -> None:
     gate = execution_freshness_gate(
         {"connected": True, "checked_at": NOW.isoformat()},

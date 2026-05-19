@@ -728,6 +728,42 @@ async def test_broker_status_context_can_return_nonblocking_pending_status(
     assert "strict fresh Alpaca checks" in str(context["detail"])
 
 
+async def test_execution_preview_uses_uncached_broker_read_for_promotion(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    async def fake_broker_status_context(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {
+            "connected": True,
+            "mode": "paper",
+            "checked_at": datetime.now(UTC).isoformat(),
+            "account": {"status": "ACTIVE", "equity": 100000.0, "buying_power": 100000.0},
+            "positions": [],
+            "orders": [],
+            "gross_exposure_pct": 0.0,
+        }
+
+    async def fake_policy() -> PortfolioPolicy:
+        return PortfolioPolicy()
+
+    async def fake_review_events(*_args: object, **_kwargs: object) -> list[dict[str, object]]:
+        return []
+
+    def fake_scheduler_context(**_kwargs: object) -> dict[str, object]:
+        return {"tradability": {"state": "tradable", "status_label": "Tradable"}}
+
+    monkeypatch.setattr(market_regime_module, "broker_status_context", fake_broker_status_context)
+    monkeypatch.setattr(execution_module, "load_active_portfolio_policy", fake_policy)
+    monkeypatch.setattr(command_module, "human_review_events_for_reports", fake_review_events)
+    monkeypatch.setattr(execution_module, "scheduler_work_queue_context", fake_scheduler_context)
+
+    await execution_module.execution_preview_context(raw_reports=[], data_sources=[])
+
+    assert captured["use_cache"] is False
+
+
 async def test_dashboard_readiness_inputs_load_blocking_artifacts_concurrently(
     monkeypatch: MonkeyPatch,
 ) -> None:
@@ -765,6 +801,156 @@ async def test_dashboard_readiness_inputs_load_blocking_artifacts_concurrently(
     assert inputs["data_refresh"] == {"state": "complete"}
     assert inputs["data_load_status"] == {"state": "ready"}
     assert isinstance(inputs["active_policy"], PortfolioPolicy)
+
+
+async def test_dashboard_context_reuses_source_health_load_status(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    checked_at = datetime.now(UTC).isoformat()
+    data_sources = [
+        {
+            "schema_version": "0.1.0",
+            "source": "daily-market-bars",
+            "source_tier": "MARKET_DATA",
+            "status": "HEALTHY",
+            "checked_at": checked_at,
+            "freshness": "FRESH",
+            "last_success_at": checked_at,
+            "observed_lag_seconds": 1,
+            "error_count": 0,
+            "reliability_score": 1.0,
+            "rate_limit_reset_at": None,
+            "notes": [],
+        }
+    ]
+    data_load_status = {
+        "state": "ready",
+        "status_label": "Ready",
+        "status_class": "pass",
+        "overall_percent": 100,
+        "core_dataset_percent": 100,
+        "critical_lane_percent": 100,
+        "expected_ticker_count": 1,
+        "market_flow_summary": {
+            "status": "ready",
+            "usable_ticker_count": 1,
+            "expected_ticker_count": 1,
+        },
+        "dataset_summary": {},
+        "agent_summary": {},
+        "freshness_rows": [],
+        "datasets": [],
+        "lanes": [],
+        "blockers": [],
+        "warnings": [],
+        "data_refresh": {},
+        "health_monitor": {},
+        "source_summary": {},
+        "live_config": {"runtime_signals": [], "checks": []},
+    }
+
+    async def empty_reports(_limit: int) -> list[dict[str, object]]:
+        return []
+
+    async def source_status_with_load_status() -> dict[str, object]:
+        return {
+            "data_sources": data_sources,
+            "data_load_status": data_load_status,
+        }
+
+    def fail_duplicate_load_status(**_: object) -> dict[str, object]:
+        raise AssertionError("dashboard should reuse source-health load status")
+
+    def fail_duplicate_live_config() -> dict[str, object]:
+        raise AssertionError("dashboard should reuse load-status live config")
+
+    def fake_scheduler_context(**_: object) -> dict[str, object]:
+        return {"tradability": {"state": "tradable", "status_label": "Tradable"}}
+
+    def fake_scheduler_view(status: dict[str, object]) -> dict[str, object]:
+        return {
+            "tradability": dict(status.get("tradability", {})),
+            "refresh_workload": {},
+        }
+
+    monkeypatch.setattr(command_module, "_dashboard_selection_reports_live", empty_reports)
+    monkeypatch.setattr(command_module, "_dashboard_risk_decisions_live", empty_reports)
+    monkeypatch.setattr(
+        command_module,
+        "_runtime_data_source_status_with_load_status_live",
+        source_status_with_load_status,
+        raising=False,
+    )
+    monkeypatch.setattr(command_module, "load_data_load_status", fail_duplicate_load_status)
+    monkeypatch.setattr(command_module, "load_live_config_readiness", fail_duplicate_live_config)
+    monkeypatch.setattr(
+        command_module,
+        "load_data_refresh_progress",
+        lambda: {
+            "state": "complete",
+            "status_label": "Complete",
+            "percent_complete": 100,
+            "updated_at": checked_at,
+        },
+    )
+    monkeypatch.setattr(command_module, "scheduler_work_queue_context", fake_scheduler_context)
+    monkeypatch.setattr(command_module, "scheduler_work_queue_view", fake_scheduler_view)
+
+    context = await command_module.dashboard_context()
+
+    assert context["data_sources"][0]["source"] == "daily-market-bars"
+    assert context["data_load_status"]["status_label"] == "Ready"
+
+
+async def test_operational_readiness_context_reuses_source_health_load_status(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    data_load_status = {
+        "ready": True,
+        "state": "ready",
+        "status_label": "Ready",
+        "blocker_count": 0,
+        "warning_count": 0,
+        "overall_percent": 100,
+        "core_dataset_percent": 100,
+        "critical_lane_percent": 100,
+        "live_config": {"runtime_signals": [], "checks": []},
+    }
+
+    async def empty_reports(_limit: int) -> list[dict[str, object]]:
+        return []
+
+    async def source_status_with_load_status() -> dict[str, object]:
+        return {
+            "data_sources": [],
+            "data_load_status": data_load_status,
+        }
+
+    def fail_duplicate_load_status(**_: object) -> dict[str, object]:
+        raise AssertionError("operational readiness should reuse source-health load status")
+
+    def fail_duplicate_live_config() -> dict[str, object]:
+        raise AssertionError("operational readiness should reuse load-status live config")
+
+    monkeypatch.setattr(command_module, "_dashboard_selection_reports_live", empty_reports)
+    monkeypatch.setattr(command_module, "_dashboard_risk_decisions_live", empty_reports)
+    monkeypatch.setattr(
+        command_module,
+        "_runtime_data_source_status_with_load_status_live",
+        source_status_with_load_status,
+    )
+    monkeypatch.setattr(command_module, "load_data_load_status", fail_duplicate_load_status)
+    monkeypatch.setattr(command_module, "load_live_config_readiness", fail_duplicate_live_config)
+    monkeypatch.setattr(
+        command_module,
+        "load_data_refresh_progress",
+        lambda: {"state": "complete", "status_label": "Complete"},
+    )
+
+    context = await command_module.operational_readiness_context()
+
+    assert context["data_load_status"]["status_label"] == "Ready"
+    assert context["live_config"] == {"runtime_signals": [], "checks": []}
 
 
 def test_paper_review_status_endpoint_renders_empty_state(monkeypatch: MonkeyPatch) -> None:
@@ -3147,7 +3333,7 @@ async def test_execution_preview_context_does_not_reuse_research_approval_for_pr
         event["payload"]["selection_report_hash"] = selection_report_hash(report)
         return [event]
 
-    async def fake_broker() -> dict[str, object]:
+    async def fake_broker(**_kwargs: object) -> dict[str, object]:
         checked_at = datetime.now(UTC).isoformat()
         return {
             "connected": True,
@@ -4272,7 +4458,13 @@ def test_data_source_status_endpoint_returns_valid_status_payload(
     }
 
 
-def test_live_readiness_status_endpoint_returns_gate() -> None:
+def test_live_readiness_status_endpoint_returns_gate(monkeypatch: MonkeyPatch) -> None:
+    async def empty_rows() -> list[dict[str, object]]:
+        return []
+
+    monkeypatch.setattr(health_module, "_default_source_status", empty_rows)
+    monkeypatch.setattr(health_module, "_default_selection_reports", empty_rows)
+    monkeypatch.setattr(health_module, "_default_risk_decisions", empty_rows)
     client = TestClient(create_app())
 
     response = client.get("/status/live-readiness")
@@ -4333,6 +4525,7 @@ async def test_runtime_data_source_status_overlays_unified_readiness(
     assert payloads[0]["source"] == "daily-market-bars"
     assert payloads[0]["status"] == "DEGRADED"
     assert payloads[0]["freshness"] == "FRESH"
+    assert payloads[0]["checked_at"] == "2099-01-01T09:30:00Z"
     assert "unified_readiness_override" in " ".join(payloads[0]["notes"])
     assert "missing MSFT" in " ".join(payloads[0]["notes"])
 
