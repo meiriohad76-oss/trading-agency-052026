@@ -99,6 +99,20 @@ def test_pit_loader_filters_subscription_emails_by_ticker_and_observed_date(
     assert [item.value["linked_content_status"] for item in result] == ["article_analyzed"]
 
 
+def test_pit_loader_parses_subscription_email_iso_timestamp_strings(
+    tmp_path: Path,
+) -> None:
+    row = _email_row("MSFT", "iso", as_of=date(2026, 5, 6))
+    row["timestamp_as_of"] = "2026-05-06T17:03:21+00:00"
+    row["timestamp_observed"] = "2026-05-06T17:03:21+00:00"
+    frame = pl.DataFrame([row])
+    loader = loader_with(tmp_path, {DatasetName.SUBSCRIPTION_EMAILS: frame})
+
+    result = loader.subscription_emails(["MSFT"], date(2026, 5, 6), lookback_days=1)
+
+    assert [item.provenance.source_id for item in result] == ["iso"]
+
+
 def _alert_row(
     ticker: str,
     source_id: str,

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_data_health.html" import data_health_panel %}
 
 {% set active_nav = "market" %}
 
@@ -9,7 +10,7 @@
 
 {% block content %}
   <section class="next-action hero-{{ summary.status_class }}" aria-label="Market regime state">
-    <div class="next-action-step" aria-hidden="true">09</div>
+    <div class="next-action-step" aria-hidden="true">05</div>
     <div class="next-action-copy">
       <p class="eyebrow">Top-down worker / Local cached data</p>
       <h2>{{ summary.headline }}</h2>
@@ -33,6 +34,8 @@
     {% endfor %}
   </section>
 
+  {{ data_health_panel(data_health) }}
+
   <section class="panel" aria-labelledby="regime-map-heading">
     <div class="section-heading">
       <div>
@@ -43,7 +46,7 @@
         </p>
       </div>
       <span class="tag tag-{{ summary.status_class }}">{{ summary.regime_label }}</span>
-      <span class="tag tag-neutral">as of {{ summary.as_of }}</span>
+      <span class="tag tag-neutral">as of {{ summary.as_of_label }}</span>
     </div>
 
     <div class="market-map-grid">

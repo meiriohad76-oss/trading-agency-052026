@@ -17,6 +17,16 @@ class EmailRecord:
     linked_content_status: str = "not_requested"
     linked_content_url: str | None = None
     linked_content_title_hash: str | None = None
+    linked_content_direction: str | None = None
+    linked_content_thesis: str | None = None
+    linked_content_catalysts: tuple[str, ...] = ()
+    linked_content_risk_flags: tuple[str, ...] = ()
+    linked_content_key_points: tuple[str, ...] = ()
+    linked_content_tickers: tuple[str, ...] = ()
+    linked_content_decision_use: str | None = None
+    linked_content_signal_strength: str | None = None
+    linked_content_context_chars: int | None = None
+    linked_content_confidence: float | None = None
 
 
 @dataclass(frozen=True)
@@ -38,7 +48,11 @@ class SubscriptionEmailIngestResult:
     linked_content_succeeded: int
     linked_content_failed: int
     linked_content_skipped: int
+    linked_content_login_required: int
+    linked_content_unavailable: int
+    linked_content_status_counts: dict[str, int]
     manual_review_count: int
     ignored_count: int
     service_counts: dict[str, int]
     written_paths: tuple[str, ...]
+    mailbox_sync: dict[str, object] | None = None

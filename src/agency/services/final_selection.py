@@ -8,15 +8,22 @@ from agency.services.deterministic_rules import (
     DeterministicRuleResult,
     evaluate_deterministic_rules,
 )
-from agency.services.llm_review import build_llm_review_stub
+from agency.services.llm_review import build_llm_review_stub, normalize_llm_review
 from agency.services.selection_events import (
     build_llm_lifecycle_event,
     build_report_lifecycle_event,
     status_for_action,
 )
 
-PROMOTING_LLM_ACTIONS = {"BUY", "WATCH"}
-DEMOTING_LLM_ACTIONS = {"NO_TRADE", "CLOSE_REVIEW"}
+PROMOTING_LLM_ACTIONS = {"WATCH"}
+DEMOTING_LLM_ACTIONS = {"NO_TRADE", "CLOSE_REVIEW", "DEFER", "DISAGREE", "NEEDS_MORE_EVIDENCE"}
+LLM_ACTION_RISK_FLAGS = {
+    "CLOSE_REVIEW": "llm_requested_close_review",
+    "DEFER": "llm_deferred_review",
+    "DISAGREE": "llm_disagreed",
+    "NEEDS_MORE_EVIDENCE": "llm_needs_more_evidence",
+    "NO_TRADE": "llm_demoted_watch",
+}
 
 
 @dataclass(frozen=True)
@@ -40,6 +47,7 @@ def build_final_selection(
     *,
     generated_at: str | None = None,
     llm_review: Mapping[str, object] | None = None,
+    llm_lifecycle_event: Mapping[str, object] | None = None,
 ) -> FinalSelectionResult:
     """Build the v0 final selection report and audit trail."""
     validate_contract("evidence-pack", evidence_pack)
@@ -50,6 +58,7 @@ def build_final_selection(
         pack,
         rule_result.decision,
         llm_review=llm_review,
+        llm_lifecycle_event=llm_lifecycle_event,
         event_time=report_generated_at,
     )
     final_decision = _final_decision(rule_result, review)
@@ -77,8 +86,22 @@ def _llm_review_and_event(
     deterministic_decision: Mapping[str, object],
     *,
     llm_review: Mapping[str, object] | None,
+    llm_lifecycle_event: Mapping[str, object] | None,
     event_time: str,
 ) -> tuple[dict[str, object], dict[str, object]]:
+    if llm_lifecycle_event is not None:
+        event = dict(llm_lifecycle_event)
+        payload = event.get("payload")
+        event_review = (
+            payload.get("llm_review")
+            if isinstance(payload, Mapping)
+            and isinstance(payload.get("llm_review"), Mapping)
+            else None
+        )
+        review = normalize_llm_review(
+            llm_review or event_review or build_context_only_review_payload()
+        )
+        return review, event
     if llm_review is None:
         result = build_llm_review_stub(
             evidence_pack,
@@ -86,13 +109,23 @@ def _llm_review_and_event(
             generated_at=event_time,
         )
         return result.review, result.lifecycle_event
-    review = dict(llm_review)
+    review = normalize_llm_review(llm_review)
     return review, build_llm_lifecycle_event(
         evidence_pack,
         deterministic_decision,
         review,
         event_time=event_time,
     )
+
+
+def build_context_only_review_payload() -> dict[str, object]:
+    return {
+        "action": "NO_REVIEW",
+        "confidence": 0.0,
+        "rationale": "LLM review unavailable.",
+        "supporting_factors": [],
+        "concerns": [],
+    }
 
 
 def _selection_report(
@@ -131,7 +164,7 @@ def _final_decision(
 
     deterministic_action = str(deterministic["action"])
     deterministic_conviction = _float_field(deterministic, "conviction")
-    llm_action = str(llm_review["action"])
+    llm_action = str(llm_review.get("action", "NO_REVIEW")).upper()
     if deterministic_action == "NO_TRADE" and llm_action in PROMOTING_LLM_ACTIONS:
         return _FinalDecision(
             "NO_TRADE",
@@ -143,7 +176,7 @@ def _final_decision(
         return _FinalDecision(
             "CLOSE_REVIEW",
             deterministic_conviction,
-            ["llm_demoted_watch"],
+            [LLM_ACTION_RISK_FLAGS.get(llm_action, "llm_demoted_watch")],
             "llm review requested closer review",
         )
     return _FinalDecision(

@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}Trading Agency v2{% endblock %}</title>
-    <link rel="stylesheet" href="/static/styles.css?v=ops-readiness-20260512">
+    <link rel="stylesheet" href="/static/styles.css?v={{ static_version | default('ux-health-llm-20260519') }}">
   </head>
   <body>
     <div class="app-shell">
@@ -19,50 +19,52 @@
         <nav class="nav-list">
           <span class="nav-section">Operate</span>
           <a class="nav-link {% if active_nav == 'command' %}active{% endif %}" href="/">
-            <span class="nav-icon" aria-hidden="true">01</span>
+            <span class="nav-icon status-icon status-icon-data" aria-hidden="true">01</span>
             <span>Command</span>
           </a>
 
+          <span class="nav-section">Core workflow</span>
+          <div class="workflow-nav" aria-label="Core workflow: Candidates, Portfolio, Execute">
+            <a class="nav-link {% if active_nav == 'final' %}active{% endif %}" href="/final-selection">
+              <span class="nav-icon status-icon status-icon-pending" aria-hidden="true">02</span>
+              <span>Candidates</span>
+            </a>
+            <a class="nav-link {% if active_nav == 'portfolio' %}active{% endif %}" href="/portfolio-monitor">
+              <span class="nav-icon status-icon status-icon-warn" aria-hidden="true">03</span>
+              <span>Portfolio</span>
+            </a>
+            <a class="nav-link {% if active_nav == 'execution' %}active{% endif %}" href="/execution-preview">
+              <span class="nav-icon status-icon status-icon-pass" aria-hidden="true">04</span>
+              <span>Execute</span>
+            </a>
+          </div>
+
           <span class="nav-section">Research</span>
-          <a class="nav-link {% if active_nav == 'market' %}active{% endif %}" href="/market-regime">
-            <span class="nav-icon" aria-hidden="true">02</span>
+          <a class="nav-link nav-secondary {% if active_nav == 'market' %}active{% endif %}" href="/market-regime">
+            <span class="nav-icon" aria-hidden="true">05</span>
             <span>Universe &amp; market</span>
           </a>
-          <a class="nav-link {% if active_nav == 'signals' %}active{% endif %}" href="/signals">
-            <span class="nav-icon" aria-hidden="true">03</span>
+          <a class="nav-link nav-secondary {% if active_nav == 'signals' %}active{% endif %}" href="/signals">
+            <span class="nav-icon" aria-hidden="true">06</span>
             <span>Signals</span>
           </a>
 
-          <span class="nav-section">Decide</span>
-          <a class="nav-link {% if active_nav == 'final' %}active{% endif %}" href="/final-selection">
-            <span class="nav-icon" aria-hidden="true">04</span>
-            <span>Candidates</span>
-          </a>
-          <a class="nav-link {% if active_nav == 'risk' %}active{% endif %}" href="/risk">
-            <span class="nav-icon" aria-hidden="true">05</span>
+          <span class="nav-section">Controls</span>
+          <a class="nav-link nav-secondary {% if active_nav == 'risk' %}active{% endif %}" href="/risk">
+            <span class="nav-icon" aria-hidden="true">07</span>
             <span>Risk</span>
           </a>
-          <a class="nav-link {% if active_nav == 'policy' %}active{% endif %}" href="/policy">
-            <span class="nav-icon" aria-hidden="true">06</span>
+          <a class="nav-link nav-secondary {% if active_nav == 'policy' %}active{% endif %}" href="/policy">
+            <span class="nav-icon" aria-hidden="true">08</span>
             <span>Policy</span>
           </a>
 
-          <span class="nav-section">Execute</span>
-          <a class="nav-link {% if active_nav == 'execution' %}active{% endif %}" href="/execution-preview">
-            <span class="nav-icon" aria-hidden="true">07</span>
-            <span>Execution preview</span>
-          </a>
-          <a class="nav-link {% if active_nav == 'portfolio' %}active{% endif %}" href="/portfolio-monitor">
-            <span class="nav-icon" aria-hidden="true">08</span>
-            <span>Portfolio monitor</span>
-          </a>
-
           <span class="nav-section">Trust</span>
-          <a class="nav-link {% if active_nav == 'learning' %}active{% endif %}" href="/learning">
+          <a class="nav-link nav-secondary {% if active_nav == 'learning' %}active{% endif %}" href="/learning">
             <span class="nav-icon" aria-hidden="true">09</span>
             <span>Learning</span>
           </a>
-          <a class="nav-link {% if active_nav == 'audit' %}active{% endif %}" href="/audit">
+          <a class="nav-link nav-secondary {% if active_nav == 'audit' %}active{% endif %}" href="/audit">
             <span class="nav-icon" aria-hidden="true">10</span>
             <span>Audit</span>
           </a>
@@ -96,6 +98,24 @@
     </div>
     <script src="/static/data-refresh-progress.js?v=ops-readiness-20260512" defer></script>
     <script src="/static/responsive-tables.js" defer></script>
+    <script>
+      function enhanceInfoTips() {
+        document.querySelectorAll(".info-tip").forEach((tip) => {
+          if (!tip.dataset.tooltip) {
+            tip.dataset.tooltip = tip.getAttribute("title") || tip.getAttribute("aria-label") || "";
+          }
+          tip.tabIndex = 0;
+          if (!tip.getAttribute("role")) {
+            tip.setAttribute("role", "button");
+          }
+        });
+      }
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", enhanceInfoTips);
+      } else {
+        enhanceInfoTips();
+      }
+    </script>
     {% block extra_scripts %}{% endblock %}
   </body>
 </html>

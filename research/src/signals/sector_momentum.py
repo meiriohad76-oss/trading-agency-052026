@@ -6,6 +6,7 @@ from typing import Protocol
 
 import pandas as pd
 import polars as pl
+from pit.exceptions import DataNotAvailableAt
 from prices.sector_etfs import SECTOR_ETF_SET, SECTOR_ETF_TICKERS
 from signals._common import score_dict, zscore
 
@@ -42,7 +43,7 @@ def sector_momentum_frame(
         raise ValueError("lookback_days must be >= 2")
     try:
         raw = loader.sector_etfs(as_of, lookback_days)
-    except Exception:
+    except DataNotAvailableAt:
         return _empty_frame()
     if raw.is_empty():
         return _empty_frame()

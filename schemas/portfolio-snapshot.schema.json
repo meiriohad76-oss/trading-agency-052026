@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trading-agency.local/schemas/portfolio-snapshot.schema.json",
+  "title": "PortfolioSnapshot",
+  "x-version": "0.1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "snapshot_id",
+    "provider",
+    "mode",
+    "captured_at",
+    "account_status",
+    "equity",
+    "cash",
+    "buying_power",
+    "portfolio_value",
+    "position_count",
+    "open_order_count",
+    "gross_exposure_pct",
+    "payload"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "0.1.0"
+    },
+    "snapshot_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "provider": {
+      "type": "string",
+      "enum": ["alpaca"]
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["paper", "live"]
+    },
+    "captured_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "account_status": {
+      "type": "string"
+    },
+    "equity": {
+      "type": "number"
+    },
+    "cash": {
+      "type": "number"
+    },
+    "buying_power": {
+      "type": "number"
+    },
+    "portfolio_value": {
+      "type": "number"
+    },
+    "position_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "open_order_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "gross_exposure_pct": {
+      "type": "number",
+      "minimum": 0
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  }
+}

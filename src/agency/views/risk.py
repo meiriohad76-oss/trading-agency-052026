@@ -7,11 +7,13 @@ import asyncio
 
 from agency.api.health import runtime_data_source_status
 from agency.runtime import build_live_readiness
-from agency.services import PaperTradePromotionConfig, PortfolioPolicy, build_risk_decisions, promote_paper_trade_reports
+from agency.runtime.data_load_status import load_data_load_status
+from agency.services import PaperTradePromotionConfig, build_risk_decisions, load_active_portfolio_policy, promote_paper_trade_reports
 
 from agency.views._shared import (
     FINAL_SELECTION_REPORT_LIMIT,
     _active_cycle_reports,
+    dashboard_data_health,
     _dashboard_selection_reports,
     _decision_class,
     _float_field,
@@ -20,10 +22,13 @@ from agency.views._shared import (
     _int_field,
     _label_text,
     _list_field,
+    _mapping_field,
     _percent,
     _runtime_payload_key,
     _source_is_degraded,
+    _source_health_origin_label,
     _string_list,
+    live_runtime_source_health_rows,
 )
 
 
@@ -33,15 +38,19 @@ async def risk_context() -> dict[str, object]:
     from agency.views.portfolio import _broker_gross_exposure_pct, _broker_orders, _broker_positions, _broker_ready_for_paper_promotion, _pending_opening_order_exposure_pct
     raw_reports, data_sources, broker = await asyncio.gather(
         _dashboard_selection_reports(limit=FINAL_SELECTION_REPORT_LIMIT),
-        runtime_data_source_status(),
+        live_runtime_source_health_rows(runtime_data_source_status),
         broker_status_context(),
     )
     reports = _active_cycle_reports(raw_reports)
-    policy = PortfolioPolicy.from_env()
+    policy = await load_active_portfolio_policy()
     readiness = build_live_readiness(
         source_health=data_sources,
         selection_reports=reports,
         risk_decisions=[],
+    )
+    data_load_status = load_data_load_status(
+        source_health_rows=data_sources,
+        source_health_origin=_source_health_origin_label(data_sources),
     )
     review_states = _human_review_index(
         await human_review_events_for_reports(reports, readiness)
@@ -66,7 +75,26 @@ async def risk_context() -> dict[str, object]:
         selection_reports=promoted_reports,
     )
     sorted_rows = sorted(risk_rows, key=_risk_row_sort_key)
+    source_last_update = _latest_source_checked_at(data_sources)
     return {
+        "data_health": dashboard_data_health(
+            "Risk dashboard",
+            data_load_status=data_load_status,
+            datasets=("prices_daily", "stock_trades", "sec_company_facts", "sec_form4", "sec_13f"),
+            cycle_id=str(readiness.get("cycle_id") or ""),
+            extra_rows=(
+                {
+                    "kind": "Runtime sources",
+                    "name": "Risk source-health gate",
+                    "status_label": "Source warnings" if any(_source_is_degraded(source) for source in data_sources) else "Sources fresh",
+                    "status_class": "warn" if any(_source_is_degraded(source) for source in data_sources) else "pass",
+                    "coverage_label": f"{len(data_sources)} sources checked",
+                    "freshness_label": "latest runtime source-health",
+                    "last_update": source_last_update,
+                    "detail": "Risk uses source-health rows to block or warn candidates when critical evidence is stale.",
+                },
+            ),
+        ),
         "risk_rows": sorted_rows,
         "allow_rows": [row for row in sorted_rows if row["decision"] == "ALLOW"],
         "warn_rows": [row for row in sorted_rows if row["decision"] == "WARN"],
@@ -74,6 +102,15 @@ async def risk_context() -> dict[str, object]:
         "data_sources": source_status_rows(data_sources),
         "summary": risk_summary(risk_rows, data_sources),
     }
+
+
+def _latest_source_checked_at(data_sources: Sequence[Mapping[str, object]]) -> str:
+    values = [
+        str(source.get("checked_at") or "")
+        for source in data_sources
+        if str(source.get("checked_at") or "").strip()
+    ]
+    return max(values) if values else "not checked"
 
 def risk_decision_rows(
     decisions: Sequence[Mapping[str, object]],
@@ -134,6 +171,7 @@ def _risk_decision_row(
     warning_checks = [check for check in checks if check["status"] == "WARN"]
     final_action = str(decision["final_action"])
     selection_gates = _gate_rows(selection_report) if selection_report is not None else []
+    llm_action, llm_rationale = _risk_llm_fields(selection_report)
     return {
         "cycle_id": str(decision["cycle_id"]),
         "ticker": str(decision["ticker"]),
@@ -172,7 +210,64 @@ def _risk_decision_row(
         "selection_gates": selection_gates,
         "selection_gate_summary": _selection_gate_summary(selection_gates),
         "checks": checks,
+        "llm_action": llm_action,
+        "llm_rationale": llm_rationale,
+        "llm_conflict": _risk_llm_conflict(selection_report, final_action, llm_action),
+        "deterministic_score_label": _risk_deterministic_score_label(selection_report),
     }
+
+def _risk_llm_fields(selection_report: Mapping[str, object] | None) -> tuple[str, str]:
+    if selection_report is None:
+        return "LLM review unavailable - rules-only", "No selection report was attached to this risk row."
+    review = _mapping_field(selection_report, "llm_review")
+    action = str(
+        review.get("action")
+        or selection_report.get("llm_action")
+        or "LLM review unavailable - rules-only"
+    )
+    rationale = str(
+        review.get("rationale")
+        or review.get("reason")
+        or selection_report.get("llm_rationale")
+        or "No LLM rationale was available; deterministic gates produced this risk view."
+    )
+    return action, rationale
+
+def _risk_llm_conflict(
+    selection_report: Mapping[str, object] | None,
+    final_action: str,
+    llm_action: str,
+) -> str:
+    if selection_report is None or "unavailable" in llm_action.lower():
+        return "rules-only"
+    normalized = llm_action.upper()
+    if normalized == final_action.upper():
+        return "aligned"
+    return "review conflict"
+
+def _risk_deterministic_score_label(selection_report: Mapping[str, object] | None) -> str:
+    if selection_report is None:
+        return "Rules score unavailable"
+    deterministic = _mapping_field(selection_report, "deterministic")
+    action = str(
+        selection_report.get("deterministic_action")
+        or deterministic.get("action")
+        or "rules"
+    )
+    value = (
+        selection_report.get("deterministic_conviction")
+        or deterministic.get("confidence")
+        or deterministic.get("score")
+        or selection_report.get("final_conviction")
+        or 0.0
+    )
+    try:
+        conviction = float(value)
+    except (TypeError, ValueError):
+        conviction = 0.0
+    if conviction <= 1.0:
+        conviction *= 100.0
+    return f"{action} / {conviction:.0f}% deterministic"
 
 def _gate_status(report: Mapping[str, object]) -> str:
     gates = _list_field(report, "policy_gates")

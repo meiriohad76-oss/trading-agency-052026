@@ -38,7 +38,20 @@
     },
     "state": {
       "type": "string",
-      "enum": ["PLANNED", "READY", "BLOCKED", "DISABLED", "SUBMITTED", "FILLED", "FAILED"]
+      "enum": [
+        "PLANNED",
+        "READY",
+        "BLOCKED",
+        "DISABLED",
+        "SUBMITTED",
+        "ACCEPTED",
+        "PENDING_CANCEL",
+        "FILLED",
+        "CANCELED",
+        "REJECTED",
+        "EXPIRED",
+        "FAILED"
+      ]
     },
     "event_time": {
       "type": "string",

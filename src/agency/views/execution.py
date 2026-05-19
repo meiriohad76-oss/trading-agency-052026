@@ -1,21 +1,40 @@
 """View-model constructors for the execution page."""
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Mapping, Sequence
 from urllib.parse import urlencode
-import asyncio
 
 from agency.api.health import runtime_data_source_status
 from agency.db import get_session
-from agency.runtime import build_live_readiness
-from agency.services import PaperTradePromotionConfig, PortfolioPolicy, TRADE_PROMOTION_REQUIRES_ORDER_APPROVAL_FLAG, build_execution_previews, build_leveraged_alternative_review, build_risk_decisions, persist_order_execution_state, promote_paper_trade_reports
-
+from agency.runtime import (
+    build_live_readiness,
+    execution_freshness_gate,
+    scheduler_work_queue_context,
+)
+from agency.runtime.data_load_status import load_data_load_status
+from agency.runtime.data_refresh_progress import load_data_refresh_progress
+from agency.services import (
+    TRADE_PROMOTION_REQUIRES_ORDER_APPROVAL_FLAG,
+    PaperTradePromotionConfig,
+    PortfolioPolicy,
+    build_execution_previews,
+    build_leveraged_alternative_review,
+    build_risk_decisions,
+    load_active_portfolio_policy,
+    paper_trade_promotion_evaluations,
+    persist_order_execution_state,
+    persist_order_intent_execution_state,
+    promote_paper_trade_reports,
+)
+from agency.services.human_review import selection_report_hash
 from agency.views._shared import (
     FINAL_SELECTION_REPORT_LIMIT,
     _active_cycle_reports,
+    dashboard_data_health,
     _dashboard_selection_reports,
-    _env_bool_text,
     _float_field,
+    _format_timestamp_label,
     _human_review_index,
     _human_review_key,
     _human_review_summary,
@@ -25,7 +44,9 @@ from agency.views._shared import (
     _mapping_list_field,
     _optional_float_field,
     _runtime_payload_key,
+    _source_health_origin_label,
     _string_list,
+    live_runtime_source_health_rows,
 )
 
 
@@ -37,11 +58,18 @@ async def execution_preview_context(
 ) -> dict[str, object]:
     from agency.views.command import human_review_events_for_reports
     from agency.views.market_regime import broker_status_context
-    from agency.views.portfolio import _broker_account, _broker_gross_exposure_pct, _broker_orders, _broker_positions, _broker_ready_for_paper_promotion, _pending_opening_order_exposure_pct
+    from agency.views.portfolio import (
+        _broker_account,
+        _broker_gross_exposure_pct,
+        _broker_orders,
+        _broker_positions,
+        _broker_ready_for_paper_promotion,
+        _pending_opening_order_exposure_pct,
+    )
     if raw_reports is None or data_sources is None or broker is None:
         fetched_reports, fetched_sources, fetched_broker = await asyncio.gather(
             _dashboard_selection_reports(limit=FINAL_SELECTION_REPORT_LIMIT),
-            runtime_data_source_status(),
+            live_runtime_source_health_rows(runtime_data_source_status),
             broker_status_context(),
         )
         if raw_reports is None:
@@ -51,15 +79,28 @@ async def execution_preview_context(
         if broker is None:
             broker = fetched_broker
     reports = _active_cycle_reports(raw_reports)
-    policy = PortfolioPolicy.from_env()
+    policy = await load_active_portfolio_policy()
     broker_positions = _broker_positions(broker)
     readiness = build_live_readiness(
         source_health=data_sources,
         selection_reports=reports,
         risk_decisions=[],
     )
+    data_load_status = load_data_load_status(
+        source_health_rows=data_sources,
+        source_health_origin=_source_health_origin_label(data_sources),
+    )
     review_states = _human_review_index(
         await human_review_events_for_reports(reports, readiness)
+    )
+    promotion_config = PaperTradePromotionConfig.from_env()
+    promotion_evaluations = paper_trade_promotion_evaluations(
+        reports,
+        review_states=review_states,
+        positions=broker_positions,
+        open_orders=_broker_orders(broker),
+        broker_ready=_broker_ready_for_paper_promotion(broker),
+        config=promotion_config,
     )
     promoted_reports = promote_paper_trade_reports(
         reports,
@@ -67,7 +108,7 @@ async def execution_preview_context(
         positions=broker_positions,
         open_orders=_broker_orders(broker),
         broker_ready=_broker_ready_for_paper_promotion(broker),
-        config=PaperTradePromotionConfig.from_env(),
+        config=promotion_config,
     )
     risk_results = build_risk_decisions(
         promoted_reports,
@@ -76,17 +117,32 @@ async def execution_preview_context(
         current_gross_exposure_pct=_broker_gross_exposure_pct(broker),
         pending_opening_order_exposure_pct=_pending_opening_order_exposure_pct(broker),
     )
+    research_approval_keys = await execution_approval_keys(
+        reports=reports,
+        data_sources=data_sources,
+        risk_decisions=[result.risk_decision for result in risk_results],
+    )
     preview_results = build_execution_previews(
         [result.risk_decision for result in risk_results],
         policy=policy,
         account=_broker_account(broker),
         positions=broker_positions,
         open_orders=_broker_orders(broker),
+        research_approval_required=True,
+        research_approval_records={key: True for key in research_approval_keys},
     )
-    research_approval_keys = await execution_approval_keys(
+    freshness_gate = execution_freshness_gate(broker, data_sources)
+    scheduler_gate = scheduler_work_queue_context(
         reports=promoted_reports,
-        data_sources=data_sources,
-        risk_decisions=[result.risk_decision for result in risk_results],
+        review_queue=_review_queue_from_reports(promoted_reports, review_states),
+        source_health=data_sources,
+        broker=broker,
+        data_load_status=data_load_status,
+        data_refresh_progress=load_data_refresh_progress(),
+    )
+    execution_gate = execution_operational_gate(
+        freshness_gate=freshness_gate,
+        scheduler_status=scheduler_gate,
     )
     order_approval_keys = await order_approval_keys_for_reports(
         reports=promoted_reports,
@@ -98,6 +154,8 @@ async def execution_preview_context(
         approval_keys=research_approval_keys,
         order_approval_keys=order_approval_keys,
         review_states=review_states,
+        execution_gate=execution_gate,
+        promotion_evaluations=promotion_evaluations,
     )
     leveraged_reviews = [
         build_leveraged_alternative_review(
@@ -108,12 +166,62 @@ async def execution_preview_context(
     ]
     return {
         "broker": broker,
+        "data_health": dashboard_data_health(
+            "Execution preview dashboard",
+            data_load_status=data_load_status,
+            datasets=("prices_daily", "stock_trades"),
+            lanes=(
+                "abnormal_volume",
+                "technical_analysis",
+                "buy_sell_pressure",
+                "block_trade_pressure",
+                "unusual_trade_activity",
+                "pre_market_unusual_activity",
+                "market_flow_trend",
+            ),
+            cycle_id=str(readiness.get("cycle_id") or ""),
+            extra_rows=(
+                {
+                    "kind": "Broker",
+                    "name": "Alpaca paper account",
+                    "status_label": str(broker.get("status_label") or "Broker unknown"),
+                    "status_class": str(broker.get("status_class") or "neutral"),
+                    "coverage_label": f"{len(_broker_positions(broker))} positions / {len(_broker_orders(broker))} open orders",
+                    "freshness_label": "broker snapshot",
+                    "last_update": str(broker.get("checked_at") or "not checked"),
+                    "detail": str(broker.get("detail") or "No broker detail available."),
+                },
+                {
+                    "kind": "Execution gate",
+                    "name": "Freshness and scheduler tradability",
+                    "status_label": str(execution_gate.get("status_label") or "Unknown"),
+                    "status_class": str(execution_gate.get("status_class") or "neutral"),
+                    "coverage_label": f"{execution_gate.get('blocker_count', 0)} blocker(s)",
+                    "freshness_label": "required immediately before submit",
+                    "last_update": str(broker.get("checked_at") or "not checked"),
+                    "detail": str(execution_gate.get("detail") or "No execution gate detail available."),
+                },
+            ),
+        ),
         "preview_rows": preview_rows,
         "orderable_rows": [row for row in preview_rows if row["preview_state"] == "READY"],
         "review_only_rows": [row for row in preview_rows if row["preview_state"] == "DISABLED"],
+        "approved_review_only_rows": [
+            row
+            for row in preview_rows
+            if row["preview_state"] == "DISABLED" and row["human_approved"] is True
+        ],
         "blocked_rows": [row for row in preview_rows if row["preview_state"] == "BLOCKED"],
         "leveraged_alternatives": leveraged_alternative_panel(leveraged_reviews),
-        "summary": execution_preview_summary(preview_rows, broker=broker, policy=policy),
+        "summary": execution_preview_summary(
+            preview_rows,
+            broker=broker,
+            policy=policy,
+            execution_gate=execution_gate,
+        ),
+        "execution_freshness_gate": execution_gate,
+        "freshness_gate": freshness_gate,
+        "scheduler_tradability": _mapping_field(scheduler_gate, "tradability"),
     }
 
 async def execution_preview_order_row(
@@ -141,8 +249,6 @@ async def execution_approval_keys(
     risk_decisions: Sequence[Mapping[str, object]],
 ) -> set[tuple[str, str, str]]:
     from agency.views.command import human_review_events_for_reports
-    if not _env_bool_text("AGENCY_REQUIRE_HUMAN_APPROVAL_FOR_ORDERS", default=True):
-        return {_runtime_payload_key(report) for report in reports}
     readiness = build_live_readiness(
         source_health=data_sources,
         selection_reports=reports,
@@ -152,7 +258,13 @@ async def execution_approval_keys(
     approved: set[tuple[str, str, str]] = set()
     for event in events:
         payload = _mapping_field(event, "payload")
-        if str(payload.get("review_decision", "")).upper() == "APPROVE":
+        report = _matching_report_for_event(reports, event)
+        if (
+            report is not None
+            and str(payload.get("review_decision", "")).upper() == "APPROVE"
+            and str(payload.get("selection_report_hash") or "")
+            == selection_report_hash(report)
+        ):
             approved.add(_human_review_key(event))
     return approved
 
@@ -162,22 +274,110 @@ async def order_approval_keys_for_reports(
     data_sources: Sequence[Mapping[str, object]],
     previews: Sequence[Mapping[str, object]],
 ) -> set[tuple[str, str, str, str]]:
-    if not _env_bool_text("AGENCY_REQUIRE_HUMAN_APPROVAL_FOR_ORDERS", default=True):
-        return {_order_approval_key_from_preview(preview) for preview in previews}
     readiness = build_live_readiness(
         source_health=data_sources,
         selection_reports=reports,
         risk_decisions=[],
     )
     events = await order_approval_events_for_reports(reports, readiness)
+    current_previews = {
+        _order_approval_key_from_preview(preview): str(preview.get("order_intent_version", ""))
+        for preview in previews
+    }
     approved: set[tuple[str, str, str, str]] = set()
     for event in events:
         if str(event.get("status")) != "PASSED":
             continue
         payload = _mapping_field(event, "payload")
-        if str(payload.get("approval_type")) == "ORDER_APPROVAL":
-            approved.add(_order_approval_key(event))
+        key = _order_approval_key(event)
+        if key not in current_previews:
+            continue
+        if str(payload.get("approval_type")) != "ORDER_APPROVAL":
+            continue
+        if payload.get("paper_only") is not True:
+            continue
+        if str(payload.get("order_intent_version", "")) != current_previews[key]:
+            continue
+        approved.add(key)
     return approved
+
+
+def execution_operational_gate(
+    *,
+    freshness_gate: Mapping[str, object],
+    scheduler_status: Mapping[str, object],
+) -> dict[str, object]:
+    """Close execution when either freshness or scheduler tradability is not ready."""
+    gate = dict(freshness_gate)
+    tradability = _mapping_field(scheduler_status, "tradability")
+    if gate.get("ready") is not True:
+        return gate
+    if str(tradability.get("state")) == "tradable":
+        return gate
+    detail = str(tradability.get("detail") or "Scheduler marks this cycle context-only.")
+    checks = list(_mapping_list_field(gate, "checks"))
+    checks.append(
+        {
+            "label": "Scheduler tradability",
+            "status": "BLOCK",
+            "status_class": "block",
+            "detail": detail,
+        }
+    )
+    gate.update(
+        {
+            "ready": False,
+            "state": "blocked",
+            "status_label": "Blocked",
+            "status_class": "block",
+            "checks": checks,
+            "blocker_count": _int_field(gate, "blocker_count") + 1,
+            "detail": detail,
+        }
+    )
+    return gate
+
+
+def row_from_execution_context(
+    context: Mapping[str, object],
+    *,
+    cycle_id: str,
+    ticker: str,
+    as_of: str,
+) -> Mapping[str, object] | None:
+    for row in _mapping_list_field(context, "preview_rows"):
+        if (
+            row["cycle_id"] == cycle_id
+            and row["ticker"] == ticker.upper()
+            and row["as_of"] == as_of
+        ):
+            return row
+    return None
+
+
+def _matching_report_for_event(
+    reports: Sequence[Mapping[str, object]],
+    event: Mapping[str, object],
+) -> Mapping[str, object] | None:
+    key = _human_review_key(event)
+    if not all(key):
+        return None
+    return next((report for report in reports if _runtime_payload_key(report) == key), None)
+
+
+def _review_queue_from_reports(
+    reports: Sequence[Mapping[str, object]],
+    review_states: Mapping[tuple[str, str, str], Mapping[str, object]],
+) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for report in reports:
+        row = dict(report)
+        review = review_states.get(_runtime_payload_key(report))
+        if review is not None:
+            payload = _mapping_field(review, "payload")
+            row["human_review_decision"] = str(payload.get("review_decision", ""))
+        rows.append(row)
+    return rows
 
 async def order_approval_events_for_reports(
     reports: Sequence[Mapping[str, object]],
@@ -215,14 +415,50 @@ def _report_requires_separate_order_approval(report: Mapping[str, object]) -> bo
 async def _record_submitted_order(
     preview_row: Mapping[str, object],
     order: Mapping[str, object],
+    reconciliation: Mapping[str, object] | None = None,
 ) -> None:
+    payload_extra: dict[str, object] = {"preview": dict(preview_row)}
+    if reconciliation is not None:
+        payload_extra["reconciliation"] = dict(reconciliation)
     async with get_session() as session:
         await persist_order_execution_state(
             session,
             cycle_id=str(preview_row["cycle_id"]),
             order=order,
             reason="Alpaca paper order submitted from execution preview",
-            payload_extra={"preview": dict(preview_row)},
+            payload_extra=payload_extra,
+        )
+        await session.commit()
+
+
+async def _record_order_submission_intent(
+    preview_row: Mapping[str, object],
+    order_payload: Mapping[str, object],
+) -> None:
+    async with get_session() as session:
+        await persist_order_intent_execution_state(
+            session,
+            cycle_id=str(preview_row["cycle_id"]),
+            preview=_mapping_field(preview_row, "preview"),
+            order_payload=order_payload,
+            state="READY",
+        )
+        await session.commit()
+
+
+async def _record_failed_order_submission(
+    preview_row: Mapping[str, object],
+    order_payload: Mapping[str, object],
+    error: str,
+) -> None:
+    async with get_session() as session:
+        await persist_order_intent_execution_state(
+            session,
+            cycle_id=str(preview_row["cycle_id"]),
+            preview=_mapping_field(preview_row, "preview"),
+            order_payload=order_payload,
+            state="FAILED",
+            error=error,
         )
         await session.commit()
 
@@ -232,16 +468,29 @@ def execution_preview_rows(
     approval_keys: set[tuple[str, str, str]] | None = None,
     order_approval_keys: set[tuple[str, str, str, str]] | None = None,
     review_states: Mapping[tuple[str, str, str], Mapping[str, object]] | None = None,
+    execution_gate: Mapping[str, object] | None = None,
+    promotion_evaluations: Mapping[tuple[str, str, str], Mapping[str, object]] | None = None,
 ) -> list[dict[str, object]]:
     research_approved = set() if approval_keys is None else approval_keys
     order_approved = set() if order_approval_keys is None else order_approval_keys
     review_lookup = {} if review_states is None else review_states
+    promotion_lookup = {} if promotion_evaluations is None else promotion_evaluations
+    gate = {} if execution_gate is None else execution_gate
+    submit_gate_ready = not gate or gate.get("ready") is True
+    gate_detail = (
+        None
+        if submit_gate_ready
+        else str(gate.get("detail", "execution freshness gate is closed"))
+    )
     rows = [
         _execution_preview_row(
             preview,
             human_approved=_runtime_payload_key(preview) in research_approved,
             order_approved=_order_approval_key_from_preview(preview) in order_approved,
             review_event=review_lookup.get(_runtime_payload_key(preview)),
+            submit_gate_ready=submit_gate_ready,
+            submit_gate_detail=gate_detail,
+            promotion_evaluation=promotion_lookup.get(_runtime_payload_key(preview)),
         )
         for preview in previews
     ]
@@ -252,8 +501,14 @@ def execution_preview_summary(
     *,
     broker: Mapping[str, object] | None = None,
     policy: PortfolioPolicy | None = None,
+    execution_gate: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
-    from agency.views.portfolio import _broker_account, _broker_gross_exposure_pct, _broker_positions, _portfolio_execution_detail
+    from agency.views.portfolio import (
+        _broker_account,
+        _broker_gross_exposure_pct,
+        _broker_positions,
+        _portfolio_execution_detail,
+    )
     normalized_policy = policy or PortfolioPolicy()
     ready_count = sum(1 for row in rows if row["preview_state"] == "READY")
     blocked_count = sum(1 for row in rows if row["preview_state"] == "BLOCKED")
@@ -261,7 +516,13 @@ def execution_preview_summary(
     submit_ready_count = sum(1 for row in rows if row["submit_enabled"] is True)
     broker_connected = bool(broker is not None and broker.get("connected") is True)
     broker_mode = str(broker.get("mode", "paper")) if broker is not None else "paper"
-    submit_gate_open = normalized_policy.broker_submit_enabled and broker_connected
+    freshness_ready = execution_gate is None or execution_gate.get("ready") is True
+    submit_gate_open = (
+        normalized_policy.broker_submit_enabled
+        and broker_connected
+        and broker_mode == "paper"
+        and freshness_ready
+    )
     broker_account = _broker_account(broker or {})
     broker_positions = _broker_positions(broker or {})
     gross_exposure_pct = _broker_gross_exposure_pct(broker or {})
@@ -305,7 +566,13 @@ def execution_preview_summary(
             f"stop loss {normalized_policy.stop_loss_pct:.1f}%"
         ),
         "headline": _execution_headline(len(rows), ready_count),
-        "detail": _execution_detail(submit_gate_open, broker_connected),
+        "detail": _execution_detail(
+            submit_gate_open,
+            broker_connected,
+            broker_mode=broker_mode,
+            freshness_ready=freshness_ready,
+            freshness_detail=str((execution_gate or {}).get("detail", "")),
+        ),
         "workflow_guidance": _execution_workflow_guidance(
             ready_count=ready_count,
             disabled_count=disabled_count,
@@ -373,11 +640,16 @@ def _execution_preview_row(
     human_approved: bool = False,
     order_approved: bool = False,
     review_event: Mapping[str, object] | None = None,
+    submit_gate_ready: bool = True,
+    submit_gate_detail: str | None = None,
+    promotion_evaluation: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     reasons = _string_list(preview, "reasons")
     raw_reason = reasons[0] if reasons else "preview recorded"
-    preview_submit_enabled = preview["submit_enabled"] is True
-    submit_enabled = preview_submit_enabled and order_approved
+    caution = _execution_preview_caution(preview, raw_reason)
+    preview_submit_enabled = preview["submit_enabled"] is True and submit_gate_ready
+    effective_order_approved = order_approved and human_approved
+    submit_enabled = preview_submit_enabled and effective_order_approved
     order_approval_available = (
         str(preview["preview_state"]) == "READY"
         and str(preview["side"]) in {"BUY", "SELL", "SHORT", "COVER"}
@@ -385,17 +657,24 @@ def _execution_preview_row(
             isinstance(preview["quantity"], int | float)
             or isinstance(preview["notional"], int | float)
         )
+        and preview_submit_enabled
+        and human_approved
     )
     submit_blocker = _submit_blocker(
         preview=preview,
         preview_submit_enabled=preview_submit_enabled,
-        order_approved=order_approved,
+        human_approved=human_approved,
+        order_approved=effective_order_approved,
+        submit_gate_detail=submit_gate_detail,
     )
     human_review = _human_review_summary(review_event)
     ticker = str(preview["ticker"])
     cycle_id = str(preview["cycle_id"])
     as_of = str(preview["as_of"])
     order_intent_hash = str(preview["order_intent_hash"])
+    llm_action = str(preview.get("llm_action") or "LLM review unavailable - rules-only")
+    deterministic_score_label = _execution_deterministic_score_label(preview)
+    review_decision = str(human_review["decision"])
     return {
         "preview": dict(preview),
         "cycle_id": cycle_id,
@@ -417,6 +696,7 @@ def _execution_preview_row(
                 submit_blocker,
                 human_approved=human_approved,
                 order_approved=order_approved,
+                promotion_evaluation=promotion_evaluation,
             )
         ),
         "submit_blocker": submit_blocker,
@@ -433,7 +713,13 @@ def _execution_preview_row(
             order_intent_hash=order_intent_hash,
         ),
         "human_approved": human_approved,
-        "order_approved": order_approved,
+        "human_review_decision": review_decision,
+        "human_review_class": str(human_review["status_class"]),
+        "human_review_reason": str(human_review["reason"]),
+        "human_review_time": str(human_review["event_time"]),
+        "human_review_time_label": _format_timestamp_label(human_review["event_time"]),
+        "order_approved": effective_order_approved,
+        "stale_order_approval_recorded": order_approved and not human_approved,
         "quantity": preview["quantity"],
         "notional": preview["notional"],
         "order_value_label": _order_value_label(preview),
@@ -441,23 +727,108 @@ def _execution_preview_row(
         "position_size_pct": _float_field(preview, "position_size_pct"),
         "size_label": _execution_size_label(preview),
         "time_in_force": preview["time_in_force"] or "None",
-        "reason": _execution_reason_text(preview, raw_reason),
-        "order_intent": _execution_order_intent(preview, raw_reason),
+        "reason": _execution_reason_text(
+            preview,
+            raw_reason,
+            promotion_evaluation,
+            human_approved=human_approved,
+        ),
+        "order_intent": _execution_order_intent(
+            preview,
+            raw_reason,
+            promotion_evaluation,
+            human_approved=human_approved,
+            review_decision=review_decision,
+        ),
+        "llm_action": llm_action,
+        "llm_rationale": str(
+            preview.get("llm_rationale")
+            or "No LLM rationale was attached to this preview; deterministic risk and portfolio gates are shown."
+        ),
+        "llm_conflict": (
+            "rules-only"
+            if "unavailable" in llm_action.lower()
+            else "aligned"
+            if llm_action.upper() == str(preview["side"]).upper()
+            else "review conflict"
+        ),
+        "llm_status_label": (
+            "LLM review unavailable - rules-only"
+            if "unavailable" in llm_action.lower()
+            else "LLM review available"
+        ),
+        "deterministic_score_label": deterministic_score_label,
+        "submission_confirmation_label": "Submitted paper order appears here after Alpaca accepts it.",
+        "paper_promotion_state": _promotion_text(promotion_evaluation, "state", "not_evaluated"),
+        "paper_promotion_status_label": _promotion_status_label_for_card(
+            promotion_evaluation,
+        ),
+        "paper_promotion_status_class": _promotion_text(
+            promotion_evaluation,
+            "status_class",
+            "neutral",
+        ),
+        "paper_promotion_detail": _promotion_text(
+            promotion_evaluation,
+            "detail",
+            "Paper promotion was not evaluated for this row.",
+        ),
+        "paper_promotion_reasons": _promotion_reasons(promotion_evaluation),
+        "paper_promotion_blockers": _promotion_reasons(promotion_evaluation),
+        "paper_promotion_primary_blocker": _promotion_first_reason(
+            promotion_evaluation,
+        ),
+        "paper_promotion_checks": _promotion_check_rows(promotion_evaluation),
+        "paper_promotion_check_summary": _promotion_check_summary(
+            promotion_evaluation,
+        ),
+        "caution_acknowledgement_required": caution["required"],
+        "caution_acknowledgement_text": caution["text"],
+        "caution_recommendation": caution["recommendation"],
         "approval_label": _execution_approval_label(
             preview,
             human_approved=human_approved,
-            order_approved=order_approved,
-            review_decision=str(human_review["decision"]),
+            order_approved=effective_order_approved,
+            review_decision=review_decision,
         ),
         "next_step": _execution_next_step(
             submit_blocker,
             preview=preview,
             raw_reason=raw_reason,
             human_approved=human_approved,
-            order_approved=order_approved,
-            review_decision=str(human_review["decision"]),
+            order_approved=effective_order_approved,
+            review_decision=review_decision,
+            promotion_evaluation=promotion_evaluation,
         ),
     }
+
+def _execution_deterministic_score_label(preview: Mapping[str, object]) -> str:
+    side = str(preview["side"])
+    risk = str(preview["risk_decision"])
+    size = _float_field(preview, "position_size_pct")
+    if side in {"BUY", "SELL", "SHORT", "COVER"}:
+        return f"{risk} risk / {size:.0f}% target size"
+    action = _execution_final_action_label(preview)
+    if action:
+        return f"{risk} risk / final action is {action}"
+    return f"{risk} risk / no order side"
+
+
+def _execution_final_action_label(
+    preview: Mapping[str, object],
+    raw_reason: str | None = None,
+) -> str:
+    side = str(preview["side"])
+    if side in {"BUY", "SELL", "SHORT", "COVER"}:
+        return side
+    reason = raw_reason
+    if reason is None:
+        reasons = _string_list(preview, "reasons")
+        reason = reasons[0] if reasons else ""
+    token = reason.strip().split(maxsplit=1)[0].strip(":").upper() if reason else ""
+    if token in {"WATCH", "HOLD", "NO_TRADE"}:
+        return token
+    return ""
 
 def _order_approval_key(event: Mapping[str, object]) -> tuple[str, str, str, str]:
     payload = event.get("payload", {})
@@ -578,16 +949,22 @@ def _submit_blocker(
     *,
     preview: Mapping[str, object],
     preview_submit_enabled: bool,
+    human_approved: bool,
     order_approved: bool,
+    submit_gate_detail: str | None = None,
 ) -> str:
     if preview_submit_enabled and order_approved:
         return "ready"
     if str(preview["preview_state"]) != "READY":
         return _not_ready_submit_blocker(preview)
+    if preview_submit_enabled and not human_approved:
+        return "current human approval required"
     if preview_submit_enabled and not order_approved:
         return "order approval required"
     if preview["quantity"] is None and preview["notional"] is None:
         return "missing order size"
+    if submit_gate_detail:
+        return submit_gate_detail
     return "broker submit gate closed"
 
 def _not_ready_submit_blocker(preview: Mapping[str, object]) -> str:
@@ -606,13 +983,19 @@ def _submit_label(
     *,
     human_approved: bool = False,
     order_approved: bool = False,
+    promotion_evaluation: Mapping[str, object] | None = None,
 ) -> str:
+    if blocker == "review-only action" and _can_promote_after_approval(promotion_evaluation):
+        return "Approve research first"
     if human_approved and blocker == "review-only action":
         return "Research approved"
     if order_approved and blocker == "broker submit gate closed":
         return "Order approved"
+    if _is_freshness_blocker(blocker):
+        return "Refresh first"
     labels = {
         "broker submit gate closed": "Closed",
+        "current human approval required": "Human approval required",
         "final action is no trade": "Not orderable",
         "missing order size": "No size",
         "order approval required": "Approve order",
@@ -622,8 +1005,27 @@ def _submit_label(
     }
     return labels.get(blocker, "Closed")
 
+def _is_freshness_blocker(blocker: str) -> bool:
+    text = blocker.lower()
+    return any(
+        marker in text
+        for marker in (
+            "freshness",
+            "checked_at",
+            "broker snapshot",
+            "source-health",
+            "source health",
+            "critical evidence",
+        )
+    )
+
 def _order_value_label(preview: Mapping[str, object]) -> str:
     if str(preview["side"]) == "NONE":
+        action = _execution_final_action_label(preview)
+        if action in {"WATCH", "HOLD"}:
+            return "No order - research only"
+        if action == "NO_TRADE":
+            return "No order - no trade"
         return "No paper order"
     if str(preview["preview_state"]) == "BLOCKED":
         return "Blocked before sizing"
@@ -644,7 +1046,12 @@ def _execution_size_label(preview: Mapping[str, object]) -> str:
     size_pct = _float_field(preview, "position_size_pct")
     side = str(preview["side"])
     if side == "NONE":
-        return "final action is not a trade"
+        action = _execution_final_action_label(preview)
+        if action in {"WATCH", "HOLD"}:
+            return "Not sized until trade action"
+        if action == "NO_TRADE":
+            return "No sizing for no-trade"
+        return "No order sizing"
     if str(preview["preview_state"]) == "BLOCKED":
         return "blocked by risk"
     if side in {"SELL", "COVER"} and isinstance(preview["quantity"], int | float):
@@ -653,18 +1060,73 @@ def _execution_size_label(preview: Mapping[str, object]) -> str:
         return f"{size_pct:.0f}% target position"
     return "waiting for broker/account size"
 
-def _execution_order_intent(preview: Mapping[str, object], raw_reason: str) -> str:
+def _execution_order_intent(
+    preview: Mapping[str, object],
+    raw_reason: str,
+    promotion_evaluation: Mapping[str, object] | None = None,
+    *,
+    human_approved: bool = False,
+    review_decision: str = "Pending",
+) -> str:
     side = str(preview["side"])
+    action = _execution_final_action_label(preview, raw_reason)
     if side in {"BUY", "SELL", "SHORT", "COVER"}:
         return f"Paper {side.lower()} preview"
     if raw_reason.startswith("NO_TRADE"):
         return "No order: final selection rejected this ticker"
+    if raw_reason.startswith(("WATCH", "HOLD")) and _can_promote_after_approval(
+        promotion_evaluation
+    ):
+        return "Eligible paper BUY after research approval"
+    if raw_reason.startswith(("WATCH", "HOLD")) and promotion_evaluation is not None:
+        if human_approved:
+            return "Research approved: blocked by promotion checks"
+        if review_decision in {"Defer", "Reject"}:
+            return f"{action} review {review_decision.lower()}: not orderable"
+        return f"{action} review pending: not orderable yet"
     if raw_reason.startswith(("WATCH", "HOLD")):
-        return "Research-only watch: no paper order"
+        if human_approved:
+            return f"{action} research approved: no paper order"
+        return f"{action} review pending: no paper order"
     return "No order side available"
 
-def _execution_reason_text(preview: Mapping[str, object], raw_reason: str) -> str:
+def _execution_reason_text(
+    preview: Mapping[str, object],
+    raw_reason: str,
+    promotion_evaluation: Mapping[str, object] | None = None,
+    *,
+    human_approved: bool = False,
+) -> str:
     if str(preview["side"]) == "NONE":
+        if _can_promote_after_approval(promotion_evaluation):
+            detail = _promotion_text(
+                promotion_evaluation,
+                "detail",
+                "This WATCH can become a paper BUY preview after current research approval.",
+            )
+            if not human_approved:
+                return f"Review is pending. {detail}"
+            return f"{detail} {raw_reason}" if "Caution:" in raw_reason else detail
+        if promotion_evaluation is not None:
+            detail = _promotion_text(
+                promotion_evaluation,
+                "detail",
+                "This WATCH/HOLD row is research-only and has no paper order.",
+            )
+            reason = _promotion_primary_reason(promotion_evaluation)
+            if not human_approved:
+                if reason:
+                    return f"Review is pending. {detail} Blocked check: {reason}."
+                return f"Review is pending. {detail}"
+            if "Caution:" in raw_reason:
+                if reason:
+                    return f"{detail} Blocker: {reason}. {raw_reason}"
+                return f"{detail} {raw_reason}"
+            if reason:
+                return f"{detail} Blocker: {reason}."
+            return detail
+        if "Caution:" in raw_reason:
+            return raw_reason
         return _execution_order_intent(preview, raw_reason)
     if str(preview["preview_state"]) == "BLOCKED":
         return f"Risk blocked this paper order: {raw_reason}."
@@ -698,7 +1160,7 @@ def _execution_approval_label(
     if human_approved:
         return "Approved"
     if str(preview["side"]) == "NONE":
-        return "Research only"
+        return "Needs research review"
     if str(preview["preview_state"]) == "BLOCKED":
         return "Blocked first"
     return "Needs approval"
@@ -711,6 +1173,7 @@ def _execution_next_step(
     human_approved: bool = False,
     order_approved: bool = False,
     review_decision: str = "Pending",
+    promotion_evaluation: Mapping[str, object] | None = None,
 ) -> str:
     del preview
     if review_decision == "Defer":
@@ -723,11 +1186,47 @@ def _execution_next_step(
             "Human review rejected this candidate. It should stay out of execution "
             "unless a later cycle produces a new reviewable setup."
         )
+    if blocker == "review-only action" and "Caution:" in raw_reason:
+        return (
+            "Acknowledge the caution before approving this research item. Check the "
+            "named gate or data issue, confirm fresh evidence, and do not place a "
+            "paper order unless a later cycle upgrades the ticker to BUY, SELL, "
+            "SHORT, or COVER."
+        )
     if human_approved and blocker == "review-only action":
+        reason = _promotion_primary_reason(promotion_evaluation)
+        if reason:
+            return (
+                "Research approval is recorded. No paper order can be submitted for "
+                f"this ticker because {reason}. Wait for a later cycle with enough "
+                "confirmed evidence, or change policy intentionally before re-running."
+            )
         return (
             "Research approval is recorded. Nothing else is required on this screen "
             "for this ticker; it can create a paper order only if a later cycle "
             "upgrades it to BUY, SELL, SHORT, or COVER."
+        )
+    if blocker == "review-only action" and _can_promote_after_approval(promotion_evaluation):
+        return _promotion_text(
+            promotion_evaluation,
+            "next_step",
+            (
+                "Approve the current research report; the portfolio manager will "
+                "recalculate risk and create a paper BUY order-intent preview if "
+                "state remains fresh."
+            ),
+        )
+    if blocker == "review-only action" and promotion_evaluation is not None:
+        reasons = _promotion_reasons(promotion_evaluation)
+        if reasons:
+            return (
+                "Open the candidate page and record approve, defer, or reject. This "
+                "row remains research-only until the blocked checks clear: "
+                f"{'; '.join(reason.rstrip('.') for reason in reasons)}."
+            )
+        return (
+            "Open the candidate page and record approve, defer, or reject. This row "
+            "remains research-only until the portfolio manager can promote it."
         )
     if order_approved and blocker == "broker submit gate closed":
         return (
@@ -739,6 +1238,10 @@ def _execution_next_step(
         "order approval required": (
             "Approve this exact order intent here. If size, policy, account, or evidence "
             "changes, approval must be recorded again."
+        ),
+        "current human approval required": (
+            "The latest human review is not an approval for this exact research report. "
+            "Re-open the candidate, approve the current thesis, then approve the order intent."
         ),
         "missing order size": (
             "Connect broker account data or position data so the preview can size the order."
@@ -761,9 +1264,167 @@ def _execution_next_step(
     }
     return steps.get(blocker, "Review broker and risk state before taking action.")
 
-def _execution_detail(submit_gate_open: bool, broker_connected: bool) -> str:
+
+def _can_promote_after_approval(
+    promotion_evaluation: Mapping[str, object] | None,
+) -> bool:
+    return bool(
+        promotion_evaluation is not None
+        and promotion_evaluation.get("can_promote_after_approval") is True
+    )
+
+
+def _execution_preview_caution(
+    preview: Mapping[str, object],
+    raw_reason: str,
+) -> dict[str, object]:
+    required = bool(
+        str(preview["side"]) == "NONE"
+        and str(preview["risk_decision"]) == "WARN"
+        and "Caution:" in raw_reason
+    )
+    recommendation = (
+        "This is a research-only candidate. Acknowledge the caution, inspect the "
+        "named gate or data issue, and wait for a later orderable cycle before "
+        "trading."
+        if required
+        else ""
+    )
+    return {
+        "required": required,
+        "text": raw_reason if required else "",
+        "recommendation": recommendation,
+    }
+
+
+def _promotion_text(
+    promotion_evaluation: Mapping[str, object] | None,
+    key: str,
+    default: str,
+) -> str:
+    if promotion_evaluation is None:
+        return default
+    value = promotion_evaluation.get(key)
+    if value is None:
+        return default
+    text = " ".join(str(value).split())
+    return text or default
+
+
+def _promotion_status_label_for_card(
+    promotion_evaluation: Mapping[str, object] | None,
+) -> str:
+    label = _promotion_text(promotion_evaluation, "status_label", "Not evaluated")
+    state = _promotion_text(promotion_evaluation, "state", "")
+    if state == "not_eligible" and _promotion_reasons(promotion_evaluation):
+        return "Blocked checks"
+    return label
+
+
+def _promotion_reasons(
+    promotion_evaluation: Mapping[str, object] | None,
+) -> list[str]:
+    if promotion_evaluation is None:
+        return []
+    reasons = promotion_evaluation.get("reasons")
+    if not isinstance(reasons, Sequence) or isinstance(reasons, str | bytes):
+        return []
+    return [str(reason) for reason in reasons]
+
+def _promotion_primary_reason(
+    promotion_evaluation: Mapping[str, object] | None,
+) -> str:
+    reasons = _promotion_reasons(promotion_evaluation)
+    return reasons[0].rstrip(". ") if reasons else ""
+
+
+def _promotion_first_reason(
+    promotion_evaluation: Mapping[str, object] | None,
+) -> str:
+    reasons = _promotion_reasons(promotion_evaluation)
+    return reasons[0] if reasons else ""
+
+
+def _promotion_check_rows(
+    promotion_evaluation: Mapping[str, object] | None,
+) -> list[dict[str, object]]:
+    if promotion_evaluation is None:
+        return []
+    checks = promotion_evaluation.get("checks")
+    if not isinstance(checks, Sequence) or isinstance(checks, str | bytes):
+        return []
+    rows: list[dict[str, object]] = []
+    for check in checks:
+        if not isinstance(check, Mapping):
+            continue
+        status = str(check.get("status") or "UNKNOWN").upper()
+        observed = _clean_text(check.get("observed"), default="not reported")
+        required = _clean_text(check.get("required"), default="policy requirement")
+        rows.append(
+            {
+                "name": _clean_text(check.get("name"), default="promotion_check"),
+                "label": _clean_text(check.get("label"), default="Promotion check"),
+                "status": status,
+                "status_class": _promotion_check_status_class(status),
+                "detail": _clean_text(check.get("detail"), default="No detail reported."),
+                "observed": observed,
+                "required": required,
+                "value_detail": _clean_text(
+                    check.get("value_detail"),
+                    default=f"{observed} / required {required}",
+                ),
+            }
+        )
+    return rows
+
+
+def _promotion_check_summary(
+    promotion_evaluation: Mapping[str, object] | None,
+) -> str:
+    rows = _promotion_check_rows(promotion_evaluation)
+    if not rows:
+        return "Not evaluated"
+    passed = sum(1 for row in rows if row["status"] == "PASS")
+    blocked = sum(1 for row in rows if row["status"] == "BLOCK")
+    warnings = sum(1 for row in rows if row["status"] == "WARN")
+    parts = [f"{passed} passed"]
+    if blocked:
+        parts.append(f"{blocked} blocked")
+    if warnings:
+        parts.append(f"{warnings} warning")
+    return ", ".join(parts)
+
+
+def _promotion_check_status_class(status: str) -> str:
+    if status == "PASS":
+        return "pass"
+    if status == "BLOCK":
+        return "block"
+    if status == "WARN":
+        return "warn"
+    return "neutral"
+
+
+def _clean_text(value: object, *, default: str) -> str:
+    if value is None:
+        return default
+    text = " ".join(str(value).split())
+    return text or default
+
+def _execution_detail(
+    submit_gate_open: bool,
+    broker_connected: bool,
+    *,
+    broker_mode: str = "paper",
+    freshness_ready: bool = True,
+    freshness_detail: str = "",
+) -> str:
     if submit_gate_open:
         return "Alpaca paper broker is connected; approved READY previews can be submitted."
     if broker_connected:
+        if broker_mode != "paper":
+            return "Broker reads are not from Alpaca paper mode; paper submit remains closed."
+        if not freshness_ready:
+            return freshness_detail or "Critical broker or evidence freshness must be refreshed."
         return "Alpaca paper broker is connected, but broker submission remains gated."
     return "Broker is offline or not configured; previews stay local until Alpaca connects."

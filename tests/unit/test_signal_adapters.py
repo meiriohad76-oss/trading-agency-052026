@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from agency.contracts import validate_contract
@@ -93,6 +95,19 @@ def test_build_signal_results_from_scores_is_sorted_and_requires_provenance() ->
             lane="momentum",
             scores={"MSFT": -0.8},
             provenance_by_ticker={},
+        )
+
+
+@pytest.mark.parametrize("bad_score", [math.nan, math.inf, -math.inf])
+def test_build_signal_result_rejects_non_finite_scores(bad_score: float) -> None:
+    with pytest.raises(ValueError, match="score must be finite"):
+        build_signal_result(
+            cycle_id="cycle-1",
+            ticker="AAPL",
+            as_of="2026-05-07T09:30:00Z",
+            lane="momentum",
+            score=bad_score,
+            provenance=_provenance(),
         )
 
 

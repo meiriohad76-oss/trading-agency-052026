@@ -69,6 +69,34 @@ async def test_sec_client_retries_transient_transport_errors() -> None:
     assert sleeps
 
 
+async def test_sec_client_respects_retry_after_for_rate_limits() -> None:
+    attempts = {"count": 0}
+    sleeps: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            return httpx.Response(
+                429,
+                json={"error": "rate limited"},
+                headers={"Retry-After": "2"},
+                request=request,
+            )
+        return httpx.Response(200, json={"ok": True}, request=request)
+
+    async def sleeper(delay: float) -> None:
+        sleeps.append(delay)
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    config = SecClientConfig(user_agent="Trading Agency test@example.com")
+    async with SecClient(config, client=client, sleeper=sleeper) as sec:
+        payload = await sec.get_json("https://data.sec.gov/submissions/CIK0000000000.json")
+
+    assert payload == {"ok": True}
+    assert attempts["count"] == EXPECTED_RETRY_ATTEMPTS
+    assert sleeps[0] == 2.0
+
+
 def test_sec_client_rejects_blank_user_agent() -> None:
     with pytest.raises(ValueError, match="SEC_USER_AGENT"):
         SecClient(SecClientConfig(user_agent=""))

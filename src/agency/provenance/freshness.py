@@ -8,6 +8,7 @@ from agency.provenance.types import FreshnessStatus
 
 class FreshnessDomain(StrEnum):
     PRICING = "pricing"
+    TRADE_PRINTS = "trade_prints"
     NEWS = "news"
     SEC_FUNDAMENTALS = "sec_fundamentals"
     SEC_FORM4 = "sec_form4"
@@ -18,6 +19,7 @@ class FreshnessDomain(StrEnum):
 
 FRESH_WINDOWS: dict[FreshnessDomain, timedelta] = {
     FreshnessDomain.PRICING: timedelta(minutes=5),
+    FreshnessDomain.TRADE_PRINTS: timedelta(minutes=20),
     FreshnessDomain.NEWS: timedelta(hours=4),
     FreshnessDomain.SEC_FUNDAMENTALS: timedelta(days=120),
     FreshnessDomain.SEC_FORM4: timedelta(days=14),

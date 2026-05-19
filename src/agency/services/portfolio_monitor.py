@@ -21,6 +21,7 @@ def build_portfolio_monitor(
     generated_at: str | None = None,
     high_water_marks: Mapping[str, float] = {},
     high_water_marks_path: Path | str | None = None,
+    persist_high_water_marks: bool = True,
 ) -> dict[str, object]:
     """Build a read-only position review snapshot from current selection reports."""
     normalized_policy = policy or PortfolioPolicy()
@@ -37,16 +38,23 @@ def build_portfolio_monitor(
     }
     tickers = _position_tickers(positions=positions, broker_positions=broker_positions)
     broker_by_ticker = _broker_position_index(broker_positions)
-    position_rows = [
-        _position_review(
-            ticker.upper(),
-            reports_by_ticker.get(ticker.upper()),
-            broker_by_ticker.get(ticker.upper()),
+    position_rows = []
+    for ticker in tickers:
+        normalized_ticker = ticker.upper()
+        row = _position_review(
+            normalized_ticker,
+            reports_by_ticker.get(normalized_ticker),
+            broker_by_ticker.get(normalized_ticker),
             policy=normalized_policy,
             high_water_marks=effective_marks,
         )
-        for ticker in tickers
-    ]
+        position_rows.append(
+            _portfolio_position_ux_fields(
+                row,
+                policy=normalized_policy,
+                high_water_marks=effective_marks,
+            )
+        )
     snapshot: dict[str, object] = {
         "schema_version": "0.1.0",
         "generated_at": generated,
@@ -64,7 +72,7 @@ def build_portfolio_monitor(
     validate_contract("portfolio-monitor", snapshot)
 
     # Persist updated marks when a path was supplied.
-    if high_water_marks_path is not None:
+    if high_water_marks_path is not None and persist_high_water_marks:
         updated_marks = update_high_water_marks(dict(effective_marks), list(broker_positions))
         _save_high_water_marks(Path(high_water_marks_path), updated_marks)
 
@@ -189,6 +197,15 @@ def _summary(
     policy: PortfolioPolicy,
     generated_at: str,
 ) -> dict[str, object]:
+    max_allowed = policy.max_gross_exposure_pct
+    exposure = gross_exposure_pct
+    policy_state = (
+        "UNKNOWN"
+        if exposure is None
+        else "OVER_EXPOSURE"
+        if exposure > max_allowed
+        else "WITHIN_LIMITS"
+    )
     return {
         "position_count": len(rows),
         "hold_count": _count(rows, "HOLD"),
@@ -198,6 +215,25 @@ def _summary(
         "cash": _optional_float(account, "cash"),
         "buying_power": _optional_float(account, "buying_power"),
         "gross_exposure_pct": gross_exposure_pct,
+        "max_gross_exposure_pct": max_allowed,
+        "available_exposure_pct": (
+            None if exposure is None else round(max(max_allowed - exposure, 0.0), 4)
+        ),
+        "policy_compliance_state": policy_state,
+        "policy_compliance_label": (
+            "Exposure unknown"
+            if policy_state == "UNKNOWN"
+            else "Over exposure"
+            if policy_state == "OVER_EXPOSURE"
+            else "Within limits"
+        ),
+        "policy_compliance_class": (
+            "neutral"
+            if policy_state == "UNKNOWN"
+            else "block"
+            if policy_state == "OVER_EXPOSURE"
+            else "pass"
+        ),
         "take_profit_pct": policy.take_profit_pct,
         "stop_loss_pct": policy.stop_loss_pct,
         "trailing_stop_pct": policy.trailing_stop_pct,
@@ -209,6 +245,108 @@ def _summary(
             policy=policy,
         ),
     }
+
+
+def _portfolio_position_ux_fields(
+    row: Mapping[str, object],
+    *,
+    policy: PortfolioPolicy,
+    high_water_marks: Mapping[str, float],
+) -> dict[str, object]:
+    output = dict(row)
+    ticker = str(output["ticker"]).upper()
+    pnl_pct = _coerced_optional_float(output.get("unrealized_plpc"))
+    pnl_pct = None if pnl_pct is None else pnl_pct * 100.0
+    high_water_mark = high_water_marks.get(ticker)
+    drawdown = (
+        None
+        if pnl_pct is None or high_water_mark is None
+        else round(high_water_mark - pnl_pct, 4)
+    )
+    distance = (
+        None
+        if drawdown is None
+        else round(max(policy.trailing_stop_pct - drawdown, 0.0), 4)
+    )
+    proximity_alert = (
+        bool(
+            distance is not None
+            and distance > 0
+            and distance <= 5.0
+            and str(output["exit_signal"]) != "TRAILING_STOP"
+        )
+    )
+    market_value = _coerced_optional_float(output.get("market_value"))
+    exposure_freed_pct = (
+        None
+        if market_value is None or market_value <= 0
+        else round(min(policy.default_position_pct, policy.max_single_name_pct), 4)
+    )
+    pnl_value = _coerced_optional_float(output.get("unrealized_pl"))
+    output.update(
+        {
+            "pnl_class": (
+                "pass" if pnl_value is not None and pnl_value > 0 else
+                "block" if pnl_value is not None and pnl_value < 0 else
+                "neutral"
+            ),
+            "pnl_label": _pnl_label(
+                _coerced_optional_float(output.get("unrealized_pl")),
+                pnl_pct,
+            ),
+            "thesis_validity_label": _thesis_validity_label(output),
+            "stop_distance_label": _stop_distance_label(output, distance),
+            "trailing_stop_drawdown_pct": drawdown,
+            "trailing_stop_distance_pct": distance,
+            "trailing_stop_proximity_alert": proximity_alert,
+            "urgency_label": _urgency_label(output, proximity_alert),
+            "exposure_freed_label": (
+                "Estimate after broker sizing"
+                if exposure_freed_pct is None
+                else f"{exposure_freed_pct:.1f}% capacity"
+            ),
+            "confirm_exit_action": f"/portfolio-monitor/exits/{ticker}/confirm",
+            "downstream_effect": (
+                f"Exiting {ticker} frees capacity for review before the next entry."
+            ),
+        }
+    )
+    return output
+
+
+def _pnl_label(value: float | None, pct: float | None) -> str:
+    if value is None or pct is None:
+        return "No P/L data"
+    return f"${value:.2f} / {pct:.2f}%"
+
+
+def _thesis_validity_label(row: Mapping[str, object]) -> str:
+    classification = str(row["classification"])
+    if classification == "HOLD":
+        return "Thesis still valid"
+    if classification == "REVIEW":
+        return "Thesis needs review"
+    if classification == "CLOSE_CANDIDATE":
+        return "Exit thesis active"
+    return "No current thesis"
+
+
+def _stop_distance_label(row: Mapping[str, object], distance: float | None) -> str:
+    if str(row["exit_signal"]) == "TRAILING_STOP":
+        return "Trailing stop triggered"
+    if distance is None:
+        return "No trailing-stop baseline"
+    return f"{distance:.2f}% from trailing stop"
+
+
+def _urgency_label(row: Mapping[str, object], proximity_alert: bool) -> str:
+    if str(row["exit_priority"]) == "URGENT":
+        return "Now"
+    if str(row["classification"]) == "CLOSE_CANDIDATE":
+        return "Soon"
+    if proximity_alert:
+        return "Soon"
+    return "Optional"
 
 
 def _exit_rule_result(

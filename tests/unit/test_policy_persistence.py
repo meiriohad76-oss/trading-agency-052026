@@ -8,7 +8,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from agency.services.risk import PortfolioPolicy, load_policy_from_db, save_policy_to_db
+from agency.services.risk import (
+    PortfolioPolicy,
+    load_active_portfolio_policy,
+    load_policy_from_db,
+    save_policy_to_db,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -186,9 +191,14 @@ async def test_update_policy_endpoint_saves_and_returns_updated_policy() -> None
     assert "broker_submit_enabled" in result
 
 
-async def test_update_policy_does_not_change_broker_submit_enabled() -> None:
-    """broker_submit_enabled from the current policy is preserved on update."""
+async def test_update_policy_uses_runtime_only_execution_controls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """DB policy updates cannot enable broker submit or short permissions."""
     from agency.api.risk import PolicyUpdate, update_policy
+
+    monkeypatch.setenv("AGENCY_BROKER_SUBMIT_ENABLED", "false")
+    monkeypatch.setenv("AGENCY_ALLOW_SHORT_TRADES", "false")
 
     # Simulate DB row with broker_submit_enabled=True
     row = {
@@ -202,6 +212,7 @@ async def test_update_policy_does_not_change_broker_submit_enabled() -> None:
             "trailing_stop_pct": 3.0,
             "hourly_loss_alert_pct": 1.0,
             "broker_submit_enabled": True,
+            "allow_short_trades": True,
         }
     }
 
@@ -213,5 +224,38 @@ async def test_update_policy_does_not_change_broker_submit_enabled() -> None:
 
     body = PolicyUpdate(take_profit_pct=10.0)
     result = await update_policy(body, session_provider=fake_provider)
-    # broker_submit_enabled from DB is preserved, not overridden
-    assert result["broker_submit_enabled"] is True
+    assert result["broker_submit_enabled"] is False
+    assert result["allow_short_trades"] is False
+
+
+async def test_active_policy_uses_db_sizing_and_env_execution_controls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    row = {
+        "data": {
+            "min_final_conviction": 0.70,
+            "max_new_positions_per_cycle": 4,
+            "max_gross_exposure_pct": 80.0,
+            "default_position_pct": 11.0,
+            "take_profit_pct": 9.0,
+            "stop_loss_pct": 4.5,
+            "trailing_stop_pct": 3.0,
+            "hourly_loss_alert_pct": 1.0,
+            "broker_submit_enabled": False,
+            "allow_short_trades": False,
+        }
+    }
+
+    @asynccontextmanager
+    async def session_with_row_provider() -> AsyncIterator[Any]:
+        yield _make_session_with_row(row)
+
+    monkeypatch.setenv("AGENCY_BROKER_SUBMIT_ENABLED", "true")
+    monkeypatch.setenv("AGENCY_ALLOW_SHORT_TRADES", "true")
+
+    policy = await load_active_portfolio_policy(session_provider=session_with_row_provider)
+
+    assert policy.take_profit_pct == 9.0
+    assert policy.stop_loss_pct == 4.5
+    assert policy.broker_submit_enabled is True
+    assert policy.allow_short_trades is True

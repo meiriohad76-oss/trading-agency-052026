@@ -52,12 +52,26 @@ The runtime lanes are already opt-in:
 
 - `buy_sell_pressure`
 - `block_trade_pressure`
+- `unusual_trade_activity`
+- `pre_market_unusual_activity`
+- `market_flow_trend`
 
-Both remain inferred lanes. The actionability gate requires confirmed
+They remain inferred lanes. The actionability gate requires confirmed
 corroboration from another source before an inferred market-flow signal can help
 produce a `WATCH`. The deterministic engine includes low default weights for
 these lanes; the worker tells us whether those weights should stay at context
 levels or be increased after real holdout evidence.
+
+The feature meanings are:
+
+- `buy_sell_pressure`: signed notional/volume pressure with pre-market emphasis.
+- `block_trade_pressure`: signed pressure from block-sized or off-exchange prints.
+- `unusual_trade_activity`: today's signed activity spike versus recent trade
+  count, volume, and notional baselines.
+- `pre_market_unusual_activity`: signed pre-market spike versus recent pre-market
+  volume and notional baselines.
+- `market_flow_trend`: short trend in signed notional pressure versus recent
+  history.
 
 ## Interpretation
 
@@ -65,3 +79,12 @@ Treat `market_flow_weight_eligible` as permission to run a reviewed paper test,
 not as permission to trade live. Treat `context_only_until_more_coverage` as the
 normal initial state until the Massive historical pull covers enough dates and
 tickers.
+
+## Latest T115 Result
+
+The first active-universe Massive run wrote
+`research/results/t115-massive-market-flow-backtest/` for 168 tickers. It built
+one feature date from the local `stock_trades` manifest, but it had zero
+forward-return IC observations and zero holdout selections. Runtime guidance
+therefore remains `context_only_until_more_coverage` for all market-flow lanes
+until additional historical trade-print dates are loaded.

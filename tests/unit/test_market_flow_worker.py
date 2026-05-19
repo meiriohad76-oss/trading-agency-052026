@@ -63,6 +63,23 @@ def test_market_flow_worker_stays_context_only_without_coverage(tmp_path: Path) 
     assert result.calibration["verdict"] == "context_only_until_more_coverage"
 
 
+def test_market_flow_worker_accepts_single_day_smoke_window(tmp_path: Path) -> None:
+    result = run_market_flow_worker(
+        config=MarketFlowWorkerConfig(
+            start=START,
+            end=START,
+            tickers=("AAPL", "MSFT"),
+            horizons=(1,),
+            step_size_days=1,
+        ),
+        loader=_WorkerLoader(),
+        output_root=tmp_path,
+    )
+
+    assert set(result.features["ticker"]) == {"AAPL", "MSFT"}
+    assert result.calibration["verdict"] == "context_only_until_more_coverage"
+
+
 class _WorkerLoader:
     def prices(self, tickers: list[str], as_of: date, lookback_days: int) -> pl.DataFrame:
         del lookback_days

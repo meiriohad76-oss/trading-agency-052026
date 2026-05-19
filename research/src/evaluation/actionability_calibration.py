@@ -47,6 +47,7 @@ def build_actionability_calibration(
         _recommendation(signal, verdicts.get(signal)) for signal in requested_signals
     ]
     surviving = [item["signal"] for item in recommendations if item["h1_verdict"] == "survive"]
+    verdict, rationale = _calibration_verdict(surviving)
     return {
         "source_artifacts": {
             "h1_verdicts": h1_verdicts_path.as_posix(),
@@ -62,13 +63,30 @@ def build_actionability_calibration(
         },
         "h1_recommendations": recommendations,
         "surviving_lanes": surviving,
-        "verdict": "keep_conservative_thresholds",
-        "rationale": (
+        "verdict": verdict,
+        "rationale": rationale,
+    }
+
+
+def _calibration_verdict(surviving_lanes: list[str]) -> tuple[str, str]:
+    if surviving_lanes:
+        lanes = ", ".join(surviving_lanes)
+        return (
+            "selective_lane_promotion_candidate",
+            (
+                f"{lanes} survived the Bonferroni-adjusted H1 screen. Keep global "
+                "actionability conservative, but these lanes are candidates for "
+                "stronger confirmed-signal weighting after operational review."
+            ),
+        )
+    return (
+        "keep_conservative_thresholds",
+        (
             "No requested H1 lane survived the Bonferroni-adjusted significance bar; "
             "the deterministic engine therefore requires at least two usable "
             "independent sources before emitting WATCH."
         ),
-    }
+    )
 
 
 def calibration_to_markdown(calibration: dict[str, Any]) -> str:

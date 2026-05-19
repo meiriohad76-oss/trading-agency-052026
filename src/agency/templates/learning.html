@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_data_health.html" import data_health_panel %}
 
 {% set active_nav = "learning" %}
 
@@ -9,13 +10,15 @@
 
 {% block content %}
   <section class="next-action hero-watch" aria-label="Learning state">
-    <div class="next-action-step" aria-hidden="true">6</div>
+    <div class="next-action-step" aria-hidden="true">09</div>
     <div class="next-action-copy">
       <p class="eyebrow">Learning loop</p>
       <h2>{{ summary.headline }}</h2>
       <p>{{ summary.detail }} The system can report evidence needs, but it will not tune thresholds without enough audited samples.</p>
     </div>
   </section>
+
+  {{ data_health_panel(data_health) }}
 
   <section class="kpi-grid kpi-grid-compact" aria-label="Learning metrics">
     <article class="kpi">

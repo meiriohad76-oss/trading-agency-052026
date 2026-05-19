@@ -38,11 +38,10 @@ def upgrade() -> None:
             nullable=False,
             server_default=sa.func.now(),
         ),
-    )
-    op.create_check_constraint(
-        "ck_selection_reports_final_conviction",
-        "selection_reports",
-        "final_conviction >= 0 AND final_conviction <= 1",
+        sa.CheckConstraint(
+            "final_conviction >= 0 AND final_conviction <= 1",
+            name="ck_selection_reports_final_conviction",
+        ),
     )
     op.create_index("ix_selection_reports_ticker", "selection_reports", ["ticker"])
     op.create_index("ix_selection_reports_final_action", "selection_reports", ["final_action"])

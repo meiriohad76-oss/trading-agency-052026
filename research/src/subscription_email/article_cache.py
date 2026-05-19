@@ -6,6 +6,12 @@ from pathlib import Path
 from typing import Any
 
 CACHE_SCHEMA_VERSION = "0.1.0"
+CACHEABLE_STATUSES = frozenset(
+    {
+        "article_analyzed",
+        "article_analyzed_deterministic_fallback",
+    }
+)
 SAFE_ANALYSIS_KEYS = frozenset(
     {
         "catalysts",
@@ -14,8 +20,11 @@ SAFE_ANALYSIS_KEYS = frozenset(
         "status",
         "context_chars",
         "context_source",
+        "confidence",
+        "decision_use",
         "key_points",
         "risk_flags",
+        "signal_strength",
         "status_code",
         "text_hash",
         "thesis",
@@ -96,8 +105,13 @@ def _safe_analysis(value: Mapping[str, object]) -> dict[str, object] | None:
     risk_flags = _string_list(value.get("risk_flags"))
     key_points = _string_list(value.get("key_points"))
     thesis = value.get("thesis")
+    decision_use = value.get("decision_use")
+    signal_strength = value.get("signal_strength")
     context_source = value.get("context_source")
+    confidence = _float(value.get("confidence"))
     if not all(isinstance(item, str) and item for item in (status, url, title_hash, text_hash)):
+        return None
+    if status not in CACHEABLE_STATUSES:
         return None
     if direction not in {"BULLISH", "BEARISH", "NEUTRAL"}:
         return None
@@ -114,8 +128,14 @@ def _safe_analysis(value: Mapping[str, object]) -> dict[str, object] | None:
     }
     if isinstance(thesis, str) and thesis:
         output["thesis"] = thesis
+    if isinstance(decision_use, str) and decision_use:
+        output["decision_use"] = decision_use
+    if isinstance(signal_strength, str) and signal_strength:
+        output["signal_strength"] = signal_strength
     if isinstance(context_source, str) and context_source:
         output["context_source"] = context_source
+    if confidence is not None:
+        output["confidence"] = confidence
     context_chars = _integer(value.get("context_chars"))
     if context_chars is not None:
         output["context_chars"] = context_chars
@@ -138,3 +158,10 @@ def _integer(value: object) -> int | None:
     if isinstance(value, bool):
         return None
     return value if isinstance(value, int) and value >= 0 else None
+
+
+def _float(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    parsed = float(value)
+    return parsed if 0.0 <= parsed <= 1.0 else None

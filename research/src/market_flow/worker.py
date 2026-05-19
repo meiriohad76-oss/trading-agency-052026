@@ -65,7 +65,7 @@ def run_market_flow_worker(
     forward_returns = _forward_returns(config, loader, features)
     ic = _ic_frame(features, forward_returns, config.horizons)
     threshold_sweep = _threshold_sweep(features, forward_returns, config)
-    calibration = _calibration(config, ic, threshold_sweep)
+    calibration = _calibration(config, features, ic, threshold_sweep)
     written_paths = _write_outputs(
         output_root,
         features=features,
@@ -96,11 +96,22 @@ def build_feature_history(
 
 
 def calibration_to_markdown(calibration: dict[str, object]) -> str:
+    coverage = calibration.get("coverage_summary", {})
+    if not isinstance(coverage, dict):
+        coverage = {}
     lines = [
-        "# T110-T114 Market-Flow Worker Calibration",
+        "# T110-T115 Market-Flow Worker Calibration",
         "",
         f"Verdict: `{calibration['verdict']}`",
         f"Worker: `{calibration['worker']}`",
+        "",
+        "## Coverage",
+        "",
+        f"- Feature rows: {_fmt(coverage.get('feature_rows'))}",
+        f"- Feature dates: {_fmt(coverage.get('feature_dates'))}",
+        f"- Feature tickers: {_fmt(coverage.get('feature_tickers'))}",
+        f"- IC observations: {_fmt(coverage.get('ic_observations'))}",
+        f"- Max holdout selections: {_fmt(coverage.get('max_test_selected_count'))}",
         "",
         "## Runtime Guidance",
         "",
@@ -216,6 +227,7 @@ def _threshold_row(
 
 def _calibration(
     config: MarketFlowWorkerConfig,
+    features: pd.DataFrame,
     ic: pd.DataFrame,
     threshold_sweep: pd.DataFrame,
 ) -> dict[str, object]:
@@ -228,10 +240,40 @@ def _calibration(
         "schema_version": "0.1.0",
         "worker": "market_flow_analysis_worker",
         "config": _config_json(config),
+        "coverage_summary": _coverage_summary(features, ic, threshold_sweep),
         "ic_summary": _best_ic_rows(ic),
         "runtime_guidance": guidance,
         "verdict": verdict,
         "rationale": _rationale(verdict),
+    }
+
+
+def _coverage_summary(
+    features: pd.DataFrame,
+    ic: pd.DataFrame,
+    threshold_sweep: pd.DataFrame,
+) -> dict[str, object]:
+    feature_dates = 0
+    feature_tickers = 0
+    if not features.empty:
+        feature_dates = int(pd.to_datetime(features["date"]).nunique())
+        feature_tickers = int(features["ticker"].nunique())
+    ic_observations = 0
+    if not ic.empty and "n_observations" in ic.columns:
+        ic_observations = int(pd.to_numeric(ic["n_observations"], errors="coerce").fillna(0).max())
+    max_test_selected_count = 0
+    if not threshold_sweep.empty:
+        test = threshold_sweep[threshold_sweep["window"] == "test"]
+        if not test.empty:
+            max_test_selected_count = int(
+                pd.to_numeric(test["selected_count"], errors="coerce").fillna(0).max()
+            )
+    return {
+        "feature_rows": int(len(features)),
+        "feature_dates": feature_dates,
+        "feature_tickers": feature_tickers,
+        "ic_observations": ic_observations,
+        "max_test_selected_count": max_test_selected_count,
     }
 
 
@@ -380,7 +422,9 @@ def _split_date(series: pd.Series, test_fraction: float) -> pd.Timestamp:
 def _two_sided_p_value(t_stat: float, n_observations: int) -> float:
     if n_observations <= 1 or not math.isfinite(t_stat):
         return float("nan")
-    return math.erfc(abs(t_stat) / math.sqrt(2.0))
+    from scipy import stats  # type: ignore[import-untyped]
+
+    return float(2.0 * stats.t.sf(abs(t_stat), df=n_observations - 1))
 
 
 def _config_json(config: MarketFlowWorkerConfig) -> dict[str, object]:
@@ -468,8 +512,8 @@ def _empty_threshold_sweep() -> pd.DataFrame:
 
 
 def _validate_config(config: MarketFlowWorkerConfig) -> None:
-    if config.end <= config.start:
-        raise ValueError("end must be after start")
+    if config.end < config.start:
+        raise ValueError("end must be on or after start")
     if not config.tickers:
         raise ValueError("tickers must not be empty")
     if config.step_size_days < 1:

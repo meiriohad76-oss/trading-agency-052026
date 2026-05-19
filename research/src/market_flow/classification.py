@@ -39,6 +39,14 @@ def classify_trades(frame: pd.DataFrame) -> pd.DataFrame:
     output["trade_ts"] = pd.to_datetime(output["trade_ts"], utc=True)
     output["price"] = pd.to_numeric(output["price"], errors="coerce")
     output["size"] = pd.to_numeric(output["size"], errors="coerce").fillna(0.0)
+    if "sequence_number" not in output.columns:
+        output["sequence_number"] = 0
+    output["sequence_number"] = (
+        pd.to_numeric(output["sequence_number"], errors="coerce").fillna(0).astype("int64")
+    )
+    if "trade_id" not in output.columns:
+        output["trade_id"] = ""
+    output["trade_id"] = output["trade_id"].fillna("").astype(str)
     output = output.dropna(subset=["ticker", "trade_ts", "price"])
     output = output[output["size"] > 0.0]
     if output.empty:

@@ -243,6 +243,21 @@ def test_stock_trades_read_only_requested_partitions(tmp_path: Path) -> None:
         ]
     ).write_parquet(aapl_path)
     bad_msft_path.write_text("this is deliberately not parquet", encoding="utf-8")
+    (trade_root / "_coverage.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "0.1.0",
+                "ticker_days": {
+                    "AAPL|2026-05-06": {
+                        "ticker": "AAPL",
+                        "trade_date": "2026-05-06",
+                        "coverage_status": "complete",
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
     write_manifest(manifest_root, DatasetName.STOCK_TRADES, "stock_trades", row_count=1)
     loader = PITLoader(parquet_root=parquet_root, manifest_root=manifest_root, today=lambda: TODAY)
 
@@ -272,6 +287,9 @@ def test_stock_trades_reject_partial_coverage_partitions(tmp_path: Path) -> None
                         "ticker": "AAPL",
                         "trade_date": "2026-05-06",
                         "coverage_status": "partial",
+                        "downloaded_row_count": 1,
+                        "pages_downloaded": 1,
+                        "order": "desc",
                     }
                 },
             }
@@ -306,6 +324,9 @@ def test_stock_trade_activity_frames_can_allow_partial_live_slice(tmp_path: Path
                         "ticker": "AAPL",
                         "trade_date": "2026-05-06",
                         "coverage_status": "partial",
+                        "downloaded_row_count": 1,
+                        "pages_downloaded": 1,
+                        "order": "desc",
                     }
                 },
             }
@@ -361,6 +382,64 @@ def test_stock_trades_reject_missing_requested_coverage_rows(tmp_path: Path) -> 
 
     with pytest.raises(DataNotAvailableAt, match="MSFT\\|2026-05-06:missing"):
         loader.stock_trades(["AAPL", "MSFT"], date(2026, 5, 6), lookback_days=1)
+
+
+def test_complete_stock_trade_tickers_returns_only_full_lookback_coverage(
+    tmp_path: Path,
+) -> None:
+    parquet_root = tmp_path / "parquet"
+    manifest_root = tmp_path / "manifests"
+    trade_root = parquet_root / "stock_trades"
+    for ticker in ("AAPL", "MSFT"):
+        trade_path = trade_root / f"ticker={ticker}" / "year=2026" / "trades.parquet"
+        trade_path.parent.mkdir(parents=True, exist_ok=True)
+        pl.DataFrame(
+            [
+                stock_trade(ticker, date(2026, 5, 5), date(2026, 5, 5), f"{ticker}-1"),
+                stock_trade(ticker, date(2026, 5, 6), date(2026, 5, 6), f"{ticker}-2"),
+            ]
+        ).write_parquet(trade_path)
+    manifest_root.mkdir()
+    (trade_root / "_coverage.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "0.1.0",
+                "ticker_days": {
+                    "AAPL|2026-05-05": {
+                        "ticker": "AAPL",
+                        "trade_date": "2026-05-05",
+                        "coverage_status": "complete",
+                    },
+                    "AAPL|2026-05-06": {
+                        "ticker": "AAPL",
+                        "trade_date": "2026-05-06",
+                        "coverage_status": "complete",
+                    },
+                    "MSFT|2026-05-05": {
+                        "ticker": "MSFT",
+                        "trade_date": "2026-05-05",
+                        "coverage_status": "complete",
+                    },
+                    "MSFT|2026-05-06": {
+                        "ticker": "MSFT",
+                        "trade_date": "2026-05-06",
+                        "coverage_status": "partial",
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    write_manifest(manifest_root, DatasetName.STOCK_TRADES, "stock_trades", row_count=4)
+    loader = PITLoader(parquet_root=parquet_root, manifest_root=manifest_root, today=lambda: TODAY)
+
+    result = loader.complete_stock_trade_tickers(
+        ["MSFT", "AAPL", "MISSING"],
+        date(2026, 5, 6),
+        lookback_days=2,
+    )
+
+    assert result == ("AAPL",)
 
 
 def test_stock_trades_today_filter_uses_intraday_timestamp_cutoff(tmp_path: Path) -> None:

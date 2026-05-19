@@ -94,9 +94,9 @@ def test_build_refresh_jobs_blocks_massive_prices_without_credentials(tmp_path: 
 
     job = build_refresh_jobs(config)[0]
 
-    assert job.blocked_reasons == ("missing Massive market data credentials",)
-    assert "--provider" in job.display_command
-    assert "massive" in job.display_command
+    assert "prices_daily is lane-owned by massive_daily_bars when provider=massive" in job.blocked_reasons
+    assert "missing Massive market data credentials" in job.blocked_reasons
+    assert job.display_command == ()
 
 
 def test_build_refresh_jobs_passes_massive_market_data_options(tmp_path: Path) -> None:
@@ -110,9 +110,9 @@ def test_build_refresh_jobs_passes_massive_market_data_options(tmp_path: Path) -
 
     job = build_refresh_jobs(config)[0]
 
-    assert job.blocked_reasons == ()
-    assert "--massive-base-url" in job.display_command
-    assert "https://api.polygon.io" in job.display_command
+    assert "prices_daily is lane-owned by massive_daily_bars when provider=massive" in job.blocked_reasons
+    assert "use the scheduler work queue / Massive Lane Orchestrator instead of run_data_refresh_batch" in job.blocked_reasons
+    assert job.display_command == ()
 
 
 def test_build_refresh_jobs_accepts_local_activity_alert_csv(tmp_path: Path) -> None:
@@ -198,7 +198,41 @@ def test_build_refresh_jobs_accepts_gmail_app_password_credentials(
     assert job.blocked_reasons == ()
 
 
-def test_build_refresh_jobs_marks_email_preflight_as_console_step(
+def test_build_refresh_jobs_blocks_gmail_token_without_env_credentials(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("SUBSCRIPTION_EMAIL_USERNAME", raising=False)
+    monkeypatch.delenv("SUBSCRIPTION_EMAIL_PASSWORD", raising=False)
+    token_path = tmp_path / "subscription-token.json"
+    token_path.write_text("{}", encoding="utf-8")
+    config_path = tmp_path / "subscription-email.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "mode": "gmail",
+                "input_path": str(tmp_path / "mail"),
+                "token_path": str(token_path),
+                "mailbox_username_env": "SUBSCRIPTION_EMAIL_USERNAME",
+                "mailbox_password_env": "SUBSCRIPTION_EMAIL_PASSWORD",
+            }
+        ),
+        encoding="utf-8",
+    )
+    config = _config(
+        tmp_path,
+        datasets=("subscription_emails",),
+        subscription_email_config=config_path,
+    )
+
+    job = build_refresh_jobs(config)[0]
+
+    assert job.blocked_reasons == (
+        "missing subscription mailbox credentials: SUBSCRIPTION_EMAIL_USERNAME, SUBSCRIPTION_EMAIL_PASSWORD",
+    )
+
+
+def test_build_refresh_jobs_keeps_email_login_interactive_for_scheduled_refresh(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -227,6 +261,8 @@ def test_build_refresh_jobs_marks_email_preflight_as_console_step(
 
     assert job.blocked_reasons == ()
     assert job.requires_console is True
+    assert "--no-require-article-login" not in job.command
+    assert "--max-article-links" not in job.command
 
 
 def test_build_refresh_jobs_blocks_stock_trades_without_massive_credentials(
@@ -243,12 +279,10 @@ def test_build_refresh_jobs_blocks_stock_trades_without_massive_credentials(
     blocked_job = build_refresh_jobs(missing)[0]
     ready_job = build_refresh_jobs(ready)[0]
 
-    assert blocked_job.blocked_reasons == ("missing Massive market-flow credentials",)
-    assert ready_job.blocked_reasons == ()
-    assert "--massive-base-url" in ready_job.display_command
-    assert "--limit" in ready_job.display_command
-    assert "--max-pages-per-day" not in ready_job.display_command
-    assert ready_job.display_command[-2:] == ("--ticker", "AAPL")
+    assert "stock_trades is lane-owned" in blocked_job.blocked_reasons[0]
+    assert "stock_trades is lane-owned" in ready_job.blocked_reasons[0]
+    assert blocked_job.display_command == ()
+    assert ready_job.display_command == ()
 
 
 def test_build_refresh_jobs_passes_stock_trade_refresh_guardrails(tmp_path: Path) -> None:
@@ -263,8 +297,8 @@ def test_build_refresh_jobs_passes_stock_trade_refresh_guardrails(tmp_path: Path
 
     job = build_refresh_jobs(config)[0]
 
-    assert job.display_command[job.display_command.index("--limit") + 1] == "1000"
-    assert job.display_command[job.display_command.index("--max-pages-per-day") + 1] == "2"
+    assert job.display_command == ()
+    assert "Massive Lane Orchestrator" in job.blocked_reasons[1]
 
 
 def test_build_refresh_jobs_defaults_stock_trades_to_end_date(tmp_path: Path) -> None:
@@ -277,8 +311,8 @@ def test_build_refresh_jobs_defaults_stock_trades_to_end_date(tmp_path: Path) ->
 
     job = build_refresh_jobs(config)[0]
 
-    assert job.display_command[job.display_command.index("--start") + 1] == "2021-01-31"
-    assert job.display_command[job.display_command.index("--end") + 1] == "2021-01-31"
+    assert job.display_command == ()
+    assert "stock_trades is lane-owned" in job.blocked_reasons[0]
 
 
 def test_build_refresh_jobs_uses_stock_trade_end_when_start_is_absent(tmp_path: Path) -> None:
@@ -292,8 +326,8 @@ def test_build_refresh_jobs_uses_stock_trade_end_when_start_is_absent(tmp_path: 
 
     job = build_refresh_jobs(config)[0]
 
-    assert job.display_command[job.display_command.index("--start") + 1] == "2021-01-29"
-    assert job.display_command[job.display_command.index("--end") + 1] == "2021-01-29"
+    assert job.display_command == ()
+    assert "stock_trades is lane-owned" in job.blocked_reasons[0]
 
 
 def test_build_refresh_jobs_accepts_explicit_stock_trade_window(tmp_path: Path) -> None:
@@ -308,8 +342,8 @@ def test_build_refresh_jobs_accepts_explicit_stock_trade_window(tmp_path: Path) 
 
     job = build_refresh_jobs(config)[0]
 
-    assert job.display_command[job.display_command.index("--start") + 1] == "2021-01-28"
-    assert job.display_command[job.display_command.index("--end") + 1] == "2021-01-29"
+    assert job.display_command == ()
+    assert "stock_trades is lane-owned" in job.blocked_reasons[0]
 
 
 def test_build_refresh_jobs_blocks_unsafe_stock_trade_history_window(tmp_path: Path) -> None:
@@ -324,8 +358,8 @@ def test_build_refresh_jobs_blocks_unsafe_stock_trade_history_window(tmp_path: P
 
     job = build_refresh_jobs(config)[0]
 
-    assert any("direct live refresh spans" in reason for reason in job.blocked_reasons)
-    assert any("backfill_massive_stock_trades.py" in reason for reason in job.blocked_reasons)
+    assert job.display_command == ()
+    assert "stock_trades is lane-owned" in job.blocked_reasons[0]
 
 
 def test_run_refresh_batch_dry_run_writes_status(tmp_path: Path) -> None:
@@ -453,7 +487,8 @@ def test_build_refresh_jobs_baselines_missing_stock_trade_tickers(tmp_path: Path
     job = build_refresh_jobs(config)[0]
 
     assert job.extraction_action == "baseline"
-    assert job.display_command[-2:] == ("--ticker", "MSFT")
+    assert job.display_command == ()
+    assert "stock_trades is lane-owned" in job.blocked_reasons[0]
 
 
 def test_run_refresh_batch_records_failed_datasets(tmp_path: Path) -> None:
@@ -494,45 +529,69 @@ def test_run_refresh_batch_records_fake_command_failure(tmp_path: Path) -> None:
 def test_subprocess_console_runner_captures_stdout_and_stderr(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     calls: list[dict[str, object]] = []
 
-    def fake_run(
+    class FakePipe:
+        def __init__(self, chunks: list[str]) -> None:
+            self.chunks = chunks
+            self.closed = False
+
+        def __iter__(self):
+            return iter(self.chunks)
+
+        def close(self) -> None:
+            self.closed = True
+
+    class FakeProcess:
+        def __init__(self) -> None:
+            self.stdout = FakePipe(["console stdout\n"])
+            self.stderr = FakePipe(["console stderr\n"])
+
+        def wait(self) -> int:
+            return FAILURE_CODE
+
+    def fake_popen(
         command: list[str],
         *,
         cwd: Path,
-        capture_output: bool,
-        check: bool,
+        stdout: object,
+        stderr: object,
+        stdin: object,
         text: bool,
-    ) -> subprocess.CompletedProcess[str]:
+        bufsize: int,
+    ) -> FakeProcess:
         calls.append(
             {
                 "command": command,
                 "cwd": cwd,
-                "capture_output": capture_output,
-                "check": check,
+                "stdout": stdout,
+                "stderr": stderr,
+                "stdin": stdin,
                 "text": text,
+                "bufsize": bufsize,
             }
         )
-        return subprocess.CompletedProcess(
-            args=command,
-            returncode=FAILURE_CODE,
-            stdout="console stdout",
-            stderr="console stderr",
-        )
+        return FakeProcess()
 
-    monkeypatch.setattr(batch.subprocess, "run", fake_run)
+    monkeypatch.setattr(batch.subprocess, "Popen", fake_popen)
 
     result = batch._subprocess_console_runner(("tool", "--flag"), tmp_path)
 
-    assert result == CommandResult(FAILURE_CODE, "console stdout", "console stderr")
+    captured = capsys.readouterr()
+    assert result == CommandResult(FAILURE_CODE, "console stdout\n", "console stderr\n")
+    assert captured.out == "console stdout\n"
+    assert captured.err == "console stderr\n"
     assert calls == [
         {
             "command": ["tool", "--flag"],
             "cwd": tmp_path,
-            "capture_output": True,
-            "check": False,
+            "stdout": subprocess.PIPE,
+            "stderr": subprocess.PIPE,
+            "stdin": None,
             "text": True,
+            "bufsize": 1,
         }
     ]
 

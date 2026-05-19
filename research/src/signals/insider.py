@@ -5,6 +5,7 @@ from datetime import date
 from typing import Any, Protocol, cast
 
 import pandas as pd
+from pit.exceptions import DataNotAvailableAt
 
 DEFAULT_LOOKBACK_DAYS = 90
 MIN_CROSS_SECTION = 2
@@ -50,7 +51,7 @@ def insider_factor_frame(
     for ticker in sorted({item.upper() for item in universe}):
         try:
             transactions = loader.insider_transactions(ticker, as_of, lookback_days)
-        except Exception:
+        except DataNotAvailableAt:
             continue
         rows.append(_factor_row(ticker, transactions))
     frame = pd.DataFrame(rows)

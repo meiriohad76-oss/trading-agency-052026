@@ -21,6 +21,8 @@
     "position_size_pct",
     "time_in_force",
     "risk_decision",
+    "order_intent_version",
+    "order_intent_hash",
     "submit_enabled",
     "reasons"
   ],
@@ -80,6 +82,14 @@
     "risk_decision": {
       "type": "string",
       "enum": ["ALLOW", "WARN", "BLOCK"]
+    },
+    "order_intent_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "order_intent_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
     },
     "submit_enabled": {
       "type": "boolean"

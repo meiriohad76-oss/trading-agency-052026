@@ -8,6 +8,7 @@ import polars as pl
 import pytest
 from backtests.portfolio import CostModel
 from backtests.walk_forward import WalkForward, WalkForwardConfig
+from pit.exceptions import DataNotAvailableAt
 from signals.insider import insider_factor_frame, insider_score
 
 AS_OF = date(2023, 1, 15)
@@ -37,7 +38,7 @@ def test_insider_factor_frame_ignores_non_directional_and_incomplete_rows() -> N
                 {"transaction_type": "P", "price": 10.0},
                 _transaction("P", shares=10.0, price=None, filer_name="Buyer"),
             ],
-            "MISSING": KeyError("missing data"),
+            "MISSING": DataNotAvailableAt("sec_form4", AS_OF, "missing data"),
         }
     )
 

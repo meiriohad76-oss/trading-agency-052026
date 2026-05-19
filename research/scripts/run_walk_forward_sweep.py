@@ -23,7 +23,7 @@ def main() -> None:
     parser.add_argument("--end", required=True)
     parser.add_argument("--step-days", type=int, action="append", required=True)
     parser.add_argument("--max-positions", type=int, action="append", required=True)
-    parser.add_argument("--threshold", type=float, action="append", default=[0.0])
+    parser.add_argument("--threshold", type=float, action="append")
     parser.add_argument("--bps", type=float, default=5.0)
     parser.add_argument("--slippage-bps", type=float, default=0.0)
     parser.add_argument("--ticker", action="append", help="Static universe ticker; repeatable.")
@@ -38,7 +38,7 @@ def main() -> None:
         SweepPoint(step_size_days=step, max_positions=max_pos, score_threshold=threshold)
         for step in args.step_days
         for max_pos in args.max_positions
-        for threshold in args.threshold
+        for threshold in (args.threshold or [0.0])
     ]
     sweep = run_parameter_sweep(
         name=args.signal,

@@ -28,8 +28,8 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
     ProviderSpec(
         "alpaca",
         "Alpaca",
-        "market_data",
-        "Current daily stock bars for live paper refreshes.",
+        "market_data_broker",
+        "Current stock bars plus paper broker account, positions, and order submission.",
         ("ALPACA_API_KEY", "ALPACA_SECRET_KEY"),
     ),
     ProviderSpec(
@@ -43,7 +43,7 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         "openai",
         "OpenAI",
         "llm_review",
-        "Future supervised review, explanation, and research-assistant calls.",
+        "Optional supervised review and explanation calls for bounded paper candidates.",
         ("OPENAI_API_KEY",),
     ),
     ProviderSpec(
@@ -152,8 +152,18 @@ def _provider_row(spec: ProviderSpec, live_config: Mapping[str, object]) -> dict
 
 
 def _required_now(spec: ProviderSpec, live_config: Mapping[str, object]) -> bool:
+    if spec.provider_id == "openai":
+        return os.environ.get("AGENCY_ENABLE_LLM_REVIEW", "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
     if spec.provider_id == "alpaca":
-        return str(live_config.get("provider", "")).lower() == "alpaca"
+        return str(live_config.get("provider", "")).lower() == "alpaca" or _env_enabled(
+            "AGENCY_ALPACA_BROKER_ENABLED",
+            "AGENCY_BROKER_SUBMIT_ENABLED",
+        )
     if spec.provider_id == "sec_edgar":
         return any(check.get("label") == "SEC User-Agent" for check in _checks(live_config))
     if spec.provider_id == "polygon_massive":
@@ -161,6 +171,13 @@ def _required_now(spec: ProviderSpec, live_config: Mapping[str, object]) -> bool
     if spec.provider_id == "subscription_email_agents":
         return any(check.get("label") == "Subscription emails" for check in _checks(live_config))
     return False
+
+
+def _env_enabled(*names: str) -> bool:
+    return any(
+        os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+        for name in names
+    )
 
 
 def _key_row(

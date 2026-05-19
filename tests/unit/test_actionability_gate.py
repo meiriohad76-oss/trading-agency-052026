@@ -135,7 +135,7 @@ def test_actionability_gate_demotes_all_inferred_lanes_when_no_confirmed_signal(
 
 
 def test_actionability_gate_allows_inferred_lane_when_confirmed_signal_present() -> None:
-    """An inferred lane may be ACTIONABLE when at least one confirmed signal exists."""
+    """An inferred lane may be ACTIONABLE when a same-direction confirmed signal exists."""
     signals = [
         _signal("fundamentals", "sec", "sec-1"),  # CONFIRMED by default
         _signal("abnormal_volume", "alpaca", "src-1", verification_level="INFERRED"),
@@ -148,6 +148,55 @@ def test_actionability_gate_allows_inferred_lane_when_confirmed_signal_present()
     assert fundamentals_result["actionability"] == "ACTIONABLE"
     assert volume_result["actionability"] == "ACTIONABLE"
     assert "requires_confirmed_corroboration" not in _reason_codes(volume_result)
+
+
+def test_actionability_gate_rejects_opposite_direction_confirmed_corroboration() -> None:
+    signals = [
+        _signal("fundamentals", "sec", "sec-1", score=-0.8),
+        _signal("abnormal_volume", "alpaca", "src-1", verification_level="INFERRED"),
+    ]
+
+    gated = apply_actionability_gate(signals)
+    volume_result = next(r for r in gated if r["lane"] == "abnormal_volume")
+
+    assert volume_result["actionability"] == "CONTEXT_ONLY"
+    assert "requires_confirmed_corroboration" in _reason_codes(volume_result)
+
+
+def test_actionability_gate_rejects_suppressed_confirmed_corroboration() -> None:
+    suppressed_confirmed = _signal("fundamentals", "sec", "blocked")
+    suppressed_confirmed["actionability"] = "SUPPRESSED"
+    inferred = _signal(
+        "abnormal_volume",
+        "alpaca",
+        "src-1",
+        verification_level="INFERRED",
+    )
+
+    gated = apply_actionability_gate([suppressed_confirmed, inferred])
+    volume_result = next(r for r in gated if r["lane"] == "abnormal_volume")
+
+    assert volume_result["actionability"] == "CONTEXT_ONLY"
+    assert "requires_confirmed_corroboration" in _reason_codes(volume_result)
+
+
+def test_actionability_gate_rejects_confirmed_signal_demoted_by_own_lane_gate() -> None:
+    news = _signal("news", "rss", "single-news-source")
+    inferred = _signal(
+        "technical_analysis",
+        "prices",
+        "ta-src",
+        verification_level="INFERRED",
+    )
+
+    gated = apply_actionability_gate([news, inferred])
+    news_result = next(r for r in gated if r["lane"] == "news")
+    technical_result = next(r for r in gated if r["lane"] == "technical_analysis")
+
+    assert news_result["actionability"] == "CONTEXT_ONLY"
+    assert "insufficient_independent_sources" in _reason_codes(news_result)
+    assert technical_result["actionability"] == "CONTEXT_ONLY"
+    assert "requires_confirmed_corroboration" in _reason_codes(technical_result)
 
 
 def test_actionability_gate_treats_market_flow_as_inferred_corroborating_lane() -> None:
@@ -184,13 +233,14 @@ def _signal(
     freshness: str = "FRESH",
     verification_level: str = "CONFIRMED",
     timestamp_as_of: str = "2026-05-08T08:59:00Z",
+    score: float = 0.8,
 ) -> dict[str, object]:
     return build_signal_result(
         cycle_id="cycle-1",
         ticker="AAPL",
         as_of=AS_OF,
         lane=lane,
-        score=0.8,
+        score=score,
         provenance=_provenance(
             source,
             source_id,

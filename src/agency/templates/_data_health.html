@@ -1,0 +1,109 @@
+{% macro data_health_panel(data_health) %}
+  {% if data_health %}
+  <section class="panel data-health-panel data-health-{{ data_health.status_class }}" aria-label="Displayed data health for {{ data_health.page_label }}">
+    <div class="section-heading">
+      <div>
+        <h2>Displayed Data Health</h2>
+        <p class="section-subtitle">{{ data_health.headline }}</p>
+      </div>
+      <span class="tag tag-{{ data_health.status_class }}" title="{{ data_health.tooltip }}">{{ data_health.status_label }}</span>
+    </div>
+
+    <div class="progress-track data-health-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ data_health.overall_percent }}" aria-label="{{ data_health.page_label }} displayed data readiness">
+      <div class="progress-fill" style="{{ data_health.progress_style }}"></div>
+    </div>
+
+    <div class="data-health-guidance" aria-label="Displayed data health guidance">
+      <article>
+        <span class="metric-label">What this means</span>
+        <p>{{ data_health.meaning }}</p>
+      </article>
+      <article>
+        <span class="metric-label">Recommended action</span>
+        <p>{{ data_health.recommended_action }}</p>
+      </article>
+      <article>
+        <span class="metric-label">Blocking reason</span>
+        <p>{{ data_health.primary_blocker_detail }}</p>
+      </article>
+    </div>
+
+    <div class="data-health-summary">
+      {% for item in data_health.summary_items %}
+      <div title="{{ item.tooltip|default('') }}">
+        <span class="metric-label">{{ item.label }}{% if item.tooltip %} <span class="info-tip" title="{{ item.tooltip }}" data-tooltip="{{ item.tooltip }}" aria-label="{{ item.label }} help">?</span>{% endif %}</span>
+        <strong>{{ item.value }}</strong>
+      </div>
+      {% endfor %}
+    </div>
+
+    <p class="panel-note">{{ data_health.detail }}</p>
+    <p class="muted-line">
+      {% if data_health.monitor_live %}
+        Live Health Monitor: {{ data_health.monitor_label }}
+      {% else %}
+        Health Monitor Status: {{ data_health.monitor_label }}
+      {% endif %}
+      &middot; {{ data_health.visible_row_count }} displayed input(s) checked
+      {% if data_health.hidden_row_count %}
+        &middot; {{ data_health.hidden_row_count }} hidden input(s)
+      {% endif %}
+    </p>
+
+    <details class="details-panel data-health-details">
+      <summary>Show operational diagnostics and displayed data inputs</summary>
+      {% if data_health.diagnostics_items %}
+      <div class="data-health-diagnostics">
+        {% for item in data_health.diagnostics_items %}
+        <div title="{{ item.tooltip|default('') }}">
+          <span class="metric-label">{{ item.label }}{% if item.tooltip %} <span class="info-tip" title="{{ item.tooltip }}" data-tooltip="{{ item.tooltip }}" aria-label="{{ item.label }} help">?</span>{% endif %}</span>
+          <strong>{{ item.value }}</strong>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+      <div class="data-health-list">
+        {% for row in data_health.rows %}
+        <article class="data-health-row data-health-row-{{ row.status_class }}" title="{{ row.tooltip }}">
+          <div>
+            <span class="metric-label">{{ row.kind }}</span>
+            <strong>{{ row.name }}</strong>
+          </div>
+          <span class="tag tag-{{ row.status_class }}" title="{{ row.tooltip }}">{{ row.status_label }}</span>
+          <div>
+            <span class="metric-label">Coverage</span>
+            <strong>{{ row.coverage_label }}</strong>
+          </div>
+          <div>
+            <span class="metric-label">Freshness</span>
+            <strong>{{ row.freshness_label }}</strong>
+          </div>
+          <div>
+            <span class="metric-label">Last update</span>
+            <strong>{{ row.last_update }}</strong>
+          </div>
+          <div class="data-health-row-explain">
+            <span class="metric-label">Why it matters</span>
+            <p>{{ row.why_it_matters }}</p>
+          </div>
+          <div class="data-health-row-explain">
+            <span class="metric-label">Blocking reason</span>
+            <p>{{ row.blocking_reason }}</p>
+          </div>
+          <div class="data-health-row-explain">
+            <span class="metric-label">Recommended action</span>
+            <p>{{ row.recommended_action }}</p>
+          </div>
+          <details class="compact-details data-health-row-diagnostics">
+            <summary>Show row diagnostics</summary>
+            <p>{{ row.diagnostic_detail or row.detail }}</p>
+          </details>
+        </article>
+        {% else %}
+        <p class="empty-block">No data-health rows were attached to this dashboard.</p>
+        {% endfor %}
+      </div>
+    </details>
+  </section>
+  {% endif %}
+{% endmacro %}

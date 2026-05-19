@@ -44,7 +44,7 @@ def test_options_flow_frame_skips_zero_volume_tickers() -> None:
     frame = options_flow_frame(AS_OF, {"AAPL", "ZERO"}, loader)
 
     assert frame["ticker"].to_list() == ["AAPL"]
-    assert frame.iloc[0]["options_flow_score"] == pytest.approx(0.0)
+    assert frame.iloc[0]["options_flow_score"] == pytest.approx(1.0)
 
 
 def test_options_flow_score_is_deterministic_uppercases_and_forwards_lookback() -> None:

@@ -30,6 +30,7 @@ OPTIONS_COLUMNS = [
     "confidence",
     "verification_level",
 ]
+OPTIONS_CHAIN_STALE_AFTER = timedelta(minutes=30)
 
 
 def write_options_frame(root: Path, frame: pd.DataFrame) -> int:
@@ -66,7 +67,7 @@ def write_manifest(manifest_path: Path, data_root: Path, *, fetched_at: datetime
         "checksum": _tree_checksum(data_root),
         "fetched_at": fetched_at.isoformat(),
         "max_timestamp_as_of": stats["max_timestamp_as_of"],
-        "stale_after": (fetched_at + timedelta(days=3650)).isoformat(),
+        "stale_after": (fetched_at + OPTIONS_CHAIN_STALE_AFTER).isoformat(),
         "source_url": "https://finance.yahoo.com",
     }
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")

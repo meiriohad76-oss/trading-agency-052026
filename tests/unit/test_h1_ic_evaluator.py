@@ -3,8 +3,10 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 import polars as pl
+import pandas as pd
 import pytest
-from evaluation.h1_ic import H1ICConfig, evaluate_signal_ic
+from evaluation.h1_ic import H1ICConfig, _two_sided_p_value, evaluate_signal_ic
+from evaluation.h1_ic import _hac_lag, _hac_t_stat, _moving_block_bootstrap_p_value
 from pit.exceptions import LookaheadRequested
 
 EXPECTED_OBSERVATIONS = 4
@@ -60,6 +62,49 @@ def test_evaluate_signal_ic_handles_empty_scores() -> None:
 
     assert report.scores.empty
     assert report.results.empty
+
+
+def test_two_sided_p_value_uses_t_distribution_for_small_samples() -> None:
+    value = _two_sided_p_value(2.0, 20)
+
+    assert value == pytest.approx(0.0600, abs=0.0001)
+    assert value > 0.05
+
+
+def test_overlapping_horizon_reports_hac_and_bootstrap_p_values() -> None:
+    report = evaluate_signal_ic(
+        signal_name="toy",
+        signal_fn=_long_a_short_b,
+        loader=_ToyLoader(),
+        config=H1ICConfig(
+            start=date(2023, 1, 1),
+            end=date(2023, 1, 5),
+            horizons=(2,),
+            static_universe={"A", "B"},
+            bootstrap_iterations=50,
+        ),
+    )
+
+    row = report.results.iloc[0]
+    assert row["hac_lag"] == 1
+    assert row["p_value_method"] == "hac_max_moving_block_bootstrap"
+    assert "p_value_hac" in report.results.columns
+    assert "p_value_bootstrap" in report.results.columns
+
+
+def test_hac_t_stat_is_more_conservative_for_positive_autocorrelation() -> None:
+    series = pd.Series([0.20, 0.18, 0.16, 0.14, -0.02, 0.01, 0.02, 0.03])
+    iid_t = _hac_t_stat(series, lag=0)
+    hac_t = _hac_t_stat(series, lag=3)
+
+    assert _hac_lag(20, 5) == 3
+    assert abs(hac_t) < abs(iid_t)
+    assert 0.0 <= _moving_block_bootstrap_p_value(
+        series,
+        block_size=4,
+        iterations=50,
+        seed=7,
+    ) <= 1.0
 
 
 class _ToyLoader:

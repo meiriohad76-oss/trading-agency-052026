@@ -11,7 +11,9 @@ from agency.services import (
     build_and_persist_human_review_event,
     build_human_review_event,
     persist_human_review_event,
+    selection_report_hash,
 )
+from service_fixtures import selection_report
 
 
 def test_build_human_review_event_is_contract_valid() -> None:
@@ -20,6 +22,8 @@ def test_build_human_review_event_is_contract_valid() -> None:
         ticker="aapl",
         as_of="2026-05-07T09:30:00Z",
         decision="APPROVE",
+        review_reason=" two confirmed lanes ",
+        notes="  Looks clean after risk review. ",
         event_time="2026-05-07T10:00:00Z",
     )
 
@@ -29,7 +33,15 @@ def test_build_human_review_event_is_contract_valid() -> None:
     assert event["status"] == "PASSED"
     assert event["reason"] == "paper review approved"
     assert event["payload"]["review_decision"] == "APPROVE"
+    assert event["payload"]["review_reason"] == "two confirmed lanes"
+    assert event["payload"]["notes"] == "Looks clean after risk review."
     assert event["payload"]["paper_only"] is True
+
+
+def test_selection_report_hash_is_stable() -> None:
+    report = selection_report()
+
+    assert selection_report_hash(report) == selection_report_hash(dict(report))
 
 
 def test_build_human_review_event_rejects_unknown_decision() -> None:
@@ -40,6 +52,20 @@ def test_build_human_review_event_rejects_unknown_decision() -> None:
             as_of="2026-05-07T09:30:00Z",
             decision="MAYBE",
         )
+
+
+def test_build_human_review_event_records_caution_acknowledgement() -> None:
+    event = build_human_review_event(
+        cycle_id="cycle-1",
+        ticker="AAPL",
+        as_of="2026-05-07T09:30:00Z",
+        decision="APPROVE",
+        event_time="2026-05-07T10:00:00Z",
+        caution_acknowledged=True,
+    )
+
+    validate_contract("candidate-lifecycle-event", event)
+    assert event["payload"]["caution_acknowledged"] is True
 
 
 async def test_build_and_persist_human_review_event_writes_lifecycle() -> None:

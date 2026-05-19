@@ -31,6 +31,33 @@ def test_write_actionability_calibration_records_conservative_thresholds(tmp_pat
     assert "| news | not_evaluated | n/a | n/a | n/a | n/a |" in markdown
 
 
+def test_write_actionability_calibration_reports_surviving_lanes(tmp_path: Path) -> None:
+    h1_path = tmp_path / "h1-verdicts.csv"
+    status_path = tmp_path / "batch-status.json"
+    output_root = tmp_path / "calibration"
+    h1_path.write_text(
+        "\n".join(
+            [
+                "signal,best_horizon,mean_ic,t_stat,information_ratio,p_value_bonferroni,verdict",
+                "fundamentals,20,0.05,3.1,0.44,0.01,survive",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    _write_batch_status(status_path)
+
+    calibration = write_actionability_calibration(
+        h1_verdicts_path=h1_path,
+        batch_status_path=status_path,
+        output_root=output_root,
+    )
+
+    assert calibration["surviving_lanes"] == ["fundamentals"]
+    assert calibration["verdict"] == "selective_lane_promotion_candidate"
+    assert "fundamentals survived" in str(calibration["rationale"])
+
+
 def _write_h1_verdicts(path: Path) -> None:
     path.write_text(
         "\n".join(

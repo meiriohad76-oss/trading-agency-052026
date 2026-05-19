@@ -18,6 +18,7 @@ from sqlalchemy.pool import NullPool
 
 REQUIRED_DB_ENV = ("DB_HOST", "DB_PORT", "DB_NAME", "DB_USER", "DB_PASSWORD")
 DEFAULT_CONNECT_TIMEOUT_SECONDS = 1.0
+DEFAULT_SQLITE_DATABASE_URL = "sqlite+aiosqlite:///./agency_local.db"
 
 
 class MissingDatabaseConfigurationError(RuntimeError):
@@ -81,14 +82,47 @@ def build_database_url(settings: DatabaseSettings | None = None) -> URL:
     )
 
 
+def _effective_database_url(
+    settings: DatabaseSettings | None = None,
+    *,
+    env: Mapping[str, str] | None = None,
+) -> str:
+    if settings is not None:
+        return build_database_url(settings).render_as_string(hide_password=False)
+    if env is None:
+        load_dotenv()
+    values = os.environ if env is None else env
+    database_url = values.get("DATABASE_URL", "").strip()
+    if database_url:
+        return _normalize_async_database_url(database_url)
+    if all(values.get(name) for name in REQUIRED_DB_ENV):
+        return build_database_url(DatabaseSettings.from_env(values)).render_as_string(
+            hide_password=False
+        )
+    return DEFAULT_SQLITE_DATABASE_URL
+
+
 def create_engine(settings: DatabaseSettings | None = None) -> AsyncEngine:
-    db_settings = DatabaseSettings.from_env() if settings is None else settings
+    url = _effective_database_url(settings)
+    echo = settings.echo if settings is not None else _env_bool(os.environ.get("DB_ECHO"))
+    timeout = (
+        settings.connect_timeout_seconds
+        if settings is not None
+        else _env_float(
+            os.environ.get("DB_CONNECT_TIMEOUT_SECONDS"),
+            default=DEFAULT_CONNECT_TIMEOUT_SECONDS,
+        )
+    )
+    kwargs: dict[str, object] = {
+        "echo": echo,
+        "poolclass": NullPool,
+        "pool_pre_ping": True,
+    }
+    if not _is_sqlite_database_url(url):
+        kwargs["connect_args"] = {"timeout": timeout}
     return create_async_engine(
-        build_database_url(db_settings),
-        echo=db_settings.echo,
-        poolclass=NullPool,
-        pool_pre_ping=True,
-        connect_args={"timeout": db_settings.connect_timeout_seconds},
+        url,
+        **kwargs,
     )
 
 
@@ -107,3 +141,14 @@ def get_sessionmaker() -> async_sessionmaker[AsyncSession]:
 async def get_session() -> AsyncIterator[AsyncSession]:
     async with get_sessionmaker()() as session:
         yield session
+
+
+def _is_sqlite_database_url(url: str) -> bool:
+    return url.strip().lower().startswith("sqlite")
+
+
+def _normalize_async_database_url(url: str) -> str:
+    value = url.strip()
+    if value.lower().startswith("sqlite:///"):
+        return "sqlite+aiosqlite:///" + value.split("sqlite:///", maxsplit=1)[1]
+    return value

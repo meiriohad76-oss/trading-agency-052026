@@ -8,10 +8,15 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from subscription_email.config import load_subscription_email_config
-from subscription_email.ingest import ingest_subscription_email_config
-from subscription_email.linked_content import ArticleFetcher
-from subscription_email.mailbox import ImapFactory, MailboxSyncResult, sync_mailbox_emails
+from subscription_email.config import SubscriptionEmailConfig, load_subscription_email_config
+from subscription_email.ingest import ArticleLoginPreflight, ingest_subscription_email_config
+from subscription_email.linked_content import ArticleFetcher, ArticleLoginHandler
+from subscription_email.mailbox import (
+    ImapFactory,
+    MailboxSyncResult,
+    mark_mailbox_emails_seen,
+    sync_mailbox_emails,
+)
 
 MIN_MONITOR_POLL_SECONDS = 5
 
@@ -35,8 +40,11 @@ def monitor_subscription_emails_once(
     clock: Callable[[], datetime] | None = None,
     imap_factory: ImapFactory | None = None,
     article_fetcher: ArticleFetcher | None = None,
+    config: SubscriptionEmailConfig | None = None,
+    article_login_preflight: ArticleLoginPreflight | None = None,
+    article_login_handler: ArticleLoginHandler | None = None,
 ) -> MonitorRunResult:
-    config = load_subscription_email_config(config_path, repo_root=repo_root)
+    config = config or load_subscription_email_config(config_path, repo_root=repo_root)
     get_now = clock or (lambda: datetime.now(UTC))
     mailbox_sync = sync_mailbox_emails(config, imap_factory=imap_factory)
     resolved_state_path = state_path or config.input_path / ".subscription-email-monitor.json"
@@ -60,8 +68,17 @@ def monitor_subscription_emails_once(
             summary_root=summary_root,
             clock=get_now,
             article_fetcher=article_fetcher,
+            article_login_preflight=article_login_preflight,
+            article_login_handler=article_login_handler,
             source_paths=tuple(config.input_path / path for path in changed_files),
         )
+        mailbox_marked_seen = 0
+        if config.mailbox_mark_seen and mailbox_sync.selected_uids:
+            mailbox_marked_seen = mark_mailbox_emails_seen(
+                config,
+                mailbox_sync.selected_uids,
+                imap_factory=imap_factory,
+            )
         result = MonitorRunResult(
             status="analyzed",
             reason="new or changed email files detected",
@@ -74,8 +91,14 @@ def monitor_subscription_emails_once(
                 "event_rows": ingest.event_rows,
                 "linked_content_attempted": ingest.linked_content_attempted,
                 "linked_content_succeeded": ingest.linked_content_succeeded,
+                "linked_content_failed": ingest.linked_content_failed,
+                "linked_content_skipped": ingest.linked_content_skipped,
+                "linked_content_login_required": ingest.linked_content_login_required,
+                "linked_content_unavailable": ingest.linked_content_unavailable,
+                "linked_content_status_counts": dict(ingest.linked_content_status_counts),
                 "manual_review_count": ingest.manual_review_count,
                 "ignored_count": ingest.ignored_count,
+                "mailbox_marked_seen": mailbox_marked_seen,
             },
             state_path=resolved_state_path,
         )
@@ -98,8 +121,11 @@ def watch_subscription_emails(
     state_path: Path | None = None,
     summary_root: Path | None = None,
     poll_seconds: int | None = None,
+    config: SubscriptionEmailConfig | None = None,
+    article_login_preflight: ArticleLoginPreflight | None = None,
+    article_login_handler: ArticleLoginHandler | None = None,
 ) -> Iterable[MonitorRunResult]:
-    config = load_subscription_email_config(config_path, repo_root=repo_root)
+    config = config or load_subscription_email_config(config_path, repo_root=repo_root)
     interval = poll_seconds or config.monitor_poll_seconds
     if interval < MIN_MONITOR_POLL_SECONDS:
         raise ValueError("poll_seconds must be >= 5")
@@ -109,6 +135,9 @@ def watch_subscription_emails(
             repo_root=repo_root,
             state_path=state_path,
             summary_root=summary_root,
+            config=config,
+            article_login_preflight=article_login_preflight,
+            article_login_handler=article_login_handler,
         )
         time.sleep(interval)
 
@@ -173,6 +202,14 @@ def _result_payload(result: MonitorRunResult, repo_root: Path) -> dict[str, obje
         "mailbox_sync": {
             **asdict(result.mailbox_sync),
             "output_path": _display_path(result.mailbox_sync.output_path, repo_root),
+            "saved_paths": [
+                _display_path(path, repo_root)
+                for path in result.mailbox_sync.saved_paths
+            ],
+            "selected_paths": [
+                _display_path(path, repo_root)
+                for path in result.mailbox_sync.selected_paths
+            ],
         },
         "ingest": result.ingest,
         "state_path": _display_path(result.state_path, repo_root),

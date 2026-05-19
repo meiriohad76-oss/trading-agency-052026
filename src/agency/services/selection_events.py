@@ -62,13 +62,16 @@ def build_llm_lifecycle_event(
     event_time: str,
 ) -> dict[str, object]:
     """Build an LLM_ACTION lifecycle event from a review payload."""
+    action = str(llm_review.get("action", "NO_REVIEW"))
+    status = "CONTEXT_ONLY" if action == "NO_REVIEW" else "RECORDED"
+    reason = "llm review unavailable" if action == "NO_REVIEW" else "llm review recorded"
     return build_lifecycle_event(
         cycle_id=str(evidence_pack["cycle_id"]),
         ticker=str(evidence_pack["ticker"]),
         event_type="LLM_ACTION",
         event_time=event_time,
-        status="CONTEXT_ONLY",
-        reason="llm review recorded",
+        status=status,
+        reason=reason,
         payload={
             "llm_review": dict(llm_review),
             "deterministic_action": deterministic_decision.get("action", "UNKNOWN"),

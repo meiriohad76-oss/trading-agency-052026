@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Awaitable, Callable, Mapping
 from datetime import UTC, datetime
 
@@ -22,6 +24,19 @@ DECISION_REASONS = {
     "DEFER": "paper review deferred",
     "REJECT": "paper review rejected",
 }
+SELECTION_REPORT_HASH_VERSION = "0.1.0"
+
+
+def selection_report_hash(report: Mapping[str, object]) -> str:
+    """Return a stable hash for the exact selection report a human reviewed."""
+    validate_contract("selection-report", report)
+    encoded = json.dumps(
+        dict(report),
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def build_human_review_event(
@@ -31,11 +46,29 @@ def build_human_review_event(
     as_of: str,
     decision: str,
     reviewed_by: str = "local-user",
+    review_reason: str | None = None,
+    notes: str | None = None,
     event_time: str | None = None,
+    selection_report_hash: str | None = None,
+    caution_acknowledged: bool = False,
 ) -> dict[str, object]:
     normalized_decision = decision.upper()
     if normalized_decision not in DECISION_STATUS:
         raise ValueError("decision must be APPROVE, DEFER, or REJECT")
+    payload: dict[str, object] = {
+        "review_decision": normalized_decision,
+        "reviewed_by": reviewed_by,
+        "review_reason": _clean_optional(review_reason),
+        "notes": _clean_optional(notes),
+        "paper_only": True,
+        "as_of": as_of,
+    }
+    cleaned_hash = _clean_optional(selection_report_hash)
+    if cleaned_hash is not None:
+        payload["selection_report_hash"] = cleaned_hash
+        payload["selection_report_hash_version"] = SELECTION_REPORT_HASH_VERSION
+    if caution_acknowledged:
+        payload["caution_acknowledged"] = True
     event = build_lifecycle_event(
         cycle_id=cycle_id,
         ticker=ticker.upper(),
@@ -43,12 +76,7 @@ def build_human_review_event(
         event_time=event_time or _now_utc(),
         status=DECISION_STATUS[normalized_decision],
         reason=DECISION_REASONS[normalized_decision],
-        payload={
-            "review_decision": normalized_decision,
-            "reviewed_by": reviewed_by,
-            "paper_only": True,
-            "as_of": as_of,
-        },
+        payload=payload,
     )
     validate_contract("candidate-lifecycle-event", event)
     return event
@@ -72,7 +100,11 @@ async def build_and_persist_human_review_event(
     as_of: str,
     decision: str,
     reviewed_by: str = "local-user",
+    review_reason: str | None = None,
+    notes: str | None = None,
     event_time: str | None = None,
+    selection_report_hash: str | None = None,
+    caution_acknowledged: bool = False,
     lifecycle_writer: HumanReviewWriter = record_candidate_lifecycle_event,
 ) -> dict[str, object]:
     event = build_human_review_event(
@@ -81,7 +113,11 @@ async def build_and_persist_human_review_event(
         as_of=as_of,
         decision=decision,
         reviewed_by=reviewed_by,
+        review_reason=review_reason,
+        notes=notes,
         event_time=event_time,
+        selection_report_hash=selection_report_hash,
+        caution_acknowledged=caution_acknowledged,
     )
     await persist_human_review_event(
         session,
@@ -93,3 +129,10 @@ async def build_and_persist_human_review_event(
 
 def _now_utc() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+
+
+def _clean_optional(value: str | None) -> str | None:
+    if value is None:
+        return None
+    cleaned = " ".join(value.split())
+    return cleaned or None

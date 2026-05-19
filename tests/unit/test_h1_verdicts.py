@@ -62,6 +62,35 @@ def test_verdicts_to_markdown_renders_compact_table() -> None:
     assert "positive" in markdown
 
 
+def test_empty_signal_verdict_summary_still_renders_markdown() -> None:
+    empty = pd.DataFrame(
+        columns=[
+            "signal",
+            "horizon",
+            "mean_ic",
+            "t_stat",
+            "information_ratio",
+            "n_observations",
+            "p_value",
+        ]
+    )
+
+    horizon_verdicts = synthesize_horizon_verdicts(empty)
+    summary = summarize_signal_verdicts(horizon_verdicts)
+    markdown = verdicts_to_markdown(summary)
+
+    assert list(summary.columns) == [
+        "signal",
+        "best_horizon",
+        "mean_ic",
+        "t_stat",
+        "information_ratio",
+        "p_value_bonferroni",
+        "verdict",
+    ]
+    assert "| signal | best_horizon |" in markdown
+
+
 def _ic_rows() -> pd.DataFrame:
     return pd.DataFrame(
         [

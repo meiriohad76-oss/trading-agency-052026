@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_data_health.html" import data_health_panel %}
 
 {% set active_nav = "audit" %}
 
@@ -9,7 +10,7 @@
 
 {% block content %}
   <section class="next-action hero-info" aria-label="Audit state">
-    <div class="next-action-step" aria-hidden="true">7</div>
+    <div class="next-action-step" aria-hidden="true">10</div>
     <div class="next-action-copy">
       <p class="eyebrow">Traceability</p>
       <h2>{{ summary.headline }}</h2>
@@ -19,6 +20,8 @@
       <a class="secondary-action" href="#prompt-audit-heading">Prompt audits</a>
     </div>
   </section>
+
+  {{ data_health_panel(data_health) }}
 
   <section class="audit-tabs" aria-label="Audit sections">
     <a href="#agent-runs-heading">Agent runs</a>
@@ -194,7 +197,7 @@
   <section class="panel" aria-labelledby="execution-state-heading">
     <div class="section-heading">
       <h2 id="execution-state-heading">Execution States</h2>
-      <span class="tag tag-block">Paper only</span>
+      <span class="paper-mode-card">Paper only</span>
     </div>
     <div class="table-wrap">
       <table>
@@ -249,8 +252,13 @@
           <tr>
             <td><strong>{{ prompt.ticker }}</strong></td>
             <td><span class="tag tag-{{ prompt.status_class }}">{{ prompt.llm_action }}</span></td>
-            <td>{{ prompt.llm_rationale }}</td>
-            <td>{{ prompt.cycle_id }}</td>
+            <td>
+              <details class="shared-disclosure">
+                <summary>Show details: LLM rationale</summary>
+                <p>{{ prompt.llm_rationale }}</p>
+              </details>
+            </td>
+            <td><code class="technical-provenance">{{ prompt.cycle_id }}</code></td>
             <td>{{ prompt.model }}</td>
             <td>{{ prompt.redaction_status }}</td>
           </tr>

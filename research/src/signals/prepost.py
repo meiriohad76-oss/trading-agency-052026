@@ -7,6 +7,7 @@ from typing import Protocol
 
 import pandas as pd
 import polars as pl
+from pit.exceptions import DataNotAvailableAt
 from signals._common import positive_float, score_dict, zscore
 
 DEFAULT_LOOKBACK_DAYS = 10
@@ -43,7 +44,7 @@ def prepost_gap_frame(
         return _empty_frame()
     try:
         raw = loader.prepost_bars(tickers, as_of, lookback_days)
-    except Exception:
+    except DataNotAvailableAt:
         return _empty_frame()
     if raw.is_empty():
         return _empty_frame()

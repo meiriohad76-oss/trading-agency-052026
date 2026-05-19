@@ -8,7 +8,7 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from agency.db import DatabaseSettings, build_database_url
+from agency.db import _effective_database_url
 from agency.persistence import metadata
 
 config = context.config
@@ -20,7 +20,11 @@ target_metadata = metadata
 
 
 def get_url() -> str:
-    return build_database_url(DatabaseSettings.from_env()).render_as_string(hide_password=False)
+    return _effective_database_url()
+
+
+def is_sqlite_url(url: str) -> bool:
+    return url.strip().lower().startswith("sqlite")
 
 
 def run_migrations_offline() -> None:
@@ -36,7 +40,11 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection: Connection) -> None:
-    context.configure(connection=connection, target_metadata=target_metadata)
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        render_as_batch=is_sqlite_url(str(connection.engine.url)),
+    )
 
     with context.begin_transaction():
         context.run_migrations()

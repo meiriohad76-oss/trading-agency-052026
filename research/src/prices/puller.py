@@ -52,10 +52,20 @@ async def pull_prices(
         nonlocal ranges_downloaded, rows_written
         ranges = missing_ranges_for_ticker(price_root, ticker, requested, refresh=refresh)
         for missing in ranges:
-            async with semaphore:
-                raw = await downloader(ticker, missing)
-            ranges_downloaded += 1
-            normalized = normalizer(ticker, raw, fetched_at=get_now())
+            try:
+                async with semaphore:
+                    raw = await downloader(ticker, missing)
+                ranges_downloaded += 1
+                normalized = normalizer(ticker, raw, fetched_at=get_now())
+            except Exception as exc:  # noqa: BLE001
+                issues.append(
+                    {
+                        "ticker": ticker,
+                        "reason": "download_or_parse_failed",
+                        "detail": _issue_detail(exc),
+                    }
+                )
+                continue
             if normalized.empty:
                 if existing_date_bounds(price_root, ticker) is not None:
                     continue
@@ -91,3 +101,8 @@ def _worker_count(workers: int) -> int:
     if workers < 1:
         raise ValueError("workers must be >= 1")
     return min(workers, 4)
+
+
+def _issue_detail(exc: Exception) -> str:
+    detail = str(exc) or exc.__class__.__name__
+    return detail[:240]

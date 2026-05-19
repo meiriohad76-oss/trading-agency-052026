@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
@@ -35,7 +36,7 @@ def build_signal_result(
     """Build one schema-valid SignalResult from a normalized lane score."""
     normalized_config = config or SignalActionabilityConfig()
     normalized_ticker = ticker.upper()
-    normalized_score = float(score)
+    normalized_score = _finite_float(score, field="score")
     normalized_confidence = _clamp(confidence)
     normalized_provenance = dict(provenance)
     actionability_value = actionability or _actionability(
@@ -150,4 +151,11 @@ def _suppression_reason(
 
 
 def _clamp(value: float) -> float:
-    return min(1.0, max(0.0, float(value)))
+    return min(1.0, max(0.0, _finite_float(value, field="confidence")))
+
+
+def _finite_float(value: float, *, field: str) -> float:
+    result = float(value)
+    if not math.isfinite(result):
+        raise ValueError(f"{field} must be finite")
+    return result

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_data_health.html" import data_health_panel %}
 
 {% set active_nav = "policy" %}
 
@@ -9,7 +10,7 @@
 
 {% block content %}
   <section class="next-action hero-disabled" aria-label="Policy state">
-    <div class="next-action-step" aria-hidden="true">8</div>
+    <div class="next-action-step" aria-hidden="true">08</div>
     <div class="next-action-copy">
       <p class="eyebrow">Policy controls</p>
       <h2>{{ summary.headline }}</h2>
@@ -19,6 +20,8 @@
       <span class="primary-action primary-action-disabled">{{ summary.source_label }}</span>
     </div>
   </section>
+
+  {{ data_health_panel(data_health) }}
 
   <section class="kpi-grid kpi-grid-compact" aria-label="Policy metrics">
     <article class="kpi">

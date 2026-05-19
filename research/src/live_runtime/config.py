@@ -50,7 +50,7 @@ LANE_CONFIGS: dict[str, RuntimeLaneConfig] = {
         "massive-stock-trades",
         "INFERRED_FROM_BARS",
         "INFERRED",
-        FreshnessDomain.PRICING,
+        FreshnessDomain.TRADE_PRINTS,
         0.55,
     ),
     "buy_sell_pressure": RuntimeLaneConfig(
@@ -59,7 +59,16 @@ LANE_CONFIGS: dict[str, RuntimeLaneConfig] = {
         "massive-stock-trades",
         "INFERRED_FROM_BARS",
         "INFERRED",
-        FreshnessDomain.PRICING,
+        FreshnessDomain.TRADE_PRINTS,
+        0.55,
+    ),
+    "market_flow_trend": RuntimeLaneConfig(
+        "market_flow_trend",
+        DatasetName.STOCK_TRADES,
+        "massive-stock-trades",
+        "INFERRED_FROM_BARS",
+        "INFERRED",
+        FreshnessDomain.TRADE_PRINTS,
         0.55,
     ),
     "fundamentals": RuntimeLaneConfig(
@@ -122,6 +131,15 @@ LANE_CONFIGS: dict[str, RuntimeLaneConfig] = {
         FreshnessDomain.PRICING,
         0.55,
     ),
+    "pre_market_unusual_activity": RuntimeLaneConfig(
+        "pre_market_unusual_activity",
+        DatasetName.STOCK_TRADES,
+        "massive-stock-trades",
+        "INFERRED_FROM_BARS",
+        "INFERRED",
+        FreshnessDomain.TRADE_PRINTS,
+        0.55,
+    ),
     "sector_momentum": RuntimeLaneConfig(
         "sector_momentum",
         DatasetName.PRICES_DAILY,
@@ -130,6 +148,24 @@ LANE_CONFIGS: dict[str, RuntimeLaneConfig] = {
         "INFERRED",
         FreshnessDomain.PRICING,
         0.7,
+    ),
+    "technical_analysis": RuntimeLaneConfig(
+        "technical_analysis",
+        DatasetName.PRICES_DAILY,
+        "technical-analysis-worker",
+        "INFERRED_FROM_BARS",
+        "INFERRED",
+        FreshnessDomain.PRICING,
+        0.65,
+    ),
+    "unusual_trade_activity": RuntimeLaneConfig(
+        "unusual_trade_activity",
+        DatasetName.STOCK_TRADES,
+        "massive-stock-trades",
+        "INFERRED_FROM_BARS",
+        "INFERRED",
+        FreshnessDomain.TRADE_PRINTS,
+        0.55,
     ),
 }
 
@@ -174,7 +210,7 @@ DATASET_CONFIGS: dict[DatasetName, RuntimeDatasetConfig] = {
         DatasetName.STOCK_TRADES,
         "massive-stock-trades",
         "CONFIRMED_TRADE_PRINT",
-        FreshnessDomain.PRICING,
+        FreshnessDomain.TRADE_PRINTS,
     ),
     DatasetName.OPTIONS_CHAINS: RuntimeDatasetConfig(
         DatasetName.OPTIONS_CHAINS,
@@ -195,6 +231,7 @@ STOCKS_ONLY_RUNTIME_SIGNALS = (
     "insider",
     "institutional",
     "abnormal_volume",
+    "technical_analysis",
     "sector_momentum",
     "news",
 )
@@ -203,9 +240,12 @@ OPTIONAL_RUNTIME_SIGNALS = (
     "activity_alerts",
     "block_trade_pressure",
     "buy_sell_pressure",
+    "market_flow_trend",
     "options_anomaly",
     "options_flow",
+    "pre_market_unusual_activity",
     "subscription_thesis",
+    "unusual_trade_activity",
 )
 
 DEFAULT_RUNTIME_SIGNALS = STOCKS_ONLY_RUNTIME_SIGNALS

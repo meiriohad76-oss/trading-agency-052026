@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
+ALWAYS_RELEVANT_DEGRADED_SOURCES = {"subscription-email-thesis"}
+
 
 def relevant_source_health(
     source_health: Sequence[Mapping[str, object]],
@@ -10,7 +12,23 @@ def relevant_source_health(
 ) -> list[Mapping[str, object]]:
     if not used_sources:
         return list(source_health)
-    return [source for source in source_health if str(source.get("source")) in used_sources]
+    return [
+        source
+        for source in source_health
+        if str(source.get("source")) in used_sources
+        or (
+            str(source.get("source")) in ALWAYS_RELEVANT_DEGRADED_SOURCES
+            and _source_degraded(source)
+        )
+    ]
+
+
+def _source_degraded(source: Mapping[str, object]) -> bool:
+    status = str(source.get("status") or "").upper()
+    freshness = str(source.get("freshness") or "").upper()
+    if status in {"STALE", "UNAVAILABLE", "RATE_LIMITED", "ERROR", "FAILED", "BLOCKED"}:
+        return True
+    return freshness in {"STALE", "UNAVAILABLE"}
 
 
 def used_sources(selection_reports: Sequence[Mapping[str, object]]) -> set[str]:

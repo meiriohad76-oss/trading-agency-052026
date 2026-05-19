@@ -9,6 +9,7 @@ from urllib.parse import urlencode, urlsplit
 import asyncio
 import pandas as pd
 
+from agency.runtime.signal_evidence import enrich_signal_rows_with_evidence
 from agency.services import build_leveraged_alternative_review
 
 from agency.views._shared import (
@@ -26,6 +27,7 @@ from agency.views._shared import (
     OPEN_RISK_DECISIONS,
     _clean_text,
     _clip_text,
+    dashboard_data_health,
     _dashboard_candidate_timeline,
     _dashboard_risk_decisions,
     _dashboard_selection_reports,
@@ -44,23 +46,27 @@ from agency.views._shared import (
     _pair_text,
     _plural,
     _row_text,
+    _runtime_payload_key,
     _same_pair_text,
     _service_label,
     _sorted_signals,
     _source_id_core,
     _string_list,
     _timestamp_sort_value,
+    live_dashboard_data_load_status,
 )
 
 
 async def candidate_detail_context(ticker: str) -> dict[str, object]:
+    from agency.views.market_regime import broker_status_context
     normalized_ticker = ticker.upper()
-    reports, timeline, risk_decisions = await asyncio.gather(
+    reports, timeline, risk_decisions, broker = await asyncio.gather(
         _dashboard_selection_reports(ticker=normalized_ticker, limit=5),
         _dashboard_candidate_timeline(ticker=normalized_ticker, limit=25),
         _dashboard_risk_decisions(ticker=normalized_ticker, limit=5),
+        broker_status_context(),
     )
-    report_rows = candidate_detail_report_rows(reports)
+    report_rows = candidate_detail_report_rows(reports, review_events=timeline)
     latest_report = report_rows[0] if report_rows else None
     latest_raw_report = _matching_payload(reports, latest_report)
     latest_risk_decision = _matching_payload(risk_decisions, latest_report)
@@ -70,7 +76,8 @@ async def candidate_detail_context(ticker: str) -> dict[str, object]:
         email_evidence,
         latest_report,
     )
-    review = candidate_review_summary(report_rows, timeline)
+    review = candidate_review_summary(report_rows, timeline, risk_decisions=risk_decisions)
+    data_load_status = await live_dashboard_data_load_status()
     return {
         "ticker": normalized_ticker,
         "decision_brief": candidate_decision_brief(
@@ -78,6 +85,21 @@ async def candidate_detail_context(ticker: str) -> dict[str, object]:
             latest_report,
             email_evidence,
             review,
+            current_position=_candidate_current_position(normalized_ticker, broker),
+        ),
+        "data_health": dashboard_data_health(
+            f"{normalized_ticker} candidate brief",
+            data_load_status=data_load_status,
+            datasets=(
+                "prices_daily",
+                "stock_trades",
+                "sec_company_facts",
+                "sec_form4",
+                "sec_13f",
+                "news_rss",
+                "subscription_emails",
+            ),
+            cycle_id=str(latest_report.get("cycle_id") if latest_report else ""),
         ),
         "email_evidence": email_evidence,
         "leveraged_review": build_leveraged_alternative_review(
@@ -97,10 +119,31 @@ def candidate_rows(reports: Sequence[Mapping[str, object]]) -> list[dict[str, ob
 
 def candidate_detail_report_rows(
     reports: Sequence[Mapping[str, object]],
+    *,
+    review_events: Sequence[Mapping[str, object]] = (),
 ) -> list[dict[str, object]]:
     from agency.views.final_selection import _candidate_detail_sort_key, _final_selection_row
-    rows = [_final_selection_row(report) for report in reports]
-    return sorted(rows, key=_candidate_detail_sort_key)
+    review_index = _human_review_index(review_events)
+    rows = sorted(
+        [
+            _final_selection_row(
+                report,
+                review_event=review_index.get(_runtime_payload_key(report)),
+            )
+            for report in reports
+        ],
+        key=_candidate_detail_sort_key,
+    )
+    if rows:
+        rows[0] = _enrich_candidate_report_signals(rows[0])
+    return rows
+
+def _enrich_candidate_report_signals(row: Mapping[str, object]) -> dict[str, object]:
+    output = dict(row)
+    for key in ("actionable_signals", "context_signals", "suppressed_signals"):
+        signal_rows = _mapping_rows(output, key)
+        output[key] = enrich_signal_rows_with_evidence(signal_rows) if signal_rows else []
+    return output
 
 def candidate_detail_summary(
     ticker: str,
@@ -121,6 +164,8 @@ def candidate_detail_summary(
 def candidate_review_summary(
     reports: Sequence[Mapping[str, object]],
     timeline: Sequence[Mapping[str, object]],
+    *,
+    risk_decisions: Sequence[Mapping[str, object]] = (),
 ) -> dict[str, object]:
     if not reports:
         return {
@@ -133,9 +178,13 @@ def candidate_review_summary(
             "review_reason": "",
             "notes": "",
             "event_time": "None",
+            "event_time_label": "Time unknown",
             "approve_action": "#",
             "defer_action": "#",
             "reject_action": "#",
+            "caution_acknowledgement_required": False,
+            "caution_acknowledgement_text": "",
+            "caution_recommendation": "",
         }
     report = reports[0]
     ticker = str(report["ticker"])
@@ -143,6 +192,7 @@ def candidate_review_summary(
     as_of = str(report["as_of"])
     review_event = _human_review_index(timeline).get((cycle_id, ticker, as_of))
     review = _human_review_summary(review_event)
+    caution = _review_caution(report, _matching_payload(risk_decisions, report))
     return {
         "can_record": True,
         "cycle_id": cycle_id,
@@ -153,6 +203,10 @@ def candidate_review_summary(
         "review_reason": review["review_reason"],
         "notes": review["notes"],
         "event_time": review["event_time"],
+        "event_time_label": _format_timestamp_label(review["event_time"]),
+        "caution_acknowledgement_required": caution["required"],
+        "caution_acknowledgement_text": caution["text"],
+        "caution_recommendation": caution["recommendation"],
         "approve_action": _review_action_url(
             ticker=ticker,
             cycle_id=cycle_id,
@@ -178,6 +232,7 @@ def timeline_rows(events: Sequence[Mapping[str, object]]) -> list[dict[str, obje
         {
             "event_type": str(event["event_type"]),
             "event_time": str(event["event_time"]),
+            "event_time_label": _format_timestamp_label(event["event_time"]),
             "status": str(event["status"]),
             "reason": event["reason"],
         }
@@ -843,7 +898,7 @@ def _candidate_email_mailbox_cell(
             "meta": f"Feed row only / {timestamp}",
             "summary": (
                 "A normalized evidence row exists, but its source email is not in the "
-                "recent mailbox sample."
+                "recent mailbox evidence set."
             ),
             "status_label": "Feed Only",
             "status_class": "neutral",
@@ -894,7 +949,7 @@ def _candidate_email_interpretation_cell(
 def _email_interpretation_status_label(status: str) -> str:
     labels = {
         "article_analyzed": "Article Thesis",
-        "article_analyzed_deterministic_fallback": "Fallback Thesis",
+        "article_analyzed_deterministic_fallback": "Keyword-Only Thesis",
         "article_analyzed_no_ticker_match": "No Ticker Match",
         "article_fetch_failed": "Open Failed",
         "article_fetch_limited": "Queued",
@@ -905,6 +960,8 @@ def _email_interpretation_status_label(status: str) -> str:
     return labels.get(status, "Evidence Row")
 
 def _email_interpretation_status_class(status: str) -> str:
+    if status == "article_analyzed_deterministic_fallback":
+        return "warn"
     if _is_email_article_analyzed_status(status):
         return "pass"
     if status in {"article_fetch_failed", "article_fetch_limited"}:
@@ -1011,6 +1068,11 @@ def _email_analysis_gap_summary(status_counts: Counter[str]) -> str:
     no_allowed = status_counts.get("no_allowed_article_link", 0)
     non_article = status_counts.get("non_article_link", 0)
     not_requested = status_counts.get("not_requested", 0)
+    keyword_only = status_counts.get("article_analyzed_deterministic_fallback", 0)
+    if keyword_only:
+        parts.append(
+            f"{keyword_only} {_plural('article', keyword_only)} used keyword-only analysis and need LLM/browser confirmation"
+        )
     if limited:
         parts.append(
             f"{limited} {_plural('link', limited)} hit the safe per-run article limit"
@@ -1540,7 +1602,7 @@ def _email_status_note(status: str) -> str:
 def _linked_status_label(status: str) -> str:
     labels = {
         "article_analyzed": "Article Analyzed",
-        "article_analyzed_deterministic_fallback": "Fallback Analysis",
+        "article_analyzed_deterministic_fallback": "Keyword-Only Analysis",
         "article_analyzed_no_ticker_match": "No Ticker Match",
         "article_fetch_failed": "Link Failed",
         "article_fetch_limited": "Limit Reached",
@@ -1551,6 +1613,8 @@ def _linked_status_label(status: str) -> str:
     return labels.get(status, _label_text(status))
 
 def _linked_status_class(status: str) -> str:
+    if status == "article_analyzed_deterministic_fallback":
+        return "warn"
     if _is_email_article_analyzed_status(status):
         return "pass"
     if status == "article_fetch_failed":
@@ -1558,6 +1622,11 @@ def _linked_status_class(status: str) -> str:
     return "neutral"
 
 def _linked_status_detail(status: str) -> str:
+    if status == "article_analyzed_deterministic_fallback":
+        return (
+            "The linked article was analyzed with keyword-only fallback and needs "
+            "LLM/browser confirmation before acting."
+        )
     if _is_email_article_analyzed_status(status):
         return "The linked article was analyzed and can appear as a thesis context signal."
     if status == "article_analyzed_no_ticker_match":
@@ -1675,9 +1744,10 @@ def candidate_decision_brief(
     latest_report: Mapping[str, object] | None,
     email_evidence: Mapping[str, object],
     review: Mapping[str, object],
+    current_position: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     if latest_report is None:
-        return _empty_decision_brief(ticker, email_evidence)
+        return _empty_decision_brief(ticker, email_evidence, current_position=current_position)
     action = str(latest_report["action"])
     gate_status = str(latest_report["gate_status"])
     conviction_pct = _int_field(latest_report, "conviction_pct")
@@ -1705,16 +1775,21 @@ def candidate_decision_brief(
         "confirmed_signal_count": _int_field(latest_report, "confirmed_signal_count"),
         "signal_counts": _signal_count_cards(actionable, context, suppressed),
         "signal_balance": _signal_balance(direction_counts),
-        "support_cards": _signal_driver_cards(all_signals, "BULLISH", default_tone="pass"),
+        "support_cards": _signal_driver_cards(actionable, "BULLISH", default_tone="pass"),
         "caution_cards": _signal_driver_cards(all_signals, "BEARISH", default_tone="block"),
         "decision_points": _decision_points(latest_report),
+        "signal_mix_note": _signal_mix_note(actionable, context, suppressed),
         "email_takeaway": str(email_evidence["meaning"]),
         "email_status_class": str(email_evidence["status_class"]),
+        "currently_holding": current_position is not None,
+        "holding_label": _current_holding_label(current_position),
     }
 
 def _empty_decision_brief(
     ticker: str,
     email_evidence: Mapping[str, object],
+    *,
+    current_position: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     return {
         "ticker": ticker,
@@ -1748,9 +1823,37 @@ def _empty_decision_brief(
                 "tone": str(email_evidence["status_class"]),
             },
         ],
+        "signal_mix_note": "No current signal mix is available yet.",
         "email_takeaway": str(email_evidence["meaning"]),
         "email_status_class": str(email_evidence["status_class"]),
+        "currently_holding": current_position is not None,
+        "holding_label": _current_holding_label(current_position),
     }
+
+def _candidate_current_position(
+    ticker: str,
+    broker: Mapping[str, object],
+) -> Mapping[str, object] | None:
+    positions = broker.get("positions", [])
+    if not isinstance(positions, list):
+        return None
+    for position in positions:
+        if not isinstance(position, Mapping):
+            continue
+        symbol = str(position.get("ticker") or position.get("symbol") or "").upper()
+        if symbol == ticker.upper():
+            return position
+    return None
+
+def _current_holding_label(position: Mapping[str, object] | None) -> str:
+    if position is None:
+        return "No current Alpaca paper position detected"
+    quantity = _clean_text(position.get("qty")) or _clean_text(position.get("quantity")) or "size unknown"
+    side = _clean_text(position.get("side")) or "position"
+    market_value = _clean_text(position.get("market_value"))
+    if market_value:
+        return f"Currently holding {quantity} {side} / ${market_value}"
+    return f"Currently holding {quantity} {side}"
 
 def _mapping_rows(payload: Mapping[str, object], key: str) -> list[Mapping[str, object]]:
     value = payload.get(key, [])
@@ -1934,13 +2037,64 @@ def _signal_driver_cards(
     cards: list[dict[str, object]] = [
         {
             "label": str(signal["lane"]),
-            "detail": str(signal["summary"]),
-            "meta": f"{signal['score']} / {signal['confidence_pct']}% confidence",
+            "detail": _signal_driver_detail(signal),
+            "meta": _signal_driver_meta(signal),
             "tone": default_tone,
         }
         for signal in rows
     ]
     return cards
+
+def _signal_driver_detail(signal: Mapping[str, object]) -> str:
+    summary = _clean_text(signal.get("trigger_headline")) or _clean_text(signal.get("summary"))
+    trigger_detail = _clean_text(signal.get("trigger_detail"))
+    score = _clean_text(signal.get("score")) or "score unavailable"
+    confidence = _clean_text(signal.get("confidence_pct")) or "0"
+    source_label = _clean_text(signal.get("source")) or "source unknown"
+    source_key = _clean_text(signal.get("source_key"))
+    source = f"{source_key} ({source_label})" if source_key else source_label
+    timestamp = _format_timestamp_label(signal.get("timestamp_as_of"))
+    reason = _clean_text(signal.get("reason_codes_label")) or _clean_text(signal.get("reason_text"))
+    parts = [
+        summary or "Signal summary unavailable.",
+        f"Hard evidence: score {score}, {confidence}% confidence, source {source}, as of {timestamp}.",
+    ]
+    if trigger_detail:
+        parts.append(trigger_detail)
+    if reason:
+        parts.append(f"Reason code: {reason}.")
+    return " ".join(parts)
+
+def _signal_driver_meta(signal: Mapping[str, object]) -> str:
+    bucket = _clean_text(signal.get("bucket")) or _clean_text(signal.get("actionability_label"))
+    freshness = _clean_text(signal.get("freshness")) or "freshness unknown"
+    verification = _clean_text(signal.get("verification_label")) or _clean_text(
+        signal.get("verification_level")
+    )
+    source_tier = _clean_text(signal.get("source_tier"))
+    pieces = [piece for piece in (bucket, freshness, verification, source_tier) if piece]
+    return " / ".join(pieces) if pieces else "signal provenance"
+
+def _signal_mix_note(
+    actionable: Sequence[Mapping[str, object]],
+    context: Sequence[Mapping[str, object]],
+    suppressed: Sequence[Mapping[str, object]],
+) -> str:
+    actionable_bullish = sum(1 for signal in actionable if signal.get("direction") == "BULLISH")
+    actionable_bearish = sum(1 for signal in actionable if signal.get("direction") == "BEARISH")
+    advisory_bullish = sum(
+        1 for signal in [*context, *suppressed] if signal.get("direction") == "BULLISH"
+    )
+    advisory_bearish = sum(
+        1 for signal in [*context, *suppressed] if signal.get("direction") == "BEARISH"
+    )
+    return (
+        "Conviction is driven by actionable signals only. Advisory and blocked signals "
+        "are shown as caution/context, so bearish advisory rows can coexist with a "
+        f"bullish review state. Current mix: {actionable_bullish} actionable bullish, "
+        f"{actionable_bearish} actionable bearish, {advisory_bullish} advisory bullish, "
+        f"{advisory_bearish} advisory bearish."
+    )
 
 def _decision_points(latest_report: Mapping[str, object]) -> list[dict[str, object]]:
     from agency.views.signals import _decision_explanation
@@ -2021,6 +2175,7 @@ def _paper_review_row(
         reason = reasons[0] if reasons else "risk decision recorded"
     ticker = str(candidate["ticker"])
     human_review = _human_review_summary(human_review_event)
+    caution = _review_caution(report, risk_decision)
     return {
         **candidate,
         "cycle_id": str(report["cycle_id"]),
@@ -2053,7 +2208,11 @@ def _paper_review_row(
         "human_review_class": human_review["status_class"],
         "human_review_reason": human_review["reason"],
         "human_review_time": human_review["event_time"],
+        "human_review_time_label": _format_timestamp_label(human_review["event_time"]),
         "reason": reason,
+        "caution_acknowledgement_required": caution["required"],
+        "caution_acknowledgement_text": caution["text"],
+        "caution_recommendation": caution["recommendation"],
         "source_count": _int_field(data_quality, "source_count"),
         "confirmed_signal_count": _int_field(data_quality, "confirmed_signal_count"),
     }
@@ -2067,17 +2226,52 @@ def _candidate_row(report: Mapping[str, object]) -> dict[str, object]:
         "conviction_pct": round(conviction * 100),
         "gate_status": _gate_status(report),
         "as_of": str(report["as_of"]),
+        "as_of_label": _format_timestamp_label(report["as_of"]),
         "risk_flag_count": _risk_flag_count(report),
     }
 
 def _candidate_review_redirect_url(*, ticker: str, decision: str) -> str:
     if decision.upper() == "APPROVE":
-        return "/execution-preview#orderable-heading"
+        return "/execution-preview#execution-followup-heading"
     return f"/candidates/{ticker.upper()}"
 
-def _review_action_url(*, ticker: str, cycle_id: str, as_of: str, decision: str) -> str:
-    query = urlencode({"cycle_id": cycle_id, "as_of": as_of, "decision": decision})
+def _review_action_url(
+    *,
+    ticker: str,
+    cycle_id: str,
+    as_of: str,
+    decision: str,
+    caution_acknowledged: bool = False,
+) -> str:
+    query_values = {"cycle_id": cycle_id, "as_of": as_of, "decision": decision}
+    if caution_acknowledged:
+        query_values["caution_acknowledged"] = "true"
+    query = urlencode(query_values)
     return f"/candidates/{ticker}/reviews?{query}"
+
+
+def _review_caution(
+    report: Mapping[str, object],
+    risk_decision: Mapping[str, object] | None,
+) -> dict[str, object]:
+    action = str(report.get("action") or report.get("final_action") or "")
+    decision = str((risk_decision or {}).get("decision") or "")
+    reasons = _string_list(risk_decision, "reasons") if risk_decision is not None else []
+    reason = next((item for item in reasons if item.startswith("Caution:")), "")
+    required = bool(action in {"WATCH", "HOLD"} and decision == "WARN" and reason)
+    recommendation = (
+        "Approve only if you accept this as a research/watch-list decision. Before "
+        "trading, check the named gate, confirm the data is fresh, and wait for a "
+        "later cycle to create an orderable BUY, SELL, SHORT, or COVER recommendation."
+        if required
+        else ""
+    )
+    text = f"{reason} {recommendation}".strip() if required else ""
+    return {
+        "required": required,
+        "text": text,
+        "recommendation": recommendation,
+    }
 
 def _paper_review_sort_key(row: Mapping[str, object]) -> tuple[int, int, str]:
     decision = str(row["risk_decision"])

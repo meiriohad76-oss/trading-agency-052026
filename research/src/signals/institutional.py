@@ -5,6 +5,7 @@ from datetime import date
 from typing import Protocol
 
 import pandas as pd
+from pit.exceptions import DataNotAvailableAt
 from signals._common import float_or_none, payload_dict, positive_float, score_dict, zscore
 
 
@@ -31,7 +32,7 @@ def institutional_factor_frame(
     for ticker in sorted({item.upper() for item in universe}):
         try:
             payload = payload_dict(loader.institutional_holdings(ticker, as_of), "holdings")
-        except Exception:
+        except DataNotAvailableAt:
             continue
         row = _factor_row(ticker, payload)
         if row is not None:

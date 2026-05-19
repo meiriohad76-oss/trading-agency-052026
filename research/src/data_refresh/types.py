@@ -17,7 +17,10 @@ DATASETS = (
     "options_chains",
     "unusual_activity_alerts",
 )
-JobStatus = Literal["pending", "running", "planned", "passed", "failed", "blocked"]
+ExtractionMode = Literal["auto", "baseline", "incremental", "force"]
+ExtractionAction = Literal["baseline", "incremental", "skip", "force"]
+JobStatus = Literal["pending", "running", "planned", "passed", "failed", "blocked", "skipped"]
+StockTradesOrder = Literal["asc", "desc"]
 
 
 @dataclass(frozen=True)
@@ -46,6 +49,17 @@ class RefreshBatchConfig:
     market_data_credentials_present: bool = False
     massive_base_url: str = "https://api.polygon.io"
     massive_credentials_present: bool = False
+    stock_trades_start: date | None = None
+    stock_trades_end: date | None = None
+    stock_trades_limit: int = 50_000
+    stock_trades_max_pages_per_day: int | None = None
+    stock_trades_order: StockTradesOrder = "asc"
+    extraction_mode: ExtractionMode = "auto"
+    sec_company_facts_max_age_days: int = 7
+    sec_form4_max_age_days: int = 1
+    sec_13f_max_age_days: int = 45
+    news_rss_max_age_minutes: int = 30
+    subscription_email_max_age_minutes: int = 10
 
 
 @dataclass(frozen=True)
@@ -54,6 +68,9 @@ class RefreshJob:
     command: tuple[str, ...]
     display_command: tuple[str, ...]
     blocked_reasons: tuple[str, ...] = ()
+    skip_reason: str | None = None
+    extraction_action: ExtractionAction | None = None
+    requires_console: bool = False
 
 
 @dataclass(frozen=True)
@@ -75,6 +92,7 @@ class RefreshJobResult:
     started_at: str | None = None
     finished_at: str | None = None
     duration_seconds: float | None = None
+    extraction_action: ExtractionAction | None = None
 
 
 @dataclass(frozen=True)

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Sequence
 from datetime import date
 from typing import Protocol
 
 import pandas as pd
+from pit.exceptions import DataNotAvailableAt
 from signals._common import payload_dict, score_dict, zscore
 
 DEFAULT_LOOKBACK_DAYS = 3
@@ -49,7 +51,7 @@ def news_factor_frame(
         return _empty_frame()
     try:
         items = loader.news(as_of, lookback_days, tickers)
-    except Exception:
+    except DataNotAvailableAt:
         return _empty_frame()
     rows = _rows(tickers, items)
     frame = pd.DataFrame(rows)
@@ -78,7 +80,7 @@ def _factor_row(ticker: str, items: list[dict[str, object]]) -> dict[str, object
         for item in items
         if item.get("feed_name") or item.get("url")
     }
-    sentiment_score = float(sum(sentiments))
+    sentiment_score = float(sum(sentiments) / len(sentiments))
     return {
         "ticker": ticker,
         "headline_count": len(items),
@@ -91,13 +93,17 @@ def _factor_row(ticker: str, items: list[dict[str, object]]) -> dict[str, object
 
 def _headline_sentiment(item: dict[str, object]) -> int:
     text = f"{item.get('title', '')} {item.get('summary', '')}".lower()
-    positive = sum(1 for term in POSITIVE_TERMS if term in text)
-    negative = sum(1 for term in NEGATIVE_TERMS if term in text)
+    positive = sum(_term_count(text, term) for term in POSITIVE_TERMS)
+    negative = sum(_term_count(text, term) for term in NEGATIVE_TERMS)
     if positive > negative:
         return 1
     if negative > positive:
         return -1
     return 0
+
+
+def _term_count(text: str, term: str) -> int:
+    return len(re.findall(rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])", text))
 
 
 def _empty_frame() -> pd.DataFrame:

@@ -10,10 +10,13 @@ from agency.runtime.audit import (
     agent_run_row_values,
     build_agent_run_upsert,
     build_execution_state_insert,
+    build_portfolio_snapshot_insert,
     build_prompt_audit_insert,
     build_risk_snapshot_insert,
     execution_state_row_values,
     execution_state_select,
+    portfolio_snapshot_row_values,
+    portfolio_snapshot_select,
     prompt_audit_row_values,
     risk_snapshot_row_values,
     risk_snapshot_select,
@@ -73,6 +76,19 @@ def test_risk_snapshot_insert_and_select_are_append_only() -> None:
     assert "ON CONFLICT (snapshot_id) DO NOTHING" in compiled_insert
     assert "risk_snapshots.cycle_id" in compiled_select
     assert "ORDER BY risk_snapshots.generated_at DESC" in compiled_select
+
+
+def test_portfolio_snapshot_insert_and_select_are_append_only() -> None:
+    values = portfolio_snapshot_row_values(_portfolio_snapshot())
+    statement = build_portfolio_snapshot_insert(_portfolio_snapshot())
+    select_statement = portfolio_snapshot_select(limit=5)
+    compiled_insert = str(statement.compile(dialect=postgresql.dialect()))
+    compiled_select = str(select_statement.compile(dialect=postgresql.dialect()))
+
+    assert values["provider"] == "alpaca"
+    assert values["position_count"] == 1
+    assert "ON CONFLICT (snapshot_id) DO NOTHING" in compiled_insert
+    assert "ORDER BY portfolio_snapshots.captured_at DESC" in compiled_select
 
 
 def test_runtime_audit_row_values_reject_invalid_contract() -> None:
@@ -138,4 +154,23 @@ def _risk_snapshot(ticker: str | None = "AAPL") -> dict[str, object]:
         "gross_exposure_pct": GROSS_EXPOSURE_PCT,
         "risk_level": "LOW",
         "payload": {"degraded_source_count": 0},
+    }
+
+
+def _portfolio_snapshot() -> dict[str, object]:
+    return {
+        "schema_version": "0.1.0",
+        "snapshot_id": "portfolio-snap-1",
+        "provider": "alpaca",
+        "mode": "paper",
+        "captured_at": "2026-05-08T09:34:00Z",
+        "account_status": "ACTIVE",
+        "equity": 100000.0,
+        "cash": 99000.0,
+        "buying_power": 198000.0,
+        "portfolio_value": 100000.0,
+        "position_count": 1,
+        "open_order_count": 0,
+        "gross_exposure_pct": 1.0,
+        "payload": {"positions": []},
     }

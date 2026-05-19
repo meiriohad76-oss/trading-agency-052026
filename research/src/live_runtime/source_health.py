@@ -77,7 +77,7 @@ def _available(
         config.freshness_domain,
         now=checked_at,
     )
-    lag = max((checked_at - freshness_timestamp).total_seconds(), 0.0)
+    lag = max((checked_at - timestamp_as_of).total_seconds(), 0.0)
     notes = [f"{manifest.dataset.value}: {manifest.row_count} rows"]
     if config.dataset is DatasetName.SEC_13F:
         next_filing = next_quarterly_filing_date(timestamp_as_of.date())

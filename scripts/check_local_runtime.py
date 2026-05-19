@@ -2,12 +2,33 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
+from collections.abc import Callable, Mapping
 from typing import Any
 from urllib.error import URLError
 from urllib.request import urlopen
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8000"
 HTTP_OK = 200
+SELECTION_REPORTS_ROUTE_BUDGET_SECONDS = 5.0
+COMMAND_DASHBOARD_FIRST_BYTE_BUDGET_SECONDS = 3.0
+TimedFetchResult = Mapping[str, object]
+TimedJsonFetcher = Callable[[str, str], TimedFetchResult]
+TimedTextFetcher = Callable[[str, str], TimedFetchResult]
+ROUTE_BUDGETS: dict[str, dict[str, object]] = {
+    "/reports/selection": {
+        "label": "Selection reports",
+        "metric": "total_seconds",
+        "kind": "total",
+        "seconds": SELECTION_REPORTS_ROUTE_BUDGET_SECONDS,
+    },
+    "/": {
+        "label": "Command dashboard",
+        "metric": "first_byte_seconds",
+        "kind": "first-byte",
+        "seconds": COMMAND_DASHBOARD_FIRST_BYTE_BUDGET_SECONDS,
+    },
+}
 
 
 def main() -> None:
@@ -25,11 +46,28 @@ def check_runtime(
     base_url: str = DEFAULT_BASE_URL,
     min_selection_reports: int = 0,
     min_risk_decisions: int = 0,
+    timed_fetch_json: TimedJsonFetcher | None = None,
+    timed_fetch_text: TimedTextFetcher | None = None,
 ) -> dict[str, object]:
-    health = _fetch_json(base_url, "/health")
-    reports = _fetch_json(base_url, "/reports/selection")
-    decisions = _fetch_json(base_url, "/risk/decisions")
-    metrics = _fetch_text(base_url, "/metrics")
+    fetch_json = timed_fetch_json or _fetch_json_with_timing
+    fetch_text = timed_fetch_text or _fetch_text_with_timing
+    health_result = fetch_json(base_url, "/health")
+    reports_result = fetch_json(base_url, "/reports/selection")
+    decisions_result = fetch_json(base_url, "/risk/decisions")
+    metrics_result = fetch_text(base_url, "/metrics")
+    dashboard_result = fetch_text(base_url, "/")
+    route_timings = {
+        "/health": _route_timing("/health", health_result),
+        "/reports/selection": _route_timing("/reports/selection", reports_result),
+        "/risk/decisions": _route_timing("/risk/decisions", decisions_result),
+        "/metrics": _route_timing("/metrics", metrics_result),
+        "/": _route_timing("/", dashboard_result),
+    }
+    _enforce_route_budgets(route_timings)
+    health = _payload(health_result)
+    reports = _payload(reports_result)
+    decisions = _payload(decisions_result)
+    metrics = _payload(metrics_result)
     if health.get("status") != "ok":
         raise RuntimeError("health endpoint did not report ok")
     if not isinstance(reports, list):
@@ -44,7 +82,8 @@ def check_runtime(
         "health": health["status"],
         "selection_reports": len(reports),
         "risk_decisions": len(decisions),
-        "source_health": metric_value(metrics, "agency_source_health_total"),
+        "source_health": metric_value(str(metrics), "agency_source_health_total"),
+        "route_timings": route_timings,
     }
 
 
@@ -56,19 +95,84 @@ def metric_value(metrics: str, name: str) -> float:
 
 
 def _fetch_json(base_url: str, path: str) -> Any:
-    text = _fetch_text(base_url, path)
-    return json.loads(text)
+    return _payload(_fetch_json_with_timing(base_url, path))
 
 
 def _fetch_text(base_url: str, path: str) -> str:
+    return str(_payload(_fetch_text_with_timing(base_url, path)))
+
+
+def _fetch_json_with_timing(base_url: str, path: str) -> dict[str, object]:
+    result = _fetch_text_with_timing(base_url, path)
+    return {
+        **result,
+        "payload": json.loads(str(result["payload"])),
+    }
+
+
+def _fetch_text_with_timing(base_url: str, path: str) -> dict[str, object]:
+    started = time.perf_counter()
     try:
         with urlopen(f"{base_url}{path}", timeout=10) as response:
+            first_byte_at = time.perf_counter()
             if response.status != HTTP_OK:
                 raise RuntimeError(f"{path} returned HTTP {response.status}")
             text: str = response.read().decode("utf-8")
-            return text
+            finished = time.perf_counter()
+            return {
+                "path": path,
+                "payload": text,
+                "first_byte_seconds": round(first_byte_at - started, 3),
+                "total_seconds": round(finished - started, 3),
+            }
     except URLError as exc:
         raise RuntimeError(f"{path} is unavailable") from exc
+
+
+def _payload(result: TimedFetchResult | Any) -> Any:
+    if isinstance(result, Mapping) and "payload" in result:
+        return result["payload"]
+    return result
+
+
+def _route_timing(path: str, result: TimedFetchResult) -> dict[str, object]:
+    timing = {
+        "first_byte_seconds": _float_value(result.get("first_byte_seconds")),
+        "total_seconds": _float_value(result.get("total_seconds")),
+    }
+    budget = ROUTE_BUDGETS.get(path)
+    if budget:
+        timing["budget_seconds"] = budget["seconds"]
+        timing["budget_metric"] = budget["metric"]
+        timing["budget_status"] = (
+            "pass"
+            if float(timing[str(budget["metric"])]) <= float(budget["seconds"])
+            else "fail"
+        )
+    return timing
+
+
+def _float_value(value: object) -> float:
+    try:
+        return round(float(value), 3)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _enforce_route_budgets(
+    route_timings: Mapping[str, Mapping[str, object]],
+) -> None:
+    for path, budget in ROUTE_BUDGETS.items():
+        metric = str(budget["metric"])
+        observed = float(route_timings.get(path, {}).get(metric, 0.0))
+        maximum = float(budget["seconds"])
+        if observed > maximum:
+            label = str(budget["label"])
+            kind = str(budget["kind"])
+            raise RuntimeError(
+                f"{label} route exceeded {maximum:.1f}s {kind} budget "
+                f"({path}: {observed:.2f}s)"
+            )
 
 
 def _parse_args() -> argparse.Namespace:

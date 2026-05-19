@@ -11,12 +11,15 @@ from agency.runtime.signal_evidence import enrich_signal_rows_with_evidence
 
 from agency.views._shared import (
     SIGNALS_CONTEXT_CACHE_SECONDS,
+    SIGNALS_RENDER_LIMIT,
     SIGNALS_REPORT_LIMIT,
     _clean_text,
     _clip_text,
+    dashboard_data_health,
     _dashboard_selection_reports,
     _direction_class,
     _float_field,
+    _format_timestamp_label,
     _human_list,
     _int_field,
     _label_text,
@@ -32,6 +35,7 @@ from agency.views._shared import (
     _short_cycle_label,
     _sorted_signals,
     _string_list,
+    live_dashboard_data_load_status,
 )
 
 _signals_context_cache: dict[str, tuple[float, dict[str, object]]] = {}
@@ -41,12 +45,7 @@ async def signals_context() -> dict[str, object]:
     from agency.views.final_selection import final_selection_rows
     reports = await _dashboard_selection_reports(limit=SIGNALS_REPORT_LIMIT)
     cycle_id = _latest_selection_cycle_id(reports)
-    cached = _cached_signals_context(cycle_id)
-    if cached is not None:
-        return cached
     cycle_reports = _selection_reports_for_cycle(reports, cycle_id)
-    selection_rows = final_selection_rows(cycle_reports)
-    signal_rows = enrich_signal_rows_with_evidence(signal_dashboard_rows(selection_rows))
     live_config = load_live_config_readiness()
     runtime_signals = live_config.get("runtime_signals", [])
     configured_signals = (
@@ -55,23 +54,46 @@ async def signals_context() -> dict[str, object]:
         else []
     )
     promotion = load_lane_promotion_status(configured_signals)
-    lane_rows = signal_lane_rows(signal_rows, promotion)
+    cache_key = _signals_cache_key(cycle_id, cycle_reports, configured_signals, promotion)
+    cached = _cached_signals_context(cache_key)
+    if cached is not None:
+        cached["data_health"] = dashboard_data_health(
+            "Signals dashboard",
+            data_load_status=await live_dashboard_data_load_status(),
+            datasets=("prices_daily", "stock_trades", "news_rss", "subscription_emails"),
+            lanes=tuple(configured_signals),
+            cycle_id=cycle_id,
+        )
+        return cached
+    selection_rows = final_selection_rows(cycle_reports)
+    all_signal_rows = signal_dashboard_rows(selection_rows)
+    visible_source_rows = all_signal_rows[:SIGNALS_RENDER_LIMIT]
+    signal_rows = enrich_signal_rows_with_evidence(visible_source_rows)
+    data_load_status = await live_dashboard_data_load_status()
+    lane_rows = signal_lane_rows(all_signal_rows, promotion)
     context: dict[str, object] = {
         "active_nav": "signals",
+        "data_health": dashboard_data_health(
+            "Signals dashboard",
+            data_load_status=data_load_status,
+            datasets=("prices_daily", "stock_trades", "news_rss", "subscription_emails"),
+            lanes=tuple(configured_signals),
+            cycle_id=cycle_id,
+        ),
         "lane_rows": lane_rows,
         "signal_rows": signal_rows,
         "summary": signal_dashboard_summary(
-            signal_rows=signal_rows,
+            signal_rows=all_signal_rows,
             lane_rows=lane_rows,
             cycle_id=cycle_id,
             report_count=len(selection_rows),
+            visible_signal_count=len(signal_rows),
         ),
     }
-    _store_signals_context(cycle_id, context)
+    _store_signals_context(cache_key, context)
     return context
 
-def _cached_signals_context(cycle_id: str | None) -> dict[str, object] | None:
-    key = cycle_id or "none"
+def _cached_signals_context(key: str) -> dict[str, object] | None:
     cached = _signals_context_cache.get(key)
     if cached is None:
         return None
@@ -81,9 +103,51 @@ def _cached_signals_context(cycle_id: str | None) -> dict[str, object] | None:
         return None
     return dict(context)
 
-def _store_signals_context(cycle_id: str | None, context: dict[str, object]) -> None:
+def _store_signals_context(key: str, context: dict[str, object]) -> None:
     _signals_context_cache.clear()
-    _signals_context_cache[cycle_id or "none"] = (monotonic(), dict(context))
+    _signals_context_cache[key] = (monotonic(), dict(context))
+
+def _configured_signal_lanes_from_context(context: Mapping[str, object]) -> tuple[str, ...]:
+    rows = context.get("lane_rows")
+    if not isinstance(rows, list):
+        return ()
+    lanes = []
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        if row.get("configured") is True:
+            lanes.append(str(row.get("lane_key") or ""))
+    return tuple(lane for lane in lanes if lane)
+
+def _signals_cache_key(
+    cycle_id: str | None,
+    reports: Sequence[Mapping[str, object]],
+    configured_signals: Sequence[str] = (),
+    promotion: Mapping[str, object] | None = None,
+) -> str:
+    generated_values = [
+        str(report.get("generated_at") or report.get("as_of") or "")
+        for report in reports
+    ]
+    promotion_rows = promotion.get("lanes") if isinstance(promotion, Mapping) else []
+    promotion_signature = ""
+    if isinstance(promotion_rows, list):
+        promotion_signature = ",".join(
+            sorted(
+                f"{row.get('lane')}:{row.get('state')}"
+                for row in promotion_rows
+                if isinstance(row, Mapping)
+            )
+        )
+    return "|".join(
+        [
+            cycle_id or "none",
+            str(len(reports)),
+            max(generated_values) if generated_values else "",
+            ",".join(sorted(str(lane) for lane in configured_signals)),
+            promotion_signature,
+        ]
+    )
 
 def signal_dashboard_rows(
     selection_rows: Sequence[Mapping[str, object]],
@@ -130,7 +194,9 @@ def signal_dashboard_summary(
     lane_rows: Sequence[Mapping[str, object]],
     cycle_id: str | None,
     report_count: int,
+    visible_signal_count: int | None = None,
 ) -> dict[str, object]:
+    visible = len(signal_rows) if visible_signal_count is None else visible_signal_count
     actionable_count = sum(1 for row in signal_rows if row["bucket"] == "Actionable")
     context_count = sum(1 for row in signal_rows if row["bucket"] == "Context")
     suppressed_count = sum(1 for row in signal_rows if row["bucket"] == "Suppressed")
@@ -149,6 +215,14 @@ def signal_dashboard_summary(
             "and aligned with the candidate decisions."
         ),
         "signal_count": len(signal_rows),
+        "visible_signal_count": visible,
+        "render_limit": SIGNALS_RENDER_LIMIT,
+        "is_limited": visible < len(signal_rows),
+        "render_label": (
+            f"Showing {visible} highest-priority row(s) out of {len(signal_rows)}"
+            if visible < len(signal_rows)
+            else f"Showing all {len(signal_rows)} row(s)"
+        ),
         "report_count": report_count,
         "lane_count": len(lane_rows),
         "lanes_with_data": lanes_with_data,
@@ -171,12 +245,16 @@ def _signal_rows(evidence_pack: Mapping[str, object], key: str) -> list[dict[str
         actionability = str(signal["actionability"])
         freshness = str(signal["freshness"])
         verification = str(signal["verification_level"])
+        timestamp_as_of = str(provenance.get("timestamp_as_of") or "unknown")
+        signal_as_of = str(signal["as_of"])
         rows.append(
             {
+                "ticker": str(signal["ticker"]),
                 "lane": _label_text(str(signal["lane"])),
                 "lane_key": str(signal["lane"]),
                 "cycle_id": str(signal["cycle_id"]),
-                "signal_as_of": str(signal["as_of"]),
+                "signal_as_of": signal_as_of,
+                "signal_as_of_label": _format_timestamp_label(signal_as_of),
                 "direction": str(signal["direction"]),
                 "direction_class": _direction_class(str(signal["direction"])),
                 "actionability": actionability,
@@ -192,8 +270,10 @@ def _signal_rows(evidence_pack: Mapping[str, object], key: str) -> list[dict[str
                 "score_value": _float_field(signal, "score"),
                 "summary": _signal_summary(signal),
                 "source": _signal_source(signal),
+                "source_key": str(provenance.get("source") or ""),
                 "source_id": str(provenance.get("source_id") or ""),
-                "timestamp_as_of": str(provenance.get("timestamp_as_of") or "unknown"),
+                "timestamp_as_of": timestamp_as_of,
+                "timestamp_label": _format_timestamp_label(timestamp_as_of),
                 "reason_text": _signal_reason_text(signal),
                 "reason_codes_label": _signal_reason_codes_label(signal),
             }
@@ -394,7 +474,7 @@ def _signal_quality_text(row: Mapping[str, object]) -> str:
 
 def _signal_provenance_text(row: Mapping[str, object]) -> str:
     source_id = _row_text(row, "source_id", "unknown")
-    as_of = _row_text(row, "timestamp_as_of", "unknown")
+    as_of = _format_timestamp_label(_row_text(row, "timestamp_as_of", "unknown"))
     return f"{row['source']} / source id {source_id} / as-of {as_of}."
 
 def _average_int(rows: Sequence[Mapping[str, object]], key: str) -> int:

@@ -85,6 +85,19 @@ def test_provider_readiness_blocks_massive_when_market_flow_enabled(
     assert _provider(readiness, "Polygon or Massive")["status"] == "BLOCK"
 
 
+def test_provider_readiness_blocks_openai_when_llm_review_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _blank_provider_env(monkeypatch)
+    monkeypatch.setenv("AGENCY_ENABLE_LLM_REVIEW", "true")
+
+    readiness = load_provider_readiness({"provider": "yfinance", "checks": []})
+
+    assert readiness["ready"] is False
+    assert _provider(readiness, "OpenAI")["required_now"] is True
+    assert _provider(readiness, "OpenAI")["status"] == "BLOCK"
+
+
 def test_provider_readiness_endpoint_returns_provider_matrix(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -122,5 +135,8 @@ def _blank_provider_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "MASSIVE_API_KEY",
         "THETADATA_USERNAME",
         "THETADATA_PASSWORD",
+        "AGENCY_ENABLE_LLM_REVIEW",
+        "AGENCY_ALPACA_BROKER_ENABLED",
+        "AGENCY_BROKER_SUBMIT_ENABLED",
     ):
         monkeypatch.setenv(key, "")

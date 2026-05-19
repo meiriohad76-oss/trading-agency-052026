@@ -8,6 +8,7 @@ from typing import Any
 MIN_ARTICLE_CHARS = 100
 MIN_MONITOR_POLL_SECONDS = 5
 MIN_BROWSER_WAIT_SECONDS = 1
+MIN_MAILBOX_MAX_MESSAGES = 1
 SUPPORTED_ARTICLE_FETCH_MODES = {"auto", "http", "browser"}
 SUPPORTED_BROWSER_CHANNELS = {"chromium", "chrome", "msedge"}
 SUPPORTED_MODES = {"local_eml", "gmail", "outlook", "imap"}
@@ -28,6 +29,7 @@ class SubscriptionEmailConfig:
     follow_article_links: bool = False
     article_link_domains: tuple[str, ...] = ()
     article_max_links_per_email: int = 1
+    article_max_total_per_run: int = 5
     article_fetch_timeout_seconds: int = 15
     article_max_chars: int = 12_000
     article_fetch_mode: str = "auto"
@@ -36,11 +38,21 @@ class SubscriptionEmailConfig:
     article_browser_wait_seconds: int = 5
     article_browser_channel: str = "chrome"
     article_browser_headless: bool = True
+    article_browser_cdp_url: str | None = None
+    article_login_preflight_required: bool = False
+    article_login_preflight_services: tuple[str, ...] = ()
+    article_login_preflight_confirmed: bool = False
+    article_cache_ttl_hours: int = 168
+    article_llm_analysis_enabled: bool = False
+    article_llm_model: str = "gpt-4.1-mini"
+    article_llm_timeout_seconds: int = 45
     mailbox_host: str | None = None
     mailbox_port: int = 993
     mailbox_username_env: str = "SUBSCRIPTION_EMAIL_USERNAME"
     mailbox_password_env: str = "SUBSCRIPTION_EMAIL_PASSWORD"
     mailbox_search: str = "UNSEEN"
+    mailbox_unseen_only: bool = True
+    mailbox_max_messages: int = 10
     mailbox_mark_seen: bool = False
     monitor_poll_seconds: int = 60
 
@@ -62,6 +74,7 @@ def load_subscription_email_config(path: Path, *, repo_root: Path) -> Subscripti
         follow_article_links=_boolean(payload, "follow_article_links", False),
         article_link_domains=_domains(payload, "article_link_domains"),
         article_max_links_per_email=_integer(payload, "article_max_links_per_email", 1),
+        article_max_total_per_run=_integer(payload, "article_max_total_per_run", 5),
         article_fetch_timeout_seconds=_integer(payload, "article_fetch_timeout_seconds", 15),
         article_max_chars=_integer(payload, "article_max_chars", 12_000),
         article_fetch_mode=_string(payload, "article_fetch_mode", "auto"),
@@ -77,6 +90,20 @@ def load_subscription_email_config(path: Path, *, repo_root: Path) -> Subscripti
         article_browser_wait_seconds=_integer(payload, "article_browser_wait_seconds", 5),
         article_browser_channel=_string(payload, "article_browser_channel", "chrome"),
         article_browser_headless=_boolean(payload, "article_browser_headless", True),
+        article_browser_cdp_url=_optional_string(payload, "article_browser_cdp_url"),
+        article_login_preflight_required=_boolean(
+            payload,
+            "article_login_preflight_required",
+            False,
+        ),
+        article_login_preflight_services=_strings(
+            payload,
+            "article_login_preflight_services",
+        ),
+        article_cache_ttl_hours=_integer(payload, "article_cache_ttl_hours", 168),
+        article_llm_analysis_enabled=_boolean(payload, "article_llm_analysis_enabled", False),
+        article_llm_model=_string(payload, "article_llm_model", "gpt-4.1-mini"),
+        article_llm_timeout_seconds=_integer(payload, "article_llm_timeout_seconds", 45),
         mailbox_host=_optional_string(payload, "mailbox_host"),
         mailbox_port=_integer(payload, "mailbox_port", 993),
         mailbox_username_env=_string(
@@ -90,6 +117,8 @@ def load_subscription_email_config(path: Path, *, repo_root: Path) -> Subscripti
             "SUBSCRIPTION_EMAIL_PASSWORD",
         ),
         mailbox_search=_string(payload, "mailbox_search", "UNSEEN"),
+        mailbox_unseen_only=_boolean(payload, "mailbox_unseen_only", True),
+        mailbox_max_messages=_integer(payload, "mailbox_max_messages", 10),
         mailbox_mark_seen=_boolean(payload, "mailbox_mark_seen", False),
         monitor_poll_seconds=_integer(payload, "monitor_poll_seconds", 60),
     )
@@ -115,6 +144,8 @@ def _validate(config: SubscriptionEmailConfig) -> None:
 def _validate_article_config(config: SubscriptionEmailConfig) -> None:
     if config.article_max_links_per_email < 0:
         raise ValueError("article_max_links_per_email must be >= 0")
+    if config.article_max_total_per_run < 0:
+        raise ValueError("article_max_total_per_run must be >= 0")
     if config.article_fetch_timeout_seconds < 1:
         raise ValueError("article_fetch_timeout_seconds must be >= 1")
     if config.article_max_chars < MIN_ARTICLE_CHARS:
@@ -125,6 +156,18 @@ def _validate_article_config(config: SubscriptionEmailConfig) -> None:
         raise ValueError("article_browser_wait_seconds must be >= 1")
     if config.article_browser_channel not in SUPPORTED_BROWSER_CHANNELS:
         raise ValueError("article_browser_channel must be chromium, chrome, or msedge")
+    unknown_preflight = sorted(
+        set(config.article_login_preflight_services).difference(config.enabled_services)
+    )
+    if unknown_preflight:
+        raise ValueError(
+            "article_login_preflight_services must be enabled service names: "
+            f"{unknown_preflight}"
+        )
+    if config.article_llm_timeout_seconds < 1:
+        raise ValueError("article_llm_timeout_seconds must be >= 1")
+    if config.article_cache_ttl_hours < 1:
+        raise ValueError("article_cache_ttl_hours must be >= 1")
 
 
 def _validate_mailbox_config(config: SubscriptionEmailConfig) -> None:
@@ -132,6 +175,8 @@ def _validate_mailbox_config(config: SubscriptionEmailConfig) -> None:
         raise ValueError("mailbox_port must be >= 1")
     if config.mode == "imap" and config.mailbox_host is None:
         raise ValueError("mailbox_host is required when mode is imap")
+    if config.mailbox_max_messages < MIN_MAILBOX_MAX_MESSAGES:
+        raise ValueError("mailbox_max_messages must be >= 1")
     if config.monitor_poll_seconds < MIN_MONITOR_POLL_SECONDS:
         raise ValueError("monitor_poll_seconds must be >= 5")
 

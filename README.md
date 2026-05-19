@@ -13,6 +13,7 @@ Trading Agency v2 is a supervised, Python-first equity research and paper-tradin
 - [working model](docs/working-model.md)
 - [deployment and backups](docs/deployment.md)
 - [first version test checklist](docs/testing-first-version.md)
+- [operational gap analysis](docs/operational-gap-analysis.md)
 - [live research readiness](docs/live-research-readiness.md)
 - [data provider recommendations](docs/data-provider-recommendations.md)
 
@@ -86,7 +87,8 @@ To run the research result batch after PIT data manifests are refreshed:
 .\.venv\Scripts\python research\scripts\run_research_batch.py `
   --start 2021-01-01 --end 2025-12-31 `
   --signal fundamentals --signal insider --signal institutional `
-  --signal sector_momentum --signal abnormal_volume --signal news --signal options_flow
+  --signal sector_momentum --signal abnormal_volume --signal technical_analysis `
+  --signal news --signal options_flow
 ```
 
 ## Local API
@@ -95,6 +97,13 @@ Fast local test runtime:
 
 ```powershell
 .\scripts\start_local_runtime.ps1
+```
+
+The startup script does not seed demo data by default. For an explicit demo-only
+dashboard seed, run:
+
+```powershell
+.\scripts\start_local_runtime.ps1 -SeedDemo
 ```
 
 Run the FastAPI shell:
@@ -119,3 +128,14 @@ To smoke-check a seeded local runtime:
 .\.venv\Scripts\python scripts\check_operational_readiness.py `
   --min-queue 1
 ```
+
+To run the guarded first-version paper loop from existing local PIT data:
+
+```powershell
+.\.venv\Scripts\python scripts\run_first_version_pipeline.py `
+  --email-max-emails 1 `
+  --email-max-article-links 1 `
+  --check-dashboard
+```
+
+Use `--refresh-data` only when you intentionally want a full external data refresh.

@@ -41,6 +41,31 @@ async def run_due_jobs(
     return results
 
 
+def scheduler_summary(results: Sequence[SchedulerJobResult]) -> dict[str, object]:
+    counts = {
+        "succeeded": sum(1 for result in results if result.status == "SUCCEEDED"),
+        "failed": sum(1 for result in results if result.status == "FAILED"),
+        "skipped": sum(1 for result in results if result.status == "SKIPPED"),
+    }
+    state = "blocked" if counts["failed"] else "ready"
+    return {
+        "schema_version": "0.1.0",
+        "ready": counts["failed"] == 0,
+        "state": state,
+        "job_count": len(results),
+        "counts": counts,
+        "jobs": [
+            {
+                "name": result.name,
+                "status": result.status,
+                "reason": result.reason,
+                "payload": result.payload,
+            }
+            for result in results
+        ],
+    }
+
+
 def is_due(job: ScheduledJob, *, now: datetime | None = None) -> bool:
     if job.interval_seconds < 1:
         raise ValueError("interval_seconds must be positive")

@@ -12,6 +12,7 @@ from agency.contracts import validate_contract
 from agency.persistence import (
     agent_runs,
     execution_state_history,
+    portfolio_snapshots,
     prompt_audits,
     risk_snapshots,
 )
@@ -107,14 +108,43 @@ def risk_snapshot_row_values(payload: Mapping[str, object]) -> dict[str, object]
     }
 
 
+def portfolio_snapshot_row_values(payload: Mapping[str, object]) -> dict[str, object]:
+    validate_contract("portfolio-snapshot", payload)
+    return {
+        "snapshot_id": str(payload["snapshot_id"]),
+        "provider": str(payload["provider"]),
+        "mode": str(payload["mode"]),
+        "captured_at": parse_datetime(payload["captured_at"]),
+        "account_status": str(payload["account_status"]),
+        "equity": parse_float(payload["equity"]),
+        "cash": parse_float(payload["cash"]),
+        "buying_power": parse_float(payload["buying_power"]),
+        "portfolio_value": parse_float(payload["portfolio_value"]),
+        "position_count": _int_value(payload["position_count"]),
+        "open_order_count": _int_value(payload["open_order_count"]),
+        "gross_exposure_pct": parse_float(payload["gross_exposure_pct"]),
+        "payload": dict(payload),
+    }
+
+
 def build_risk_snapshot_insert(payload: Mapping[str, object]) -> Insert:
     values = risk_snapshot_row_values(payload)
     statement = insert(risk_snapshots).values(**values)
     return statement.on_conflict_do_nothing(index_elements=["snapshot_id"])
 
 
+def build_portfolio_snapshot_insert(payload: Mapping[str, object]) -> Insert:
+    values = portfolio_snapshot_row_values(payload)
+    statement = insert(portfolio_snapshots).values(**values)
+    return statement.on_conflict_do_nothing(index_elements=["snapshot_id"])
+
+
 async def record_risk_snapshot(session: AsyncSession, payload: Mapping[str, object]) -> None:
     await session.execute(build_risk_snapshot_insert(payload))
+
+
+async def record_portfolio_snapshot(session: AsyncSession, payload: Mapping[str, object]) -> None:
+    await session.execute(build_portfolio_snapshot_insert(payload))
 
 
 async def list_agent_runs(session: AsyncSession, *, limit: int = 50) -> list[dict[str, object]]:
@@ -165,6 +195,13 @@ def risk_snapshot_select(
     return statement.order_by(risk_snapshots.c.generated_at.desc()).limit(limit)
 
 
+def portfolio_snapshot_select(*, limit: int = 100) -> Select[tuple[object]]:
+    _validate_limit(limit)
+    return select(portfolio_snapshots.c.payload).order_by(
+        portfolio_snapshots.c.captured_at.desc()
+    ).limit(limit)
+
+
 async def _payloads(
     session: AsyncSession,
     statement: Select[tuple[object]],
@@ -185,6 +222,12 @@ def _optional_string(value: object) -> str | None:
 
 def _optional_upper(value: object) -> str | None:
     return None if value is None else str(value).upper()
+
+
+def _int_value(value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError("expected integer value")
+    return value
 
 
 def _validate_limit(limit: int) -> None:

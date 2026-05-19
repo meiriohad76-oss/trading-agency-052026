@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from agency.runtime import ScheduledJob, is_due, run_due_jobs
+from agency.runtime import ScheduledJob, is_due, run_due_jobs, scheduler_summary
 
 NOW = datetime(2026, 5, 8, 10, 30, tzinfo=UTC)
 
@@ -54,6 +54,10 @@ async def test_run_due_jobs_reports_success_skips_and_failures() -> None:
     ]
     assert results[0].payload == {"rows": 1}
     assert results[-1].reason == "boom"
+
+    summary = scheduler_summary(results)
+    assert summary["ready"] is False
+    assert summary["counts"] == {"succeeded": 1, "failed": 1, "skipped": 2}
 
 
 async def _successful_action() -> Mapping[str, object]:

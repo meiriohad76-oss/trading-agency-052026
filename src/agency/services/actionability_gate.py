@@ -40,8 +40,12 @@ DEFAULT_LANE_RULES: Mapping[str, LaneActionabilityRule] = {
     "news": LaneActionabilityRule(min_sources=2, min_confirmed_sources=1),
     "activity_alerts": LaneActionabilityRule(),
     "abnormal_volume": LaneActionabilityRule(min_confirmed_sources=0),
+    "technical_analysis": LaneActionabilityRule(min_confirmed_sources=0),
     "block_trade_pressure": LaneActionabilityRule(min_confirmed_sources=0),
     "buy_sell_pressure": LaneActionabilityRule(min_confirmed_sources=0),
+    "market_flow_trend": LaneActionabilityRule(min_confirmed_sources=0),
+    "pre_market_unusual_activity": LaneActionabilityRule(min_confirmed_sources=0),
+    "unusual_trade_activity": LaneActionabilityRule(min_confirmed_sources=0),
     "prepost": LaneActionabilityRule(min_confirmed_sources=0),
     "options_flow": LaneActionabilityRule(min_confirmed_sources=0),
     "options_anomaly": LaneActionabilityRule(min_confirmed_sources=0),
@@ -60,14 +64,19 @@ def apply_actionability_gate(
     gate_config = config or ActionabilityGateConfig(lane_rules=DEFAULT_LANE_RULES)
     duplicate_indexes = _duplicate_indexes(normalized)
     stats = _lane_stats(normalized, duplicate_indexes)
-    has_confirmed = any(_is_confirmed(signal) for signal in normalized)
+    confirmed_directions = _eligible_confirmed_directions(
+        normalized,
+        duplicate_indexes=duplicate_indexes,
+        stats=stats,
+        config=gate_config,
+    )
     return [
         _gate_signal(
             signal,
             index=index,
             duplicate_indexes=duplicate_indexes,
             stats=stats,
-            has_confirmed=has_confirmed,
+            confirmed_directions=confirmed_directions,
             config=gate_config,
         )
         for index, signal in enumerate(normalized)
@@ -80,7 +89,7 @@ def _gate_signal(
     index: int,
     duplicate_indexes: set[int],
     stats: Mapping[str, _LaneStats],
-    has_confirmed: bool,
+    confirmed_directions: set[str],
     config: ActionabilityGateConfig,
 ) -> dict[str, object]:
     output = dict(signal)
@@ -100,7 +109,7 @@ def _gate_signal(
 
     rule = _rule_for(signal, config)
     lane_stats = stats[str(signal["lane"])]
-    reason = _threshold_reason(signal, rule, lane_stats, has_confirmed)
+    reason = _threshold_reason(signal, rule, lane_stats, confirmed_directions)
     if reason is not None:
         return _reclassify(output, "CONTEXT_ONLY", reason)
     output["suppression_reason"] = None
@@ -111,7 +120,7 @@ def _threshold_reason(
     signal: Mapping[str, object],
     rule: LaneActionabilityRule,
     stats: _LaneStats,
-    has_confirmed: bool,
+    confirmed_directions: set[str],
 ) -> str | None:
     if stats.source_count < rule.min_sources:
         return "insufficient_independent_sources"
@@ -120,10 +129,48 @@ def _threshold_reason(
     if (
         signal["verification_level"] == INFERRED_VERIFICATION
         and rule.inferred_needs_confirmed_corroboration
-        and not has_confirmed
+        and not _has_directional_corroboration(signal, confirmed_directions)
     ):
         return "requires_confirmed_corroboration"
     return None
+
+
+def _has_directional_corroboration(
+    signal: Mapping[str, object],
+    confirmed_directions: set[str],
+) -> bool:
+    direction = str(signal["direction"])
+    if direction == "NEUTRAL":
+        return bool(confirmed_directions)
+    return direction in confirmed_directions
+
+
+def _eligible_confirmed_directions(
+    signals: Sequence[Mapping[str, object]],
+    *,
+    duplicate_indexes: set[int],
+    stats: Mapping[str, _LaneStats],
+    config: ActionabilityGateConfig,
+) -> set[str]:
+    directions: set[str] = set()
+    for index, signal in enumerate(signals):
+        if (
+            index in duplicate_indexes
+            or signal["actionability"] != "ACTIONABLE"
+            or not _is_confirmed(signal)
+            or not _freshness_passes(signal)
+        ):
+            continue
+        lane_stats = stats.get(str(signal["lane"]))
+        if lane_stats is None:
+            continue
+        rule = _rule_for(signal, config)
+        if lane_stats.source_count < rule.min_sources:
+            continue
+        if lane_stats.confirmed_source_count < rule.min_confirmed_sources:
+            continue
+        directions.add(str(signal["direction"]))
+    return directions
 
 
 def _reclassify(signal: dict[str, object], actionability: str, reason: str) -> dict[str, object]:
@@ -155,7 +202,11 @@ def _lane_stats(
     source_keys: dict[str, set[tuple[str, str]]] = {}
     confirmed_keys: dict[str, set[tuple[str, str]]] = {}
     for index, signal in enumerate(signals):
-        if index in duplicate_indexes or signal["actionability"] == "SUPPRESSED":
+        if (
+            index in duplicate_indexes
+            or signal["actionability"] == "SUPPRESSED"
+            or not _freshness_passes(signal)
+        ):
             continue
         lane = str(signal["lane"])
         key = _source_key(signal)
@@ -172,15 +223,36 @@ def _lane_stats(
 
 
 def _duplicate_indexes(signals: Sequence[Mapping[str, object]]) -> set[int]:
-    seen: set[tuple[str, str, str, str]] = set()
-    duplicates: set[int] = set()
+    grouped: dict[tuple[str, str, str, str], list[tuple[int, Mapping[str, object]]]] = {}
     for index, signal in enumerate(signals):
         key = (str(signal["ticker"]), str(signal["lane"]), *_source_key(signal))
-        if key in seen:
-            duplicates.add(index)
-        else:
-            seen.add(key)
+        grouped.setdefault(key, []).append((index, signal))
+    duplicates: set[int] = set()
+    for values in grouped.values():
+        if len(values) < 2:
+            continue
+        canonical_index, _signal = max(
+            values,
+            key=lambda item: _canonical_duplicate_sort_key(item[0], item[1]),
+        )
+        duplicates.update(index for index, _signal in values if index != canonical_index)
     return duplicates
+
+
+def _canonical_duplicate_sort_key(
+    index: int,
+    signal: Mapping[str, object],
+) -> tuple[int, int, int, str, float, float, int]:
+    provenance = _mapping_field(signal, "provenance")
+    return (
+        1 if _freshness_passes(signal) else 0,
+        1 if signal["actionability"] != "SUPPRESSED" else 0,
+        1 if _is_confirmed(signal) else 0,
+        str(provenance.get("timestamp_as_of") or ""),
+        _float_field(provenance.get("confidence")),
+        abs(_float_field(signal.get("score"))),
+        -index,
+    )
 
 
 def _source_key(signal: Mapping[str, object]) -> tuple[str, str]:
@@ -190,6 +262,10 @@ def _source_key(signal: Mapping[str, object]) -> tuple[str, str]:
 
 def _is_confirmed(signal: Mapping[str, object]) -> bool:
     return signal["verification_level"] == "CONFIRMED"
+
+
+def _freshness_passes(signal: Mapping[str, object]) -> bool:
+    return FRESHNESS_ACTIONABILITY.get(str(signal["freshness"]), "SUPPRESSED") == "PASS"
 
 
 def _validated_signal(signal: Mapping[str, object]) -> dict[str, object]:
@@ -209,3 +285,14 @@ def _string_list(payload: Mapping[str, object], key: str) -> list[str]:
     if not isinstance(value, list):
         raise TypeError(f"{key} must be a list")
     return [str(item) for item in value]
+
+
+def _float_field(value: object) -> float:
+    if isinstance(value, bool):
+        return 0.0
+    if isinstance(value, int | float):
+        return float(value)
+    try:
+        return float(str(value))
+    except (TypeError, ValueError):
+        return 0.0

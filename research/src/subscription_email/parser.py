@@ -14,7 +14,7 @@ from pathlib import Path
 from subscription_email.types import EmailRecord
 
 HTML_TAG_RE = re.compile(r"<[^>]+>")
-HTML_HREF_RE = re.compile(r"""href=["'](?P<url>[^"']+)["']""", re.IGNORECASE)
+HTML_HREF_RE = re.compile(r"""href\s*=\s*["'](?P<url>[^"']+)["']""", re.IGNORECASE)
 
 
 def read_local_emails(path: Path) -> list[EmailRecord]:
@@ -87,7 +87,7 @@ def _body_text(message: Message) -> str:
 
 
 def _text_parts(message: Message) -> Iterable[str]:
-    if isinstance(message, EmailMessage):
+    if isinstance(message, EmailMessage) and not message.is_multipart():
         body = message.get_body(preferencelist=("plain", "html"))
         if body is not None:
             yield _payload_text(body)

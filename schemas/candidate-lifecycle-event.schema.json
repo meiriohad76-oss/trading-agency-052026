@@ -41,6 +41,7 @@
         "LLM_ACTION",
         "FINAL_ACTION",
         "HUMAN_REVIEW",
+        "ORDER_APPROVAL",
         "RISK_DECISION",
         "EXECUTION_PREVIEW",
         "EXECUTION_STATE",

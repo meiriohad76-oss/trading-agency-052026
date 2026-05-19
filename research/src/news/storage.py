@@ -25,6 +25,7 @@ NEWS_COLUMNS = [
     "confidence",
     "verification_level",
 ]
+NEWS_RSS_STALE_AFTER = timedelta(minutes=60)
 
 
 def write_news_frame(path: Path, frame: pd.DataFrame) -> int:
@@ -54,7 +55,7 @@ def write_manifest(manifest_path: Path, parquet_path: Path, *, fetched_at: datet
         "checksum": _checksum(parquet_path),
         "fetched_at": fetched_at.isoformat(),
         "max_timestamp_as_of": stats["max_timestamp_as_of"],
-        "stale_after": (fetched_at + timedelta(days=3650)).isoformat(),
+        "stale_after": (fetched_at + NEWS_RSS_STALE_AFTER).isoformat(),
         "source_url": None,
     }
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")

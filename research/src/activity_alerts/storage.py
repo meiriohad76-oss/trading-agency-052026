@@ -27,6 +27,7 @@ ACTIVITY_ALERT_COLUMNS = [
     "confidence",
     "verification_level",
 ]
+ACTIVITY_ALERT_STALE_AFTER = timedelta(minutes=30)
 
 
 def write_activity_alert_frame(path: Path, frame: pd.DataFrame) -> int:
@@ -56,7 +57,7 @@ def write_manifest(manifest_path: Path, parquet_path: Path, *, fetched_at: datet
         "checksum": _checksum(parquet_path),
         "fetched_at": fetched_at.isoformat(),
         "max_timestamp_as_of": stats["max_timestamp_as_of"],
-        "stale_after": (fetched_at + timedelta(days=3650)).isoformat(),
+        "stale_after": (fetched_at + ACTIVITY_ALERT_STALE_AFTER).isoformat(),
         "source_url": None,
         "issues": [],
     }

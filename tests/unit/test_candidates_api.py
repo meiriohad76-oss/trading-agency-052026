@@ -3,23 +3,26 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+import pytest
 from fastapi.testclient import TestClient
 
-from agency.api.candidates import runtime_candidate_timeline
+from agency.api.candidates import (
+    RuntimeCandidateTimelineUnavailable,
+    runtime_candidate_timeline,
+)
 from agency.app import create_app
 from agency.runtime import make_lifecycle_event_id
 
-HTTP_OK = 200
+HTTP_SERVICE_UNAVAILABLE = 503
 EXPECTED_LIMIT = 7
 
 
-def test_candidate_timeline_endpoint_falls_back_to_empty_list() -> None:
+def test_candidate_timeline_endpoint_reports_storage_unavailable() -> None:
     client = TestClient(create_app())
 
     response = client.get("/candidates/AAPL/timeline")
 
-    assert response.status_code == HTTP_OK
-    assert response.json() == []
+    assert response.status_code == HTTP_SERVICE_UNAVAILABLE
 
 
 async def test_runtime_candidate_timeline_uses_repository_payloads() -> None:
@@ -47,13 +50,12 @@ async def test_runtime_candidate_timeline_uses_repository_payloads() -> None:
     assert payloads[0]["event_type"] == "FINAL_ACTION"
 
 
-async def test_runtime_candidate_timeline_falls_back_for_unavailable_db() -> None:
-    payloads = await runtime_candidate_timeline(
-        ticker="AAPL",
-        session_provider=_raising_session_provider,
-    )
-
-    assert payloads == []
+async def test_runtime_candidate_timeline_raises_for_unavailable_db() -> None:
+    with pytest.raises(RuntimeCandidateTimelineUnavailable):
+        await runtime_candidate_timeline(
+            ticker="AAPL",
+            session_provider=_raising_session_provider,
+        )
 
 
 @asynccontextmanager

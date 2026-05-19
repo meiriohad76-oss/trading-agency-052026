@@ -99,7 +99,7 @@ async def persist_demo_runtime_seed(
 
 def build_demo_runtime_seed() -> DemoRuntimeSeed:
     """Build deterministic sample data that exercises dashboard states."""
-    source_health = [_source_health("sec-edgar"), _source_health("yfinance-daily")]
+    source_health = [_source_health("demo-runtime-seed"), _source_health("yfinance-daily")]
     selection_reports = [
         _selection_report(
             ticker="NVDA",

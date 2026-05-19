@@ -3,6 +3,7 @@
 from .validation import (
     ContractName,
     ContractValidationError,
+    contract_names,
     is_valid_contract,
     load_contract_schema,
     validate_contract,
@@ -11,6 +12,7 @@ from .validation import (
 __all__ = [
     "ContractName",
     "ContractValidationError",
+    "contract_names",
     "is_valid_contract",
     "load_contract_schema",
     "validate_contract",

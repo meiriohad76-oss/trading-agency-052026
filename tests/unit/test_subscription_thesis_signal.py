@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date
 
 import pytest
+from pit.exceptions import DataNotAvailableAt
 from signals.subscription_thesis import (
     subscription_thesis_contexts,
     subscription_thesis_score,
@@ -33,6 +34,126 @@ def test_subscription_thesis_score_is_empty_when_loader_has_no_coverage() -> Non
     assert subscription_thesis_score(AS_OF, {"AAPL"}, _FailingLoader()) == {}
 
 
+def test_subscription_thesis_accepts_deterministic_fallback_analysis() -> None:
+    loader = _FakeSubscriptionEmailLoader(
+        [
+            _event(
+                "AAPL",
+                "BULLISH",
+                "Linked content thesis: deterministic fallback context for AAPL.",
+                linked_content_status="article_analyzed_deterministic_fallback",
+            )
+        ]
+    )
+
+    scores = subscription_thesis_score(AS_OF, {"AAPL"}, loader)
+
+    assert scores["AAPL"] == pytest.approx(0.65)
+
+
+def test_subscription_thesis_ignores_no_ticker_match_analysis() -> None:
+    loader = _FakeSubscriptionEmailLoader(
+        [
+            _event(
+                "AAPL",
+                "BULLISH",
+                "Linked content thesis: generic article context.",
+                linked_content_status="article_analyzed_no_ticker_match",
+            )
+        ]
+    )
+
+    assert subscription_thesis_score(AS_OF, {"AAPL"}, loader) == {}
+
+
+def test_subscription_thesis_ignores_portfolio_context_only_analysis() -> None:
+    loader = _FakeSubscriptionEmailLoader(
+        [
+            _event(
+                "AAPL",
+                "BEARISH",
+                "Linked article is about another company, not AAPL.",
+                linked_content_status="article_analyzed_portfolio_context_only",
+            )
+        ]
+    )
+
+    assert subscription_thesis_score(AS_OF, {"AAPL"}, loader) == {}
+
+
+def test_subscription_thesis_score_propagates_loader_bugs() -> None:
+    with pytest.raises(RuntimeError, match="loader bug"):
+        subscription_thesis_score(AS_OF, {"AAPL"}, _BuggyLoader())
+
+
+def test_subscription_thesis_score_weights_newer_reversal_more_heavily() -> None:
+    loader = _FakeSubscriptionEmailLoader(
+        [
+            _event(
+                "AAPL",
+                "BULLISH",
+                "Linked content thesis: older constructive context.",
+                timestamp_as_of="2026-05-01T12:00:00+00:00",
+            ),
+            _event(
+                "AAPL",
+                "BEARISH",
+                "Linked content thesis: newer cautious context.",
+                timestamp_as_of="2026-05-08T12:00:00+00:00",
+            ),
+        ]
+    )
+
+    scores = subscription_thesis_score(AS_OF, {"AAPL"}, loader)
+
+    assert scores["AAPL"] < 0.0
+
+
+def test_subscription_thesis_summary_leads_with_newest_analyzed_article() -> None:
+    loader = _FakeSubscriptionEmailLoader(
+        [
+            _event(
+                "AAPL",
+                "BULLISH",
+                "Linked content thesis: older constructive context.",
+                timestamp_as_of="2026-05-06T12:00:00+00:00",
+            ),
+            _event(
+                "AAPL",
+                "BULLISH",
+                "Linked content thesis: newest constructive context.",
+                timestamp_as_of="2026-05-08T12:00:00+00:00",
+            ),
+        ]
+    )
+
+    context = subscription_thesis_contexts(AS_OF, {"AAPL"}, loader)[0]
+
+    assert context.summary.index("newest constructive context") < context.summary.index(
+        "older constructive context"
+    )
+
+
+def test_subscription_thesis_summary_marks_secondary_headline_focus() -> None:
+    loader = _FakeSubscriptionEmailLoader(
+        [
+            _event(
+                "NVDA",
+                "BULLISH",
+                "Linked content thesis: quantum-computing basket context.",
+                title=(
+                    "Seeking Alpha Email: sa quant rating change - "
+                    "MSFT: SA Asks: What are the most attractive quantum computing stocks?"
+                ),
+            )
+        ]
+    )
+
+    context = subscription_thesis_contexts(AS_OF, {"NVDA"}, loader)[0]
+
+    assert "secondary theme context; headline focus is MSFT" in context.summary
+
+
 class _FakeSubscriptionEmailLoader:
     def __init__(self, events: list[dict[str, object]]) -> None:
         self.events = events
@@ -55,16 +176,37 @@ class _FailingLoader:
         lookback_days: int,
     ) -> list[dict[str, object]]:
         del tickers, as_of, lookback_days
-        raise RuntimeError("no coverage")
+        raise DataNotAvailableAt("subscription_emails", AS_OF, "no coverage")
 
 
-def _event(ticker: str, direction: str, summary: str | None) -> dict[str, object]:
+class _BuggyLoader:
+    def subscription_emails(
+        self,
+        tickers: list[str],
+        as_of: date,
+        lookback_days: int,
+    ) -> list[dict[str, object]]:
+        del tickers, as_of, lookback_days
+        raise RuntimeError("loader bug")
+
+
+def _event(
+    ticker: str,
+    direction: str,
+    summary: str | None,
+    *,
+    title: str = "Seeking Alpha Email: AAPL article",
+    timestamp_as_of: str = "2026-05-08T12:00:00+00:00",
+    linked_content_status: str = "article_analyzed",
+) -> dict[str, object]:
     return {
         "ticker": ticker,
         "service": "seeking_alpha",
         "event_type": "sa_analyst_article",
         "direction": direction,
-        "linked_content_status": "article_analyzed",
+        "title": title,
+        "linked_content_status": linked_content_status,
         "linked_content_summary": summary,
+        "timestamp_as_of": timestamp_as_of,
         "confidence": 1.0,
     }

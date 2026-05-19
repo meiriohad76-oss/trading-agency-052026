@@ -49,30 +49,60 @@ def missing_ranges_for_ticker(
 ) -> list[DateRange]:
     if refresh:
         return [requested]
-    bounds = existing_date_bounds(price_root, ticker)
-    if bounds is None:
+    existing_dates = existing_dates_for_ticker(price_root, ticker)
+    if not existing_dates:
         return [requested]
-    existing_start, existing_end = bounds
-    if existing_start <= requested.start and existing_end >= requested.end:
-        return []
+    existing_start = min(existing_dates)
+    existing_end = max(existing_dates)
+    if requested.start < existing_start or requested.end > existing_end:
+        edge_ranges = []
+        if requested.start < existing_start:
+            edge_ranges.append(
+                DateRange(
+                    requested.start,
+                    min(requested.end, existing_start - timedelta(days=1)),
+                )
+            )
+        if requested.end > existing_end:
+            edge_ranges.append(
+                DateRange(
+                    max(requested.start, existing_end + timedelta(days=1)),
+                    requested.end,
+                )
+            )
+        return [item for item in edge_ranges if item.start <= item.end]
     ranges: list[DateRange] = []
-    if existing_start > requested.start:
-        ranges.append(DateRange(requested.start, existing_start - timedelta(days=1)))
-    if existing_end < requested.end:
-        ranges.append(DateRange(existing_end + timedelta(days=1), requested.end))
+    current_start: date | None = None
+    current = requested.start
+    while current <= requested.end:
+        if current not in existing_dates:
+            current_start = current if current_start is None else current_start
+        elif current_start is not None:
+            ranges.append(DateRange(current_start, current - timedelta(days=1)))
+            current_start = None
+        current += timedelta(days=1)
+    if current_start is not None:
+        ranges.append(DateRange(current_start, requested.end))
     return ranges
 
 
 def existing_date_bounds(price_root: Path, ticker: str) -> tuple[date, date] | None:
+    dates = existing_dates_for_ticker(price_root, ticker)
+    if not dates:
+        return None
+    return min(dates), max(dates)
+
+
+def existing_dates_for_ticker(price_root: Path, ticker: str) -> set[date]:
     frames: list[pd.DataFrame] = []
     for path in _ticker_files(price_root, ticker):
         frame = pd.read_parquet(path, columns=["date"])
         if not frame.empty:
             frames.append(frame)
     if not frames:
-        return None
+        return set()
     dates = pd.to_datetime(pd.concat(frames, ignore_index=True)["date"]).dt.date
-    return dates.min(), dates.max()
+    return set(dates)
 
 
 def write_price_frame(price_root: Path, frame: pd.DataFrame) -> int:
@@ -85,8 +115,10 @@ def write_price_frame(price_root: Path, frame: pd.DataFrame) -> int:
         path = _partition_path(price_root, ticker, year)
         path.parent.mkdir(parents=True, exist_ok=True)
         output = group[PRICE_COLUMNS].copy()
+        previous_keys: set[tuple[str, date]] = set()
         if path.exists():
             existing = pd.read_parquet(path)
+            previous_keys = _price_keys(existing)
             output = pd.concat([existing, output], ignore_index=True)
         output = (
             output.drop_duplicates(subset=["ticker", "date"], keep="last")
@@ -94,7 +126,7 @@ def write_price_frame(price_root: Path, frame: pd.DataFrame) -> int:
             .reset_index(drop=True)
         )
         output.to_parquet(path, engine="pyarrow", compression="snappy", index=False)
-        written += len(group)
+        written += len(_price_keys(output) - previous_keys)
     return written
 
 
@@ -207,6 +239,16 @@ def _tree_checksum(root: Path) -> str:
 
 def _ticker_files(price_root: Path, ticker: str) -> list[Path]:
     return sorted((price_root / f"ticker={ticker.upper()}").rglob("*.parquet"))
+
+
+def _price_keys(frame: pd.DataFrame) -> set[tuple[str, date]]:
+    if frame.empty:
+        return set()
+    dates = pd.to_datetime(frame["date"]).dt.date
+    return {
+        (str(ticker).upper(), observed)
+        for ticker, observed in zip(frame["ticker"], dates, strict=False)
+    }
 
 
 def _partition_year(value: object) -> int:

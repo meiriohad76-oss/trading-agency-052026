@@ -3,15 +3,22 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Callable, Sequence
+from datetime import datetime
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+from data_refresh.extraction_plan import ExtractionDecision, extraction_decision_for_dataset
 from data_refresh.types import DATASETS, RefreshBatchConfig, RefreshJob
 
 JobBuilder = Callable[[RefreshBatchConfig], RefreshJob]
 
 
-def build_refresh_jobs(config: RefreshBatchConfig) -> tuple[RefreshJob, ...]:
+def build_refresh_jobs(
+    config: RefreshBatchConfig,
+    *,
+    now: datetime | None = None,
+) -> tuple[RefreshJob, ...]:
     _validate_config(config)
     builders: dict[str, JobBuilder] = {
         "prices_daily": _prices_job,
@@ -24,10 +31,47 @@ def build_refresh_jobs(config: RefreshBatchConfig) -> tuple[RefreshJob, ...]:
         "options_chains": _options_job,
         "unusual_activity_alerts": _activity_alerts_job,
     }
-    return tuple(builders[dataset](config) for dataset in config.datasets)
+    jobs: list[RefreshJob] = []
+    for dataset in config.datasets:
+        decision = extraction_decision_for_dataset(config, dataset, now=now)
+        job = builders[dataset](_effective_config(config, decision))
+        if decision.action == "skip":
+            job = replace(job, blocked_reasons=(), skip_reason=decision.reason)
+        jobs.append(replace(job, extraction_action=decision.action))
+    return tuple(jobs)
+
+
+def _effective_config(
+    config: RefreshBatchConfig,
+    decision: ExtractionDecision,
+) -> RefreshBatchConfig:
+    tickers = decision.tickers or config.tickers
+    if decision.dataset == "stock_trades":
+        return replace(
+            config,
+            tickers=tickers,
+            refresh=config.refresh or decision.refresh,
+            stock_trades_start=decision.start or config.stock_trades_start,
+            stock_trades_end=decision.end or config.stock_trades_end,
+        )
+    return replace(
+        config,
+        tickers=tickers,
+        refresh=config.refresh or decision.refresh,
+        start=decision.start or config.start,
+        end=decision.end or config.end,
+    )
 
 
 def _prices_job(config: RefreshBatchConfig) -> RefreshJob:
+    if config.market_data_provider == "massive":
+        lane_reasons = ["prices_daily is lane-owned by massive_daily_bars when provider=massive"]
+        if not config.massive_credentials_present:
+            lane_reasons.append("missing Massive market data credentials")
+        lane_reasons.append(
+            "use the scheduler work queue / Massive Lane Orchestrator instead of run_data_refresh_batch"
+        )
+        return _job(config, "prices_daily", (), tuple(lane_reasons))
     command = _base_command(config, "pull_yfinance_daily.py")
     command.extend(["--provider", config.market_data_provider])
     if config.market_data_provider == "alpaca":
@@ -41,6 +85,8 @@ def _prices_job(config: RefreshBatchConfig) -> RefreshJob:
                 config.market_data_base_url,
             ]
         )
+    if config.market_data_provider == "massive":
+        command.extend(["--massive-base-url", config.massive_base_url])
     command.extend(["--start", config.start.isoformat(), "--end", config.end.isoformat()])
     command.extend(["--workers", str(config.workers)])
     if config.include_etfs:
@@ -99,6 +145,7 @@ def _news_job(config: RefreshBatchConfig) -> RefreshJob:
 def _subscription_email_job(config: RefreshBatchConfig) -> RefreshJob:
     command = _base_command(config, "import_subscription_emails.py")
     reasons = []
+    requires_console = False
     if config.subscription_email_config is None:
         reasons.append("missing subscription email config")
     else:
@@ -108,7 +155,9 @@ def _subscription_email_job(config: RefreshBatchConfig) -> RefreshJob:
             reasons.append(f"missing subscription email config: {display_path}")
         else:
             reasons.extend(_subscription_email_config_reasons(config))
-    return _job(config, "subscription_emails", command, reasons)
+            if _subscription_email_requires_console(config):
+                requires_console = True
+    return _job(config, "subscription_emails", command, reasons, requires_console=requires_console)
 
 
 def _subscription_email_config_reasons(config: RefreshBatchConfig) -> list[str]:
@@ -122,11 +171,15 @@ def _subscription_email_config_reasons(config: RefreshBatchConfig) -> list[str]:
         missing = _missing_mailbox_env(payload)
         if not missing:
             return []
-        token_path = _payload_path(payload, "token_path", config.repo_root)
-        if token_path is None or not token_path.is_file():
-            return [f"missing subscription mailbox credentials: {', '.join(missing)}"]
-        return []
+        return [f"missing subscription mailbox credentials: {', '.join(missing)}"]
     return [f"unsupported subscription email mode: {mode}"]
+
+
+def _subscription_email_requires_console(config: RefreshBatchConfig) -> bool:
+    if config.subscription_email_config is None:
+        return False
+    payload = _json_object(config.subscription_email_config)
+    return payload.get("article_login_preflight_required") is True
 
 
 def _missing_mailbox_env(payload: dict[str, Any]) -> list[str]:
@@ -162,15 +215,17 @@ def _json_object(path: Path) -> dict[str, Any]:
 
 
 def _stock_trades_job(config: RefreshBatchConfig) -> RefreshJob:
-    command = _base_command(config, "pull_massive_stock_trades.py")
-    command.extend(["--start", config.start.isoformat(), "--end", config.end.isoformat()])
-    command.extend(["--massive-base-url", config.massive_base_url])
-    for ticker in config.tickers:
-        command.extend(["--ticker", ticker.upper()])
-    reasons = list(_universe_reasons(config))
-    if not config.massive_credentials_present:
-        reasons.append("missing Massive market-flow credentials")
-    return _job(config, "stock_trades", command, tuple(reasons))
+    del config
+    return RefreshJob(
+        dataset="stock_trades",
+        command=(),
+        display_command=(),
+        blocked_reasons=(
+            "stock_trades is lane-owned by massive_live_trade_slices, "
+            "massive_premarket_trade_slices, and massive_backtest_trade_tape",
+            "use the scheduler work queue / Massive Lane Orchestrator instead of run_data_refresh_batch",
+        ),
+    )
 
 
 def _options_job(config: RefreshBatchConfig) -> RefreshJob:
@@ -202,12 +257,15 @@ def _job(
     dataset: str,
     command: Sequence[str],
     reasons: Sequence[str],
+    *,
+    requires_console: bool = False,
 ) -> RefreshJob:
     return RefreshJob(
         dataset=dataset,
         command=tuple(command),
         display_command=_display_command(command, config.repo_root, config.python_executable),
         blocked_reasons=tuple(reasons),
+        requires_console=requires_console,
     )
 
 
@@ -237,11 +295,17 @@ def _sec_reasons(config: RefreshBatchConfig) -> tuple[str, ...]:
 
 
 def _market_data_reasons(config: RefreshBatchConfig) -> tuple[str, ...]:
-    if config.market_data_provider != "alpaca":
+    if config.market_data_provider == "alpaca":
+        if config.market_data_credentials_present:
+            return ()
+        return ("missing Alpaca market data credentials",)
+    if config.market_data_provider == "massive":
+        if config.massive_credentials_present:
+            return ()
+        return ("missing Massive market data credentials",)
+    if config.market_data_provider == "yfinance":
         return ()
-    if config.market_data_credentials_present:
-        return ()
-    return ("missing Alpaca market data credentials",)
+    return (f"unknown market data provider: {config.market_data_provider}",)
 
 
 def _display_command(
@@ -278,8 +342,10 @@ def _validate_config(config: RefreshBatchConfig) -> None:
         raise ValueError("end must be on or after start")
     if config.workers < 1:
         raise ValueError("workers must be >= 1")
-    if config.market_data_provider not in {"yfinance", "alpaca"}:
+    if config.market_data_provider not in {"yfinance", "alpaca", "massive"}:
         raise ValueError(f"unknown market data provider: {config.market_data_provider}")
+    if config.extraction_mode not in {"auto", "baseline", "incremental", "force"}:
+        raise ValueError(f"unknown extraction mode: {config.extraction_mode}")
     for label, value in (
         ("market_data_feed", config.market_data_feed),
         ("market_data_adjustment", config.market_data_adjustment),
@@ -288,3 +354,20 @@ def _validate_config(config: RefreshBatchConfig) -> None:
     ):
         if value.strip() == "":
             raise ValueError(f"{label} must not be blank")
+    if config.stock_trades_limit < 1:
+        raise ValueError("stock_trades_limit must be >= 1")
+    if (
+        config.stock_trades_max_pages_per_day is not None
+        and config.stock_trades_max_pages_per_day < 1
+    ):
+        raise ValueError("stock_trades_max_pages_per_day must be >= 1")
+    numeric_settings: tuple[tuple[str, int], ...] = (
+        ("sec_company_facts_max_age_days", config.sec_company_facts_max_age_days),
+        ("sec_form4_max_age_days", config.sec_form4_max_age_days),
+        ("sec_13f_max_age_days", config.sec_13f_max_age_days),
+        ("news_rss_max_age_minutes", config.news_rss_max_age_minutes),
+        ("subscription_email_max_age_minutes", config.subscription_email_max_age_minutes),
+    )
+    for numeric_label, numeric_value in numeric_settings:
+        if numeric_value < 1:
+            raise ValueError(f"{numeric_label} must be >= 1")

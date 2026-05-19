@@ -25,6 +25,22 @@ def build_runtime_cycle_from_payload(
             payload.get("current_gross_exposure_pct"),
             default=0.0,
         ),
+        account=_optional_mapping(payload.get("account"), "account"),
+        positions=_mapping_sequence(payload.get("positions", []), "positions"),
+        open_orders=_mapping_sequence(payload.get("open_orders", []), "open_orders"),
+        pending_opening_order_exposure_pct=_optional_float(
+            payload.get("pending_opening_order_exposure_pct"),
+            default=0.0,
+        ),
+        llm_reviews=_llm_review_mapping(payload.get("llm_reviews")),
+        llm_lifecycle_events=_mapping_sequence(
+            payload.get("llm_lifecycle_events", []),
+            "llm_lifecycle_events",
+        ),
+        llm_prompt_audits=_mapping_sequence(
+            payload.get("llm_prompt_audits", []),
+            "llm_prompt_audits",
+        ),
     )
 
 
@@ -39,10 +55,31 @@ def _mapping_sequence(value: object, field_name: str) -> list[Mapping[str, objec
     return items
 
 
+def _optional_mapping(value: object, field_name: str) -> Mapping[str, object] | None:
+    if value is None:
+        return None
+    if not isinstance(value, Mapping):
+        raise TypeError(f"{field_name} must be an object")
+    return cast(Mapping[str, object], value)
+
+
 def _string_sequence(value: object, field_name: str) -> list[str]:
     if not isinstance(value, list):
         raise TypeError(f"{field_name} must be a list")
     return [str(item).upper() for item in value]
+
+
+def _llm_review_mapping(value: object) -> dict[str, Mapping[str, object]] | None:
+    if value is None:
+        return None
+    if not isinstance(value, Mapping):
+        raise TypeError("llm_reviews must be an object")
+    reviews: dict[str, Mapping[str, object]] = {}
+    for ticker, review in value.items():
+        if not isinstance(review, Mapping):
+            raise TypeError("llm_reviews entries must be objects")
+        reviews[str(ticker).upper()] = cast(Mapping[str, object], review)
+    return reviews
 
 
 def _optional_float(value: object, *, default: float) -> float:

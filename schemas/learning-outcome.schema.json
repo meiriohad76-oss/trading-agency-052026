@@ -43,6 +43,20 @@
       "items": {
         "$ref": "#/$defs/Requirement"
       }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "recommendations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Recommendation"
+      }
+    },
+    "near_miss_journal": {
+      "type": "object",
+      "additionalProperties": true
     }
   },
   "$defs": {
@@ -58,6 +72,25 @@
         "status": {
           "type": "string",
           "enum": ["PASS", "WARN"]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "Recommendation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "status", "reason"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "type": "string",
+          "enum": ["DISABLED", "READY", "WARN"]
         },
         "reason": {
           "type": "string",

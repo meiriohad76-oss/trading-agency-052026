@@ -1,15 +1,20 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 from pathlib import Path
 
+import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
 from agency.app import create_app
+from agency.runtime import live_config_readiness
 from agency.runtime.live_config_readiness import load_live_config_readiness
 
 HTTP_OK = 200
+EXPECTED_ACTIVE_UNIVERSE_COUNT = 2
+EXPECTED_RUNTIME_SIGNAL_COUNT = 2
 
 
 def test_live_config_readiness_blocks_missing_alpaca_keys(
@@ -81,6 +86,87 @@ def test_live_config_readiness_warns_for_yfinance_current_date_provider(
     assert readiness["state"] == "warning"
     assert readiness["warning_count"] == 1
     assert _check(readiness, "Market data")["status"] == "WARN"
+
+
+def test_live_config_readiness_accepts_massive_market_data_provider(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _blank_env(monkeypatch)
+    monkeypatch.setenv("MASSIVE_API_KEY", "key")
+    config_path = _write_config(
+        tmp_path,
+        {
+            "datasets": ["prices_daily"],
+            "tickers": ["AAPL"],
+            "market_data_provider": "massive",
+        },
+    )
+
+    readiness = load_live_config_readiness(config_path)
+
+    assert readiness["state"] == "ready"
+    assert _check(readiness, "Market data")["status"] == "PASS"
+
+
+def test_live_config_readiness_exposes_runtime_signal_names(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _blank_env(monkeypatch)
+    monkeypatch.setenv("MASSIVE_API_KEY", "key")
+    config_path = _write_config(
+        tmp_path,
+        {
+            "datasets": ["prices_daily"],
+            "tickers": ["AAPL"],
+            "market_data_provider": "massive",
+            "runtime_signals": ["fundamentals", "technical_analysis"],
+        },
+    )
+
+    readiness = load_live_config_readiness(config_path)
+
+    assert readiness["runtime_signals"] == ["fundamentals", "technical_analysis"]
+    assert readiness["runtime_signal_count"] == EXPECTED_RUNTIME_SIGNAL_COUNT
+
+
+def test_live_config_readiness_counts_active_runtime_universe(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _blank_env(monkeypatch)
+    monkeypatch.setenv("MASSIVE_API_KEY", "key")
+    universe_path = tmp_path / "universe_membership.parquet"
+    pd.DataFrame(
+        [
+            _member("AAPL", date(2019, 1, 1), None),
+            _member("MSFT", date(2019, 1, 1), None),
+            _member("OLD", date(2019, 1, 1), date(2020, 1, 1)),
+        ]
+    ).to_parquet(universe_path, index=False)
+    monkeypatch.setattr(live_config_readiness, "DEFAULT_UNIVERSE_PATH", universe_path)
+    monkeypatch.setattr(live_config_readiness, "DEFAULT_MANIFEST_ROOT", tmp_path / "manifests")
+    monkeypatch.setattr(live_config_readiness, "DEFAULT_PARQUET_ROOT", tmp_path / "parquet")
+    config_path = _write_config(
+        tmp_path,
+        {
+            "datasets": ["prices_daily"],
+            "tickers": ["AAPL"],
+            "runtime_universe": "active",
+            "end": "2026-05-08",
+            "market_data_provider": "massive",
+        },
+    )
+
+    readiness = load_live_config_readiness(config_path)
+
+    assert readiness["ticker_count"] == EXPECTED_ACTIVE_UNIVERSE_COUNT
+    assert (
+        f"{EXPECTED_ACTIVE_UNIVERSE_COUNT} active universe tickers"
+        in _check(readiness, "Ticker universe")["detail"]
+    )
+    assert _check(readiness, "Runtime data coverage")["status"] == "WARN"
 
 
 def test_live_config_readiness_warns_for_inferred_options_chains(
@@ -233,6 +319,46 @@ def test_live_config_readiness_passes_gmail_app_password_credentials(
     assert _check(readiness, "Subscription emails")["status"] == "PASS"
 
 
+def test_live_config_readiness_warns_for_gmail_token_without_env_credentials(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _blank_env(monkeypatch)
+    monkeypatch.setenv("SUBSCRIPTION_EMAIL_USERNAME", "")
+    monkeypatch.setenv("SUBSCRIPTION_EMAIL_PASSWORD", "")
+    token_path = tmp_path / "subscription-token.json"
+    token_path.write_text("{}", encoding="utf-8")
+    subscription_config = tmp_path / "subscription-email.json"
+    subscription_config.write_text(
+        json.dumps(
+            {
+                "mode": "gmail",
+                "input_path": str(tmp_path / "mail"),
+                "enabled_services": ["seeking_alpha"],
+                "token_path": str(token_path),
+                "mailbox_username_env": "SUBSCRIPTION_EMAIL_USERNAME",
+                "mailbox_password_env": "SUBSCRIPTION_EMAIL_PASSWORD",
+            }
+        ),
+        encoding="utf-8",
+    )
+    config_path = _write_config(
+        tmp_path,
+        {
+            "datasets": ["subscription_emails"],
+            "tickers": ["AAPL"],
+            "subscription_email_config": str(subscription_config),
+            "market_data_provider": "yfinance",
+        },
+    )
+
+    readiness = load_live_config_readiness(config_path)
+    check = _check(readiness, "Subscription emails")
+
+    assert check["status"] == "WARN"
+    assert "Missing mailbox credentials" in check["detail"]
+
+
 def test_live_config_status_endpoint_reads_configured_path(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -259,6 +385,10 @@ def _write_config(tmp_path: Path, payload: dict[str, object]) -> Path:
     path = tmp_path / "live-refresh.local.json"
     path.write_text(json.dumps(payload), encoding="utf-8")
     return path
+
+
+def _member(ticker: str, start: date, end: date | None) -> dict[str, object]:
+    return {"ticker": ticker, "start_date": start, "end_date": end}
 
 
 def _blank_env(monkeypatch: pytest.MonkeyPatch) -> None:

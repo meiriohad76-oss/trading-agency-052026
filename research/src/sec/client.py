@@ -14,9 +14,15 @@ import httpx
 
 DATA_SEC_BASE = "https://data.sec.gov"
 WWW_SEC_BASE = "https://www.sec.gov"
-DEFAULT_REQUESTS_PER_SECOND = 8.0
-MAX_ATTEMPTS = 3
-RETRY_BACKOFF_SECONDS = 0.5
+DEFAULT_REQUESTS_PER_SECOND = 4.0
+MAX_ATTEMPTS = 5
+RETRY_BACKOFF_SECONDS = 1.0
+RETRYABLE_STATUS_CODES = {
+    httpx.codes.TOO_MANY_REQUESTS,
+    httpx.codes.BAD_GATEWAY,
+    httpx.codes.SERVICE_UNAVAILABLE,
+    httpx.codes.GATEWAY_TIMEOUT,
+}
 
 type Sleeper = Callable[[float], Awaitable[None]]
 
@@ -115,8 +121,8 @@ class SecClient:
                     await self._sleeper(RETRY_BACKOFF_SECONDS * (2**attempt))
                     continue
                 raise
-            if response.status_code == httpx.codes.TOO_MANY_REQUESTS and attempt < MAX_ATTEMPTS - 1:
-                await self._sleeper(RETRY_BACKOFF_SECONDS * (2**attempt))
+            if response.status_code in RETRYABLE_STATUS_CODES and attempt < MAX_ATTEMPTS - 1:
+                await self._sleeper(_retry_delay(response, attempt))
                 continue
             response.raise_for_status()
             return response
@@ -131,6 +137,18 @@ def archive_url(cik: str, accession_number: str, document: str) -> str:
 
 def json_dumps(payload: Mapping[str, Any]) -> str:
     return json.dumps(payload, indent=2, sort_keys=True) + "\n"
+
+
+def _retry_delay(response: httpx.Response, attempt: int) -> float:
+    retry_after = response.headers.get("Retry-After")
+    if retry_after is not None:
+        try:
+            parsed = float(retry_after)
+        except ValueError:
+            parsed = 0.0
+        if parsed > 0:
+            return float(min(parsed, 60.0))
+    return float(RETRY_BACKOFF_SECONDS * (2**attempt))
 
 
 def _verify_context() -> ssl.SSLContext | bool:

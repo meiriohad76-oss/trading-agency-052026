@@ -1,6 +1,6 @@
 param(
     [int]$Port = 8000,
-    [switch]$SkipSeed
+    [switch]$SeedDemo
 )
 
 $ErrorActionPreference = "Stop"
@@ -8,6 +8,7 @@ $RepoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $Python = Join-Path $RepoRoot ".venv\Scripts\python.exe"
 
 Set-Location $RepoRoot
+$env:PYTHONPATH = "$RepoRoot\src;$RepoRoot\research\src"
 
 if (-not (Test-Path ".env")) {
     Copy-Item ".env.example" ".env"
@@ -35,7 +36,7 @@ if ($status -ne "healthy") {
 
 & $Python -m alembic upgrade head
 
-if (-not $SkipSeed) {
+if ($SeedDemo) {
     & $Python scripts\seed_demo_runtime.py
 }
 

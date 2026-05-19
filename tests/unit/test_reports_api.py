@@ -1,33 +1,57 @@
 from __future__ import annotations
 
+import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
-from agency.api.reports import runtime_selection_reports
+from agency.api.reports import RuntimeSelectionReportsUnavailable, runtime_selection_reports
 from agency.app import create_app
+from agency.runtime.operational_filters import is_non_operational_payload
 
 HTTP_OK = 200
 EXPECTED_LIMIT = 5
 
 
-def test_selection_reports_endpoint_falls_back_to_empty_list() -> None:
+def test_selection_reports_endpoint_uses_local_storage_when_postgres_is_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENCY_RUNTIME_ARTIFACT_FALLBACK", "false")
     client = TestClient(create_app())
 
     response = client.get("/reports/selection")
 
     assert response.status_code == HTTP_OK
-    assert response.json() == []
+    assert isinstance(response.json(), list)
 
 
-def test_selection_reports_for_ticker_endpoint_falls_back_to_empty_list() -> None:
+def test_selection_reports_for_ticker_endpoint_uses_local_storage_when_postgres_is_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENCY_RUNTIME_ARTIFACT_FALLBACK", "false")
     client = TestClient(create_app())
 
     response = client.get("/reports/selection/AAPL")
 
     assert response.status_code == HTTP_OK
-    assert response.json() == []
+    assert isinstance(response.json(), list)
+
+
+def test_non_operational_filter_uses_token_boundaries() -> None:
+    assert is_non_operational_payload({"cycle_id": "demo-cycle-1"}) is True
+    assert is_non_operational_payload({"cycle_id": "manual-smoke-cycle"}) is True
+    assert (
+        is_non_operational_payload(
+            {
+                "cycle_id": "cycle-1",
+                "notes": "Model note: fundamentals are demonstrably improving.",
+            }
+        )
+        is False
+    )
 
 
 async def test_runtime_selection_reports_uses_repository_payloads() -> None:
@@ -48,10 +72,76 @@ async def test_runtime_selection_reports_uses_repository_payloads() -> None:
     assert payloads[0]["final_action"] == "WATCH"
 
 
-async def test_runtime_selection_reports_falls_back_for_unavailable_db() -> None:
-    payloads = await runtime_selection_reports(session_provider=_raising_session_provider)
+async def test_runtime_selection_reports_can_skip_internal_validation() -> None:
+    async def reader(session: object, ticker: str | None, limit: int) -> list[dict[str, object]]:
+        return [{"ticker": "AAPL"}]
 
-    assert payloads == []
+    payloads = await runtime_selection_reports(
+        session_provider=_fake_session_provider,
+        reader=reader,
+        validate_payloads=False,
+    )
+
+    assert payloads == [{"ticker": "AAPL"}]
+
+
+async def test_runtime_selection_reports_filters_demo_seed_payloads() -> None:
+    demo = {**_selection_report(), "cycle_id": "demo-cycle-1"}
+
+    async def reader(session: object, ticker: str | None, limit: int) -> list[dict[str, object]]:
+        del session, ticker, limit
+        return [demo, _selection_report()]
+
+    payloads = await runtime_selection_reports(
+        session_provider=_fake_session_provider,
+        reader=reader,
+    )
+
+    assert [payload["cycle_id"] for payload in payloads] == ["cycle-1"]
+
+
+async def test_runtime_selection_reports_uses_latest_artifact_when_db_unavailable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENCY_RUNTIME_ARTIFACT_FALLBACK", "true")
+    artifact = tmp_path / "selection-reports.json"
+    artifact.write_text(
+        json.dumps([_selection_report(), {**_selection_report(), "ticker": "MSFT"}]),
+        encoding="utf-8",
+    )
+
+    payloads = await runtime_selection_reports(
+        ticker="AAPL",
+        session_provider=_raising_session_provider,
+        artifact_root=tmp_path,
+    )
+
+    assert [payload["ticker"] for payload in payloads] == ["AAPL"]
+    assert payloads[0]["runtime_origin"] == "runtime_artifact_fallback"
+
+
+async def test_runtime_selection_reports_does_not_use_artifact_by_default(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("AGENCY_RUNTIME_ARTIFACT_FALLBACK", raising=False)
+    artifact = tmp_path / "selection-reports.json"
+    artifact.write_text(json.dumps([_selection_report()]), encoding="utf-8")
+
+    with pytest.raises(RuntimeSelectionReportsUnavailable):
+        await runtime_selection_reports(
+            session_provider=_raising_session_provider,
+            artifact_root=tmp_path,
+        )
+
+
+async def test_runtime_selection_reports_raises_for_unavailable_db() -> None:
+    with pytest.raises(RuntimeSelectionReportsUnavailable):
+        await runtime_selection_reports(
+            session_provider=_raising_session_provider,
+            artifact_root=Path("missing-runtime-artifacts"),
+        )
 
 
 @asynccontextmanager

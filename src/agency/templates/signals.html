@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_data_health.html" import data_health_panel %}
 
 {% set active_nav = "signals" %}
 
@@ -9,7 +10,7 @@
 
 {% block content %}
   <section class="next-action hero-info" aria-label="Signals state">
-    <div class="next-action-step" aria-hidden="true">09</div>
+    <div class="next-action-step" aria-hidden="true">06</div>
     <div class="next-action-copy">
       <p class="eyebrow">Signal audit / Latest cycle</p>
       <h2>{{ summary.headline }}</h2>
@@ -44,6 +45,8 @@
       <p>ignored or too weak</p>
     </article>
   </section>
+
+  {{ data_health_panel(data_health) }}
 
   <section class="panel" aria-labelledby="lane-heading">
     <div class="section-heading">
@@ -107,7 +110,7 @@
     </div>
   </section>
 
-  <section class="panel" aria-labelledby="signal-rows-heading">
+  <section class="panel" aria-labelledby="signal-rows-heading" data-empty-copy="No signal rows are available for the latest cycle">
     <div class="section-heading">
       <div>
         <h2 id="signal-rows-heading">Signal Rows</h2>

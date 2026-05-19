@@ -5,20 +5,26 @@ from contextlib import asynccontextmanager
 
 from fastapi.testclient import TestClient
 
-from agency.api.audit import runtime_agent_runs, runtime_risk_snapshots
+from agency.api.audit import (
+    RuntimeAuditUnavailable,
+    runtime_agent_runs,
+    runtime_portfolio_snapshots,
+    runtime_risk_snapshots,
+)
 from agency.app import create_app
 
 HTTP_OK = 200
 EXPECTED_LIMIT = 5
 
 
-def test_audit_endpoints_fall_back_to_empty_lists() -> None:
+def test_audit_endpoints_report_storage_unavailable() -> None:
     client = TestClient(create_app())
 
-    assert client.get("/audit/agent-runs").json() == []
-    assert client.get("/audit/prompts").json() == []
-    assert client.get("/audit/risk-snapshots").json() == []
-    assert client.get("/audit/execution-states").json() == []
+    assert client.get("/audit/agent-runs").status_code == 503
+    assert client.get("/audit/prompts").status_code == 503
+    assert client.get("/audit/risk-snapshots").status_code == 503
+    assert client.get("/audit/execution-states").status_code == 503
+    assert client.get("/audit/portfolio-snapshots").status_code == 503
 
 
 async def test_runtime_agent_runs_uses_repository_payloads() -> None:
@@ -62,17 +68,51 @@ async def test_runtime_risk_snapshots_pass_filters_to_reader() -> None:
     assert payloads[0]["risk_level"] == "LOW"
 
 
-def test_agent_runs_route_returns_http_ok() -> None:
+async def test_runtime_portfolio_snapshots_uses_repository_payloads() -> None:
+    async def reader(session: object, limit: int) -> list[dict[str, object]]:
+        assert session == "fake-session"
+        assert limit == EXPECTED_LIMIT
+        return [_portfolio_snapshot()]
+
+    payloads = await runtime_portfolio_snapshots(
+        limit=EXPECTED_LIMIT,
+        session_provider=_fake_session_provider,
+        reader=reader,
+    )
+
+    assert payloads[0]["provider"] == "alpaca"
+    assert payloads[0]["position_count"] == 1
+
+
+async def test_runtime_agent_runs_can_raise_storage_unavailable() -> None:
+    try:
+        await runtime_agent_runs(
+            session_provider=_raising_session_provider,
+            raise_on_unavailable=True,
+        )
+    except RuntimeAuditUnavailable as exc:
+        assert "runtime audit storage is unavailable" in str(exc)
+    else:
+        raise AssertionError("expected RuntimeAuditUnavailable")
+
+
+def test_agent_runs_route_returns_storage_unavailable_without_config() -> None:
     client = TestClient(create_app())
 
     response = client.get("/audit/agent-runs")
 
-    assert response.status_code == HTTP_OK
+    assert response.status_code == 503
 
 
 @asynccontextmanager
 async def _fake_session_provider() -> AsyncIterator[object]:
     yield "fake-session"
+
+
+@asynccontextmanager
+async def _raising_session_provider() -> AsyncIterator[object]:
+    raise OSError("database offline")
+    yield "unused"
 
 
 def _agent_run() -> dict[str, object]:
@@ -100,4 +140,23 @@ def _risk_snapshot() -> dict[str, object]:
         "gross_exposure_pct": 10.0,
         "risk_level": "LOW",
         "payload": {"risk_decision": "ALLOW"},
+    }
+
+
+def _portfolio_snapshot() -> dict[str, object]:
+    return {
+        "schema_version": "0.1.0",
+        "snapshot_id": "portfolio-snap-1",
+        "provider": "alpaca",
+        "mode": "paper",
+        "captured_at": "2026-05-08T09:34:00Z",
+        "account_status": "ACTIVE",
+        "equity": 100000.0,
+        "cash": 99000.0,
+        "buying_power": 198000.0,
+        "portfolio_value": 100000.0,
+        "position_count": 1,
+        "open_order_count": 0,
+        "gross_exposure_pct": 1.0,
+        "payload": {"positions": []},
     }

@@ -28,6 +28,8 @@ from .records import (
 )
 from .sec_views import fundamentals_from_frame, institutional_holdings_from_frame
 
+STALE_CONTEXT_READ_DATASETS = {DatasetName.SUBSCRIPTION_EMAILS}
+
 
 class PITLoader:
     """Canonical point-in-time access layer for research datasets.
@@ -250,6 +252,43 @@ class PITLoader:
         self._stock_trade_activity_cache[cache_key] = frames
         return frames
 
+    def complete_stock_trade_tickers(
+        self,
+        tickers: list[str],
+        as_of: date,
+        lookback_days: int,
+        *,
+        allow_partial_coverage: bool = False,
+    ) -> tuple[str, ...]:
+        """Return requested tickers with verified coverage for the full lookback window."""
+        self._ensure_not_future(as_of)
+        self._ensure_positive_lookback(lookback_days)
+        normalized_tickers = tuple(sorted({ticker.upper() for ticker in tickers}))
+        if not normalized_tickers:
+            return ()
+        dataset = DatasetName.STOCK_TRADES
+        manifest = self._manifests.require(dataset, as_of=as_of)
+        if not manifest.path.is_dir():
+            return ()
+        coverage = load_stock_trade_coverage_metadata(manifest.path)
+        if not coverage:
+            return ()
+        start = as_of - timedelta(days=lookback_days - 1)
+        complete: list[str] = []
+        for ticker in normalized_tickers:
+            try:
+                self._ensure_complete_stock_trade_coverage(
+                    manifest.path,
+                    tickers=[ticker],
+                    start=start,
+                    end=as_of,
+                    allow_partial_coverage=allow_partial_coverage,
+                )
+            except DataNotAvailableAt:
+                continue
+            complete.append(ticker)
+        return tuple(complete)
+
     def activity_alerts(
         self,
         tickers: list[str],
@@ -289,7 +328,11 @@ class PITLoader:
         )
 
     def _read(self, dataset: DatasetName, as_of: date) -> pl.DataFrame:
-        manifest = self._manifests.require(dataset, as_of=as_of)
+        manifest = self._manifests.require(
+            dataset,
+            as_of=as_of,
+            allow_stale=dataset in STALE_CONTEXT_READ_DATASETS,
+        )
         cache_key = (
             dataset,
             as_of,
@@ -545,7 +588,11 @@ class PITLoader:
     ) -> None:
         coverage = load_stock_trade_coverage_metadata(root)
         if not coverage:
-            return
+            raise DataNotAvailableAt(
+                DatasetName.STOCK_TRADES.value,
+                end,
+                "missing stock trade coverage metadata",
+            )
         incomplete: list[str] = []
         for ticker in tickers:
             current = start
@@ -559,14 +606,11 @@ class PITLoader:
                 key = coverage_key(ticker, current)
                 row = coverage.get(key)
                 if row is None:
-                    if not allow_partial_coverage:
+                    if not allow_partial_coverage or current == end:
                         incomplete.append(f"{ticker}|{current}:missing")
                 elif str(row.get("coverage_status")) == "complete":
                     usable_days += 1
-                elif (
-                    allow_partial_coverage
-                    and str(row.get("coverage_status")) == "partial"
-                ):
+                elif allow_partial_coverage and PITLoader._stock_trade_partial_row_usable(row):
                     usable_days += 1
                 else:
                     incomplete.append(f"{ticker}|{current}:{row.get('coverage_status')}")
@@ -579,6 +623,25 @@ class PITLoader:
                 end,
                 f"incomplete stock trade coverage: {', '.join(incomplete[:3])}",
             )
+
+    @staticmethod
+    def _stock_trade_partial_row_usable(row: Mapping[str, object]) -> bool:
+        if str(row.get("coverage_status")).lower() != "partial":
+            return False
+        downloaded = PITLoader._positive_int(row.get("downloaded_row_count"))
+        pages = PITLoader._positive_int(row.get("pages_downloaded"))
+        order = str(row.get("order") or "").lower()
+        return downloaded > 0 and pages > 0 and order == "desc"
+
+    @staticmethod
+    def _positive_int(value: object) -> int:
+        if isinstance(value, bool):
+            return 0
+        if isinstance(value, int):
+            return max(value, 0)
+        if isinstance(value, float):
+            return max(round(value), 0)
+        return 0
 
     @staticmethod
     def _lazy_date_expression(column: str, schema: pl.Schema) -> pl.Expr:

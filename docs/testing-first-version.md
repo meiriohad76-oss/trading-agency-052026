@@ -6,11 +6,28 @@ Use this checklist after starting the local paper runtime with:
 .\scripts\start_local_runtime.ps1
 ```
 
+This starts the server without demo data. Use `.\scripts\start_local_runtime.ps1 -SeedDemo`
+only for isolated UI demos, not live-paper operation.
+
 If the script reports that the local runtime is already running on port 8000,
 keep using the existing browser session. Stop that server and rerun the script only
 when you need to load newly changed Python or template code.
 
 Open `http://127.0.0.1:8000/` and inspect the app in this order.
+
+For the fastest bounded live-paper loop from already-refreshed PIT data, run:
+
+```powershell
+.\.venv\Scripts\python scripts\run_first_version_pipeline.py `
+  --email-max-emails 1 `
+  --email-max-article-links 1 `
+  --check-dashboard
+```
+
+This ingests at most one matching subscription email, analyzes at most one linked
+article, runs a persisted PIT paper cycle, and then checks dashboard readiness.
+Add `--refresh-data` only when you deliberately want to call external data
+providers again.
 
 ## Manual Page Walk
 
@@ -98,11 +115,9 @@ Before a refresh, check the Command page Live Config panel or:
 curl.exe http://127.0.0.1:8000/status/live-config
 ```
 
-There should be no `BLOCK` checks. A yfinance `WARN` is acceptable for historical
-replay, but switch to Alpaca before current-date validation if yfinance is stale.
-
-If yfinance remains stale, switch the local refresh config to Alpaca and set
-credentials in `.env`:
+There should be no `BLOCK` checks. The local config now expects Massive for
+research market data, so add `POLYGON_API_KEY` or `MASSIVE_API_KEY` in `.env`
+before current-date validation.
 
 ```powershell
 notepad .env
@@ -112,11 +127,31 @@ notepad research\config\live-refresh.local.json
 Use these local settings:
 
 ```json
-"market_data_provider": "alpaca",
-"market_data_feed": "iex",
-"market_data_adjustment": "all",
-"market_data_base_url": "https://data.alpaca.markets"
+"market_data_provider": "massive",
+"massive_base_url": "https://api.polygon.io",
+"runtime_universe": "active",
+"runtime_max_tickers": 250
 ```
+
+`runtime_universe="active"` makes the paper cycle use the active PIT S&P 100 +
+QQQ membership instead of only the small refresh ticker list. If `/status/live-config`
+shows a `Runtime data coverage` warning, the full universe is wired but one or
+more local datasets still need staged refreshes before the queue is fully
+operational.
+
+Before widening coverage, generate a quota-aware active-universe plan:
+
+```powershell
+.\.venv\Scripts\python research\scripts\plan_active_universe_refresh.py `
+  --config research\config\live-refresh.local.json `
+  --as-of 2026-05-08
+
+Get-Content research\results\active-universe-refresh-plan\active-universe-refresh-plan.md
+```
+
+The planner reads the local Massive usage ledger and emits only the batches that
+fit the remaining local request budget. `stock_trades` uses the configured
+single-day live window, not the full historical research window.
 
 Then run a current-date refresh and a persisted paper cycle:
 

@@ -7,7 +7,8 @@ from typing import Protocol
 
 import pandas as pd
 import polars as pl
-from signals._common import score_dict, zscore
+from pit.exceptions import DataNotAvailableAt
+from signals._common import directional_rank_score, score_dict
 
 DEFAULT_LOOKBACK_DAYS = 10
 CONTRACT_MULTIPLIER = 100.0
@@ -50,7 +51,7 @@ def options_anomaly_frame(
         return _empty_frame()
     try:
         raw = loader.option_chains(tickers, as_of, lookback_days)
-    except Exception:
+    except DataNotAvailableAt:
         return _empty_frame()
     if raw.is_empty():
         return _empty_frame()
@@ -64,7 +65,9 @@ def options_anomaly_frame(
     output = pd.DataFrame(rows)
     if output.empty:
         return _empty_frame()
-    output["options_anomaly_score"] = zscore(output["options_anomaly_pressure"])
+    output["options_anomaly_score"] = directional_rank_score(
+        output["options_anomaly_pressure"]
+    ) if len(output) >= 2 else 0.0
     return output.sort_values(
         ["options_anomaly_score", "ticker"], ascending=[False, True]
     ).reset_index(drop=True)
@@ -97,6 +100,7 @@ def _factor_row(ticker: str, group: pd.DataFrame) -> dict[str, object] | None:
     return {
         "ticker": ticker,
         "snapshot_date": priced["snapshot_date"].iloc[0],
+        "timestamp_as_of": _latest_timestamp_as_of(priced),
         "total_option_volume": total_volume,
         "total_open_interest": total_oi,
         "volume_to_open_interest": volume_to_oi,
@@ -154,11 +158,19 @@ def _column(frame: pd.DataFrame, column: str, default: float | int) -> pd.Series
     return pd.Series([default for _ in range(len(frame))], index=frame.index)
 
 
+def _latest_timestamp_as_of(frame: pd.DataFrame) -> object:
+    if "timestamp_as_of" not in frame.columns:
+        return None
+    timestamps = pd.to_datetime(frame["timestamp_as_of"], errors="coerce", utc=True).dropna()
+    return None if timestamps.empty else timestamps.max().to_pydatetime()
+
+
 def _empty_frame() -> pd.DataFrame:
     return pd.DataFrame(
         columns=[
             "ticker",
             "snapshot_date",
+            "timestamp_as_of",
             "total_option_volume",
             "total_open_interest",
             "volume_to_open_interest",

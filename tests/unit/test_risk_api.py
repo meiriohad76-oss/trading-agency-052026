@@ -1,26 +1,38 @@
 from __future__ import annotations
 
+import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 from service_fixtures import selection_report
 
-from agency.api.risk import runtime_risk_decisions
+from agency.api.risk import (
+    PolicyUpdate,
+    RuntimeRiskDecisionsUnavailable,
+    _updated_policy,
+    runtime_risk_decisions,
+)
 from agency.app import create_app
 from agency.services import build_risk_decision
+from agency.services.risk import PortfolioPolicy
 
 HTTP_OK = 200
 RISK_DECISION_LIMIT = 5
 
 
-def test_risk_decisions_endpoint_falls_back_to_empty_list() -> None:
+def test_risk_decisions_endpoint_uses_local_storage_when_postgres_is_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENCY_RUNTIME_ARTIFACT_FALLBACK", "false")
     client = TestClient(create_app())
 
     response = client.get("/risk/decisions")
 
     assert response.status_code == HTTP_OK
-    assert response.json() == []
+    assert isinstance(response.json(), list)
 
 
 async def test_runtime_risk_decisions_uses_repository_payloads() -> None:
@@ -45,10 +57,123 @@ async def test_runtime_risk_decisions_uses_repository_payloads() -> None:
     assert payloads[0]["decision"] == "ALLOW"
 
 
-async def test_runtime_risk_decisions_falls_back_for_unavailable_db() -> None:
-    payloads = await runtime_risk_decisions(session_provider=_raising_session_provider)
+async def test_runtime_risk_decisions_can_skip_internal_validation() -> None:
+    async def reader(
+        session: object,
+        ticker: str | None,
+        limit: int,
+    ) -> list[dict[str, object]]:
+        return [{"ticker": "AAPL"}]
 
-    assert payloads == []
+    payloads = await runtime_risk_decisions(
+        session_provider=_fake_session_provider,
+        reader=reader,
+        validate_payloads=False,
+    )
+
+    assert payloads == [{"ticker": "AAPL"}]
+
+
+async def test_runtime_risk_decisions_filters_demo_seed_payloads() -> None:
+    demo = {**_risk_decision(), "cycle_id": "demo-cycle-1"}
+
+    async def reader(
+        session: object,
+        ticker: str | None,
+        limit: int,
+    ) -> list[dict[str, object]]:
+        del session, ticker, limit
+        return [demo, _risk_decision()]
+
+    payloads = await runtime_risk_decisions(
+        session_provider=_fake_session_provider,
+        reader=reader,
+    )
+
+    assert [payload["cycle_id"] for payload in payloads] == ["cycle-1"]
+
+
+async def test_runtime_risk_decisions_uses_latest_artifact_when_db_unavailable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENCY_RUNTIME_ARTIFACT_FALLBACK", "true")
+    artifact = tmp_path / "risk-decisions.json"
+    artifact.write_text(
+        json.dumps([_risk_decision(), {**_risk_decision(), "ticker": "MSFT"}]),
+        encoding="utf-8",
+    )
+
+    payloads = await runtime_risk_decisions(
+        ticker="AAPL",
+        session_provider=_raising_session_provider,
+        artifact_root=tmp_path,
+    )
+
+    assert [payload["ticker"] for payload in payloads] == ["AAPL"]
+    assert payloads[0]["runtime_origin"] == "runtime_artifact_fallback"
+
+
+async def test_runtime_risk_decisions_does_not_use_artifact_by_default(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("AGENCY_RUNTIME_ARTIFACT_FALLBACK", raising=False)
+    artifact = tmp_path / "risk-decisions.json"
+    artifact.write_text(json.dumps([_risk_decision()]), encoding="utf-8")
+
+    with pytest.raises(RuntimeRiskDecisionsUnavailable):
+        await runtime_risk_decisions(
+            session_provider=_raising_session_provider,
+            artifact_root=tmp_path,
+        )
+
+
+async def test_runtime_risk_decisions_raises_for_unavailable_db() -> None:
+    with pytest.raises(RuntimeRiskDecisionsUnavailable):
+        await runtime_risk_decisions(
+            session_provider=_raising_session_provider,
+            artifact_root=Path("missing-runtime-artifacts"),
+        )
+
+
+def test_policy_update_preserves_omitted_fields_and_runtime_controls() -> None:
+    current = PortfolioPolicy(
+        min_final_conviction=0.7,
+        max_new_positions_per_cycle=4,
+        default_position_pct=7.5,
+        take_profit_pct=12.0,
+        stop_loss_pct=5.0,
+        broker_submit_enabled=True,
+        allow_short_trades=True,
+    )
+
+    updated = _updated_policy(
+        current,
+        PolicyUpdate(take_profit_pct=15.0),
+        broker_submit_enabled=False,
+        allow_short_trades=False,
+    )
+
+    assert updated.take_profit_pct == 15.0
+    assert updated.stop_loss_pct == 5.0
+    assert updated.min_final_conviction == 0.7
+    assert updated.max_new_positions_per_cycle == 4
+    assert updated.default_position_pct == 7.5
+    assert updated.broker_submit_enabled is False
+    assert updated.allow_short_trades is False
+
+
+def test_policy_update_rejects_invalid_values() -> None:
+    with pytest.raises(Exception) as exc_info:
+        _updated_policy(
+            PortfolioPolicy(),
+            PolicyUpdate(default_position_pct=-1.0),
+            broker_submit_enabled=False,
+            allow_short_trades=False,
+        )
+
+    assert "default_position_pct" in str(exc_info.value)
 
 
 @asynccontextmanager

@@ -21,6 +21,7 @@ SCHEMA_NAMES = [
     "prompt-audit.schema.json",
     "execution-state.schema.json",
     "risk-snapshot.schema.json",
+    "portfolio-snapshot.schema.json",
     "execution-preview.schema.json",
     "portfolio-monitor.schema.json",
     "learning-outcome.schema.json",
@@ -58,6 +59,7 @@ def test_data_source_health_validates_dashboard_status_payload() -> None:
 def test_candidate_lifecycle_event_validates_audit_payload() -> None:
     _validator("candidate-lifecycle-event.schema.json").validate(_candidate_lifecycle_event())
     _validator("candidate-lifecycle-event.schema.json").validate(_human_review_event())
+    _validator("candidate-lifecycle-event.schema.json").validate(_order_approval_event())
 
 
 def test_risk_decision_validates_runtime_payload() -> None:
@@ -69,6 +71,7 @@ def test_runtime_audit_contracts_validate_payloads() -> None:
     _validator("prompt-audit.schema.json").validate(_prompt_audit())
     _validator("execution-state.schema.json").validate(_execution_state())
     _validator("risk-snapshot.schema.json").validate(_risk_snapshot())
+    _validator("portfolio-snapshot.schema.json").validate(_portfolio_snapshot())
 
 
 def test_execution_preview_validates_no_submit_payload() -> None:
@@ -231,6 +234,27 @@ def _human_review_event() -> dict[str, object]:
     }
 
 
+def _order_approval_event() -> dict[str, object]:
+    return {
+        "schema_version": "0.1.0",
+        "event_id": "d" * 64,
+        "cycle_id": "cycle-1",
+        "ticker": "AAPL",
+        "event_type": "ORDER_APPROVAL",
+        "event_time": "2026-05-07T10:01:00Z",
+        "status": "PASSED",
+        "reason": "paper order intent approved",
+        "payload": {
+            "approval_type": "ORDER_APPROVAL",
+            "reviewed_by": "local-user",
+            "paper_only": True,
+            "as_of": "2026-05-07T09:30:00Z",
+            "order_intent_version": "0.1.0",
+            "order_intent_hash": "a" * 64,
+        },
+    }
+
+
 def _risk_decision() -> dict[str, object]:
     return {
         "schema_version": "0.1.0",
@@ -308,6 +332,25 @@ def _risk_snapshot() -> dict[str, object]:
     }
 
 
+def _portfolio_snapshot() -> dict[str, object]:
+    return {
+        "schema_version": "0.1.0",
+        "snapshot_id": "portfolio-snap-1",
+        "provider": "alpaca",
+        "mode": "paper",
+        "captured_at": "2026-05-07T09:34:00Z",
+        "account_status": "ACTIVE",
+        "equity": 100000.0,
+        "cash": 99000.0,
+        "buying_power": 198000.0,
+        "portfolio_value": 100000.0,
+        "position_count": 1,
+        "open_order_count": 0,
+        "gross_exposure_pct": 1.0,
+        "payload": {"positions": []},
+    }
+
+
 def _execution_preview() -> dict[str, object]:
     return {
         "schema_version": "0.1.0",
@@ -325,6 +368,8 @@ def _execution_preview() -> dict[str, object]:
         "position_size_pct": 10.0,
         "time_in_force": "DAY",
         "risk_decision": "ALLOW",
+        "order_intent_version": "0.1.0",
+        "order_intent_hash": "a" * 64,
         "submit_enabled": False,
         "reasons": ["paper preview generated"],
     }
@@ -341,6 +386,27 @@ def _portfolio_monitor() -> dict[str, object]:
             "hold_count": 0,
             "review_count": 0,
             "close_candidate_count": 0,
+            "equity": None,
+            "cash": None,
+            "buying_power": None,
+            "gross_exposure_pct": None,
+            "max_gross_exposure_pct": 25.0,
+            "available_exposure_pct": None,
+            "policy_compliance_state": "UNKNOWN",
+            "policy_compliance_label": "Exposure unknown",
+            "policy_compliance_class": "neutral",
+            "take_profit_pct": 8.0,
+            "stop_loss_pct": 4.0,
+            "trailing_stop_pct": 3.0,
+            "hourly_loss_alert_pct": 1.0,
+            "hourly_return_pct": None,
+            "hourly_pl": None,
+            "hourly_reference_at": None,
+            "hourly_current_value": None,
+            "hourly_status": "UNKNOWN",
+            "hourly_status_class": "neutral",
+            "hourly_status_label": "Needs baseline",
+            "hourly_reason": "Hourly performance needs a baseline.",
         },
     }
 

@@ -16,11 +16,16 @@ from agency.views._shared import (
     _latest_selection_cycle_id,
     _mapping_field,
     _selection_reports_for_cycle,
+    dashboard_data_health,
+    live_dashboard_data_load_status,
 )
 
 
 async def learning_context() -> dict[str, object]:
-    reports = await _dashboard_selection_reports(limit=FINAL_SELECTION_REPORT_LIMIT)
+    reports, data_load_status = await asyncio.gather(
+        _dashboard_selection_reports(limit=FINAL_SELECTION_REPORT_LIMIT),
+        live_dashboard_data_load_status(),
+    )
     cycle_id = _latest_selection_cycle_id(reports)
     cycle_reports = _selection_reports_for_cycle(reports, cycle_id)
     price_history = await asyncio.to_thread(_learning_price_history, cycle_reports)
@@ -32,6 +37,30 @@ async def learning_context() -> dict[str, object]:
         "outcome": outcome,
         "near_miss": outcome["near_miss_journal"],
         "summary": learning_summary(outcome),
+        "data_health": dashboard_data_health(
+            "Learning dashboard",
+            data_load_status=data_load_status,
+            datasets=("prices_daily",),
+            cycle_id=cycle_id or "",
+            extra_rows=(
+                {
+                    "kind": "Learning inputs",
+                    "name": "Selection outcomes and price history",
+                    "status_label": "Ready" if cycle_reports else "Waiting for cycle",
+                    "status_class": "pass" if cycle_reports else "neutral",
+                    "coverage_label": (
+                        f"{len(cycle_reports)} report(s), "
+                        f"{len(price_history)} price row(s)"
+                    ),
+                    "freshness_label": "latest selection cycle",
+                    "last_update": cycle_id or "no persisted cycle",
+                    "detail": (
+                        "Learning uses persisted selection reports plus daily price "
+                        "history for near-miss what-if checks."
+                    ),
+                },
+            ),
+        ),
     }
 
 def _learning_price_history(

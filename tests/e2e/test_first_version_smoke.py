@@ -5,7 +5,11 @@ from fastapi.testclient import TestClient
 
 import agency.api.audit as audit_api
 import agency.api.health as health_api
-from agency import audit_dashboard, dashboard
+import agency.views._shared as shared_module
+import agency.views.command as command_module
+import agency.views.execution as execution_module
+import agency.views.risk as risk_module
+from agency import audit_dashboard
 from agency.app import create_app
 from agency.services import DemoRuntimeSeed, build_demo_runtime_seed
 
@@ -13,6 +17,8 @@ HTTP_OK = 200
 
 
 def test_first_version_happy_path_pages(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENCY_ALPACA_BROKER_ENABLED", "false")
+    monkeypatch.setenv("AGENCY_BROKER_SUBMIT_ENABLED", "false")
     seed = build_demo_runtime_seed()
     _patch_runtime_pages(monkeypatch, seed)
     client = TestClient(create_app())
@@ -21,7 +27,13 @@ def test_first_version_happy_path_pages(monkeypatch: pytest.MonkeyPatch) -> None
         "/": ["Command", "NVDA", "Review data sources"],
         "/final-selection": ["Final Selection", "BUY", "WATCH"],
         "/risk": ["Risk Decisions", "ALLOW", "BLOCK"],
-        "/execution-preview": ["Execution Preview", "Submission disabled", "Closed"],
+        "/execution-preview": [
+            "Execution Preview",
+            "Paper-only execution",
+            "Submit Gate",
+            "Execution Freshness Gate",
+        ],
+        "/signals": ["Signals", "Signal Rows", "Inspect Signal"],
         "/audit": ["Runtime Audit", "Agent Runs", "Risk Snapshots"],
         "/candidates/NVDA": ["Candidate Brief", "NVDA", "FINAL_ACTION"],
     }
@@ -34,12 +46,15 @@ def test_first_version_happy_path_pages(monkeypatch: pytest.MonkeyPatch) -> None
 
 
 def test_first_version_machine_endpoints(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENCY_ALPACA_BROKER_ENABLED", "false")
     seed = build_demo_runtime_seed()
     _patch_runtime_pages(monkeypatch, seed)
     client = TestClient(create_app())
 
     assert client.get("/health").json()["status"] == "ok"
     assert client.get("/audit/agent-runs").status_code == HTTP_OK
+    assert client.get("/status/broker").json()["status_label"] == "Broker Disabled"
+    assert client.get("/status/data-load").status_code == HTTP_OK
     metrics = client.get("/metrics").text
 
     assert "agency_source_health_total" in metrics
@@ -69,11 +84,11 @@ def _patch_runtime_pages(
         rows = [event for event in seed.all_lifecycle_events if event["ticker"] == ticker]
         return rows[:limit]
 
-    async def agent_runs(*, limit: int = 50) -> list[dict[str, object]]:
+    async def agent_runs(*, limit: int = 50, **_kwargs: object) -> list[dict[str, object]]:
         del limit
         return [_agent_run()]
 
-    async def prompt_audits(*, limit: int = 50) -> list[dict[str, object]]:
+    async def prompt_audits(*, limit: int = 50, **_kwargs: object) -> list[dict[str, object]]:
         del limit
         return []
 
@@ -92,9 +107,11 @@ def _patch_runtime_pages(
             ]
         )
 
-    monkeypatch.setattr(dashboard, "runtime_selection_reports", reports)
-    monkeypatch.setattr(dashboard, "runtime_data_source_status", sources)
-    monkeypatch.setattr(dashboard, "runtime_candidate_timeline", timeline)
+    monkeypatch.setattr(shared_module, "runtime_selection_reports", reports)
+    monkeypatch.setattr(shared_module, "runtime_candidate_timeline", timeline)
+    # runtime_data_source_status is imported independently by each page module.
+    for page_module in (command_module, risk_module, execution_module):
+        monkeypatch.setattr(page_module, "runtime_data_source_status", sources)
     monkeypatch.setattr(audit_dashboard, "runtime_agent_runs", agent_runs)
     monkeypatch.setattr(audit_dashboard, "runtime_prompt_audits", prompt_audits)
     monkeypatch.setattr(audit_dashboard, "runtime_risk_snapshots", risk_snapshots)

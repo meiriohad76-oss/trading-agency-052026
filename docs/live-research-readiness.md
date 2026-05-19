@@ -18,6 +18,11 @@ Use this checklist to make those inputs explicit.
   - Include `stock_trades` only when you want delayed trade-print pressure
     lanes. The signals infer direction from prints; they do not identify true
     buyer/seller aggressor side.
+  - Use `"stock_trades_max_pages_per_day": null` for full coverage. For a
+    bounded smoke run, set a positive page count or pass `--max-pages-per-day 1`.
+  - The local Massive request ledger is disabled by default. Re-enable
+    `MASSIVE_API_LIMITS_ENABLED=true` only when you deliberately want an extra
+    local cap below the provider subscription.
 - Unusual activity alerts CSV, optional
   - Use for paid/confirmed provider alerts such as block trades, dark-pool prints,
     unusual options activity, options sweeps, and unusual stock activity.
@@ -62,6 +67,11 @@ The run is ready when `data-refresh-status.json` reports:
 - `failed: false`
 - each job status is `planned` in dry-run mode
 
+When `runtime_universe` is `active`, `/status/live-config` also reports the
+active PIT universe size from `universe_membership.parquet` and warns if local
+core datasets cover only a subset of that universe. Treat that warning as a
+staging reminder, not as a provider-key blocker.
+
 ## Live Refresh
 
 After the dry run is unblocked:
@@ -92,6 +102,12 @@ Validate the live outputs:
 The command exits nonzero if the batch failed, any job did not pass, a manifest
 has zero rows, or a manifest reports issues.
 
+Check the Massive request ledger before enabling a live Massive refresh:
+
+```powershell
+.\.venv\Scripts\python research\scripts\check_massive_api_usage.py
+```
+
 When `stock_trades` has enough historical coverage, run the market-flow worker:
 
 ```powershell
@@ -106,7 +122,27 @@ When `stock_trades` has enough historical coverage, run the market-flow worker:
 ```
 
 Review `market-flow-calibration.md` before changing paper-review expectations
-for `buy_sell_pressure` or `block_trade_pressure`.
+for `buy_sell_pressure`, `block_trade_pressure`, `unusual_trade_activity`,
+`pre_market_unusual_activity`, or `market_flow_trend`.
+
+Run the technical-analysis worker after the daily bars refresh. It can use
+Massive trade pressure when `stock_trades` exists, but it still produces chart
+and setup features from `prices_daily` alone:
+
+```powershell
+.\.venv\Scripts\python research\scripts\run_technical_analysis_worker.py `
+  --start 2025-01-01 `
+  --end 2026-05-08 `
+  --ticker AAPL `
+  --ticker MSFT `
+  --ticker NVDA `
+  --horizon 5 `
+  --horizon 20 `
+  --output-root research\results\latest-technical-analysis-worker
+```
+
+Review `technical-analysis-calibration.md` before raising the
+`technical_analysis` lane's paper-review importance.
 
 Import a local unusual-activity export directly when you have one:
 
@@ -158,6 +194,9 @@ datasets and runtime signals explicitly:
   "abnormal_volume",
   "buy_sell_pressure",
   "block_trade_pressure",
+  "unusual_trade_activity",
+  "pre_market_unusual_activity",
+  "market_flow_trend",
   "sector_momentum",
   "news",
   "options_anomaly",
@@ -166,7 +205,8 @@ datasets and runtime signals explicitly:
 ]
 ```
 
-`buy_sell_pressure` and `block_trade_pressure` are inferred from delayed
+`buy_sell_pressure`, `block_trade_pressure`, `unusual_trade_activity`,
+`pre_market_unusual_activity`, and `market_flow_trend` are inferred from delayed
 Massive/Polygon stock prints. `options_anomaly` and `options_flow` are inferred
 from forward option-chain snapshots. `activity_alerts` is the confirmed lane for
 provider-sourced dark-pool, block-trade, and unusual-options alerts.

@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date
 
 import pytest
+from pit.exceptions import DataNotAvailableAt
 from signals.activity_alerts import activity_alert_frame, activity_alert_score
 
 AS_OF = date(2026, 5, 8)
@@ -22,7 +23,21 @@ def test_activity_alert_score_rewards_bullish_block_prints_and_penalizes_bearish
     scores = activity_alert_score(AS_OF, {"msft", "aapl"}, loader)
 
     assert scores["AAPL"] == pytest.approx(1.0)
-    assert scores["MSFT"] == pytest.approx(-1.0)
+    assert scores["MSFT"] < 0.0
+
+
+def test_activity_alert_score_preserves_sign_when_all_alerts_are_bearish() -> None:
+    loader = _FakeActivityLoader(
+        [
+            _alert("AAPL", "dark_pool", "BEARISH", notional=1_000_000.0),
+            _alert("MSFT", "dark_pool", "BEARISH", notional=10_000_000.0),
+        ]
+    )
+
+    scores = activity_alert_score(AS_OF, {"msft", "aapl"}, loader)
+
+    assert scores["AAPL"] < 0.0
+    assert scores["MSFT"] < scores["AAPL"]
 
 
 def test_activity_alert_frame_tracks_sources_and_block_trade_counts() -> None:
@@ -38,7 +53,7 @@ def test_activity_alert_frame_tracks_sources_and_block_trade_counts() -> None:
     assert frame.iloc[0]["source_count"] == EXPECTED_SOURCE_COUNT
     assert frame.iloc[0]["block_trade_count"] == 1
     assert frame.iloc[0]["options_activity_count"] == EXPECTED_OPTIONS_ACTIVITY_COUNT
-    assert frame.iloc[0]["activity_alert_score"] == pytest.approx(0.0)
+    assert frame.iloc[0]["activity_alert_score"] == pytest.approx(1.0)
 
 
 def test_activity_alert_frame_tracks_dark_pool_and_sweep_counts() -> None:
@@ -57,9 +72,16 @@ def test_activity_alert_frame_tracks_dark_pool_and_sweep_counts() -> None:
 
 
 def test_activity_alert_score_is_empty_when_loader_has_no_coverage() -> None:
-    loader = _FailingActivityLoader()
+    loader = _UnavailableActivityLoader()
 
     assert activity_alert_score(AS_OF, {"AAPL"}, loader) == {}
+
+
+def test_activity_alert_score_raises_loader_bugs() -> None:
+    loader = _BuggyActivityLoader()
+
+    with pytest.raises(RuntimeError, match="bug"):
+        activity_alert_score(AS_OF, {"AAPL"}, loader)
 
 
 class _FakeActivityLoader:
@@ -77,7 +99,18 @@ class _FakeActivityLoader:
         return [alert for alert in self.alerts if alert["ticker"] in tickers]
 
 
-class _FailingActivityLoader:
+class _UnavailableActivityLoader:
+    def activity_alerts(
+        self,
+        tickers: list[str],
+        as_of: date,
+        lookback_days: int,
+    ) -> list[dict[str, object]]:
+        del tickers, lookback_days
+        raise DataNotAvailableAt("activity_alerts", as_of, "no coverage")
+
+
+class _BuggyActivityLoader:
     def activity_alerts(
         self,
         tickers: list[str],
@@ -85,7 +118,7 @@ class _FailingActivityLoader:
         lookback_days: int,
     ) -> list[dict[str, object]]:
         del tickers, as_of, lookback_days
-        raise RuntimeError("no coverage")
+        raise RuntimeError("bug in loader")
 
 
 def _alert(

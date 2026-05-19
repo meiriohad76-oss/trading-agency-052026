@@ -51,6 +51,11 @@
       "type": "string",
       "format": "date-time"
     },
+    "runtime_origin": {
+      "description": "Runtime storage origin. Present when a local/offline artifact fallback explicitly supplied this row.",
+      "type": "string",
+      "enum": ["runtime_artifact_fallback"]
+    },
     "final_action": {
       "description": "The reconciled action recommendation after all evaluation paths.",
       "type": "string",

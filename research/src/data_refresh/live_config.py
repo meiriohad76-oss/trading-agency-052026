@@ -5,9 +5,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
-from data_refresh.types import DATASETS
+from data_refresh.types import DATASETS, ExtractionMode, StockTradesOrder
 
 
 @dataclass(frozen=True)
@@ -31,7 +31,20 @@ class RefreshConfigOverrides:
     market_data_adjustment: str | None = None
     market_data_base_url: str | None = None
     massive_base_url: str | None = None
+    stock_trades_start: date | None = None
+    stock_trades_end: date | None = None
+    stock_trades_limit: int | None = None
+    stock_trades_max_pages_per_day: int | None = None
+    stock_trades_order: StockTradesOrder | None = None
+    extraction_mode: ExtractionMode | None = None
+    sec_company_facts_max_age_days: int | None = None
+    sec_form4_max_age_days: int | None = None
+    sec_13f_max_age_days: int | None = None
+    news_rss_max_age_minutes: int | None = None
+    subscription_email_max_age_minutes: int | None = None
     runtime_signals: tuple[str, ...] = ()
+    runtime_universe: str | None = None
+    runtime_max_tickers: int | None = None
 
 
 def load_refresh_config(path: Path, *, repo_root: Path) -> RefreshConfigOverrides:
@@ -62,7 +75,29 @@ def load_refresh_config(path: Path, *, repo_root: Path) -> RefreshConfigOverride
         market_data_adjustment=_optional_string(payload, "market_data_adjustment"),
         market_data_base_url=_optional_string(payload, "market_data_base_url"),
         massive_base_url=_optional_string(payload, "massive_base_url"),
+        stock_trades_start=_optional_date(payload, "stock_trades_start"),
+        stock_trades_end=_optional_date(payload, "stock_trades_end"),
+        stock_trades_limit=_optional_int(payload, "stock_trades_limit"),
+        stock_trades_max_pages_per_day=_optional_int(
+            payload,
+            "stock_trades_max_pages_per_day",
+        ),
+        stock_trades_order=_optional_stock_trades_order(payload),
+        extraction_mode=_optional_extraction_mode(payload),
+        sec_company_facts_max_age_days=_optional_int(
+            payload,
+            "sec_company_facts_max_age_days",
+        ),
+        sec_form4_max_age_days=_optional_int(payload, "sec_form4_max_age_days"),
+        sec_13f_max_age_days=_optional_int(payload, "sec_13f_max_age_days"),
+        news_rss_max_age_minutes=_optional_int(payload, "news_rss_max_age_minutes"),
+        subscription_email_max_age_minutes=_optional_int(
+            payload,
+            "subscription_email_max_age_minutes",
+        ),
         runtime_signals=_string_tuple(payload, "runtime_signals"),
+        runtime_universe=_optional_string(payload, "runtime_universe"),
+        runtime_max_tickers=_optional_int(payload, "runtime_max_tickers"),
     )
 
 
@@ -121,3 +156,21 @@ def _optional_bool(payload: Mapping[str, Any], key: str) -> bool | None:
     if not isinstance(value, bool):
         raise TypeError(f"{key} must be a boolean")
     return value
+
+
+def _optional_extraction_mode(payload: Mapping[str, Any]) -> ExtractionMode | None:
+    value = _optional_string(payload, "extraction_mode")
+    if value is None:
+        return None
+    if value not in {"auto", "baseline", "incremental", "force"}:
+        raise ValueError("extraction_mode must be one of auto, baseline, incremental, force")
+    return cast(ExtractionMode, value)
+
+
+def _optional_stock_trades_order(payload: Mapping[str, Any]) -> StockTradesOrder | None:
+    value = _optional_string(payload, "stock_trades_order")
+    if value is None:
+        return None
+    if value not in {"asc", "desc"}:
+        raise ValueError("stock_trades_order must be one of asc, desc")
+    return cast(StockTradesOrder, value)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import warnings
 from typing import Any, cast
 
@@ -43,6 +44,7 @@ def directional_rank_score(series: pd.Series) -> pd.Series:
     numeric = pd.to_numeric(series, errors="coerce")
     result = pd.Series([0.0 for _ in numeric], index=numeric.index)
     valid = numeric.dropna()
+    valid = valid[valid.map(math.isfinite)]
     nonzero = valid[valid != 0.0]
     if len(nonzero) == 0:
         return result
@@ -63,7 +65,7 @@ def float_or_none(value: object) -> float | None:
         parsed = float(str(value))
     except (TypeError, ValueError):
         return None
-    return None if pd.isna(parsed) else parsed
+    return parsed if math.isfinite(parsed) else None
 
 
 def positive_float(value: object) -> float | None:

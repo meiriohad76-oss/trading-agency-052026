@@ -1,12 +1,16 @@
-"""Edge-case e2e tests for the daily loop — T135.
+"""Edge-case e2e tests for the daily loop — T135 / T136.
 
-Extends the happy-path coverage in test_daily_loop_smoke.py with three
+Extends the happy-path coverage in test_daily_loop_smoke.py with five
 scenarios:
 
   1. Empty state — all tickers produce NO_TRADE; review queue is empty.
   2. Degraded source — one data source is STALE; cycle still completes.
   3. Rejected candidate — a WATCH candidate receives a REJECT human-review
      event; the event is recorded in the lifecycle.
+  4. Test-mode (demo seed) — the system runs without a real broker; every
+     execution preview has submit_enabled=False.
+  5. Paper-only mode — broker_submit_enabled=False in policy; all previews
+     are paper and no real order is submitted (the safety invariant).
 
 No external API calls.  Runs in under 10 seconds.
 """
@@ -17,6 +21,7 @@ import copy
 from agency.contracts import validate_contract
 from agency.services import (
     DemoRuntimeSeed,
+    PortfolioPolicy,
     build_demo_runtime_seed,
     build_evidence_pack,
     build_execution_previews,
@@ -328,3 +333,130 @@ def test_rejected_candidate_recorded_in_lifecycle() -> None:
     assert last_decision == "REJECT", (
         f"Expected last human-review decision to be REJECT, got {last_decision!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Test 4 — Test-mode state: demo seed has no real broker → submit_enabled=False
+# ---------------------------------------------------------------------------
+
+def test_demo_seed_is_identified_as_test_mode() -> None:
+    """The demo / test-mode seed must never have submit_enabled=True on any preview.
+
+    build_demo_runtime_seed() uses the default PortfolioPolicy, which ships
+    with broker_submit_enabled=False.  That flag cascades into every execution
+    preview's submit_enabled field, ensuring no real broker action is ever
+    attempted from a demo run.
+    """
+    seed = build_demo_runtime_seed()
+
+    # There must be at least one execution preview to assert against
+    assert seed.execution_previews, (
+        "Demo seed must contain at least one execution preview"
+    )
+
+    # The core invariant: no preview may have submit_enabled=True
+    submittable = [p for p in seed.execution_previews if p.get("submit_enabled") is True]
+    assert submittable == [], (
+        f"Expected submit_enabled=False for all demo previews; "
+        f"found submittable: {[p['ticker'] for p in submittable]}"
+    )
+
+    # Schema validation must pass on every preview artifact
+    for preview in seed.execution_previews:
+        validate_contract("execution-preview", preview)
+
+    # Schema validation must pass on every lifecycle event (covers execution stage)
+    for event in seed.all_lifecycle_events:
+        validate_contract("candidate-lifecycle-event", event)
+
+
+# ---------------------------------------------------------------------------
+# Test 5 — Paper-only mode: broker_submit_enabled=False prevents real orders
+# ---------------------------------------------------------------------------
+
+def test_paper_only_mode_prevents_real_orders() -> None:
+    """Paper-only policy must produce previews with submit_enabled=False on all.
+
+    We build execution previews with an explicit PortfolioPolicy that has
+    broker_submit_enabled=False.  No preview — regardless of preview_state —
+    should have submit_enabled=True.
+    """
+    normal_seed = build_demo_runtime_seed()
+    paper_policy = PortfolioPolicy(broker_submit_enabled=False)
+
+    # Rebuild previews with explicit paper policy
+    preview_results = build_execution_previews(
+        normal_seed.risk_decisions,
+        generated_at=DEMO_GENERATED_AT,
+        policy=paper_policy,
+    )
+    previews = [result.preview for result in preview_results]
+
+    assert previews, "Expected at least one execution preview"
+
+    # No preview may have submit_enabled=True in paper mode
+    submittable = [p for p in previews if p.get("submit_enabled") is True]
+    assert submittable == [], (
+        f"Paper policy must suppress all broker submissions; "
+        f"found submittable tickers: {[p['ticker'] for p in submittable]}"
+    )
+
+    # Schema validation must pass on all previews
+    for preview in previews:
+        validate_contract("execution-preview", preview)
+
+    # Lifecycle events from paper-mode previews must also be schema valid
+    for result in preview_results:
+        validate_contract("candidate-lifecycle-event", result.lifecycle_event)
+
+
+# ---------------------------------------------------------------------------
+# Test 6 — Safety invariant: BUY + paper policy → no live order
+# ---------------------------------------------------------------------------
+
+def test_paper_mode_broker_submit_false_is_enforced() -> None:
+    """Even a BUY recommendation with broker_submit_enabled=False must not produce a live order.
+
+    This is the critical safety invariant: live orders require explicit opt-in
+    via broker_submit_enabled=True in the policy.  Any execution path that
+    results in a READY-state BUY preview must still have submit_enabled=False
+    when the policy gate is closed.
+    """
+    normal_seed = build_demo_runtime_seed()
+    paper_policy = PortfolioPolicy(broker_submit_enabled=False)
+
+    # Find a BUY risk decision so we have the hardest case to test
+    buy_decisions = [
+        d for d in normal_seed.risk_decisions
+        if str(d.get("final_action")) == "BUY"
+    ]
+    assert buy_decisions, (
+        "Demo seed must contain at least one BUY risk decision to test the safety invariant"
+    )
+
+    # Build previews for only the BUY candidates, with paper policy
+    preview_results = build_execution_previews(
+        buy_decisions,
+        generated_at=DEMO_GENERATED_AT,
+        policy=paper_policy,
+    )
+    buy_previews = [result.preview for result in preview_results]
+
+    assert buy_previews, "Expected execution previews for BUY candidates"
+
+    # Every BUY preview must have submit_enabled=False — the safety gate
+    for preview in buy_previews:
+        ticker = preview.get("ticker")
+        submit = preview.get("submit_enabled")
+        assert submit is False, (
+            f"BUY preview for {ticker!r} has submit_enabled={submit!r}; "
+            f"expected False because broker_submit_enabled=False in policy"
+        )
+
+    # Schema validation must pass on all BUY previews
+    for preview in buy_previews:
+        validate_contract("execution-preview", preview)
+
+    # Lifecycle events must also be schema valid
+    for result in preview_results:
+        validate_contract("candidate-lifecycle-event", result.lifecycle_event)

@@ -26,12 +26,15 @@ research/data/raw/**
 research/data/parquet/**
 !research/data/parquet/.gitkeep
 !research/data/parquet/universe_membership.parquet
+research/results/massive-api-usage/**
 *.parquet
 !research/data/parquet/universe_membership.parquet
 *.duckdb
 *.eml
 
 # Database tooling
+*.db
+*.sqlite
 *.sql.gz
 backups/
 

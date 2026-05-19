@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_data_health.html" import data_health_panel %}
 
 {% set active_nav = "execution" %}
 
@@ -8,7 +9,7 @@
 {% block topbar_meta %}{{ summary.broker_mode }} broker &middot; submit gate {{ summary.submit_gate_label | lower }}{% endblock %}
 
 {% macro preview_card(row) %}
-  <article class="review-card review-card-{{ row.state_class }}">
+  <article class="review-card execution-preview-card paper-mode-card review-card-{{ row.state_class }}">
     <div class="review-card-head">
       <div>
         <span>{{ row.preview_state }} / {{ row.order_intent }}</span>
@@ -19,21 +20,74 @@
     <div class="review-card-metrics">
       <div>
         <span class="metric-label">Order Value</span>
-        <strong>{{ row.order_value_label }}</strong>
+        <strong class="execution-metric-value">{{ row.order_value_label }}</strong>
       </div>
       <div>
         <span class="metric-label">Sizing</span>
-        <strong>{{ row.size_label }}</strong>
+        <strong class="execution-metric-value">{{ row.size_label }}</strong>
       </div>
       <div>
         <span class="metric-label">Approval</span>
-        <strong>{{ row.approval_label }}</strong>
+        <strong class="execution-metric-value">{{ row.approval_label }}</strong>
       </div>
       <div>
         <span class="metric-label">Risk</span>
-        <strong>{{ row.risk_decision }}</strong>
+        <strong class="execution-metric-value">{{ row.risk_decision }}</strong>
+      </div>
+      <div>
+        <span class="metric-label">Paper Promotion</span>
+        <strong class="execution-metric-value">{{ row.paper_promotion_status_label }}</strong>
       </div>
     </div>
+    <div class="execution-review-status" aria-label="LLM and rules review status">
+      <div>
+        <span class="metric-label">LLM status</span>
+        <strong class="execution-metric-value">{{ row.llm_status_label }}</strong>
+      </div>
+      <div>
+        <span class="metric-label">Rules score</span>
+        <strong class="execution-metric-value">{{ row.deterministic_score_label }}</strong>
+      </div>
+    </div>
+    <p class="microcopy">LLM conflict: {{ row.llm_conflict }}. {{ row.llm_rationale }}</p>
+    {% if row.paper_promotion_state != "not_evaluated" %}
+    <p class="microcopy">
+      Review: {{ row.human_review_decision }}
+      {% if row.human_review_time_label != "Time unknown" %}
+      at {{ row.human_review_time_label }}
+      {% endif %}
+      &middot;
+      {{ row.paper_promotion_detail }}
+      {% if row.paper_promotion_reasons %}
+      Blocker: {{ row.paper_promotion_reasons[0] }}
+      {% endif %}
+    </p>
+    {% endif %}
+    {% if row.paper_promotion_blockers %}
+    <div class="execution-blocker-list">
+      <span class="metric-label">Why no paper order</span>
+      <ul>
+        {% for blocker in row.paper_promotion_blockers %}
+        <li>{{ blocker }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+    {% if row.paper_promotion_checks %}
+    <details class="details-panel promotion-checks-panel">
+      <summary>Paper promotion checks: {{ row.paper_promotion_check_summary }}</summary>
+      <div class="ops-check-list promotion-check-list">
+        {% for check in row.paper_promotion_checks %}
+        <div class="ops-check-row">
+          <span class="tag tag-{{ check.status_class }}">{{ check.status }}</span>
+          <strong>{{ check.label }}</strong>
+          <span>{{ check.value_detail }}</span>
+          <em>{{ check.detail }}</em>
+        </div>
+        {% endfor %}
+      </div>
+    </details>
+    {% endif %}
     <p class="card-reason">{{ row.reason }}</p>
     <p class="card-next-step">{{ row.next_step }}</p>
     {% if row.order_approval_available and not row.order_approved %}
@@ -46,19 +100,35 @@
     <form method="post" action="{{ row.submit_action }}">
       <button class="mini-button" type="submit">{{ row.submit_label }}</button>
     </form>
+    <p class="microcopy">Submitted paper order confirmation will be recorded inline after Alpaca accepts the order.</p>
     {% endif %}
   </article>
 {% endmacro %}
 
 {% block content %}
-  <div class="paper-mode-banner" role="alert" aria-live="polite">
+  <div class="paper-mode-banner paper-mode-card" role="alert" aria-live="polite">
     <span class="tag tag-warn">Paper mode</span>
     <strong>No real money is at risk.</strong>
-    All orders shown here are paper-only. Broker submit is disabled until you explicitly enable it in Policy.
+    All orders shown here are paper-only.
+    {% if summary.submit_gate_open %}
+      Broker submit is open for approved READY order-intent rows only.
+    {% else %}
+      Broker submit is closed until policy, broker, freshness, and approval gates are open.
+    {% endif %}
   </div>
 
-  <section class="next-action execution-guard" aria-label="Execution state">
-    <div class="next-action-step" aria-hidden="true">4</div>
+  <section class="panel llm-status-panel" aria-label="LLM status">
+    <div class="section-heading">
+      <div>
+        <h2>LLM status</h2>
+        <p class="section-subtitle">Each execution card shows row-level LLM/rules alignment; rules-only rows are explicit.</p>
+      </div>
+      <span class="tag tag-neutral">llm_conflict tracked per row</span>
+    </div>
+  </section>
+
+  <section class="next-action execution-guard" aria-label="Execution state" data-empty-copy="No execution previews yet">
+    <div class="next-action-step" aria-hidden="true">04</div>
     <div class="next-action-copy">
       <p class="eyebrow">Paper-only execution</p>
       <h2>{{ summary.headline }}</h2>
@@ -94,6 +164,73 @@
     </article>
   </section>
 
+  <section class="panel" id="execution-followup-heading" aria-labelledby="execution-followup-title">
+    <div class="section-heading">
+      <div>
+        <h2 id="execution-followup-title">Actionable Execution Follow-Up</h2>
+        <p class="section-subtitle">Start here after approving research. READY rows can move toward paper submission; approved WATCH/HOLD rows explain the exact blocker.</p>
+      </div>
+      {% if orderable_rows %}
+      <span class="tag tag-pass">{{ summary.ready_count }} ready</span>
+      {% elif approved_review_only_rows %}
+      <span class="tag tag-warn">{{ approved_review_only_rows | length }} approved research</span>
+      {% else %}
+      <span class="tag tag-neutral">0 ready</span>
+      {% endif %}
+    </div>
+    <div class="bulk-action-bar">
+      <button class="mini-button action-approve" type="button" disabled>Submit all ready orders</button>
+      <span class="microcopy">Bulk submit stays disabled until every ready row has current research approval, hash-bound order approval, and an open paper broker gate.</span>
+    </div>
+    <div class="review-card-list execution-card-list" aria-label="Immediate execution follow-up cards">
+      {% for row in orderable_rows %}
+        {{ preview_card(row) }}
+      {% endfor %}
+      {% for row in approved_review_only_rows %}
+        {{ preview_card(row) }}
+      {% endfor %}
+      {% if not orderable_rows and not approved_review_only_rows %}
+      <p class="empty-block">No approved research row can become a paper order right now. Review-only rows remain below with their promotion blockers.</p>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="panel" aria-labelledby="orderable-heading">
+    <div class="section-heading">
+      <div>
+        <h2 id="orderable-heading">Orderable Paper Orders</h2>
+        <p class="section-subtitle">This is the only place a transaction can be submitted.</p>
+      </div>
+      <span class="tag tag-pass">{{ orderable_rows | length }} READY</span>
+    </div>
+    <div class="review-card-list execution-card-list" aria-label="Orderable execution preview cards">
+      {% for row in orderable_rows %}
+        {{ preview_card(row) }}
+      {% else %}
+      <p class="empty-block">No transaction can be approved in this cycle because no BUY, SELL, SHORT, or COVER candidate passed risk with order sizing.</p>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="panel" aria-labelledby="research-only-heading">
+    <div class="section-heading">
+      <div>
+        <h2 id="research-only-heading">Research-Only Approvals</h2>
+        <p class="section-subtitle">WATCH/HOLD candidates. Approved rows stay visible here with the exact reason they did not become paper orders.</p>
+      </div>
+      <span class="tag tag-warn">{{ review_only_rows | length }} review-only</span>
+    </div>
+    <div class="review-card-list execution-card-list" aria-label="Research-only execution cards">
+      {% for row in review_only_rows %}
+        {{ preview_card(row) }}
+      {% else %}
+      <p class="empty-block">No review-only execution rows in this cycle.</p>
+      {% endfor %}
+    </div>
+  </section>
+
+  {{ data_health_panel(data_health) }}
+
   <section class="panel workflow-help" aria-labelledby="execution-help-heading">
     <div class="section-heading">
       <div>
@@ -110,8 +247,8 @@
       </article>
       <article class="guidance-card guidance-card-warn">
         <span class="metric-label">WATCH / HOLD</span>
-        <strong>Research approval only</strong>
-        <p>Approve, defer, or reject these on the candidate page. Approval does not place a trade.</p>
+        <strong>Research approval, then portfolio check</strong>
+        <p>Some WATCH rows can become paper BUY previews after current report approval; every card shows its promotion status and blocker.</p>
       </article>
       <article class="guidance-card guidance-card-block">
         <span class="metric-label">NO_TRADE / BLOCKED</span>
@@ -176,23 +313,6 @@
     </div>
   </section>
 
-  <section class="panel" aria-labelledby="orderable-heading">
-    <div class="section-heading">
-      <div>
-        <h2 id="orderable-heading">Orderable Paper Orders</h2>
-        <p class="section-subtitle">This is the only place a transaction can be submitted.</p>
-      </div>
-      <span class="tag tag-pass">{{ orderable_rows | length }} READY</span>
-    </div>
-    <div class="review-card-list execution-card-list" aria-label="Orderable execution preview cards">
-      {% for row in orderable_rows %}
-        {{ preview_card(row) }}
-      {% else %}
-      <p class="empty-block">No transaction can be approved in this cycle because no BUY, SELL, SHORT, or COVER candidate passed risk with order sizing.</p>
-      {% endfor %}
-    </div>
-  </section>
-
   <section class="panel leveraged-panel" aria-labelledby="execution-leveraged-heading">
     <div class="section-heading">
       <div>
@@ -245,23 +365,6 @@
       </article>
       {% else %}
       <p class="empty-block">{{ leveraged_alternatives.headline }}</p>
-      {% endfor %}
-    </div>
-  </section>
-
-  <section class="panel" aria-labelledby="research-only-heading">
-    <div class="section-heading">
-      <div>
-        <h2 id="research-only-heading">Research-Only Approvals</h2>
-        <p class="section-subtitle">WATCH/HOLD candidates that can be reviewed but cannot create orders.</p>
-      </div>
-      <span class="tag tag-warn">{{ review_only_rows | length }} review-only</span>
-    </div>
-    <div class="review-card-list execution-card-list" aria-label="Research-only execution cards">
-      {% for row in review_only_rows %}
-        {{ preview_card(row) }}
-      {% else %}
-      <p class="empty-block">No review-only execution rows in this cycle.</p>
       {% endfor %}
     </div>
   </section>

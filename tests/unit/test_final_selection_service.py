@@ -51,6 +51,26 @@ def test_final_selection_allows_llm_to_demote_watch_to_close_review() -> None:
     assert result.lifecycle_events[-1]["status"] == "WARN"
 
 
+def test_final_selection_treats_llm_needs_more_evidence_as_close_review() -> None:
+    result = build_final_selection(
+        _evidence_pack(score=0.7),
+        llm_review=_llm_review("NEEDS_MORE_EVIDENCE"),
+    )
+
+    assert result.selection_report["final_action"] == "CLOSE_REVIEW"
+    assert result.selection_report["risk_flags"] == ["llm_needs_more_evidence"]
+
+
+def test_final_selection_treats_llm_disagreement_as_close_review() -> None:
+    result = build_final_selection(
+        _evidence_pack(score=0.7),
+        llm_review=_llm_review("DISAGREE"),
+    )
+
+    assert result.selection_report["final_action"] == "CLOSE_REVIEW"
+    assert result.selection_report["risk_flags"] == ["llm_disagreed"]
+
+
 def _evidence_pack(score: float, actionability: str | None = None) -> dict[str, object]:
     return build_evidence_pack(
         cycle_id="cycle-1",

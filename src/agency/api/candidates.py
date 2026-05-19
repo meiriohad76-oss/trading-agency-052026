@@ -4,7 +4,7 @@ from collections.abc import Awaitable, Callable
 from contextlib import AbstractAsyncContextManager
 from typing import Any
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy.exc import SQLAlchemyError
 
 from agency.contracts import validate_contract
@@ -16,13 +16,20 @@ LifecycleReader = Callable[[Any, str, str | None, int], Awaitable[list[dict[str,
 SessionProvider = Callable[[], AbstractAsyncContextManager[Any]]
 
 
+class RuntimeCandidateTimelineUnavailable(RuntimeError):
+    """Raised when candidate timeline events cannot be read from runtime storage."""
+
+
 @router.get("/{ticker}/timeline")
 async def candidate_timeline(
     ticker: str,
     cycle_id: str | None = None,
     limit: int = Query(default=100, ge=1, le=500),
 ) -> list[dict[str, object]]:
-    return await runtime_candidate_timeline(ticker=ticker, cycle_id=cycle_id, limit=limit)
+    try:
+        return await runtime_candidate_timeline(ticker=ticker, cycle_id=cycle_id, limit=limit)
+    except RuntimeCandidateTimelineUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 async def runtime_candidate_timeline(
@@ -37,8 +44,10 @@ async def runtime_candidate_timeline(
     try:
         async with session_provider() as session:
             payloads = await timeline_reader(session, ticker, cycle_id, limit)
-    except (MissingDatabaseConfigurationError, OSError, SQLAlchemyError):
-        return []
+    except (MissingDatabaseConfigurationError, OSError, SQLAlchemyError) as exc:
+        raise RuntimeCandidateTimelineUnavailable(
+            "runtime candidate timeline storage is unavailable"
+        ) from exc
     for payload in payloads:
         validate_contract("candidate-lifecycle-event", payload)
     return payloads

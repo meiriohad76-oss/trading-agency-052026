@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -25,7 +26,9 @@ def write_partitioned_frame(
         path.parent.mkdir(parents=True, exist_ok=True)
         output = group.copy()
         if path.exists():
-            output = pd.concat([pd.read_parquet(path), output], ignore_index=True)
+            existing = _read_parquet_or_quarantine(path)
+            if existing is not None:
+                output = pd.concat([existing, output], ignore_index=True)
         output = (
             output.drop_duplicates(subset=unique_columns, keep="last")
             .sort_values(unique_columns)
@@ -73,7 +76,9 @@ def write_manifest(
 def _dataset_stats(data_root: Path) -> dict[str, str | int]:
     frames: list[pd.DataFrame] = []
     for path in sorted(data_root.rglob("*.parquet")):
-        frame = pd.read_parquet(path, columns=["timestamp_as_of"])
+        frame = _read_parquet_or_quarantine(path, columns=["timestamp_as_of"])
+        if frame is None:
+            continue
         if not frame.empty:
             frames.append(frame)
     if not frames:
@@ -92,3 +97,33 @@ def _tree_checksum(root: Path) -> str:
         digest.update(path.relative_to(root).as_posix().encode("utf-8"))
         digest.update(path.read_bytes())
     return digest.hexdigest()
+
+
+def _read_parquet_or_quarantine(
+    path: Path,
+    *,
+    columns: list[str] | None = None,
+) -> pd.DataFrame | None:
+    try:
+        return pd.read_parquet(path, columns=columns)
+    except Exception as exc:  # noqa: BLE001
+        quarantine_path = _quarantine_path(path)
+        path.replace(quarantine_path)
+        print(
+            (
+                "warning: quarantined unreadable SEC parquet "
+                f"{path} -> {quarantine_path}: {type(exc).__name__}: {exc}"
+            ),
+            file=sys.stderr,
+        )
+        return None
+
+
+def _quarantine_path(path: Path) -> Path:
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    candidate = path.with_name(f"{path.name}.corrupt-{stamp}")
+    counter = 1
+    while candidate.exists():
+        candidate = path.with_name(f"{path.name}.corrupt-{stamp}-{counter}")
+        counter += 1
+    return candidate

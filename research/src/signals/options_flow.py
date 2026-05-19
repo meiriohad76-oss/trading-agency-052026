@@ -7,7 +7,8 @@ from typing import Protocol
 
 import pandas as pd
 import polars as pl
-from signals._common import score_dict, zscore
+from pit.exceptions import DataNotAvailableAt
+from signals._common import directional_rank_score, score_dict
 
 DEFAULT_LOOKBACK_DAYS = 10
 
@@ -48,7 +49,7 @@ def options_flow_frame(
         return _empty_frame()
     try:
         raw = loader.option_chains(tickers, as_of, lookback_days)
-    except Exception:
+    except DataNotAvailableAt:
         return _empty_frame()
     if raw.is_empty():
         return _empty_frame()
@@ -62,7 +63,7 @@ def options_flow_frame(
     output = pd.DataFrame(rows)
     if output.empty:
         return _empty_frame()
-    output["options_flow_score"] = zscore(output["options_pressure"])
+    output["options_flow_score"] = directional_rank_score(output["options_pressure"])
     return output.sort_values(
         ["options_flow_score", "ticker"], ascending=[False, True]
     ).reset_index(drop=True)
@@ -86,6 +87,7 @@ def _factor_row(ticker: str, group: pd.DataFrame) -> dict[str, object] | None:
     return {
         "ticker": ticker,
         "snapshot_date": latest["snapshot_date"].iloc[0],
+        "timestamp_as_of": _latest_timestamp_as_of(latest),
         "call_volume": call_volume,
         "put_volume": put_volume,
         "total_volume": total_volume,
@@ -112,11 +114,19 @@ def _column(frame: pd.DataFrame, column: str, default: float | int) -> pd.Series
     return pd.Series([default for _ in range(len(frame))], index=frame.index)
 
 
+def _latest_timestamp_as_of(frame: pd.DataFrame) -> object:
+    if "timestamp_as_of" not in frame.columns:
+        return None
+    timestamps = pd.to_datetime(frame["timestamp_as_of"], errors="coerce", utc=True).dropna()
+    return None if timestamps.empty else timestamps.max().to_pydatetime()
+
+
 def _empty_frame() -> pd.DataFrame:
     return pd.DataFrame(
         columns=[
             "ticker",
             "snapshot_date",
+            "timestamp_as_of",
             "call_volume",
             "put_volume",
             "total_volume",

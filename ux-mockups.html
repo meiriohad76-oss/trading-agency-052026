@@ -1,0 +1,1025 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>v2 Trading Agency — UX Mockups</title>
+<style>
+  :root {
+    --bg-page: #f6f7f9;
+    --bg-card: #ffffff;
+    --bg-soft: #f1f3f5;
+    --bg-softer: #fafbfc;
+    --bd: #e6e8eb;
+    --bd-strong: #d6d9dd;
+    --tx: #0f172a;
+    --tx-2: #475569;
+    --tx-3: #94a3b8;
+    --pass: #0f8a4f;
+    --pass-bg: #e6f5ec;
+    --pass-bd: #c2e6d0;
+    --watch: #b06a00;
+    --watch-bg: #fbf1dd;
+    --watch-bd: #f0d9a8;
+    --block: #b42323;
+    --block-bg: #fbe7e7;
+    --block-bd: #f0bdbd;
+    --info: #1f5fbf;
+    --info-bg: #e6efFb;
+    --info-bd: #c1d6f3;
+    --accent: #1e293b;
+    --radius: 8px;
+    --radius-lg: 12px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg-page: #0f1115;
+      --bg-card: #161a20;
+      --bg-soft: #1c2026;
+      --bg-softer: #14181d;
+      --bd: #262b33;
+      --bd-strong: #323845;
+      --tx: #e6e8ec;
+      --tx-2: #a3aab5;
+      --tx-3: #6b7280;
+      --pass: #4ade80;
+      --pass-bg: rgba(74,222,128,0.10);
+      --pass-bd: rgba(74,222,128,0.30);
+      --watch: #facc15;
+      --watch-bg: rgba(250,204,21,0.10);
+      --watch-bd: rgba(250,204,21,0.30);
+      --block: #f87171;
+      --block-bg: rgba(248,113,113,0.10);
+      --block-bd: rgba(248,113,113,0.30);
+      --info: #60a5fa;
+      --info-bg: rgba(96,165,250,0.10);
+      --info-bd: rgba(96,165,250,0.30);
+      --accent: #e2e8f0;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    color: var(--tx);
+    background: var(--bg-page);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  .app { display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; }
+
+  /* Sidebar */
+  .nav {
+    background: var(--bg-card);
+    border-right: 1px solid var(--bd);
+    padding: 16px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+  }
+  .brand {
+    padding: 8px 12px 16px;
+    font-weight: 500;
+    font-size: 14px;
+    color: var(--tx);
+    border-bottom: 1px solid var(--bd);
+    margin-bottom: 12px;
+  }
+  .brand small { display: block; font-weight: 400; color: var(--tx-3); font-size: 11px; margin-top: 2px; }
+  .nav-group { font-size: 11px; color: var(--tx-3); padding: 14px 12px 6px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .nav button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    border: 0;
+    padding: 8px 12px;
+    border-radius: var(--radius);
+    color: var(--tx-2);
+    cursor: pointer;
+    font-size: 13px;
+    font-family: inherit;
+  }
+  .nav button:hover { background: var(--bg-soft); color: var(--tx); }
+  .nav button.active { background: var(--bg-soft); color: var(--tx); font-weight: 500; }
+
+  /* Top bar */
+  .topbar {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 12px 28px;
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--bd);
+    position: sticky;
+    top: 0;
+    z-index: 5;
+  }
+  .topbar .left, .topbar .right { display: flex; align-items: center; gap: 14px; }
+  .topbar .left { flex: 1; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .dot.pass { background: var(--pass); }
+  .dot.watch { background: var(--watch); }
+  .dot.block { background: var(--block); }
+  .topbar .meta { font-size: 12px; color: var(--tx-2); }
+  .mode {
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    padding: 3px 10px;
+    border-radius: var(--radius);
+    background: var(--watch-bg);
+    color: var(--watch);
+    border: 1px solid var(--watch-bd);
+  }
+
+  /* Content */
+  .content {
+    padding: 24px 28px 56px;
+    max-width: 1180px;
+  }
+  .screen { display: none; animation: fadein 120ms ease; }
+  .screen.active { display: block; }
+  @keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
+
+  .breadcrumb { color: var(--tx-3); font-size: 12px; margin-bottom: 12px; }
+  .page-title { font-size: 22px; font-weight: 500; margin: 0 0 4px; }
+  .page-sub { color: var(--tx-2); font-size: 13px; margin: 0 0 20px; }
+
+  /* Hero */
+  .hero {
+    padding: 18px 22px;
+    border-radius: var(--radius-lg);
+    margin-bottom: 18px;
+    border: 1px solid var(--bd);
+  }
+  .hero.pass { background: var(--pass-bg); border-color: var(--pass-bd); }
+  .hero.watch { background: var(--watch-bg); border-color: var(--watch-bd); }
+  .hero.block { background: var(--block-bg); border-color: var(--block-bd); }
+  .hero.info { background: var(--info-bg); border-color: var(--info-bd); }
+  .hero.neutral { background: var(--bg-softer); }
+  .hero h2 { margin: 0 0 4px; font-size: 18px; font-weight: 500; line-height: 1.35; }
+  .hero p { margin: 0; font-size: 13px; line-height: 1.5; color: var(--tx-2); }
+  .hero.pass h2 { color: var(--pass); }
+  .hero.watch h2 { color: var(--watch); }
+  .hero.block h2 { color: var(--block); }
+  .hero.info h2 { color: var(--info); }
+
+  /* Action ribbon */
+  .ribbon { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
+  .next {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 9px 14px;
+    background: var(--bg-card);
+    border: 1px solid var(--bd);
+    border-radius: var(--radius);
+    font-size: 13px;
+    cursor: pointer;
+    color: var(--tx);
+    transition: border-color 100ms;
+  }
+  .next:hover { border-color: var(--bd-strong); }
+  .next .arr { color: var(--tx-3); }
+
+  /* KPI grid */
+  .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 18px; }
+  .kpi { background: var(--bg-card); border: 1px solid var(--bd); border-radius: var(--radius-lg); padding: 14px 16px; }
+  .kpi .lbl { font-size: 11px; color: var(--tx-2); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px; }
+  .kpi .val { font-size: 22px; font-weight: 500; line-height: 1.2; font-variant-numeric: tabular-nums; }
+  .kpi .sub { font-size: 11px; color: var(--tx-3); margin-top: 4px; }
+  .kpi .val.pass { color: var(--pass); }
+  .kpi .val.watch { color: var(--watch); }
+  .kpi .val.block { color: var(--block); }
+
+  /* Cards */
+  .card { background: var(--bg-card); border: 1px solid var(--bd); border-radius: var(--radius-lg); padding: 16px 18px; margin-bottom: 12px; }
+  .card .head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .card h3 { margin: 0; font-size: 15px; font-weight: 500; }
+  .card .meta { font-size: 11px; color: var(--tx-3); }
+  .card .body { margin-top: 8px; font-size: 13px; color: var(--tx-2); line-height: 1.6; }
+
+  /* Badges */
+  .badge { display: inline-block; font-size: 11px; padding: 3px 9px; border-radius: var(--radius); font-weight: 500; letter-spacing: 0.02em; border: 1px solid transparent; }
+  .b-pass { background: var(--pass-bg); color: var(--pass); border-color: var(--pass-bd); }
+  .b-watch { background: var(--watch-bg); color: var(--watch); border-color: var(--watch-bd); }
+  .b-block { background: var(--block-bg); color: var(--block); border-color: var(--block-bd); }
+  .b-info { background: var(--info-bg); color: var(--info); border-color: var(--info-bd); }
+  .b-unav { background: var(--bg-soft); color: var(--tx-2); }
+
+  /* Validity strip */
+  .vstrip {
+    display: flex; gap: 18px; flex-wrap: wrap;
+    font-size: 11px; color: var(--tx-3);
+    margin-top: 10px; padding-top: 10px;
+    border-top: 1px solid var(--bd);
+  }
+  .vstrip span b { color: var(--tx-2); font-weight: 500; }
+
+  /* Drill-down */
+  details { margin-top: 8px; }
+  details summary {
+    cursor: pointer; font-size: 12px; color: var(--info);
+    padding: 6px 0; list-style: none;
+  }
+  details summary::-webkit-details-marker { display: none; }
+  details summary::before { content: "› "; color: var(--tx-3); }
+  details[open] summary::before { content: "▾ "; color: var(--tx-3); }
+
+  /* Table */
+  .table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .table th, .table td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--bd); }
+  .table th { font-weight: 500; font-size: 11px; color: var(--tx-2); text-transform: uppercase; letter-spacing: 0.04em; background: var(--bg-softer); }
+  .table tr:last-child td { border-bottom: 0; }
+  .num { font-variant-numeric: tabular-nums; }
+
+  /* Bars */
+  .bar { height: 4px; border-radius: 2px; background: var(--bg-soft); overflow: hidden; }
+  .bar > span { display: block; height: 100%; background: var(--pass); }
+  .bar.warn > span { background: var(--watch); }
+  .bar.bad > span { background: var(--block); }
+
+  /* Sector grid */
+  .sector-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .sector { background: var(--bg-softer); padding: 10px 12px; border-radius: var(--radius); border-left: 3px solid var(--tx-3); }
+  .sector.pass { border-left-color: var(--pass); }
+  .sector.watch { border-left-color: var(--watch); }
+  .sector.block { border-left-color: var(--block); }
+  .sector.unav { border-left-color: var(--tx-3); }
+  .sector .name { font-size: 13px; font-weight: 500; margin-bottom: 2px; }
+  .sector .reason { font-size: 11px; color: var(--tx-2); line-height: 1.4; }
+
+  /* Side-by-side */
+  .sbs { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .sbs > div { padding: 12px 14px; border-radius: var(--radius); border: 1px solid var(--bd); background: var(--bg-softer); }
+  .sbs .lbl { font-size: 10px; color: var(--tx-3); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; }
+  .sbs .verdict { font-size: 14px; font-weight: 500; margin-bottom: 6px; }
+  .sbs .reason { font-size: 12px; color: var(--tx-2); line-height: 1.5; }
+
+  /* Gates */
+  .gate { display: flex; align-items: center; gap: 10px; font-size: 13px; padding: 5px 0; }
+  .gate .ind { width: 16px; height: 16px; border-radius: 50%; flex-shrink: 0; border: 2px solid var(--tx-3); }
+  .gate.ok .ind { background: var(--pass-bg); border-color: var(--pass); }
+  .gate.fail .ind { background: var(--block-bg); border-color: var(--block); }
+  .gate .lbl { color: var(--tx-2); }
+  .gate .val { margin-left: auto; color: var(--tx); font-variant-numeric: tabular-nums; font-weight: 500; }
+
+  /* Form */
+  .form-row { display: grid; grid-template-columns: 1fr 140px; gap: 14px; align-items: center; padding: 8px 0; font-size: 13px; border-bottom: 1px dashed var(--bd); }
+  .form-row:last-child { border-bottom: 0; }
+  .form-row label { color: var(--tx-2); }
+  .form-row input, .form-row select { width: 100%; box-sizing: border-box; padding: 6px 10px; border: 1px solid var(--bd); border-radius: var(--radius); background: var(--bg-card); color: var(--tx); font-family: inherit; font-size: 13px; }
+  .form-row .toggle { display: inline-flex; align-items: center; gap: 6px; }
+
+  /* Buttons */
+  .btn { padding: 8px 14px; border-radius: var(--radius); border: 1px solid var(--bd); background: var(--bg-card); color: var(--tx); font-size: 13px; cursor: pointer; font-family: inherit; }
+  .btn:hover { border-color: var(--bd-strong); }
+  .btn.primary { background: var(--accent); color: var(--bg-card); border-color: var(--accent); }
+  .btn.danger { color: var(--block); border-color: var(--block-bd); }
+  .btn:disabled { color: var(--tx-3); cursor: not-allowed; opacity: 0.6; }
+
+  /* Misc */
+  h3.section-h { font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--tx-2); margin: 24px 0 10px; font-weight: 500; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .small { font-size: 11px; color: var(--tx-3); }
+  .pill { display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 999px; background: var(--bg-soft); color: var(--tx-2); }
+  .audit-stripe { font-size: 11px; color: var(--tx-3); padding: 6px 0; display: flex; gap: 14px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <aside class="nav" role="navigation">
+    <div class="brand">v2 Trading Agency<small>Paper trading · S&amp;P 100 + QQQ</small></div>
+    <div class="nav-group">Cockpit</div>
+    <button data-target="s-cmd" class="active">Command</button>
+    <div class="nav-group">Engines</div>
+    <button data-target="s-uni">Universe</button>
+    <button data-target="s-fun">Fundamentals</button>
+    <button data-target="s-mkt">Market regime</button>
+    <button data-target="s-sig">Signals</button>
+    <div class="nav-group">Decision</div>
+    <button data-target="s-sel">Selection (det + LLM)</button>
+    <button data-target="s-fin">Final selection</button>
+    <button data-target="s-risk">Risk</button>
+    <div class="nav-group">Action</div>
+    <button data-target="s-exec">Execution preview</button>
+    <button data-target="s-mon">Portfolio monitor</button>
+    <div class="nav-group">Feedback</div>
+    <button data-target="s-learn">Learning</button>
+    <div class="nav-group">Configuration</div>
+    <button data-target="s-pol">Portfolio policy</button>
+  </aside>
+
+  <div>
+    <header class="topbar">
+      <div class="left">
+        <span class="dot pass"></span>
+        <span class="meta">All systems live · 1 source degraded</span>
+      </div>
+      <div class="right">
+        <span class="meta">Cycle 14:32 UTC · next in 13 min</span>
+        <span class="mode">PAPER</span>
+      </div>
+    </header>
+
+    <main class="content">
+
+      <!-- ======================== COMMAND ======================== -->
+      <section id="s-cmd" class="screen active">
+        <div class="breadcrumb">Cockpit › Command</div>
+        <h1 class="page-title">Command</h1>
+        <p class="page-sub">The cockpit. Bottom line first; diagnostics behind drill-downs.</p>
+
+        <div class="hero pass">
+          <h2>Market supports longs. 3 final candidates ready to review.</h2>
+          <p>1 source is degraded but does not block selection. Last full cycle completed 4 minutes ago.</p>
+        </div>
+
+        <div class="ribbon">
+          <div class="next">Review the 3 final candidates <span class="arr">›</span></div>
+          <div class="next">Re-check stale source: 13F <span class="arr">›</span></div>
+          <div class="next">Open submit gate (currently closed) <span class="arr">›</span></div>
+        </div>
+
+        <div class="kpis">
+          <div class="kpi"><div class="lbl">Universe ready</div><div class="val">150 / 152</div><div class="sub">2 blocked: missing CIK</div></div>
+          <div class="kpi"><div class="lbl">Eligible fundamentals</div><div class="val pass">47</div><div class="sub">23 watch · 82 reject</div></div>
+          <div class="kpi"><div class="lbl">Final candidates</div><div class="val pass">3</div><div class="sub">2 blocked by policy</div></div>
+          <div class="kpi"><div class="lbl">Open positions</div><div class="val">5</div><div class="sub">+0.7% week to date</div></div>
+        </div>
+
+        <div class="card">
+          <div class="head"><h3>Engine readiness</h3><span class="meta">all green except 13F</span></div>
+          <div style="margin-top: 8px;">
+            <div class="gate ok"><span class="ind"></span><span class="lbl">Universe registry</span><span class="val">live · 6m</span></div>
+            <div class="gate ok"><span class="ind"></span><span class="lbl">Fundamentals engine</span><span class="val">live · 8m</span></div>
+            <div class="gate ok"><span class="ind"></span><span class="lbl">Market regime engine</span><span class="val">live · 2m</span></div>
+            <div class="gate ok"><span class="ind"></span><span class="lbl">Signals engine</span><span class="val">live · 1m</span></div>
+            <div class="gate ok"><span class="ind"></span><span class="lbl">Deterministic selection</span><span class="val">live · 4m</span></div>
+            <div class="gate ok"><span class="ind"></span><span class="lbl">LLM selection (gpt-5.4-mini)</span><span class="val">live · 4m</span></div>
+            <div class="gate fail"><span class="ind"></span><span class="lbl">Institutional 13F source</span><span class="val">stale · 19h</span></div>
+          </div>
+          <details><summary>Show source freshness detail</summary>
+            <div class="audit-stripe">SEC EDGAR Company Facts · 2026-05-06 14:24 · fresh</div>
+            <div class="audit-stripe">SEC EDGAR Form 4 · 2026-05-06 14:25 · fresh</div>
+            <div class="audit-stripe">SEC EDGAR 13F · 2026-05-05 19:11 · stale (last filing season ended)</div>
+            <div class="audit-stripe">yfinance daily prices · 2026-05-06 14:30 · fresh</div>
+            <div class="audit-stripe">Alpaca account · 2026-05-06 14:31 · fresh</div>
+          </details>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <div class="head"><h3>Today's flow</h3></div>
+            <div class="body">5 candidates produced by deterministic. LLM agreed on 3, demoted 2 with earnings risk concerns. Final selection promoted 3, blocked 2 by sector exposure cap.</div>
+          </div>
+          <div class="card">
+            <div class="head"><h3>This week's progress</h3><span class="badge b-info">+0.7%</span></div>
+            <div class="body">Target 3.0%, on track for week. 5 positions open, average holding day 3 of expected 7-10.</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ======================== UNIVERSE ======================== -->
+      <section id="s-uni" class="screen">
+        <div class="breadcrumb">Engines › Universe</div>
+        <h1 class="page-title">Universe</h1>
+        <p class="page-sub">Allowed tickers. Historical S&amp;P 100 + QQQ membership, point-in-time correct.</p>
+
+        <div class="hero info">
+          <h2>150 of 152 tickers ready. 2 blocked.</h2>
+          <p>Membership reconstructed point-in-time. AAPL added 2024-01-12. NFLX exited 2023-08-04 and is excluded from analysis for that period.</p>
+        </div>
+
+        <div class="kpis">
+          <div class="kpi"><div class="lbl">Eligible</div><div class="val pass">150</div></div>
+          <div class="kpi"><div class="lbl">Blocked</div><div class="val block">2</div></div>
+          <div class="kpi"><div class="lbl">Membership refreshed</div><div class="val" style="font-size: 14px;">today, 06:02 UTC</div></div>
+          <div class="kpi"><div class="lbl">PIT integrity</div><div class="val pass" style="font-size: 14px;">verified</div></div>
+        </div>
+
+        <div class="card">
+          <div class="head"><h3>Blocked tickers</h3><span class="badge b-block">2 issues</span></div>
+          <table class="table" style="margin-top: 10px;">
+            <tr><th>Ticker</th><th>Reason</th><th>Resolution</th><th>Last attempted</th></tr>
+            <tr><td>XYZ</td><td>Missing CIK in SEC mapping</td><td>Re-pull SEC ticker map</td><td class="meta">14:25</td></tr>
+            <tr><td>ABC</td><td>SEC fundamentals unavailable</td><td>Wait for next filing (est. 2026-05-15)</td><td class="meta">14:25</td></tr>
+          </table>
+        </div>
+
+        <div class="card">
+          <div class="head"><h3>Sample of eligible (10 of 150)</h3>
+            <span class="meta">filter: <span class="pill">all</span> <span class="pill">SP100</span> <span class="pill">QQQ-only</span></span>
+          </div>
+          <table class="table" style="margin-top: 10px;">
+            <tr><th>Ticker</th><th>Company</th><th>Sector</th><th>Indices</th><th>Joined</th><th>Status</th></tr>
+            <tr><td>AAPL</td><td>Apple Inc.</td><td>Technology</td><td>SP100, NDX</td><td>1995, 1985</td><td><span class="badge b-pass">ready</span></td></tr>
+            <tr><td>MSFT</td><td>Microsoft Corp.</td><td>Technology</td><td>SP100, NDX</td><td>1994, 1986</td><td><span class="badge b-pass">ready</span></td></tr>
+            <tr><td>NVDA</td><td>NVIDIA Corp.</td><td>Technology</td><td>SP100, NDX</td><td>2022-08, 1999</td><td><span class="badge b-pass">ready</span></td></tr>
+            <tr><td>AVGO</td><td>Broadcom Inc.</td><td>Technology</td><td>SP100, NDX</td><td>2021-09, 2018</td><td><span class="badge b-pass">ready</span></td></tr>
+            <tr><td>JPM</td><td>JPMorgan Chase</td><td>Financials</td><td>SP100</td><td>1995</td><td><span class="badge b-pass">ready</span></td></tr>
+            <tr><td>XOM</td><td>Exxon Mobil</td><td>Energy</td><td>SP100</td><td>1995</td><td><span class="badge b-pass">ready</span></td></tr>
+            <tr><td>META</td><td>Meta Platforms</td><td>Communications</td><td>SP100, NDX</td><td>2013, 2012</td><td><span class="badge b-pass">ready</span></td></tr>
+            <tr><td>TSLA</td><td>Tesla Inc.</td><td>Cons. Disc.</td><td>SP100, NDX</td><td>2020-12, 2013</td><td><span class="badge b-pass">ready</span></td></tr>
+            <tr><td>UNH</td><td>UnitedHealth</td><td>Health Care</td><td>SP100</td><td>2008</td><td><span class="badge b-pass">ready</span></td></tr>
+            <tr><td>HD</td><td>Home Depot</td><td>Cons. Disc.</td><td>SP100</td><td>1995</td><td><span class="badge b-pass">ready</span></td></tr>
+          </table>
+        </div>
+
+        <div class="vstrip">
+          <span><b>Source:</b> SEC EDGAR + reconstructed Wikipedia history</span>
+          <span><b>Window:</b> 2019-01-01 to today</span>
+          <span><b>Survivorship:</b> handled via PIT membership</span>
+        </div>
+      </section>
+
+      <!-- ======================== FUNDAMENTALS ======================== -->
+      <section id="s-fun" class="screen">
+        <div class="breadcrumb">Engines › Fundamentals</div>
+        <h1 class="page-title">Fundamentals</h1>
+        <p class="page-sub">Business quality before any candidate considers selection. SEC-backed only.</p>
+
+        <div class="hero pass">
+          <h2>47 eligible. 23 on watch. 82 rejected.</h2>
+          <p>Score distribution healthy. No artificial uniformity detected. Backed by SEC company facts as of last filing.</p>
+        </div>
+
+        <div class="kpis">
+          <div class="kpi"><div class="lbl">Eligible</div><div class="val pass">47</div><div class="sub">31% of universe</div></div>
+          <div class="kpi"><div class="lbl">Watch</div><div class="val watch">23</div><div class="sub">15%</div></div>
+          <div class="kpi"><div class="lbl">Reject</div><div class="val block">82</div><div class="sub">54%</div></div>
+          <div class="kpi"><div class="lbl">Avg composite</div><div class="val">0.51</div><div class="sub">σ = 0.21</div></div>
+        </div>
+
+        <div class="card">
+          <div class="head"><h3>NVDA</h3><span class="badge b-pass">eligible · score 0.84</span></div>
+          <div class="body">Strong on profitability quality, growth, cash efficiency. Watch on valuation: P/E in 90th percentile of sector.</div>
+          <div class="bar"><span style="width: 84%;"></span></div>
+          <details>
+            <summary>Show factor breakdown</summary>
+            <table class="table" style="margin-top: 8px;">
+              <tr><th>Factor</th><th>Value</th><th>Threshold</th><th>Score</th></tr>
+              <tr><td>Profitability quality</td><td class="num">0.91</td><td class="num">≥ 0.50</td><td class="num pass">0.91</td></tr>
+              <tr><td>Fundamental growth</td><td class="num">0.88</td><td class="num">≥ 0.40</td><td class="num pass">0.88</td></tr>
+              <tr><td>Valuation</td><td class="num">0.32</td><td class="num">≥ 0.30</td><td class="num watch">0.32</td></tr>
+              <tr><td>Financial strength</td><td class="num">0.79</td><td class="num">≥ 0.50</td><td class="num pass">0.79</td></tr>
+              <tr><td>Cash efficiency</td><td class="num">0.94</td><td class="num">≥ 0.50</td><td class="num pass">0.94</td></tr>
+              <tr><td>Earnings stability</td><td class="num">0.81</td><td class="num">≥ 0.50</td><td class="num pass">0.81</td></tr>
+            </table>
+          </details>
+          <div class="vstrip">
+            <span><b>Source:</b> SEC EDGAR Company Facts</span>
+            <span><b>Last filing:</b> 2026-04-30 (10-Q)</span>
+            <span><b>Freshness:</b> fresh</span>
+            <span><b>PIT verified:</b> yes</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="head"><h3>F · Ford Motor Co.</h3><span class="badge b-watch">watch · score 0.42</span></div>
+          <div class="body">Margins trending down 4 quarters. Balance sheet OK. Earnings stability is the blocker.</div>
+          <div class="bar warn"><span style="width: 42%;"></span></div>
+          <div class="vstrip"><span><b>Last filing:</b> 2026-02-12 (10-K)</span><span><b>Freshness:</b> aging</span></div>
+        </div>
+
+        <div class="card">
+          <div class="head"><h3>BIIB · Biogen</h3><span class="badge b-block">reject · score 0.18</span></div>
+          <div class="body">Negative free cash flow trailing 3 quarters; rising debt. Out of scope until trends improve.</div>
+          <div class="bar bad"><span style="width: 18%;"></span></div>
+        </div>
+      </section>
+
+      <!-- ======================== MARKET ======================== -->
+      <section id="s-mkt" class="screen">
+        <div class="breadcrumb">Engines › Market regime</div>
+        <h1 class="page-title">Market regime</h1>
+        <p class="page-sub">Top-down market and sector context. Sector verdicts require ETF + breadth.</p>
+
+        <div class="hero pass">
+          <h2>Market is balanced, leaning risk-on.</h2>
+          <p>4 sectors with tailwind, 2 with pressure, 1 unavailable. Sector breadth gate passes. No regime change in 8 cycles.</p>
+        </div>
+
+        <div class="kpis">
+          <div class="kpi"><div class="lbl">SPY 20d return</div><div class="val pass">+2.4%</div></div>
+          <div class="kpi"><div class="lbl">VIX</div><div class="val">14.8</div><div class="sub">low volatility</div></div>
+          <div class="kpi"><div class="lbl">Breadth (above 50dma)</div><div class="val pass">62%</div></div>
+          <div class="kpi"><div class="lbl">Sector dispersion</div><div class="val">0.41</div><div class="sub">moderate</div></div>
+        </div>
+
+        <div class="card">
+          <div class="head"><h3>Macro regime</h3><span class="badge b-info">balanced</span></div>
+          <div class="body">No strong top-down edge. Stock-specific evidence must carry the decision. Long threshold 0.56, short threshold 0.56.</div>
+          <div class="vstrip"><span><b>Determined from:</b> SPY return + VIX + breadth + sector dispersion</span><span><b>Confidence:</b> high</span></div>
+        </div>
+
+        <div class="card">
+          <div class="head"><h3>Sector verdicts</h3><span class="meta">ETF + top-constituent breadth</span></div>
+          <div class="sector-grid" style="margin-top: 10px;">
+            <div class="sector pass"><div class="name">Technology</div><div class="reason">XLK +3.1% · breadth 9/10</div></div>
+            <div class="sector pass"><div class="name">Communications</div><div class="reason">XLC +2.4% · breadth 7/9</div></div>
+            <div class="sector pass"><div class="name">Industrials</div><div class="reason">XLI +1.6% · breadth 6/8</div></div>
+            <div class="sector pass"><div class="name">Health Care</div><div class="reason">XLV +0.9% · breadth 5/8</div></div>
+            <div class="sector watch"><div class="name">Financials</div><div class="reason">XLF flat · mixed signals</div></div>
+            <div class="sector watch"><div class="name">Cons. Disc.</div><div class="reason">XLY -0.4% · weak retail</div></div>
+            <div class="sector block"><div class="name">Energy</div><div class="reason">XLE -2.1% · oil down 4%</div></div>
+            <div class="sector block"><div class="name">Materials</div><div class="reason">XLB -1.8% · breadth 1/4</div></div>
+            <div class="sector unav"><div class="name">Real Estate</div><div class="reason">XLRE data degraded · not actionable</div></div>
+            <div class="sector pass"><div class="name">Cons. Staples</div><div class="reason">XLP +0.6%</div></div>
+            <div class="sector watch"><div class="name">Utilities</div><div class="reason">XLU mixed · flat tape</div></div>
+          </div>
+          <details>
+            <summary>How sector verdict is computed</summary>
+            <div class="body">Each sector requires a valid ETF proxy AND ≥5 live top constituents at ≥25% breadth coverage. Sector strength = weighted blend of ETF return and constituent return. Tailwind requires positive net + breadth pass. Real Estate's XLRE feed is intermittent today, so it is marked unavailable rather than scored.</div>
+          </details>
+        </div>
+      </section>
+
+      <!-- ======================== SIGNALS ======================== -->
+      <section id="s-sig" class="screen">
+        <div class="breadcrumb">Engines › Signals</div>
+        <h1 class="page-title">Signals</h1>
+        <p class="page-sub">Near-term, stock-specific evidence. Confirmed and inferred kept separate.</p>
+
+        <div class="hero info">
+          <h2>12 fresh signals on 7 tickers. 3 high-confidence.</h2>
+          <p>Free RSS news contributing 6 items: discovery only, not actionable on its own. Paid-sub email delivered 3 confirmed events.</p>
+        </div>
+
+        <div class="kpis">
+          <div class="kpi"><div class="lbl">Confirmed</div><div class="val pass">7</div></div>
+          <div class="kpi"><div class="lbl">Inferred</div><div class="val watch">5</div></div>
+          <div class="kpi"><div class="lbl">Suppressed</div><div class="val">14</div><div class="sub">duplicates + low quality</div></div>
+          <div class="kpi"><div class="lbl">Tickers covered</div><div class="val">7</div></div>
+        </div>
+
+        <div class="card">
+          <div class="head"><h3>NVDA · insider buying</h3><span class="badge b-pass">confirmed · high</span></div>
+          <div class="body">CFO bought 4,200 shares at $812.40 on 2026-05-02. Form 4 filed 2026-05-04.</div>
+          <div class="vstrip">
+            <span><b>Source:</b> SEC Form 4</span>
+            <span><b>Tier:</b> official filing</span>
+            <span><b>Verification:</b> confirmed</span>
+            <span><b>Filing URL:</b> available</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="head"><h3>AVGO · SA Quant rank upgrade</h3><span class="badge b-pass">confirmed · high</span></div>
+          <div class="body">Quant rank moved from Hold to Buy on 2026-05-05. Email digest source.</div>
+          <div class="vstrip">
+            <span><b>Source:</b> SA Premium email</span>
+            <span><b>Tier:</b> paid-sub email</span>
+            <span><b>Verification:</b> confirmed</span>
+            <span><b>Email ID:</b> &lt;sa-msg-2818373&gt;</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="head"><h3>TSLA · abnormal volume</h3><span class="badge b-watch">inferred</span></div>
+          <div class="body">3.2× average volume on 2026-05-05; bar-derived. Not a confirmed block trade. Context only — does not satisfy evidence breadth on its own.</div>
+          <div class="vstrip">
+            <span><b>Source:</b> Alpaca daily bars</span>
+            <span><b>Tier:</b> inferred-from-bars</span>
+            <span><b>Verification:</b> inferred</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="head"><h3>META · news headline (suppressed)</h3><span class="badge b-unav">suppressed · low quality</span></div>
+          <div class="body">RSS-only headline mentioned META indirectly. Ticker-relevance score 0.18; below 0.35 floor. Logged for audit, not sent to selection.</div>
+          <div class="vstrip">
+            <span><b>Source:</b> Google News RSS</span>
+            <span><b>Tier:</b> RSS headline</span>
+            <span><b>Verification:</b> confirmed (article exists)</span>
+            <span><b>Issue:</b> indirect mention</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ======================== SELECTION ======================== -->
+      <section id="s-sel" class="screen">
+        <div class="breadcrumb">Decision › Selection</div>
+        <h1 class="page-title">Selection</h1>
+        <p class="page-sub">Deterministic engine and LLM reviewer side by side. Same JSON evidence pack, no asymmetry.</p>
+
+        <div class="hero info">
+          <h2>5 deterministic candidates. LLM agrees on 3, demotes 2.</h2>
+          <p>Every candidate reviewed against the same JSON evidence pack. LLM cannot use outside knowledge or promote watch directly to execution.</p>
+        </div>
+
+        <div class="card">
+          <div class="head"><h3>NVDA</h3><span class="badge b-pass">long · agreement</span></div>
+          <div class="sbs" style="margin-top: 10px;">
+            <div>
+              <div class="lbl">Deterministic</div>
+              <div class="verdict" style="color: var(--pass);">long · 0.81</div>
+              <div class="reason">Insider buy + sector tailwind + clean fundamentals. Score gap 0.31 (well above 0.08 minimum).</div>
+            </div>
+            <div>
+              <div class="lbl">LLM review</div>
+              <div class="verdict" style="color: var(--pass);">long · 0.74</div>
+              <div class="reason">Aligns with deterministic. Confidence reduced 0.07 for valuation stretch noted in fundamentals card.</div>
+            </div>
+          </div>
+          <details>
+            <summary>Show LLM rationale</summary>
+            <div class="body" style="margin-top: 6px;">"Deterministic + LLM both pass. CFO insider buy is high-credibility evidence. Tech sector tailwind validated by ETF + breadth. Valuation is the only watch flag — at 90th percentile of sector P/E. Position sized conservatively at 8% recommended; not 14% even though policy allows."</div>
+            <div class="vstrip"><span><b>Provider:</b> OpenAI</span><span><b>Model:</b> gpt-5.4-mini</span><span><b>Prompt:</b> v2.1</span></div>
+          </details>
+        </div>
+
+        <div class="card">
+          <div class="head"><h3>AVGO</h3><span class="badge b-watch">demoted by LLM</span></div>
+          <div class="sbs" style="margin-top: 10px;">
+            <div>
+              <div class="lbl">Deterministic</div>
+              <div class="verdict" style="color: var(--pass);">long · 0.66</div>
+              <div class="reason">Quant rank upgrade + positive flow. Score gap 0.12 (thin).</div>
+            </div>
+            <div>
+              <div class="lbl">LLM review</div>
+              <div class="verdict" style="color: var(--watch);">watch · 0.38</div>
+              <div class="reason">Earnings in 6 days. Position risk too high to enter long here. Recommend revisit after earnings clear.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="head"><h3>XOM</h3><span class="badge b-block">no trade · agreement</span></div>
+          <div class="sbs" style="margin-top: 10px;">
+            <div>
+              <div class="lbl">Deterministic</div>
+              <div class="verdict" style="color: var(--block);">no trade · 0.42</div>
+              <div class="reason">Sector pressure + weak signals. Below long threshold 0.56.</div>
+            </div>
+            <div>
+              <div class="lbl">LLM review</div>
+              <div class="verdict" style="color: var(--block);">no trade · 0.31</div>
+              <div class="reason">Energy sector hostile. No catalyst justifies the risk.</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ======================== FINAL SELECTION ======================== -->
+      <section id="s-fin" class="screen">
+        <div class="breadcrumb">Decision › Final selection</div>
+        <h1 class="page-title">Final selection</h1>
+        <p class="page-sub">Arbitration + portfolio policy gates. The output of this screen drives execution preview.</p>
+
+        <div class="hero pass">
+          <h2>3 final candidates approved for preview.</h2>
+          <p>2 blocked by policy: 1 by sector exposure cap, 1 by capacity. All 5 have full audit trail.</p>
+        </div>
+
+        <div class="card">
+          <div class="head"><h3>NVDA · long</h3><span class="badge b-pass">approved · final conviction 0.78</span></div>
+          <div class="body">Required 0.62. Deterministic + LLM aligned. Agreement bonus +0.07 applied. No risk-flag penalties.</div>
+          <h3 class="section-h">Policy gates</h3>
+          <div class="gate ok"><span class="ind"></span><span class="lbl">Min final conviction</span><span class="val">0.78 ≥ 0.62</span></div>
+          <div class="gate ok"><span class="ind"></span><span class="lbl">Position capacity</span><span class="val">7 / 10</span></div>
+          <div class="gate ok"><span class="ind"></span><span class="lbl">New positions per cycle</span><span class="val">1 / 3</span></div>
+          <div class="gate ok"><span class="ind"></span><span class="lbl">Sector exposure (Tech)</span><span class="val">22% ≤ 30%</span></div>
+          <div class="gate ok"><span class="ind"></span><span class="lbl">Single-name cap</span><span class="val">8% ≤ 25%</span></div>
+          <div class="gate ok"><span class="ind"></span><span class="lbl">Cash reserve</span><span class="val">18% ≥ 10%</span></div>
+          <details>
+            <summary>Show full selection report</summary>
+            <h3 class="section-h">Why selected</h3>
+            <div class="body">Three independent confirmed signals (insider Form 4, sector ETF tailwind with breadth, fundamentals composite ≥ 0.80). LLM agreed with deterministic direction. Earnings &gt;14 days out. No risk flags raised by Risk Manager.</div>
+            <h3 class="section-h">Concerns to watch</h3>
+            <div class="body">Valuation P/E in 90th percentile of sector. Position sized to 8% to leave room for adverse moves. Stop loss set at 4.7% below entry, take profit at 8.9%.</div>
+            <h3 class="section-h">What would change the decision</h3>
+            <div class="body">Earnings warning, sector regime flip to risk-off, abnormal-volume to the downside, or any executive Form 4 sale &gt; 10k shares.</div>
+          </details>
+        </div>
+
+        <div class="card">
+          <div class="head"><h3>JPM · long</h3><span class="badge b-block">blocked by policy</span></div>
+          <div class="body">Conviction 0.71 clears, but sector exposure cap reached at 30% in financials.</div>
+          <div class="gate ok" style="margin-top: 8px;"><span class="ind"></span><span class="lbl">Min conviction</span><span class="val">0.71 ≥ 0.62</span></div>
+          <div class="gate fail"><span class="ind"></span><span class="lbl">Sector exposure (Financials)</span><span class="val block">30% = 30% (cap)</span></div>
+          <div class="body" style="margin-top: 8px; color: var(--info);">→ Would need to reduce existing financials position to make room.</div>
+        </div>
+
+        <div class="card">
+          <div class="head"><h3>HD · long</h3><span class="badge b-pass">approved · final conviction 0.69</span></div>
+          <div class="body">Sector tailwind despite weak retail headline (validated against breadth). Position size 7%.</div>
+          <div class="gate ok" style="margin-top: 8px;"><span class="ind"></span><span class="lbl">All policy gates</span><span class="val">passed</span></div>
+        </div>
+
+        <div class="card">
+          <div class="head"><h3>UNH · long</h3><span class="badge b-pass">approved · final conviction 0.65</span></div>
+          <div class="body">At minimum conviction. Single-source-fundamentals + sector tailwind. No insider/news lane corroboration; LLM flagged thin evidence breadth but did not demote.</div>
+        </div>
+
+        <div class="card">
+          <div class="head"><h3>NFLX · long</h3><span class="badge b-block">disappeared from list</span></div>
+          <div class="body">Was a candidate at cycle 14:22. Removed by data refresh: positive news article relevance was downgraded to 0.31, dropping confirmed-evidence count below the breadth threshold.</div>
+          <details>
+            <summary>Show lifecycle audit</summary>
+            <table class="table" style="margin-top: 8px;">
+              <tr><th>When</th><th>State</th><th>Reason</th></tr>
+              <tr><td class="meta">14:08</td><td>entered universe</td><td>SP100 + QQQ membership</td></tr>
+              <tr><td class="meta">14:14</td><td>passed fundamentals</td><td>composite 0.71</td></tr>
+              <tr><td class="meta">14:18</td><td>signals fresh</td><td>positive news article</td></tr>
+              <tr><td class="meta">14:22</td><td>deterministic long 0.62</td><td>at threshold</td></tr>
+              <tr><td class="meta">14:28</td><td>news relevance recomputed</td><td>0.41 → 0.31</td></tr>
+              <tr><td class="meta">14:30</td><td>removed</td><td>evidence breadth fell below 2</td></tr>
+            </table>
+          </details>
+        </div>
+      </section>
+
+      <!-- ======================== RISK ======================== -->
+      <section id="s-risk" class="screen">
+        <div class="breadcrumb">Decision › Risk</div>
+        <h1 class="page-title">Risk</h1>
+        <p class="page-sub">Exposure, account, and runtime checks before any preview.</p>
+
+        <div class="hero pass">
+          <h2>Risk OK on all 3 candidates.</h2>
+          <p>Gross exposure projects to 84% post-trade. Within 100% policy limit. Broker read 1 minute ago.</p>
+        </div>
+
+        <div class="kpis">
+          <div class="kpi"><div class="lbl">Gross exposure</div><div class="val">67%</div><div class="sub">post-trade 84%</div></div>
+          <div class="kpi"><div class="lbl">Largest single name</div><div class="val">14%</div><div class="sub">cap 25%</div></div>
+          <div class="kpi"><div class="lbl">Open orders</div><div class="val">2</div><div class="sub">cap 5</div></div>
+          <div class="kpi"><div class="lbl">Buying power</div><div class="val">$28k</div><div class="sub">paper account</div></div>
+        </div>
+
+        <div class="card">
+          <div class="head"><h3>NVDA</h3><span class="badge b-pass">allowed</span></div>
+          <div class="gate ok" style="margin-top: 6px;"><span class="ind"></span><span class="lbl">Single-name exposure</span><span class="val">8% post-trade</span></div>
+          <div class="gate ok"><span class="ind"></span><span class="lbl">Buying power</span><span class="val">$9.8k notional ≤ $28k</span></div>
+          <div class="gate ok"><span class="ind"></span><span class="lbl">Open order ceiling</span><span class="val">3 / 5 post-trade</span></div>
+          <div class="gate ok"><span class="ind"></span><span class="lbl">Runtime reliability</span><span class="val">all green</span></div>
+        </div>
+
+        <div class="card">
+          <div class="head"><h3>HD</h3><span class="badge b-pass">allowed</span></div>
+          <div class="gate ok" style="margin-top: 6px;"><span class="ind"></span><span class="lbl">All checks</span><span class="val">passed</span></div>
+        </div>
+
+        <div class="card">
+          <div class="head"><h3>UNH</h3><span class="badge b-pass">allowed (warning)</span></div>
+          <div class="gate ok" style="margin-top: 6px;"><span class="ind"></span><span class="lbl">All hard gates</span><span class="val">passed</span></div>
+          <div class="body" style="color: var(--watch);">Warning: post-trade gross at 84%. Approaching 100% cap. Future entries this cycle would be blocked.</div>
+        </div>
+
+        <div class="vstrip">
+          <span><b>Broker:</b> Alpaca paper</span>
+          <span><b>Account read:</b> 1m ago</span>
+          <span><b>Runtime:</b> all green</span>
+          <span><b>Cache TTL:</b> 60s</span>
+        </div>
+      </section>
+
+      <!-- ======================== EXECUTION ======================== -->
+      <section id="s-exec" class="screen">
+        <div class="breadcrumb">Action › Execution preview</div>
+        <h1 class="page-title">Execution preview</h1>
+        <p class="page-sub">Paper-trade previews ready for human approval. Submission requires explicit confirmation.</p>
+
+        <div class="hero watch">
+          <h2>Paper-trade preview ready. Submission requires explicit confirmation.</h2>
+          <p>Live trading is disabled. Submit gate is closed by default. To submit any preview, open the gate AND type the confirmation phrase.</p>
+        </div>
+
+        <div class="kpis">
+          <div class="kpi"><div class="lbl">Mode</div><div class="val watch" style="font-size: 16px;">PAPER</div><div class="sub">live disabled</div></div>
+          <div class="kpi"><div class="lbl">Submit gate</div><div class="val block" style="font-size: 16px;">closed</div></div>
+          <div class="kpi"><div class="lbl">Previews ready</div><div class="val">3</div></div>
+          <div class="kpi"><div class="lbl">Bracket orders</div><div class="val pass" style="font-size: 16px;">enabled</div></div>
+        </div>
+
+        <div class="card">
+          <div class="head"><h3>NVDA · long · preview</h3><span class="badge b-info">preview only</span></div>
+          <table class="table" style="margin-top: 10px;">
+            <tr><td>Side</td><td class="num"><b>BUY</b></td></tr>
+            <tr><td>Quantity</td><td class="num">12 shares</td></tr>
+            <tr><td>Entry</td><td class="num">$815.40 (limit)</td></tr>
+            <tr><td>Notional</td><td class="num">$9,785</td></tr>
+            <tr><td>Stop loss</td><td class="num" style="color: var(--block);">$777.00 (-4.7%)</td></tr>
+            <tr><td>Take profit</td><td class="num" style="color: var(--pass);">$888.00 (+8.9%)</td></tr>
+            <tr><td>Bracket order</td><td class="num">enabled (OCO stop + target)</td></tr>
+            <tr><td>Time in force</td><td class="num">DAY</td></tr>
+          </table>
+          <div style="margin-top: 14px; display: flex; gap: 10px; flex-wrap: wrap;">
+            <button class="btn" disabled>Submit (gate closed)</button>
+            <button class="btn">Open submit gate</button>
+            <button class="btn danger">Reject preview</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="head"><h3>HD · long · preview</h3><span class="badge b-info">preview only</span></div>
+          <div class="body">12 shares of $384.20, notional $4,610, stop at -5.2%, target +9.8%.</div>
+        </div>
+
+        <div class="card">
+          <div class="head"><h3>UNH · long · preview</h3><span class="badge b-info">preview only</span></div>
+          <div class="body">8 shares of $544.10, notional $4,353, stop at -4.5%, target +8.0%.</div>
+        </div>
+
+        <div class="vstrip">
+          <span><b>Broker:</b> Alpaca paper</span>
+          <span><b>BROKER_SUBMIT_ENABLED:</b> false</span>
+          <span><b>SHORTS_ENABLED:</b> false</span>
+          <span><b>Live trading:</b> disabled</span>
+        </div>
+      </section>
+
+      <!-- ======================== MONITOR ======================== -->
+      <section id="s-mon" class="screen">
+        <div class="breadcrumb">Action › Portfolio monitor</div>
+        <h1 class="page-title">Portfolio monitor</h1>
+        <p class="page-sub">Existing positions vs. current setup. Monitor classifies — does not close on its own.</p>
+
+        <div class="hero info">
+          <h2>5 positions. 2 hold, 2 review, 1 close-candidate.</h2>
+          <p>Positions classified by current setup alignment. User retains close authority.</p>
+        </div>
+
+        <div class="kpis">
+          <div class="kpi"><div class="lbl">Open positions</div><div class="val">5</div></div>
+          <div class="kpi"><div class="lbl">Hold</div><div class="val pass">2</div></div>
+          <div class="kpi"><div class="lbl">Review</div><div class="val watch">2</div></div>
+          <div class="kpi"><div class="lbl">Close-candidate</div><div class="val block">1</div></div>
+        </div>
+
+        <div class="card">
+          <div class="head"><h3>AAPL · long · entered 2026-04-22</h3><span class="badge b-pass">hold</span></div>
+          <table class="table" style="margin-top: 10px;">
+            <tr><th>Entry</th><th>Current</th><th>P/L</th><th>Stop</th><th>Target</th><th>Days held</th></tr>
+            <tr><td class="num">$172.40</td><td class="num">$178.30</td><td class="num pass">+3.4%</td><td class="num">$163.80</td><td class="num">$187.90</td><td class="num">14</td></tr>
+          </table>
+          <div class="body">Setup remains aligned with hold. Stop intact. No regime-flip risk.</div>
+          <div class="vstrip"><span><b>Setup updated:</b> 4m ago</span><span><b>Last review:</b> aligned</span></div>
+        </div>
+
+        <div class="card">
+          <div class="head"><h3>MSFT · long · entered 2026-04-19</h3><span class="badge b-pass">hold</span></div>
+          <div class="body">P/L +2.1%. Setup aligned. Stop and target intact.</div>
+        </div>
+
+        <div class="card">
+          <div class="head"><h3>META · long · entered 2026-04-15</h3><span class="badge b-watch">review</span></div>
+          <div class="body">Setup weakened: signal evidence dropped below threshold. P/L +1.1%. Not yet a close candidate but worth attention.</div>
+          <div class="vstrip">
+            <span><b>Reason:</b> evidence breadth fell to 1</span>
+            <span><b>Recommended:</b> review next cycle</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="head"><h3>HD · long · entered 2026-04-10</h3><span class="badge b-watch">review</span></div>
+          <div class="body">Mixed evidence; sector tailwind softer. P/L -0.4%. Setup is borderline.</div>
+        </div>
+
+        <div class="card">
+          <div class="head"><h3>XOM · long · entered 2026-04-08</h3><span class="badge b-block">close candidate</span></div>
+          <div class="body">Setup flipped to no_trade. Sector pressure now active. P/L -2.3%.</div>
+          <div class="vstrip">
+            <span><b>Reason:</b> sector regime turned</span>
+            <span><b>Stop distance:</b> -1.8%</span>
+            <span><b>Recommendation:</b> manual close (monitor will not auto-close)</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ======================== LEARNING ======================== -->
+      <section id="s-learn" class="screen">
+        <div class="breadcrumb">Feedback › Learning</div>
+        <h1 class="page-title">Learning</h1>
+        <p class="page-sub">Outcome feedback into the system. Honest about when learning is not yet useful.</p>
+
+        <div class="hero watch">
+          <h2>Sample size 23 trades. Too small for actionable recommendations.</h2>
+          <p>Threshold tuning needs 50+ matured outcomes. Backtest validation also pending — see Research Phase results.</p>
+        </div>
+
+        <div class="kpis">
+          <div class="kpi"><div class="lbl">Closed paper trades</div><div class="val">23</div><div class="sub">need 50+</div></div>
+          <div class="kpi"><div class="lbl">Hit rate</div><div class="val">52%</div><div class="sub">±18% wide CI</div></div>
+          <div class="kpi"><div class="lbl">Avg holding</div><div class="val">11d</div></div>
+          <div class="kpi"><div class="lbl">Median return</div><div class="val pass">+1.3%</div></div>
+        </div>
+
+        <div class="card">
+          <div class="head"><h3>Per-engine maturity</h3><span class="meta">when can the learning loop tune this engine</span></div>
+          <table class="table" style="margin-top: 10px;">
+            <tr><th>Engine</th><th>Samples</th><th>Required</th><th>Status</th></tr>
+            <tr><td>Fundamentals</td><td class="num">23</td><td class="num">50</td><td><span class="badge b-watch">premature</span></td></tr>
+            <tr><td>Signals (per lane)</td><td class="num">23</td><td class="num">50 per lane</td><td><span class="badge b-watch">premature</span></td></tr>
+            <tr><td>Deterministic Selection</td><td class="num">23</td><td class="num">50</td><td><span class="badge b-watch">premature</span></td></tr>
+            <tr><td>LLM Selection</td><td class="num">23</td><td class="num">50</td><td><span class="badge b-watch">premature</span></td></tr>
+            <tr><td>Risk gates</td><td class="num">14 blocks</td><td class="num">30 blocks</td><td><span class="badge b-watch">premature</span></td></tr>
+          </table>
+        </div>
+
+        <div class="card">
+          <div class="head"><h3>Backtest validation status</h3><span class="badge b-watch">pending</span></div>
+          <div class="body">Research-phase H1 results not yet available. Once H1 is complete, validated lanes will appear here with their realized vs. predicted IC. Until then, all thresholds are engineering defaults.</div>
+        </div>
+
+        <div class="card">
+          <div class="head"><h3>Decision journal (sample)</h3></div>
+          <table class="table" style="margin-top: 10px;">
+            <tr><th>Date</th><th>Ticker</th><th>Action</th><th>Conviction</th><th>Outcome (5d)</th><th>Right?</th></tr>
+            <tr><td class="num">2026-04-22</td><td>AAPL</td><td>long</td><td class="num">0.71</td><td class="num pass">+1.8%</td><td><span class="badge b-pass">yes</span></td></tr>
+            <tr><td class="num">2026-04-19</td><td>MSFT</td><td>long</td><td class="num">0.66</td><td class="num pass">+0.9%</td><td><span class="badge b-pass">yes</span></td></tr>
+            <tr><td class="num">2026-04-15</td><td>META</td><td>long</td><td class="num">0.69</td><td class="num pass">+1.2%</td><td><span class="badge b-pass">yes</span></td></tr>
+            <tr><td class="num">2026-04-10</td><td>HD</td><td>long</td><td class="num">0.64</td><td class="num">-0.4%</td><td><span class="badge b-block">no</span></td></tr>
+            <tr><td class="num">2026-04-08</td><td>XOM</td><td>long</td><td class="num">0.65</td><td class="num">-2.1%</td><td><span class="badge b-block">no</span></td></tr>
+          </table>
+        </div>
+      </section>
+
+      <!-- ======================== POLICY ======================== -->
+      <section id="s-pol" class="screen">
+        <div class="breadcrumb">Configuration › Portfolio policy</div>
+        <h1 class="page-title">Portfolio policy</h1>
+        <p class="page-sub">User-editable rules that selection, risk, execution, and monitor obey.</p>
+
+        <div class="hero neutral">
+          <h2>Policy v0.4 · last changed 2026-04-30</h2>
+          <p>Edits require confirmation. Major changes (capacity, exposure caps, stop defaults) trigger an audit log entry.</p>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <div class="head"><h3>Targets and discipline</h3></div>
+            <div class="form-row"><label>Weekly target (%)</label><input type="number" value="3.0" step="0.5" /></div>
+            <div class="form-row"><label>Min final conviction</label><input type="number" value="0.62" step="0.01" /></div>
+            <div class="form-row"><label>Max weekly drawdown (%)</label><input type="number" value="6.0" step="0.5" /></div>
+            <div class="form-row"><label>Min hold (days)</label><input type="number" value="2" /></div>
+          </div>
+          <div class="card">
+            <div class="head"><h3>Capacity</h3></div>
+            <div class="form-row"><label>Max positions</label><input type="number" value="10" /></div>
+            <div class="form-row"><label>Max new per cycle</label><input type="number" value="3" /></div>
+            <div class="form-row"><label>Max single-name (%)</label><input type="number" value="25" /></div>
+            <div class="form-row"><label>Max sector exposure (%)</label><input type="number" value="30" /></div>
+            <div class="form-row"><label>Cash reserve (%)</label><input type="number" value="10" /></div>
+            <div class="form-row"><label>Max gross exposure (%)</label><input type="number" value="100" /></div>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <div class="head"><h3>Trade defaults</h3></div>
+            <div class="form-row"><label>Default stop (%)</label><input type="number" value="5" step="0.5" /></div>
+            <div class="form-row"><label>Default take profit (%)</label><input type="number" value="9" step="0.5" /></div>
+            <div class="form-row"><label>Trailing stop (%)</label><input type="number" value="3" step="0.5" /></div>
+            <div class="form-row"><label>Bracket orders</label><select><option>enabled</option><option>disabled</option></select></div>
+          </div>
+          <div class="card">
+            <div class="head"><h3>Permissions</h3></div>
+            <div class="form-row"><label>Allow shorts</label><select><option>disabled</option><option>enabled</option></select></div>
+            <div class="form-row"><label>Allow add to positions</label><select><option>enabled</option><option>disabled</option></select></div>
+            <div class="form-row"><label>Allow reduce winners</label><select><option>disabled</option><option>enabled</option></select></div>
+            <div class="form-row"><label>Live trading</label><select><option>disabled</option><option>enabled (requires extra confirmation)</option></select></div>
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 10px; margin-top: 14px;">
+          <button class="btn primary">Save changes</button>
+          <button class="btn">Discard</button>
+          <button class="btn danger">Reset to defaults</button>
+        </div>
+
+        <div class="vstrip">
+          <span><b>Audit log:</b> last edit 2026-04-30 22:11 — increased max positions from 8 to 10</span>
+        </div>
+      </section>
+
+    </main>
+  </div>
+</div>
+
+<script>
+  (function(){
+    var nav = document.querySelectorAll('.nav button');
+    var screens = document.querySelectorAll('.screen');
+    nav.forEach(function(b){
+      b.addEventListener('click', function(){
+        nav.forEach(function(x){ x.classList.remove('active'); });
+        b.classList.add('active');
+        var t = b.getAttribute('data-target');
+        screens.forEach(function(s){ s.classList.toggle('active', s.id === t); });
+        document.querySelector('.content').scrollTop = 0;
+        window.scrollTo({top: 0, behavior: 'instant'});
+      });
+    });
+  })();
+</script>
+</body>
+</html>

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_data_health.html" import data_health_panel %}
 
 {% set active_nav = "risk" %}
 
@@ -8,33 +9,125 @@
 {% block topbar_meta %}{{ summary.decision_count }} decisions &middot; read-only{% endblock %}
 
 {% block content %}
-  <section class="hero hero-info" aria-label="Risk state">
-    <h2>{{ summary.headline }}</h2>
-    <p>{{ summary.detail }}</p>
+  <section class="next-action hero-info" aria-label="Risk state">
+    <div class="next-action-step" aria-hidden="true">07</div>
+    <div class="next-action-copy">
+      <p class="eyebrow">Risk scan</p>
+      <h2>{{ summary.headline }}</h2>
+      <p>{{ summary.detail }} Review WARN rows on the candidate page. BLOCK rows cannot create paper orders until a later cycle changes the action or clears the blocking gate.</p>
+    </div>
+    <div class="next-action-buttons">
+      <a class="primary-action" href="/execution-preview">Open execution preview</a>
+    </div>
   </section>
 
-  <section class="summary-band" aria-label="Risk metrics">
-    <div>
+  <section class="kpi-grid kpi-grid-compact" aria-label="Risk metrics">
+    <article class="kpi">
       <span class="metric-label">Decisions</span>
       <strong>{{ summary.decision_count }}</strong>
-    </div>
-    <div>
+      <p>risk outputs</p>
+    </article>
+    <article class="kpi">
       <span class="metric-label">Allowed</span>
       <strong>{{ summary.allow_count }}</strong>
-    </div>
-    <div>
+      <p>can move to paper preview</p>
+    </article>
+    <article class="kpi kpi-urgent">
       <span class="metric-label">Warned</span>
       <strong>{{ summary.warn_count }}</strong>
-    </div>
-    <div>
+      <p>needs careful review</p>
+    </article>
+    <article class="kpi">
       <span class="metric-label">Blocked</span>
       <strong>{{ summary.block_count }}</strong>
+      <p>cannot proceed</p>
+    </article>
+  </section>
+
+  {{ data_health_panel(data_health) }}
+
+  <section class="panel workflow-help" aria-labelledby="risk-help-heading">
+    <div class="section-heading">
+      <div>
+        <h2 id="risk-help-heading">What To Do Here</h2>
+        <p class="section-subtitle">{{ summary.next_action }}</p>
+      </div>
+      <span class="tag tag-warn">WARN is review-only</span>
+    </div>
+    <div class="guidance-grid">
+      <article class="guidance-card guidance-card-pass">
+        <span class="metric-label">ALLOW</span>
+        <strong>Orderable risk state</strong>
+        <p>These are the only candidates that can move toward a paper order, assuming execution has size, approval, and an open broker gate.</p>
+      </article>
+      <article class="guidance-card guidance-card-warn">
+        <span class="metric-label">WARN</span>
+        <strong>Reviewable, not automatic</strong>
+        <p>{{ summary.warn_meaning }}</p>
+      </article>
+      <article class="guidance-card guidance-card-block">
+        <span class="metric-label">BLOCK</span>
+        <strong>Archive and explain</strong>
+        <p>{{ summary.blocked_meaning }}</p>
+      </article>
     </div>
   </section>
 
-  <section class="panel" aria-labelledby="risk-candidates-heading">
+  <section class="risk-focus-grid" aria-label="Risk focus queues">
+    <article class="panel risk-focus-card risk-focus-card-pass">
+      <div class="section-heading">
+        <div>
+          <h2>Ready to review</h2>
+          <p class="section-subtitle">Rows risk has allowed to proceed to execution preview.</p>
+        </div>
+        <span class="tag tag-pass">{{ allow_rows | length }}</span>
+      </div>
+      <div class="risk-chip-list">
+        {% for row in allow_rows %}
+        <a class="risk-chip" href="/candidates/{{ row.ticker }}">
+          <strong>{{ row.ticker }} / {{ row.final_action }}</strong>
+          <span>Agent checked - OK. {{ row.decision_meaning }}</span>
+        </a>
+        {% else %}
+        <p class="empty-block">No allowed candidates in this cycle.</p>
+        {% endfor %}
+      </div>
+    </article>
+
+    <article class="panel risk-focus-card risk-focus-card-warn">
+      <div class="section-heading">
+        <div>
+          <h2>Needs data</h2>
+          <p class="section-subtitle">Rows needing fresher data, caution acknowledgement, or a human evidence check.</p>
+        </div>
+        <span class="tag tag-warn">{{ warn_rows | length }}</span>
+      </div>
+      <div class="risk-review-list">
+        {% for row in warn_rows %}
+        <article class="risk-review-card">
+          <div>
+            <a class="selection-ticker" href="/candidates/{{ row.ticker }}">{{ row.ticker }}</a>
+            <span class="tag tag-warn">{{ row.final_action }}</span>
+            <span class="tag tag-neutral">{{ row.conviction_pct }}%</span>
+          </div>
+          <strong>{{ row.decision_title }}</strong>
+          <p>{{ row.primary_issue }}</p>
+          <p class="microcopy">LLM: {{ row.llm_action }} / Rules: {{ row.deterministic_score_label }}</p>
+          <p class="card-next-step">{{ row.decision_action }}</p>
+        </article>
+        {% else %}
+        <p class="empty-block">No WARN rows need review.</p>
+        {% endfor %}
+      </div>
+    </article>
+  </section>
+
+  <section class="panel" aria-labelledby="risk-candidates-heading" data-empty-copy="No risk decisions yet">
     <div class="section-heading">
-      <h2 id="risk-candidates-heading">Risk Decisions</h2>
+      <div>
+        <h2 id="risk-candidates-heading">Risk Decisions</h2>
+        <p class="section-subtitle">Main queue only: ALLOW and WARN. BLOCK rows are collapsed below.</p>
+      </div>
       <span class="tag tag-neutral">No broker approval</span>
     </div>
     <div class="table-wrap">
@@ -46,22 +139,28 @@
             <th>Action</th>
             <th>Conviction</th>
             <th>Projected Gross</th>
-            <th>Reason</th>
+            <th>Meaning</th>
+            <th>LLM status</th>
+            <th>Rules score</th>
+            <th>User Action</th>
           </tr>
         </thead>
         <tbody>
-          {% for row in risk_rows %}
+          {% for row in allow_rows + warn_rows %}
           <tr>
             <td><a class="text-link" href="/candidates/{{ row.ticker }}">{{ row.ticker }}</a></td>
             <td><span class="tag tag-{{ row.decision_class }}">{{ row.decision }}</span></td>
             <td>{{ row.final_action }}</td>
             <td>{{ row.conviction_pct }}%</td>
             <td>{{ "%.0f"|format(row.projected_gross_exposure_pct) }}%</td>
-            <td>{{ row.reason }}</td>
+            <td>{{ row.plain_check_summary }}</td>
+            <td>{{ row.llm_action }}</td>
+            <td>{{ row.deterministic_score_label }}</td>
+            <td>{{ row.decision_action }}</td>
           </tr>
           {% else %}
           <tr>
-            <td class="empty-row" colspan="6">No risk decisions yet</td>
+            <td class="empty-row" colspan="9">No allowed or warned risk decisions in this cycle</td>
           </tr>
           {% endfor %}
         </tbody>
@@ -69,31 +168,77 @@
     </div>
   </section>
 
+  <section class="panel" aria-labelledby="blocked-heading">
+    <div class="section-heading">
+      <div>
+        <h2 id="blocked-heading">Blocked by policy</h2>
+        <p class="section-subtitle">Collapsed by default so the review queue stays focused.</p>
+      </div>
+      <span class="tag tag-block">{{ block_rows | length }} BLOCK</span>
+    </div>
+    <details class="details-panel shared-disclosure">
+      <summary>Show blocked rows and reasons</summary>
+      <div class="risk-review-list">
+        {% for row in block_rows %}
+        <article class="risk-review-card risk-review-card-block">
+          <div>
+            <a class="selection-ticker" href="/candidates/{{ row.ticker }}">{{ row.ticker }}</a>
+            <span class="tag tag-block">{{ row.final_action }}</span>
+            <span class="tag tag-neutral">{{ row.conviction_pct }}%</span>
+          </div>
+          <strong>{{ row.decision_title }}</strong>
+          <p>{{ row.primary_issue }}</p>
+          <p class="microcopy">LLM: {{ row.llm_action }} / Rules: {{ row.deterministic_score_label }}</p>
+          <p class="card-next-step">{{ row.decision_action }}</p>
+        </article>
+        {% else %}
+        <p class="empty-block">No blocked rows in this cycle.</p>
+        {% endfor %}
+      </div>
+    </details>
+  </section>
+
   <section class="panel" aria-labelledby="risk-checks-heading">
     <div class="section-heading">
-      <h2 id="risk-checks-heading">Risk Gate Detail</h2>
+      <div>
+        <h2 id="risk-checks-heading">Risk matrix</h2>
+        <p class="section-subtitle">Plain-English gate criteria for the rows a user can act on now.</p>
+      </div>
     </div>
     <div class="report-stack">
-      {% for row in risk_rows %}
-      <article class="report-card">
-        <div class="report-head">
-          <div>
-            <strong>{{ row.ticker }} / {{ row.decision }}</strong>
-            <span>{{ row.reason }}</span>
-          </div>
-          <span class="tag tag-{{ row.decision_class }}">{{ row.decision }}</span>
+      {% for row in allow_rows + warn_rows %}
+      <details class="details-panel shared-disclosure">
+        <summary>{{ row.ticker }} / {{ row.decision }} - {{ row.decision_title }}</summary>
+        <div class="decision-explainer decision-explainer-{{ row.decision_class }}">
+          <strong>{{ row.decision_meaning }}</strong>
+          <p>{{ row.decision_action }}</p>
+          <p class="muted-line">Selection gates: {{ row.selection_gate_summary }}</p>
+          <p class="muted-line">LLM comparison: {{ row.llm_action }} / {{ row.llm_conflict }}. Deterministic: {{ row.deterministic_score_label }}.</p>
         </div>
         <div class="gate-list">
-          {% for check in row.checks %}
+        {% for check in row.checks %}
           <div class="gate-row gate-{{ check.status_class }}">
             <span class="gate-indicator" aria-hidden="true"></span>
-            <span>{{ check.name }}</span>
+            <span>{{ check.label }}</span>
             <strong>{{ check.status }}</strong>
-            <em>{{ check.reason }}</em>
+            <em>{{ check.meaning }} Criteria: {{ check.criteria }} Next: {{ check.next_step }}</em>
+          </div>
+        {% endfor %}
+        </div>
+        {% if row.selection_gates %}
+        <h3>Selection Policy Gate Source</h3>
+        <div class="gate-list">
+          {% for gate in row.selection_gates %}
+          <div class="gate-row gate-{{ gate.status_class }}">
+            <span class="gate-indicator" aria-hidden="true"></span>
+            <span>{{ gate.label }}</span>
+            <strong>{{ gate.status }}</strong>
+            <em>{{ gate.meaning }} Original reason: {{ gate.reason }}.</em>
           </div>
           {% endfor %}
         </div>
-      </article>
+        {% endif %}
+      </details>
       {% else %}
       <p class="empty-block">Risk gate details appear after final selection reports exist.</p>
       {% endfor %}

@@ -2,24 +2,30 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 from typing import cast
 import asyncio
 
 from agency.api.audit import runtime_portfolio_snapshots
-from agency.services import PortfolioPolicy, build_portfolio_monitor
+from agency.services import PortfolioPolicy, build_portfolio_monitor, load_active_portfolio_policy
 
 from agency.views._shared import (
+    dashboard_data_health,
     _dashboard_selection_reports,
     _env_bool_text,
     _float_field,
     _int_field,
     _mapping_field,
+    live_dashboard_data_load_status,
 )
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+HIGH_WATER_MARKS_PATH = REPO_ROOT / "research" / "data" / "portfolio-high-water-marks.json"
 
 
 async def portfolio_monitor_context() -> dict[str, object]:
     from agency.views.market_regime import broker_status_context
-    policy = PortfolioPolicy.from_env()
+    policy = await load_active_portfolio_policy()
     reports, broker, snapshots = await asyncio.gather(
         _dashboard_selection_reports(limit=25),
         broker_status_context(),
@@ -32,9 +38,38 @@ async def portfolio_monitor_context() -> dict[str, object]:
         gross_exposure_pct=_broker_gross_exposure_pct(broker),
         portfolio_snapshots=snapshots,
         policy=policy,
+        high_water_marks_path=HIGH_WATER_MARKS_PATH,
+        persist_high_water_marks=False,
     )
+    data_load_status = await live_dashboard_data_load_status()
     return {
         "broker": broker,
+        "data_health": dashboard_data_health(
+            "Portfolio monitor dashboard",
+            data_load_status=data_load_status,
+            extra_rows=(
+                {
+                    "kind": "Broker",
+                    "name": "Alpaca paper account and positions",
+                    "status_label": str(broker.get("status_label") or "Broker unknown"),
+                    "status_class": str(broker.get("status_class") or "neutral"),
+                    "coverage_label": f"{len(_broker_positions(broker))} positions / {len(_broker_orders(broker))} open orders",
+                    "freshness_label": "broker snapshot",
+                    "last_update": str(broker.get("checked_at") or "not checked"),
+                    "detail": str(broker.get("detail") or "No broker detail available."),
+                },
+                {
+                    "kind": "Audit",
+                    "name": "Portfolio snapshot history",
+                    "status_label": "Snapshots recorded" if snapshots else "No snapshots yet",
+                    "status_class": "pass" if snapshots else "warn",
+                    "coverage_label": f"{len(snapshots)} stored snapshot(s)",
+                    "freshness_label": "latest audit row",
+                    "last_update": str(snapshots[0].get("captured_at")) if snapshots else "not recorded",
+                    "detail": "Snapshots let the portfolio manager measure hourly performance and rule triggers.",
+                },
+            ),
+        ),
         "positions": snapshot["positions"],
         "snapshot_rows": portfolio_snapshot_rows(snapshots[:5]),
         "summary": portfolio_monitor_summary(snapshot),

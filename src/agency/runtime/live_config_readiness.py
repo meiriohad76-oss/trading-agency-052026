@@ -3,19 +3,29 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Mapping
+from datetime import date
 from pathlib import Path
 from typing import cast
 
-from dotenv import load_dotenv
+import pandas as pd
+from dotenv import dotenv_values, load_dotenv
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_CONFIG_PATH = REPO_ROOT / "research" / "config" / "live-refresh.local.json"
 DEFAULT_UNIVERSE_PATH = REPO_ROOT / "research" / "data" / "parquet" / "universe_membership.parquet"
+DEFAULT_MANIFEST_ROOT = REPO_ROOT / "research" / "data" / "manifests"
+DEFAULT_PARQUET_ROOT = REPO_ROOT / "research" / "data" / "parquet"
 SEC_DATASETS = {"sec_company_facts", "sec_form4", "sec_13f"}
+CORE_UNIVERSE_COVERAGE_DATASETS = (
+    "prices_daily",
+    "sec_company_facts",
+    "stock_trades",
+)
+MIN_OPENAI_KEY_LENGTH = 20
 
 
 def load_live_config_readiness(path: Path | None = None) -> dict[str, object]:
-    load_dotenv()
+    load_dotenv(override=path is None)
     config_path = path or live_refresh_config_path()
     payload = _read_config(config_path)
     checks = _checks(config_path, payload)
@@ -30,8 +40,9 @@ def load_live_config_readiness(path: Path | None = None) -> dict[str, object]:
         "config_path": _display_path(config_path),
         "provider": _market_provider(payload),
         "dataset_count": len(_datasets(payload)),
+        "runtime_signals": list(_strings(payload, "runtime_signals")) if payload else [],
         "runtime_signal_count": len(_strings(payload, "runtime_signals")) if payload else 0,
-        "ticker_count": len(_strings(payload, "tickers")) if payload is not None else 0,
+        "ticker_count": _ticker_count(payload),
         "blocker_count": blocker_count,
         "warning_count": warning_count,
         "checks": checks,
@@ -54,6 +65,9 @@ def _checks(config_path: Path, payload: Mapping[str, object] | None) -> list[dic
         _ticker_check(payload),
         _market_data_check(payload),
     ]
+    coverage_check = _runtime_coverage_check(payload, datasets)
+    if coverage_check is not None:
+        checks.append(coverage_check)
     if _uses_any(datasets, SEC_DATASETS):
         checks.append(_sec_user_agent_check(payload))
     if _uses(datasets, "news_rss"):
@@ -85,6 +99,10 @@ def _market_data_check(payload: Mapping[str, object]) -> dict[str, str]:
         if missing:
             return _check("Market data", "BLOCK", f"Missing {', '.join(missing)}")
         return _check("Market data", "PASS", "Alpaca credentials are present")
+    if provider == "massive":
+        if _massive_credentials_present():
+            return _check("Market data", "PASS", "Massive or Polygon credentials are present")
+        return _check("Market data", "BLOCK", "Missing MASSIVE_API_KEY or POLYGON_API_KEY")
     if provider == "yfinance":
         return _check("Market data", "WARN", "yfinance may be stale for current-date bars")
     return _check("Market data", "BLOCK", f"Unknown provider: {provider}")
@@ -114,6 +132,7 @@ def _subscription_email_check(payload: Mapping[str, object]) -> dict[str, str]: 
         return _check("Subscription emails", "WARN", "Config must be a JSON object")
     mode = str(config.get("mode") or "local_eml")
     services = _strings(config, "enabled_services")
+    article_llm_enabled = config.get("article_llm_analysis_enabled") is True
     input_path = _config_path(config, "input_path")
     if mode == "local_eml" and (input_path is None or not input_path.exists()):
         return _check(
@@ -130,32 +149,156 @@ def _subscription_email_check(payload: Mapping[str, object]) -> dict[str, str]: 
             if os.environ.get(name, "").strip() == ""
         ]
         if not missing:
-            return _check(
-                "Subscription emails",
-                "PASS",
-                f"{mode} configured for {len(services)} service(s)",
-            )
-        token_path = _config_path(config, "token_path")
-        if token_path is None or not token_path.is_file():
-            return _check(
-                "Subscription emails",
-                "WARN",
-                f"Missing mailbox credentials: {', '.join(missing)}",
-            )
+            return _subscription_email_ready_check(mode, services, article_llm_enabled)
+        return _check(
+            "Subscription emails",
+            "WARN",
+            f"Missing mailbox credentials: {', '.join(missing)}",
+        )
+    return _subscription_email_ready_check(mode, services, article_llm_enabled)
+
+
+def _subscription_email_ready_check(
+    mode: str,
+    services: tuple[str, ...],
+    article_llm_enabled: bool,
+) -> dict[str, str]:
+    detail = f"{mode} configured for {len(services)} service(s)"
+    if not article_llm_enabled:
+        return _check("Subscription emails", "PASS", detail)
+    if _openai_key_present():
+        return _check("Subscription emails", "PASS", f"{detail}; article LLM ready")
     return _check(
         "Subscription emails",
-        "PASS",
-        f"{mode} configured for {len(services)} service(s)",
+        "WARN",
+        f"{detail}; article LLM enabled but OPENAI_API_KEY is missing",
     )
 
 
 def _ticker_check(payload: Mapping[str, object]) -> dict[str, str]:
     tickers = _strings(payload, "tickers")
-    if tickers:
+    if tickers and _runtime_universe(payload) != "active":
         return _check("Ticker universe", "PASS", f"{len(tickers)} configured tickers")
     if DEFAULT_UNIVERSE_PATH.is_file():
-        return _check("Ticker universe", "PASS", "Universe membership parquet is present")
+        count = _active_universe_count(_config_end(payload), DEFAULT_UNIVERSE_PATH)
+        if count > 0:
+            return _check(
+                "Ticker universe",
+                "PASS",
+                f"{count} active universe tickers from membership parquet",
+            )
+        return _check("Ticker universe", "BLOCK", "Universe membership parquet has no active rows")
     return _check("Ticker universe", "BLOCK", "No tickers and no universe membership parquet")
+
+
+def _ticker_count(payload: Mapping[str, object] | None) -> int:
+    if payload is None:
+        return 0
+    tickers = _strings(payload, "tickers")
+    if tickers and _runtime_universe(payload) != "active":
+        return len(tickers)
+    return _active_universe_count(_config_end(payload), DEFAULT_UNIVERSE_PATH)
+
+
+def _runtime_universe(payload: Mapping[str, object]) -> str:
+    value = payload.get("runtime_universe")
+    if isinstance(value, str) and value.strip() != "":
+        return value.strip().lower()
+    return "configured"
+
+
+def _config_end(payload: Mapping[str, object]) -> date:
+    value = payload.get("end")
+    if isinstance(value, str) and value.strip() != "":
+        return date.fromisoformat(value)
+    return date.today()
+
+
+def _active_universe_count(as_of: date, path: Path) -> int:
+    return len(_active_universe_tickers(as_of, path))
+
+
+def _active_universe_tickers(as_of: date, path: Path) -> set[str]:
+    if not path.is_file():
+        return set()
+    frame = pd.read_parquet(path, columns=["ticker", "start_date", "end_date"])
+    if frame.empty:
+        return set()
+    start = pd.to_datetime(frame["start_date"], errors="coerce").dt.date
+    end = pd.to_datetime(frame["end_date"], errors="coerce").dt.date
+    active = frame[(start <= as_of) & (end.isna() | (end > as_of))]
+    return {str(ticker).upper() for ticker in active["ticker"].dropna().unique()}
+
+
+def _runtime_coverage_check(
+    payload: Mapping[str, object],
+    datasets: tuple[str, ...],
+) -> dict[str, str] | None:
+    if _runtime_universe(payload) != "active":
+        return None
+    as_of = _config_end(payload)
+    active_tickers = _active_universe_tickers(as_of, DEFAULT_UNIVERSE_PATH)
+    if not active_tickers:
+        return None
+    rows = [
+        (dataset, _dataset_ticker_count(dataset), len(active_tickers))
+        for dataset in CORE_UNIVERSE_COVERAGE_DATASETS
+        if _uses(datasets, dataset)
+    ]
+    gaps = [
+        f"{dataset} {count}/{expected}"
+        for dataset, count, expected in rows
+        if count < expected
+    ]
+    if gaps:
+        return _check(
+            "Runtime data coverage",
+            "WARN",
+            f"Partial active-universe coverage: {', '.join(gaps)}",
+        )
+    return _check(
+        "Runtime data coverage",
+        "PASS",
+        f"Core datasets cover {len(active_tickers)} active universe tickers",
+    )
+
+
+def _dataset_ticker_count(dataset: str) -> int:
+    manifest_path = DEFAULT_MANIFEST_ROOT / f"{dataset}.json"
+    if not manifest_path.is_file():
+        return 0
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return 0
+    if not isinstance(payload, Mapping):
+        return 0
+    tickers = payload.get("tickers")
+    if isinstance(tickers, list):
+        return len({str(ticker).upper() for ticker in tickers if str(ticker).strip()})
+    path = payload.get("path")
+    if not isinstance(path, str) or path.strip() == "":
+        return 0
+    return _parquet_ticker_count(DEFAULT_PARQUET_ROOT / path)
+
+
+def _parquet_ticker_count(path: Path) -> int:
+    try:
+        if path.is_dir():
+            frames = [
+                pd.read_parquet(item, columns=["ticker"])
+                for item in sorted(path.rglob("*.parquet"))
+            ]
+            if not frames:
+                return 0
+            frame = pd.concat(frames, ignore_index=True)
+        else:
+            frame = pd.read_parquet(path, columns=["ticker"])
+    except (OSError, ValueError, KeyError):
+        return 0
+    if frame.empty:
+        return 0
+    return int(frame["ticker"].dropna().astype(str).str.upper().nunique())
 
 
 def _sec_user_agent_check(payload: Mapping[str, object]) -> dict[str, str]:
@@ -249,6 +392,20 @@ def _massive_credentials_present() -> bool:
         os.environ.get("MASSIVE_API_KEY", "").strip()
         or os.environ.get("POLYGON_API_KEY", "").strip()
     )
+
+
+def _openai_key_present() -> bool:
+    value = os.environ.get("OPENAI_API_KEY", "").strip()
+    if _looks_like_openai_key(value):
+        return True
+    dotenv_value = dotenv_values(REPO_ROOT / ".env").get("OPENAI_API_KEY")
+    if isinstance(dotenv_value, str):
+        return _looks_like_openai_key(dotenv_value.strip())
+    return False
+
+
+def _looks_like_openai_key(value: str) -> bool:
+    return value.startswith("sk-") and len(value) >= MIN_OPENAI_KEY_LENGTH
 
 
 def _state(blocker_count: int, warning_count: int) -> str:

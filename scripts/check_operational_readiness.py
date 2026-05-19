@@ -9,6 +9,7 @@ from urllib.request import urlopen
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8000"
 HTTP_OK = 200
+HTTP_TIMEOUT_SECONDS = 60
 
 
 def main() -> None:
@@ -30,11 +31,23 @@ def check_operational_readiness(
     fail_on_warning: bool = False,
 ) -> dict[str, object]:
     payload = _mapping(_fetch_json(base_url, "/status/operational-readiness"))
+    full_live = _mapping(_fetch_json(base_url, "/status/full-live-readiness"))
     progress = _mapping(_mapping(payload["paper_review"])["progress"])
+    data_refresh = _optional_mapping(payload.get("data_refresh"))
+    data_load = _optional_mapping(payload.get("data_load_status"))
+    live_readiness = _optional_mapping(payload.get("live_readiness"))
     total_count = _int_value(progress, "total_count")
     reviewed_count = _int_value(progress, "reviewed_count")
     if payload.get("ready") is not True:
         raise RuntimeError(_failure_detail(payload, "operational readiness is blocked"))
+    if full_live.get("review_operational_ready") is not True:
+        verdict = str(full_live.get("verdict", "unknown"))
+        raise RuntimeError(
+            _failure_detail(
+                full_live,
+                f"full-live readiness is not review-operational ({verdict})",
+            )
+        )
     if total_count < min_queue:
         raise RuntimeError("paper review queue count is below the required minimum")
     if reviewed_count < min_reviewed:
@@ -48,7 +61,19 @@ def check_operational_readiness(
         "status_label": payload["status_label"],
         "blocker_count": _int_value(payload, "blocker_count"),
         "warning_count": warning_count,
-        "cycle_id": _mapping(payload["live_readiness"]).get("cycle_id"),
+        "cycle_id": live_readiness.get("cycle_id") or data_load.get("cycle_id"),
+        "full_live_verdict": full_live.get("verdict"),
+        "full_live_state": full_live.get("state"),
+        "full_live_status_label": full_live.get("status_label"),
+        "review_operational_ready": full_live.get("review_operational_ready"),
+        "tradable_ready": full_live.get("tradable_ready"),
+        "data_refresh_state": data_refresh.get("state"),
+        "data_refresh_status_label": data_refresh.get("status_label"),
+        "data_refresh_eta": data_refresh.get("eta_label"),
+        "data_load_state": data_load.get("state"),
+        "data_load_status_label": data_load.get("status_label"),
+        "data_load_as_of": data_load.get("as_of"),
+        "data_load_checked_at": data_load.get("status_checked_at"),
         "queue_count": total_count,
         "reviewed_count": reviewed_count,
         "pending_count": _int_value(progress, "pending_count"),
@@ -59,13 +84,18 @@ def _failure_detail(payload: Mapping[str, object], prefix: str) -> str:
     actions = payload.get("next_actions", [])
     if not isinstance(actions, list) or not actions:
         return prefix
-    return f"{prefix}: {actions[0]}"
+    detail = "; ".join(str(action) for action in actions[:3])
+    return f"{prefix}: {detail}"
 
 
 def _mapping(value: object) -> Mapping[str, object]:
     if not isinstance(value, Mapping):
         raise TypeError("expected a mapping")
     return value
+
+
+def _optional_mapping(value: object) -> Mapping[str, object]:
+    return value if isinstance(value, Mapping) else {}
 
 
 def _int_value(payload: Mapping[str, object], key: str) -> int:
@@ -77,7 +107,7 @@ def _int_value(payload: Mapping[str, object], key: str) -> int:
 
 def _fetch_json(base_url: str, path: str) -> Any:
     try:
-        with urlopen(f"{base_url}{path}", timeout=10) as response:
+        with urlopen(f"{base_url}{path}", timeout=HTTP_TIMEOUT_SECONDS) as response:
             if response.status != HTTP_OK:
                 raise RuntimeError(f"{path} returned HTTP {response.status}")
             return json.loads(response.read().decode("utf-8"))

@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 
+import pytest
+from pit.exceptions import DataNotAvailableAt
 from signals.news import news_factor_frame, news_score
 
 AS_OF = date(2026, 5, 7)
@@ -30,6 +32,38 @@ def test_news_factor_frame_returns_empty_on_missing_news() -> None:
     frame = news_factor_frame(AS_OF, {"AAPL"}, loader)
 
     assert frame.empty
+
+
+def test_news_factor_frame_propagates_loader_bugs() -> None:
+    with pytest.raises(KeyError):
+        news_factor_frame(AS_OF, {"AAPL"}, _BuggyNewsLoader())
+
+
+def test_news_sentiment_is_normalized_by_headline_coverage() -> None:
+    loader = _FakeNewsLoader(
+        [
+            _item("AAPL", "AAPL upgrade", "Feed 1"),
+            _item("AAPL", "AAPL announces developer event", "Feed 2"),
+            _item("AAPL", "AAPL opens new campus", "Feed 3"),
+            _item("AAPL", "AAPL appoints new director", "Feed 4"),
+            _item("MSFT", "MSFT upgrade", "Feed 1"),
+        ]
+    )
+
+    frame = news_factor_frame(AS_OF, {"AAPL", "MSFT"}, loader)
+    by_ticker = frame.set_index("ticker")
+
+    assert by_ticker.loc["AAPL", "sentiment_score"] == pytest.approx(0.25)
+    assert by_ticker.loc["MSFT", "sentiment_score"] == pytest.approx(1.0)
+    assert by_ticker.loc["MSFT", "news_score"] > by_ticker.loc["AAPL", "news_score"]
+
+
+def test_news_sentiment_uses_word_boundaries() -> None:
+    loader = _FakeNewsLoader([_item("AAPL", "AAPL opens Mississippi campus", "Yahoo")])
+
+    frame = news_factor_frame(AS_OF, {"AAPL"}, loader)
+
+    assert frame.iloc[0]["sentiment_score"] == 0.0
 
 
 def test_news_score_is_deterministic_uppercases_and_forwards_lookback() -> None:
@@ -73,6 +107,11 @@ class _FakeNewsLoader:
 
 
 class _FailingNewsLoader:
+    def news(self, as_of: date, lookback_days: int, tickers: list[str] | None = None) -> object:
+        raise DataNotAvailableAt("news_rss", as_of, str((lookback_days, tickers)))
+
+
+class _BuggyNewsLoader:
     def news(self, as_of: date, lookback_days: int, tickers: list[str] | None = None) -> object:
         raise KeyError((as_of, lookback_days, tickers))
 

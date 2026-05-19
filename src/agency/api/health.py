@@ -1,38 +1,45 @@
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+import asyncio
+from collections.abc import Awaitable, Callable, Mapping
 from contextlib import AbstractAsyncContextManager
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Response
 from sqlalchemy.exc import SQLAlchemyError
 
-from agency.api.reports import runtime_selection_reports
-from agency.api.risk import runtime_risk_decisions
-from agency.contracts import ContractName, load_contract_schema, validate_contract
+from agency.api.reports import RuntimeSelectionReportsUnavailable, runtime_selection_reports
+from agency.api.risk import RuntimeRiskDecisionsUnavailable, runtime_risk_decisions
+from agency.contracts import (
+    ContractName,
+    contract_names,
+    load_contract_schema,
+    validate_contract,
+)
 from agency.db import MissingDatabaseConfigurationError, get_session
 from agency.runtime import build_live_readiness, list_source_health, runtime_metrics_text
+from agency.runtime.artifact_fallbacks import (
+    artifact_fallback_enabled,
+    runtime_source_health_artifacts,
+)
+from agency.runtime.data_load_status import load_data_load_status
 from agency.runtime.data_refresh_progress import load_data_refresh_progress
+from agency.runtime.full_live_readiness import load_full_live_readiness
 from agency.runtime.live_config_readiness import load_live_config_readiness
+from agency.runtime.operational_filters import is_non_operational_payload
 from agency.runtime.provider_readiness import load_provider_readiness
 
 router = APIRouter()
 SourceHealthReader = Callable[[Any], Awaitable[list[dict[str, object]]]]
 SessionProvider = Callable[[], AbstractAsyncContextManager[Any]]
 MetricsPayloadProvider = Callable[[], Awaitable[list[dict[str, object]]]]
+SOURCE_HEALTH_TIMEOUT_SECONDS = 8.0
+DATA_SOURCE_STATUSES = {"HEALTHY", "DEGRADED", "STALE", "UNAVAILABLE", "RATE_LIMITED"}
+FRESHNESS_STATUSES = {"FRESH", "AGING", "STALE", "UNAVAILABLE"}
 
-CONTRACT_NAMES: tuple[ContractName, ...] = (
-    "provenance",
-    "signal-result",
-    "evidence-pack",
-    "selection-report",
-    "data-source-health",
-    "candidate-lifecycle-event",
-    "risk-decision",
-    "execution-preview",
-    "portfolio-monitor",
-    "learning-outcome",
-)
+CONTRACT_NAMES: tuple[ContractName, ...] = contract_names()
 
 
 @router.get("/health")
@@ -67,6 +74,26 @@ def data_refresh_progress() -> dict[str, object]:
     return load_data_refresh_progress()
 
 
+@router.get("/status/data-load")
+async def data_load_status() -> dict[str, object]:
+    source_health = await runtime_data_source_status_with_timeout()
+    return load_data_load_status(
+        source_health_rows=source_health,
+        source_health_origin=_source_health_origin_label(source_health),
+    )
+
+
+@router.get("/status/full-live-readiness")
+async def full_live_readiness() -> dict[str, object]:
+    source_health = await runtime_data_source_status_with_timeout()
+    data_refresh = load_data_refresh_progress()
+    data_load = load_data_load_status(
+        source_health_rows=source_health,
+        source_health_origin=_source_health_origin_label(source_health),
+    )
+    return load_full_live_readiness(data_refresh=data_refresh, data_load_status=data_load)
+
+
 @router.get("/status/live-config")
 def live_config_readiness() -> dict[str, object]:
     return load_live_config_readiness()
@@ -89,40 +116,181 @@ def contract_summaries() -> list[dict[str, str]]:
     return [_contract_summary(name) for name in CONTRACT_NAMES]
 
 
-def bootstrap_data_source_status() -> list[dict[str, object]]:
+def unavailable_data_source_status(reason: str) -> list[dict[str, object]]:
+    checked_at = datetime.now(UTC).isoformat()
     payload: dict[str, object] = {
         "schema_version": "0.1.0",
-        "source": "bootstrap",
+        "source": "source-health-monitor",
         "source_tier": "MARKET_DATA",
-        "status": "DEGRADED",
-        "checked_at": "2026-05-07T00:00:00Z",
+        "status": "UNAVAILABLE",
+        "checked_at": checked_at,
         "freshness": "UNAVAILABLE",
         "last_success_at": None,
         "observed_lag_seconds": None,
         "error_count": 0,
         "reliability_score": 0.0,
         "rate_limit_reset_at": None,
-        "notes": ["runtime source monitors are not wired yet"],
+        "notes": [reason, "no_live_source_health_rows"],
     }
     validate_contract("data-source-health", payload)
     return [payload]
+
+
+def _source_health_origin_label(source_health: list[dict[str, object]]) -> str:
+    if any(str(row.get("source") or "") == "source-health-monitor" for row in source_health):
+        return "source-health monitor unavailable"
+    if any(_has_artifact_fallback_note(row) for row in source_health):
+        return "runtime artifact fallback"
+    return "live runtime source-health reader"
 
 
 async def runtime_data_source_status(
     *,
     session_provider: SessionProvider = get_session,
     reader: SourceHealthReader = list_source_health,
+    artifact_root: Path | None = None,
 ) -> list[dict[str, object]]:
     try:
         async with session_provider() as session:
             payloads = await reader(session)
     except (MissingDatabaseConfigurationError, OSError, SQLAlchemyError):
-        return bootstrap_data_source_status()
+        payloads = _artifact_source_health(artifact_root=artifact_root)
+        if not payloads:
+            return unavailable_data_source_status(
+                "live source-health reader failed or database is unavailable"
+            )
+    payloads = [
+        payload
+        for payload in payloads
+        if not _non_operational_source_health_row(payload)
+    ]
     if not payloads:
-        return bootstrap_data_source_status()
+        payloads = _artifact_source_health(artifact_root=artifact_root)
+    if not payloads:
+        return unavailable_data_source_status("live source-health reader returned no rows")
+    payloads = _with_unified_readiness_overlay(payloads)
     for payload in payloads:
         validate_contract("data-source-health", payload)
     return payloads
+
+
+def _with_unified_readiness_overlay(
+    payloads: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    load_status = load_data_load_status(
+        source_health_rows=payloads,
+        source_health_origin=_source_health_origin_label(payloads),
+    )
+    readiness_by_source = {
+        str(row.get("source") or ""): row
+        for row in _mapping_rows(load_status.get("freshness_rows"))
+        if str(row.get("source") or "")
+    }
+    output: list[dict[str, object]] = []
+    for payload in payloads:
+        source = str(payload.get("source") or "")
+        readiness = readiness_by_source.get(source)
+        if not readiness:
+            output.append(payload)
+            continue
+        merged = dict(payload)
+        status = str(readiness.get("status") or "").upper()
+        if status in DATA_SOURCE_STATUSES:
+            merged["status"] = status
+        freshness = str(readiness.get("freshness") or "").upper()
+        if freshness in FRESHNESS_STATUSES:
+            merged["freshness"] = freshness
+        checked_at = _valid_iso_datetime(readiness.get("checked_at"))
+        if checked_at:
+            merged["checked_at"] = checked_at
+        last_success_at = _valid_iso_datetime(readiness.get("last_success_at"))
+        if last_success_at:
+            merged["last_success_at"] = last_success_at
+        detail = str(readiness.get("detail") or "").strip()
+        if detail:
+            notes = [
+                str(note)
+                for note in (merged.get("notes") if isinstance(merged.get("notes"), list) else [])
+                if str(note).strip()
+            ]
+            note = f"unified_readiness_override: {detail}"
+            if note not in notes:
+                notes.append(note)
+            merged["notes"] = notes
+        output.append(merged)
+    return output
+
+
+def _valid_iso_datetime(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text or text.lower() in {"not checked", "not recorded"}:
+        return None
+    try:
+        datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return text
+
+
+def _mapping_rows(value: object) -> list[Mapping[str, object]]:
+    if not isinstance(value, list):
+        return []
+    return [row for row in value if isinstance(row, Mapping)]
+
+
+def _artifact_source_health(
+    *,
+    artifact_root: Path | None,
+) -> list[dict[str, object]]:
+    if not artifact_fallback_enabled():
+        return []
+    return [
+        _with_artifact_fallback_note(payload)
+        for payload in runtime_source_health_artifacts(artifact_root=artifact_root)
+        if not _non_operational_source_health_row(payload)
+    ]
+
+
+def _with_artifact_fallback_note(payload: dict[str, object]) -> dict[str, object]:
+    output = dict(payload)
+    notes = output.get("notes", [])
+    normalized_notes = [
+        str(note)
+        for note in (notes if isinstance(notes, list) else [])
+        if str(note).strip()
+    ]
+    if "runtime_artifact_fallback" not in normalized_notes:
+        normalized_notes.append("runtime_artifact_fallback")
+    output["notes"] = normalized_notes
+    return output
+
+
+def _has_artifact_fallback_note(payload: Mapping[str, object]) -> bool:
+    notes = payload.get("notes", [])
+    if not isinstance(notes, list):
+        return False
+    return "runtime_artifact_fallback" in {str(note) for note in notes}
+
+
+async def runtime_data_source_status_with_timeout(
+    *,
+    timeout_seconds: float = SOURCE_HEALTH_TIMEOUT_SECONDS,
+) -> list[dict[str, object]]:
+    try:
+        return await asyncio.wait_for(
+            runtime_data_source_status(),
+            timeout=timeout_seconds,
+        )
+    except TimeoutError:
+        return unavailable_data_source_status(
+            "live source-health reader timed out"
+        )
+
+
+def _non_operational_source_health_row(payload: dict[str, object]) -> bool:
+    return is_non_operational_payload(payload)
 
 
 async def runtime_metrics(
@@ -182,11 +350,17 @@ async def _default_source_status() -> list[dict[str, object]]:
 
 
 async def _default_selection_reports() -> list[dict[str, object]]:
-    return await runtime_selection_reports()
+    try:
+        return await runtime_selection_reports(limit=200)
+    except RuntimeSelectionReportsUnavailable:
+        return []
 
 
 async def _default_risk_decisions() -> list[dict[str, object]]:
-    return await runtime_risk_decisions()
+    try:
+        return await runtime_risk_decisions(limit=200)
+    except RuntimeRiskDecisionsUnavailable:
+        return []
 
 
 def _contract_summary(contract: ContractName) -> dict[str, str]:

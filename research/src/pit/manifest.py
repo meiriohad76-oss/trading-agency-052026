@@ -54,7 +54,13 @@ class ManifestRegistry:
         self.parquet_root = parquet_root
         self._clock = clock or (lambda: datetime.now(UTC))
 
-    def require(self, dataset: DatasetName, *, as_of: date | None = None) -> DataManifest:
+    def require(
+        self,
+        dataset: DatasetName,
+        *,
+        as_of: date | None = None,
+        allow_stale: bool = False,
+    ) -> DataManifest:
         manifest_path = self.manifest_root / f"{dataset.value}.json"
         if not manifest_path.is_file():
             raise DataNotAvailableAt(dataset.value, as_of, f"missing {manifest_path}")
@@ -73,7 +79,7 @@ class ManifestRegistry:
             raise DataNotAvailableAt(dataset.value, as_of, reason)
         if manifest.row_count <= 0:
             raise DataNotAvailableAt(dataset.value, as_of, "manifest has no rows")
-        if manifest.stale_after <= self._clock():
+        if not allow_stale and manifest.stale_after <= self._clock():
             stale_at = manifest.stale_after.isoformat()
             raise DataNotAvailableAt(dataset.value, as_of, f"manifest stale after {stale_at}")
         if not manifest.path.exists():

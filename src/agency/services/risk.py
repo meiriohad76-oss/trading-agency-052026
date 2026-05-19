@@ -3,10 +3,12 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Callable
+from contextlib import AbstractAsyncContextManager
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from dotenv import load_dotenv
 
@@ -29,15 +31,25 @@ DEFAULT_POLICY_PATH = Path("research/config/portfolio-policy.local.json")
 class PortfolioPolicy:
     """Conservative v0 policy values used before editable policy persistence exists."""
 
+    weekly_planning_target_pct: float = 3.0
     min_final_conviction: float = 0.62
+    max_weekly_drawdown_pct: float = 6.0
+    minimum_hold_days: int = 2
+    max_positions: int = 10
     max_new_positions_per_cycle: int = 3
+    max_single_name_pct: float = 25.0
+    max_sector_exposure_pct: float = 30.0
+    cash_reserve_pct: float = 10.0
     max_gross_exposure_pct: float = 100.0
     default_position_pct: float = 10.0
     take_profit_pct: float = 8.0
     stop_loss_pct: float = 4.0
     trailing_stop_pct: float = 3.0
     hourly_loss_alert_pct: float = 1.0
+    bracket_orders_enabled: bool = True
+    live_trading_enabled: bool = False
     broker_submit_enabled: bool = False
+    allow_short_trades: bool = False
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> PortfolioPolicy:
@@ -46,13 +58,41 @@ class PortfolioPolicy:
         values = os.environ if env is None else env
         defaults = cls()
         policy = cls(
+            weekly_planning_target_pct=_env_float(
+                values.get("AGENCY_WEEKLY_PLANNING_TARGET_PCT"),
+                default=defaults.weekly_planning_target_pct,
+            ),
             min_final_conviction=_env_float(
                 values.get("AGENCY_MIN_FINAL_CONVICTION"),
                 default=defaults.min_final_conviction,
             ),
+            max_weekly_drawdown_pct=_env_float(
+                values.get("AGENCY_MAX_WEEKLY_DRAWDOWN_PCT"),
+                default=defaults.max_weekly_drawdown_pct,
+            ),
+            minimum_hold_days=_env_int(
+                values.get("AGENCY_MINIMUM_HOLD_DAYS"),
+                default=defaults.minimum_hold_days,
+            ),
+            max_positions=_env_int(
+                values.get("AGENCY_MAX_POSITIONS"),
+                default=defaults.max_positions,
+            ),
             max_new_positions_per_cycle=_env_int(
                 values.get("AGENCY_MAX_NEW_POSITIONS_PER_CYCLE"),
                 default=defaults.max_new_positions_per_cycle,
+            ),
+            max_single_name_pct=_env_float(
+                values.get("AGENCY_MAX_SINGLE_NAME_PCT"),
+                default=defaults.max_single_name_pct,
+            ),
+            max_sector_exposure_pct=_env_float(
+                values.get("AGENCY_MAX_SECTOR_EXPOSURE_PCT"),
+                default=defaults.max_sector_exposure_pct,
+            ),
+            cash_reserve_pct=_env_float(
+                values.get("AGENCY_CASH_RESERVE_PCT"),
+                default=defaults.cash_reserve_pct,
             ),
             max_gross_exposure_pct=_env_float(
                 values.get("AGENCY_MAX_GROSS_EXPOSURE_PCT"),
@@ -78,21 +118,40 @@ class PortfolioPolicy:
                 values.get("AGENCY_HOURLY_LOSS_ALERT_PCT"),
                 default=defaults.hourly_loss_alert_pct,
             ),
+            bracket_orders_enabled=_env_bool(
+                values.get("AGENCY_BRACKET_ORDERS_ENABLED"),
+                default=defaults.bracket_orders_enabled,
+            ),
+            live_trading_enabled=_env_bool(
+                values.get("AGENCY_LIVE_TRADING_ENABLED"),
+                default=defaults.live_trading_enabled,
+            ),
             broker_submit_enabled=_env_bool(values.get("AGENCY_BROKER_SUBMIT_ENABLED")),
+            allow_short_trades=_env_bool(values.get("AGENCY_ALLOW_SHORT_TRADES")),
         )
         return _policy_with_file_overrides(policy, values)
 
     def as_dict(self) -> dict[str, object]:
         return {
+            "weekly_planning_target_pct": self.weekly_planning_target_pct,
             "min_final_conviction": self.min_final_conviction,
+            "max_weekly_drawdown_pct": self.max_weekly_drawdown_pct,
+            "minimum_hold_days": self.minimum_hold_days,
+            "max_positions": self.max_positions,
             "max_new_positions_per_cycle": self.max_new_positions_per_cycle,
+            "max_single_name_pct": self.max_single_name_pct,
+            "max_sector_exposure_pct": self.max_sector_exposure_pct,
+            "cash_reserve_pct": self.cash_reserve_pct,
             "max_gross_exposure_pct": self.max_gross_exposure_pct,
             "default_position_pct": self.default_position_pct,
             "take_profit_pct": self.take_profit_pct,
             "stop_loss_pct": self.stop_loss_pct,
             "trailing_stop_pct": self.trailing_stop_pct,
             "hourly_loss_alert_pct": self.hourly_loss_alert_pct,
+            "bracket_orders_enabled": self.bracket_orders_enabled,
+            "live_trading_enabled": self.live_trading_enabled,
             "broker_submit_enabled": self.broker_submit_enabled,
+            "allow_short_trades": self.allow_short_trades,
         }
 
 
@@ -111,11 +170,38 @@ async def load_policy_from_db(session: AsyncSession) -> PortfolioPolicy | None:
         return None
     defaults = PortfolioPolicy()
     return PortfolioPolicy(
+        weekly_planning_target_pct=_payload_float(
+            data,
+            "weekly_planning_target_pct",
+            default=defaults.weekly_planning_target_pct,
+        ),
         min_final_conviction=_payload_float(
             data, "min_final_conviction", default=defaults.min_final_conviction
         ),
+        max_weekly_drawdown_pct=_payload_float(
+            data,
+            "max_weekly_drawdown_pct",
+            default=defaults.max_weekly_drawdown_pct,
+        ),
+        minimum_hold_days=_payload_int(
+            data, "minimum_hold_days", default=defaults.minimum_hold_days
+        ),
+        max_positions=_payload_int(
+            data, "max_positions", default=defaults.max_positions
+        ),
         max_new_positions_per_cycle=_payload_int(
             data, "max_new_positions_per_cycle", default=defaults.max_new_positions_per_cycle
+        ),
+        max_single_name_pct=_payload_float(
+            data, "max_single_name_pct", default=defaults.max_single_name_pct
+        ),
+        max_sector_exposure_pct=_payload_float(
+            data,
+            "max_sector_exposure_pct",
+            default=defaults.max_sector_exposure_pct,
+        ),
+        cash_reserve_pct=_payload_float(
+            data, "cash_reserve_pct", default=defaults.cash_reserve_pct
         ),
         max_gross_exposure_pct=_payload_float(
             data, "max_gross_exposure_pct", default=defaults.max_gross_exposure_pct
@@ -135,8 +221,19 @@ async def load_policy_from_db(session: AsyncSession) -> PortfolioPolicy | None:
         hourly_loss_alert_pct=_payload_float(
             data, "hourly_loss_alert_pct", default=defaults.hourly_loss_alert_pct
         ),
+        bracket_orders_enabled=_payload_bool(
+            data,
+            "bracket_orders_enabled",
+            default=defaults.bracket_orders_enabled,
+        ),
+        live_trading_enabled=_payload_bool(
+            data, "live_trading_enabled", default=defaults.live_trading_enabled
+        ),
         broker_submit_enabled=_payload_bool(
             data, "broker_submit_enabled", default=defaults.broker_submit_enabled
+        ),
+        allow_short_trades=_payload_bool(
+            data, "allow_short_trades", default=defaults.allow_short_trades
         ),
     )
 
@@ -156,6 +253,40 @@ async def save_policy_to_db(session: AsyncSession, policy: PortfolioPolicy) -> N
         )
     )
     await session.execute(stmt)
+
+
+async def load_active_portfolio_policy(
+    *,
+    session_provider: Callable[[], AbstractAsyncContextManager[Any]] | None = None,
+) -> PortfolioPolicy:
+    """Load the policy used by risk/execution, with env-only safety controls.
+
+    Editable sizing and exit rules may come from the database. Broker submission
+    and short-sale permissions stay controlled by local env/file policy so the
+    UI cannot silently enable a dangerous execution mode.
+    """
+    env_policy = PortfolioPolicy.from_env()
+    try:
+        if session_provider is None:
+            from agency.db import get_session
+
+            resolved_provider = cast(
+                Callable[[], AbstractAsyncContextManager[Any]],
+                get_session,
+            )
+        else:
+            resolved_provider = session_provider
+        async with resolved_provider() as session:
+            db_policy = await load_policy_from_db(session)
+    except Exception:  # noqa: BLE001 - policy persistence failure must not break local runtime
+        return env_policy
+    if db_policy is None:
+        return env_policy
+    return replace(
+        db_policy,
+        broker_submit_enabled=env_policy.broker_submit_enabled,
+        allow_short_trades=env_policy.allow_short_trades,
+    )
 
 
 @dataclass(frozen=True)
@@ -265,8 +396,9 @@ def _risk_checks(
     candidate_index: int,
     projected_gross_exposure_pct: float,
 ) -> list[dict[str, str]]:
-    return [
+    checks = [
         _action_check(selection_report),
+        _short_policy_check(selection_report, policy),
         _policy_gate_check(selection_report),
         _conviction_check(selection_report, policy),
         _runtime_source_check(source_health_summary),
@@ -274,6 +406,9 @@ def _risk_checks(
         _gross_exposure_check(selection_report, projected_gross_exposure_pct, policy),
         _risk_flag_check(selection_report),
     ]
+    if _is_review_action(selection_report):
+        return [_review_only_caution_check(check, selection_report) for check in checks]
+    return checks
 
 
 def _action_check(selection_report: Mapping[str, object]) -> dict[str, str]:
@@ -285,16 +420,63 @@ def _action_check(selection_report: Mapping[str, object]) -> dict[str, str]:
     return _check("final_action", "BLOCK", f"{action} is not orderable")
 
 
+def _short_policy_check(
+    selection_report: Mapping[str, object],
+    policy: PortfolioPolicy,
+) -> dict[str, str]:
+    action = str(selection_report["final_action"])
+    if action not in {"SHORT", "COVER"}:
+        return _check("short_policy", "PASS", "short-sale policy not applicable")
+    if policy.allow_short_trades:
+        return _check("short_policy", "PASS", "short-sale policy explicitly enabled")
+    return _check("short_policy", "BLOCK", f"{action} orders are disabled by short-sale policy")
+
+
 def _policy_gate_check(selection_report: Mapping[str, object]) -> dict[str, str]:
-    statuses = [
-        str(gate["status"])
-        for gate in _mapping_list(selection_report, "policy_gates")
-    ]
+    gates = _mapping_list(selection_report, "policy_gates")
+    statuses = [str(gate["status"]) for gate in gates]
     if "BLOCK" in statuses:
-        return _check("policy_gates", "BLOCK", "selection policy gate blocked")
+        reason = _first_gate_reason(gates, "BLOCK")
+        detail = f": {reason}" if reason else ""
+        return _check("policy_gates", "BLOCK", f"selection policy gate blocked{detail}")
     if "WARN" in statuses:
-        return _check("policy_gates", "WARN", "selection policy gate warned")
+        reason = _first_gate_reason(gates, "WARN")
+        detail = f": {reason}" if reason else ""
+        if _is_approved_watch_promotion(selection_report):
+            return _check(
+                "policy_gates",
+                "PASS",
+                (
+                    "selection policy warning acknowledged during approved WATCH "
+                    f"paper promotion{detail}"
+                ),
+            )
+        return _check("policy_gates", "WARN", f"selection policy gate warned{detail}")
     return _check("policy_gates", "PASS", "selection policy gates passed")
+
+
+def _is_approved_watch_promotion(selection_report: Mapping[str, object]) -> bool:
+    trade_plan = selection_report.get("trade_plan")
+    if not isinstance(trade_plan, Mapping):
+        return False
+    notes = trade_plan.get("notes", [])
+    if not isinstance(notes, list):
+        return False
+    return any(
+        isinstance(note, str)
+        and note.startswith("paper trade promotion: approved WATCH")
+        for note in notes
+    )
+
+
+def _first_gate_reason(gates: Sequence[Mapping[str, object]], status: str) -> str:
+    for gate in gates:
+        if str(gate.get("status")) != status:
+            continue
+        reason = str(gate.get("reason") or "").strip()
+        if reason:
+            return reason
+    return ""
 
 
 def _conviction_check(
@@ -436,8 +618,32 @@ def _is_trade_action(selection_report: Mapping[str, object]) -> bool:
     return str(selection_report["final_action"]) in TRADE_ACTIONS
 
 
+def _is_review_action(selection_report: Mapping[str, object]) -> bool:
+    return str(selection_report["final_action"]) in REVIEW_ACTIONS
+
+
 def _is_opening_trade_action(selection_report: Mapping[str, object]) -> bool:
     return str(selection_report["final_action"]) in OPENING_TRADE_ACTIONS
+
+
+def _review_only_caution_check(
+    check: Mapping[str, str],
+    selection_report: Mapping[str, object],
+) -> dict[str, str]:
+    if check["status"] != "BLOCK":
+        return dict(check)
+    action = str(selection_report["final_action"])
+    return _check(
+        check["name"],
+        "WARN",
+        (
+            f"Caution: {check['reason']}. {action} is a review/watch-list candidate, "
+            "so this does not block human review and it does not create a paper order. "
+            "Recommendation: acknowledge the caution, inspect the underlying gate or "
+            "data issue, and wait for a later BUY, SELL, SHORT, or COVER cycle before "
+            "trading it."
+        ),
+    )
 
 
 def _decision_from_checks(
@@ -527,8 +733,10 @@ def _now_utc() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
-def _env_bool(value: str | None) -> bool:
-    return value is not None and value.strip().lower() in {"1", "true", "yes", "on"}
+def _env_bool(value: str | None, *, default: bool = False) -> bool:
+    if value is None or not value.strip():
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _env_float(value: str | None, *, default: float) -> float:
@@ -562,15 +770,50 @@ def _policy_with_file_overrides(
         default=policy.broker_submit_enabled,
     )
     return PortfolioPolicy(
+        weekly_planning_target_pct=_payload_float(
+            payload,
+            "weekly_planning_target_pct",
+            default=policy.weekly_planning_target_pct,
+        ),
         min_final_conviction=_payload_float(
             payload,
             "min_final_conviction",
             default=policy.min_final_conviction,
         ),
+        max_weekly_drawdown_pct=_payload_float(
+            payload,
+            "max_weekly_drawdown_pct",
+            default=policy.max_weekly_drawdown_pct,
+        ),
+        minimum_hold_days=_payload_int(
+            payload,
+            "minimum_hold_days",
+            default=policy.minimum_hold_days,
+        ),
+        max_positions=_payload_int(
+            payload,
+            "max_positions",
+            default=policy.max_positions,
+        ),
         max_new_positions_per_cycle=_payload_int(
             payload,
             "max_new_positions_per_cycle",
             default=policy.max_new_positions_per_cycle,
+        ),
+        max_single_name_pct=_payload_float(
+            payload,
+            "max_single_name_pct",
+            default=policy.max_single_name_pct,
+        ),
+        max_sector_exposure_pct=_payload_float(
+            payload,
+            "max_sector_exposure_pct",
+            default=policy.max_sector_exposure_pct,
+        ),
+        cash_reserve_pct=_payload_float(
+            payload,
+            "cash_reserve_pct",
+            default=policy.cash_reserve_pct,
         ),
         max_gross_exposure_pct=_payload_float(
             payload,
@@ -602,7 +845,22 @@ def _policy_with_file_overrides(
             "hourly_loss_alert_pct",
             default=policy.hourly_loss_alert_pct,
         ),
+        bracket_orders_enabled=_payload_bool(
+            payload,
+            "bracket_orders_enabled",
+            default=policy.bracket_orders_enabled,
+        ),
+        live_trading_enabled=_payload_bool(
+            payload,
+            "live_trading_enabled",
+            default=policy.live_trading_enabled,
+        ),
         broker_submit_enabled=policy.broker_submit_enabled and file_broker_submit_enabled,
+        allow_short_trades=_payload_bool(
+            payload,
+            "allow_short_trades",
+            default=policy.allow_short_trades,
+        ),
     )
 
 

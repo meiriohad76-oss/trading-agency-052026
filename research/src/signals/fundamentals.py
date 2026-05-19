@@ -5,6 +5,7 @@ from datetime import date
 from typing import Any, Protocol, cast
 
 import pandas as pd
+from pit.exceptions import DataNotAvailableAt
 
 MIN_CROSS_SECTION = 2
 
@@ -44,7 +45,7 @@ def fundamental_factor_frame(
     for ticker in sorted({item.upper() for item in universe}):
         try:
             payload = _payload(loader.fundamentals(ticker, as_of))
-        except Exception:
+        except DataNotAvailableAt:
             continue
         row = _factor_row(ticker, payload)
         if row is not None:

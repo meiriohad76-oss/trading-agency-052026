@@ -5,7 +5,11 @@ from typing import cast
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agency.runtime.audit import execution_state_select, risk_snapshot_select
+from agency.runtime.audit import (
+    execution_state_select,
+    portfolio_snapshot_select,
+    risk_snapshot_select,
+)
 
 
 async def list_execution_states(
@@ -32,6 +36,15 @@ async def list_risk_snapshots(
         risk_snapshot_select(ticker=ticker, cycle_id=cycle_id, limit=limit)
     )
     return _payloads(result.scalars().all(), "risk snapshot")
+
+
+async def list_portfolio_snapshots(
+    session: AsyncSession,
+    *,
+    limit: int = 100,
+) -> list[dict[str, object]]:
+    result = await session.execute(portfolio_snapshot_select(limit=limit))
+    return _payloads(result.scalars().all(), "portfolio snapshot")
 
 
 def _payloads(rows: Sequence[object], label: str) -> list[dict[str, object]]:

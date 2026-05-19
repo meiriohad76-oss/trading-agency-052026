@@ -4,6 +4,7 @@ from datetime import date
 
 import polars as pl
 import pytest
+from pit.exceptions import DataNotAvailableAt
 from signals.options_anomaly import options_anomaly_frame, options_anomaly_score
 
 AS_OF = date(2026, 5, 8)
@@ -62,8 +63,8 @@ class _FakeOptionsLoader:
 
 class _FailingOptionsLoader:
     def option_chains(self, tickers: list[str], as_of: date, lookback_days: int) -> pl.DataFrame:
-        del tickers, as_of, lookback_days
-        raise RuntimeError("no coverage")
+        del tickers, lookback_days
+        raise DataNotAvailableAt("options_chains", as_of, "no coverage")
 
 
 def _option(

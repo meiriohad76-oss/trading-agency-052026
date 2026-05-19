@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import date
 
 import pytest
+from pit.exceptions import DataNotAvailableAt
 from signals.fundamentals import fundamental_factor_frame, fundamental_score
 
 AS_OF = date(2022, 12, 31)
@@ -93,8 +94,10 @@ class _FakeFundamentalsLoader:
         self._values = values
 
     def fundamentals(self, ticker: str, as_of: date) -> _ProvenancedValue:
-        del as_of
-        return _ProvenancedValue(self._values[ticker.upper()])
+        normalized = ticker.upper()
+        if normalized not in self._values:
+            raise DataNotAvailableAt("sec_company_facts", as_of, f"missing {normalized}")
+        return _ProvenancedValue(self._values[normalized])
 
 
 def _fundamentals(

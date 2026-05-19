@@ -570,7 +570,7 @@ These are scoped but not yet fully specced. Full specs are written when each tra
 |---|---|---|
 | OQ-1 | APScheduler job store | **Postgres** — shares existing production DB, jobs survive restarts |
 | OQ-2 | `sec_13f` freshness label between filings | **FRESH with "next filing" metadata** — data is correct-as-of last filing, not stale; dashboard shows last filing date + next expected date |
-| OQ-3 | Massive/Polygon API key for T151 | **Key active, no daily limits** — T151 can target full-universe historical coverage directly, no bounded smoke run required first |
+| OQ-3 | Massive/Polygon API key for T151 | **Key active, no daily limits** - T151 can target broad historical coverage through the reviewed backtest trade-tape lane, no bounded smoke run required first |
 | OQ-4 | Mobile layout primary use case | **Quick status check** — Command page only; full review workflow is desktop-only |
 | OQ-5 | Policy editor placement | **In the existing Policy dashboard** — read-only view gains an edit mode |
 

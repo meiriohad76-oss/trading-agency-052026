@@ -1,6 +1,6 @@
 # Data Provider Recommendations
 
-**Last reviewed:** 2026-05-09
+**Last reviewed:** 2026-05-10
 
 This is the provider stack for the whole agency. Current local operation is
 paper-only; optional providers become useful as we add their connectors and
@@ -10,7 +10,8 @@ validate each signal lane.
 
 | Priority | Provider | Agency area | Local key | Current status |
 | --- | --- | --- | --- | --- |
-| 1 | Alpaca | Daily stock bars | `ALPACA_API_KEY`, `ALPACA_SECRET_KEY` | Wired |
+| 1 | Polygon/Massive | Daily stock bars, delayed stock trades, market-flow pressure | `POLYGON_API_KEY` or `MASSIVE_API_KEY` | Wired primary |
+| 1 | Alpaca | Broker, paper portfolio, guarded paper orders, fallback stock bars | `ALPACA_API_KEY`, `ALPACA_SECRET_KEY` | Wired |
 | 1 | SEC EDGAR | Company facts, Form 4, 13F | `SEC_USER_AGENT` | Wired |
 | 1 | RSS feeds | Forward public news | none | Wired |
 | 1 | Subscription email agents | Seeking Alpha, TradeVision, Zacks email evidence | local `.eml` export | Wired opt-in |
@@ -18,7 +19,6 @@ validate each signal lane.
 | 2 | Benzinga | News, calendars, ratings, unusual activity | `BENZINGA_API_KEY` | Planned |
 | 2 | Unusual Whales | Dark-pool, options flow, unusual activity | `UNUSUAL_WHALES_API_KEY` | Planned |
 | 3 | FRED | Macro/rate regime filters | `FRED_API_KEY` | Planned |
-| 2 | Polygon/Massive | Delayed stock trades and market-flow pressure | `POLYGON_API_KEY` or `MASSIVE_API_KEY` | Wired opt-in |
 | 3 | Polygon/Massive options tiers | Options trades, quotes, and aggregates | `POLYGON_API_KEY` or `MASSIVE_API_KEY` | Backlog |
 | 3 | ThetaData | Deep historical options research | `THETADATA_USERNAME`, `THETADATA_PASSWORD` | Planned |
 | 3 | FINRA OTC Transparency | Delayed market-structure context | none | Planned |
@@ -26,11 +26,12 @@ validate each signal lane.
 
 ## Implementation Order
 
-1. Keep Alpaca, SEC EDGAR, and RSS as the operational stocks-only paper stack.
+1. Use Massive as the primary research market-data source for daily bars and
+   `stock_trades`; keep Alpaca focused on broker/portfolio operations.
 2. Add OpenFIGI before expanding 13F coverage, so CUSIP mapping is repeatable.
-3. Enable Polygon/Massive `stock_trades` only after adding a local key. The
-   current implementation uses delayed confirmed stock prints to infer buy/sell
-   and block/off-exchange pressure. It does not claim true aggressor side.
+3. After adding a local Massive key, refresh `prices_daily` and `stock_trades`.
+   The current implementation uses delayed confirmed stock prints to infer
+   buy/sell and block/off-exchange pressure. It does not claim true aggressor side.
 4. Run the market-flow analysis worker after the historical pull; it keeps
    runtime guidance context-only until train/test threshold checks pass.
 5. Use subscription email agents as an opt-in bridge for paid Seeking Alpha,

@@ -2,10 +2,15 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
 
+from data_refresh.market_calendar import (
+    classify_market_session,
+    previous_trading_day,
+)
 from pit.manifest import DatasetName
 
 _STOCK_TRADES_POST_MARKET_UTC_HOUR = 21
 _STOCK_TRADES_POST_MARKET_UTC_MINUTE = 15
+_ACTIVE_STOCK_TRADE_MAX_LAG_MINUTES = 30
 
 _EMAIL_DELIVERY_LAG_MINUTES = 20
 
@@ -17,18 +22,26 @@ def effective_freshness_timestamp(
 ) -> datetime:
     if dataset is DatasetName.PRICES_DAILY:
         latest_published = _latest_published_daily_bar_date(checked_at)
-        if timestamp_as_of.date() == latest_published:
+        timestamp_date = timestamp_as_of.date()
+        if timestamp_date == latest_published:
             return checked_at
-        if timestamp_as_of.date() > latest_published:
+        if timestamp_date > latest_published:
+            session = classify_market_session(checked_at)
+            if session.is_trading_day and timestamp_date == session.market_date:
+                return checked_at
             return datetime(
                 latest_published.year,
                 latest_published.month,
                 latest_published.day,
-                tzinfo=UTC,
+                tzinfo=timestamp_as_of.tzinfo or UTC,
             )
         return timestamp_as_of
 
     if dataset is DatasetName.STOCK_TRADES:
+        if _same_day_active_stock_trades_are_recent(timestamp_as_of, checked_at):
+            return timestamp_as_of
+        if _stock_trades_cover_required_closed_window(timestamp_as_of, checked_at):
+            return checked_at
         if timestamp_as_of.date() >= checked_at.date():
             if _after_stock_trades_window(checked_at):
                 return checked_at
@@ -83,3 +96,32 @@ def _after_bar_publication_window(checked_at: datetime) -> bool:
 
 def _after_stock_trades_window(checked_at: datetime) -> bool:
     return _after_bar_publication_window(checked_at)
+
+
+def _same_day_active_stock_trades_are_recent(
+    timestamp_as_of: datetime,
+    checked_at: datetime,
+) -> bool:
+    if timestamp_as_of.date() != checked_at.date():
+        return False
+    lag = checked_at - timestamp_as_of
+    if lag < timedelta(0):
+        return False
+    if lag > timedelta(minutes=_ACTIVE_STOCK_TRADE_MAX_LAG_MINUTES):
+        return False
+    session = classify_market_session(checked_at)
+    return session.phase in {"pre_market", "regular_market", "after_hours"}
+
+
+def _stock_trades_cover_required_closed_window(
+    timestamp_as_of: datetime,
+    checked_at: datetime,
+) -> bool:
+    session = classify_market_session(checked_at)
+    if session.phase == "overnight_before_pre_market" or not session.is_trading_day:
+        required = previous_trading_day(session.market_date)
+    elif session.phase == "overnight_after_hours":
+        required = session.market_date
+    else:
+        return False
+    return timestamp_as_of.date() >= required

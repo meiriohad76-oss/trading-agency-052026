@@ -38,12 +38,14 @@ EVENT_COLUMNS = [
     "linked_content_decision_use",
     "linked_content_signal_strength",
     "linked_content_context_chars",
+    "linked_content_confidence",
     "timestamp_observed",
     "timestamp_as_of",
     "freshness",
     "confidence",
     "verification_level",
 ]
+SUBSCRIPTION_EMAIL_STALE_AFTER = timedelta(hours=4)
 
 
 def write_event_frame(path: Path, frame: pd.DataFrame) -> int:
@@ -79,7 +81,9 @@ def _normalize_url(url: str) -> str:
     try:
         parts = urlsplit(url)
     except ValueError:
-        return url.strip()
+        return ""
+    if parts.scheme.lower() not in {"http", "https"} or not parts.netloc:
+        return ""
     netloc = parts.netloc.lower()
     path = parts.path.rstrip("/") or parts.path
     return urlunsplit((parts.scheme.lower(), netloc, path, "", ""))
@@ -96,6 +100,7 @@ def _with_event_defaults(frame: pd.DataFrame) -> pd.DataFrame:
         "linked_content_thesis": None,
         "linked_content_decision_use": None,
         "linked_content_signal_strength": None,
+        "linked_content_confidence": None,
     }
     for column, value in defaults.items():
         if column not in output.columns:
@@ -130,7 +135,7 @@ def write_manifest(
         "checksum": _checksum(parquet_path),
         "fetched_at": fetched_at.isoformat(),
         "max_timestamp_as_of": stats["max_timestamp_as_of"],
-        "stale_after": (fetched_at + timedelta(days=3650)).isoformat(),
+        "stale_after": (fetched_at + SUBSCRIPTION_EMAIL_STALE_AFTER).isoformat(),
         "source_url": None,
         "issues": issues or [],
     }

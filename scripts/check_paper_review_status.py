@@ -9,6 +9,7 @@ from urllib.request import urlopen
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8000"
 HTTP_OK = 200
+HTTP_TIMEOUT_SECONDS = 60
 
 
 def main() -> None:
@@ -70,7 +71,7 @@ def _int_value(payload: Mapping[str, object], key: str) -> int:
 
 def _fetch_json(base_url: str, path: str) -> Any:
     try:
-        with urlopen(f"{base_url}{path}", timeout=10) as response:
+        with urlopen(f"{base_url}{path}", timeout=HTTP_TIMEOUT_SECONDS) as response:
             if response.status != HTTP_OK:
                 raise RuntimeError(f"{path} returned HTTP {response.status}")
             return json.loads(response.read().decode("utf-8"))

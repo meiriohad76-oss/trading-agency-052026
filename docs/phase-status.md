@@ -145,7 +145,7 @@ implementation scaffolding from accepted phase gates.
 ## Next Ticket Candidates
 
 **Empirical (highest value):**
-1. Pull full-universe Massive stock-trade history using `--full-universe` flag (T151).
+1. Repair broad Massive stock-trade history through the off-hours `massive_backtest_trade_tape` lane with `research/scripts/backfill_massive_stock_trades.py` (T151).
 2. Rerun H1 with wider universe: `research/scripts/run_h1_ic.py --all-signals --start 2024-01-01 --end 2026-01-01 --output-csv research/results/h1-wide/h1-ic.csv --output-md research/results/h1-wide/h1-verdicts.md`.
 3. If any lane reaches `survive`: run H2 combination (`run_h2_combination.py`), then H4 profile (`run_h4_profile.py`). Accept Phase 1 gate if CAGR ≥ 15% + Sharpe ≥ 0.8.
 4. Run H3 A/B harness (`run_h3_llm_ab.py --signal fundamentals --reviewer mock_approve_all --repeats 3`) as baseline; replace mock reviewer with live LLM when H1 has a surviving lane.

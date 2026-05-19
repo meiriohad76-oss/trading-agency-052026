@@ -25,6 +25,11 @@ TECHNICAL_PRICE_ROWS = 60
 TECHNICAL_PRICE_STEP = 0.8
 
 
+@pytest.fixture(autouse=True)
+def _disable_llm_review_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("AGENCY_ENABLE_LLM_REVIEW", raising=False)
+
+
 def test_build_live_pit_runtime_cycle_from_price_manifest(tmp_path: Path) -> None:
     loader = loader_with(
         tmp_path,
@@ -62,6 +67,11 @@ def test_build_live_pit_runtime_cycle_from_price_manifest(tmp_path: Path) -> Non
         build_live_runtime_summary(cycle, persisted=False)["signal_count"]
         == EXPECTED_PRICE_SIGNAL_COUNT
     )
+    summary = build_live_runtime_summary(cycle, persisted=False)
+    summary["persistence_error"] = "TimeoutError: database unavailable"
+    assert "Persistence error: `TimeoutError: database unavailable`" in summary_to_markdown(
+        summary
+    )
 
 
 def test_current_date_daily_price_manifest_becomes_healthy_after_bar_publication(
@@ -98,6 +108,7 @@ def test_current_date_daily_price_manifest_becomes_healthy_after_bar_publication
     ]
 
     assert cycle.source_health[0]["status"] == "HEALTHY"
+    assert cycle.source_health[0]["observed_lag_seconds"] == 79200.0
     assert signals
     assert {signal["freshness"] for signal in signals} == {"FRESH"}
 
@@ -240,7 +251,7 @@ def test_live_runtime_summary_marks_unhealthy_sources_blocked() -> None:
         tickers={"AAPL"},
         manifest_root=Path("missing-manifests"),
         parquet_root=Path("missing-parquet"),
-        lanes=("fundamentals",),
+        lanes=("abnormal_volume",),
         generated_at=GENERATED_AT,
     )
 
@@ -287,7 +298,7 @@ def test_live_runtime_summary_source_health_masks_watch_verdict(tmp_path: Path) 
     assert summary["verdict"] == "blocked_or_context_only_due_to_source_health"
 
 
-def test_live_runtime_summary_blocks_any_non_healthy_source_status(tmp_path: Path) -> None:
+def test_live_runtime_summary_warns_on_degraded_critical_source_status(tmp_path: Path) -> None:
     loader = loader_with(
         tmp_path,
         {
@@ -319,7 +330,52 @@ def test_live_runtime_summary_blocks_any_non_healthy_source_status(tmp_path: Pat
 
     summary = build_live_runtime_summary(cycle, persisted=False)
 
-    assert summary["verdict"] == "blocked_or_context_only_due_to_source_health"
+    assert summary["verdict"] == "watch_candidates_available_with_source_warnings"
+
+
+def test_live_runtime_summary_warns_on_noncritical_stale_sources_with_watch(
+    tmp_path: Path,
+) -> None:
+    loader = loader_with(
+        tmp_path,
+        {
+            DatasetName.PRICES_DAILY: pl.DataFrame(
+                [price("AAPL", date(2026, 5, 6), 100.0, date(2026, 5, 6), "a1")]
+            )
+        },
+    )
+    cycle = build_live_pit_runtime_cycle(
+        cycle_id="cycle-noncritical-stale-watch",
+        as_of=date(2026, 5, 6),
+        tickers={"AAPL"},
+        manifest_root=loader.manifest_root,
+        parquet_root=loader.parquet_root,
+        lanes=("abnormal_volume",),
+        generated_at=GENERATED_AT,
+    )
+    cycle = replace(
+        cycle,
+        source_health=[
+            cycle.source_health[0],
+            {
+                **cycle.source_health[0],
+                "source": "rss-news",
+                "status": "STALE",
+                "freshness": "STALE",
+            },
+        ],
+        selection_reports=[
+            {
+                **cycle.selection_reports[0],
+                "final_action": "WATCH",
+                "llm_review": {"action": "WATCH"},
+            }
+        ],
+    )
+
+    summary = build_live_runtime_summary(cycle, persisted=False)
+
+    assert summary["verdict"] == "watch_candidates_available_with_source_warnings"
 
 
 def test_live_runtime_summary_counts_missing_llm_action_as_unknown(tmp_path: Path) -> None:
@@ -353,6 +409,38 @@ def test_live_runtime_summary_counts_missing_llm_action_as_unknown(tmp_path: Pat
     summary = build_live_runtime_summary(cycle, persisted=False)
 
     assert summary["llm_review_counts"] == {"UNKNOWN": 1}
+
+
+def test_live_runtime_summary_does_not_mark_blocked_cycle_watchable(tmp_path: Path) -> None:
+    loader = loader_with(
+        tmp_path,
+        {
+            DatasetName.PRICES_DAILY: pl.DataFrame(
+                [price("AAPL", date(2026, 5, 6), 100.0, date(2026, 5, 6), "a1")]
+            )
+        },
+    )
+    cycle = build_live_pit_runtime_cycle(
+        cycle_id="cycle-risk-blocked-watch",
+        as_of=date(2026, 5, 6),
+        tickers={"AAPL"},
+        manifest_root=loader.manifest_root,
+        parquet_root=loader.parquet_root,
+        lanes=("abnormal_volume",),
+        generated_at=GENERATED_AT,
+    )
+    cycle = replace(
+        cycle,
+        selection_reports=[{**cycle.selection_reports[0], "final_action": "WATCH"}],
+        risk_decisions=[
+            {**cycle.risk_decisions[0], "decision": "BLOCK", "final_action": "WATCH"}
+        ],
+        execution_previews=[{**cycle.execution_previews[0], "preview_state": "BLOCKED"}],
+    )
+
+    summary = build_live_runtime_summary(cycle, persisted=False)
+
+    assert summary["verdict"] == "cycle_blocked_by_risk"
 
 
 def test_live_runtime_summary_counts_prompt_audit_payloads(tmp_path: Path) -> None:
@@ -500,6 +588,12 @@ def test_live_pit_runtime_cycle_can_emit_technical_analysis_signals(tmp_path: Pa
     assert signals[0]["lane"] == "technical_analysis"
     assert "Technical analysis: AAPL" in str(signals[0]["summary"])
     assert "technical_analysis_bullish" in signals[0]["reason_codes"]
+    sources = {str(row["source"]): row for row in cycle.source_health}
+    assert "daily-market-bars" in sources
+    assert sources["technical-analysis-worker"]["status"] == sources["daily-market-bars"]["status"]
+    assert "technical_analysis: derived from daily-market-bars" in sources[
+        "technical-analysis-worker"
+    ]["notes"]
 
 
 def test_live_pit_runtime_cycle_can_emit_market_flow_signals(tmp_path: Path) -> None:
@@ -741,6 +835,48 @@ def test_live_pit_runtime_cycle_keeps_subscription_thesis_context_only(
     assert pack["data_quality"]["source_count"] == 0
     assert report["final_action"] == "NO_TRADE"
     assert "Subscription article thesis" in str(pack["context_signals"][0]["summary"])
+
+
+def test_live_pit_runtime_cycle_reads_stale_subscription_manifest_as_context(
+    tmp_path: Path,
+) -> None:
+    parquet_root = tmp_path / "parquet"
+    manifest_root = tmp_path / "manifests"
+    parquet_root.mkdir()
+    manifest_root.mkdir()
+    frame = pl.DataFrame(
+        [
+            subscription_email(
+                "META",
+                "BULLISH",
+                "Linked content thesis: stale manifest but relevant analyzed article.",
+            )
+        ]
+    )
+    parquet_path = parquet_root / "subscription_emails.parquet"
+    frame.write_parquet(parquet_path)
+    write_manifest(
+        manifest_root,
+        DatasetName.SUBSCRIPTION_EMAILS,
+        parquet_path.name,
+        frame.height,
+        stale_after="2026-05-06T00:01:00+00:00",
+    )
+
+    cycle = build_live_pit_runtime_cycle(
+        cycle_id="cycle-stale-thesis",
+        as_of=date(2026, 5, 6),
+        tickers={"META"},
+        manifest_root=manifest_root,
+        parquet_root=parquet_root,
+        lanes=("subscription_thesis",),
+        generated_at=GENERATED_AT,
+    )
+
+    pack = cycle.evidence_packs[0]
+    assert len(pack["context_signals"]) == 1
+    assert pack["context_signals"][0]["lane"] == "subscription_thesis"
+    assert "relevant analyzed article" in str(pack["context_signals"][0]["summary"])
 
 
 def test_replay_freshness_caps_future_manifest_timestamps(tmp_path: Path) -> None:
@@ -1005,7 +1141,10 @@ def test_llm_review_is_skipped_when_env_not_set(
         {
             DatasetName.PRICES_DAILY: pl.DataFrame(
                 [
-                    price("AAPL", date(2026, 5, 6), 110.0, date(2026, 5, 6), "a1"),
+                    price("AAPL", date(2026, 5, 5), 100.0, date(2026, 5, 5), "a1"),
+                    price("AAPL", date(2026, 5, 6), 110.0, date(2026, 5, 6), "a2"),
+                    price("MSFT", date(2026, 5, 5), 100.0, date(2026, 5, 5), "m1"),
+                    price("MSFT", date(2026, 5, 6), 90.0, date(2026, 5, 6), "m2"),
                 ]
             )
         },
@@ -1041,14 +1180,17 @@ def test_llm_review_runs_on_watch_candidates_when_enabled(
         {
             DatasetName.PRICES_DAILY: pl.DataFrame(
                 [
-                    price("AAPL", date(2026, 5, 6), 110.0, date(2026, 5, 6), "a1"),
+                    price("AAPL", date(2026, 5, 5), 100.0, date(2026, 5, 5), "a1"),
+                    price("AAPL", date(2026, 5, 6), 110.0, date(2026, 5, 6), "a2"),
+                    price("MSFT", date(2026, 5, 5), 100.0, date(2026, 5, 5), "m1"),
+                    price("MSFT", date(2026, 5, 6), 90.0, date(2026, 5, 6), "m2"),
                 ]
             )
         },
     )
 
     fake_batch = LlmReviewBatchResult(
-        reviews_by_ticker={"AAPL": {"action": "AGREE", "confidence": 0.8, "rationale": "ok", "supporting_factors": [], "concerns": []}},
+        reviews_by_ticker={"AAPL": {"action": "NEEDS_MORE_EVIDENCE", "confidence": 0.8, "rationale": "not enough confirmation", "supporting_factors": [], "concerns": []}},
         lifecycle_events=[],
         prompt_audits=[],
         reviewed_tickers=["AAPL"],
@@ -1064,7 +1206,7 @@ def test_llm_review_runs_on_watch_candidates_when_enabled(
         result = build_live_pit_runtime_cycle(
             cycle_id="cycle-llm-enabled",
             as_of=date(2026, 5, 6),
-            tickers={"AAPL"},
+            tickers={"AAPL", "MSFT"},
             manifest_root=loader.manifest_root,
             parquet_root=loader.parquet_root,
             lanes=("abnormal_volume",),
@@ -1075,3 +1217,4 @@ def test_llm_review_runs_on_watch_candidates_when_enabled(
     assert isinstance(result.cycle, RuntimeCycleResult)
     assert result.llm_batch is fake_batch
     assert result.llm_batch.reviewed_tickers == ["AAPL"]
+    assert result.cycle.selection_reports[0]["llm_review"]["action"] == "NEEDS_MORE_EVIDENCE"

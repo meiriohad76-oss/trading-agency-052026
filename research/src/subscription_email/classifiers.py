@@ -31,15 +31,23 @@ SERVICE_LABELS = {
 }
 TAXONOMY_PAIR_COUNT = 2
 TERMINAL_NON_EVIDENCE_LINK_STATUSES = {
+    "article_login_preflight_required",
+    "article_login_required",
+    "article_unavailable",
     "login_or_security_email",
     "no_configured_ticker_in_email",
     "non_universe_ticker_email",
+}
+VISIBLE_LOGIN_REQUIRED_LINK_STATUSES = {
+    "article_login_preflight_required",
+    "article_login_required",
 }
 ANALYZED_LINK_STATUSES = {
     "article_analyzed",
     "article_analyzed_deterministic_fallback",
 }
 NO_TICKER_MATCH_STATUS = "article_analyzed_no_ticker_match"
+PORTFOLIO_CONTEXT_LINK_STATUS = "article_analyzed_portfolio_context_only"
 TRACKING_QUERY_KEYS = {
     "campaign",
     "cid",
@@ -75,6 +83,12 @@ def classify_subscription_emails(
             ignored.append(_audit_stub(record, service, "service_disabled_or_unknown"))
             continue
         if record.linked_content_status in TERMINAL_NON_EVIDENCE_LINK_STATUSES:
+            tickers = _tickers(record, config.tickers)
+            if record.linked_content_status in VISIBLE_LOGIN_REQUIRED_LINK_STATUSES and tickers:
+                event_rows.extend(
+                    _login_required_event_rows(record, service, tickers, fetched_at=fetched_at)
+                )
+                continue
             ignored.append(_audit_stub(record, service, record.linked_content_status))
             continue
         tickers = _tickers(record, config.tickers)
@@ -228,7 +242,7 @@ def _news_row(
         "feed_name": SERVICE_LABELS[service],
         "title": _title(record, service, event_type),
         "url": source_url,
-        "summary": _summary(service, event_type, direction, record),
+        "summary": _summary(service, event_type, direction, record, ticker=ticker),
         "published_at": record.received_at,
         "source": f"{service}-email",
         "source_tier": SourceTier.PAID_SUB_EMAIL.value,
@@ -265,7 +279,7 @@ def _activity_row(
         "alert_type": alert_type,
         "direction": direction,
         "event_time": record.received_at.isoformat(),
-        "summary": _summary("tradevision", alert_type, direction, record),
+        "summary": _summary("tradevision", alert_type, direction, record, ticker=ticker),
         "price": None,
         "volume": None,
         "notional": notional,
@@ -346,12 +360,43 @@ def _event_row(
         "linked_content_decision_use": linked["decision_use"],
         "linked_content_signal_strength": record.linked_content_signal_strength,
         "linked_content_context_chars": record.linked_content_context_chars,
+        "linked_content_confidence": record.linked_content_confidence,
         "timestamp_observed": record.received_at.isoformat(),
         "timestamp_as_of": record.received_at.isoformat(),
         "freshness": freshness,
         "confidence": confidence,
         "verification_level": VerificationLevel.CONFIRMED.value,
     }
+
+
+def _login_required_event_rows(
+    record: EmailRecord,
+    service: str,
+    tickers: list[str],
+    *,
+    fetched_at: datetime,
+) -> list[dict[str, object]]:
+    source_url = _source_url(record)
+    return [
+        _event_row(
+            record,
+            service,
+            ticker,
+            event_type=record.linked_content_status or "article_login_required",
+            direction="NEUTRAL",
+            source_url=source_url,
+            source_id=_source_id(
+                service,
+                record,
+                ticker,
+                record.linked_content_status or "article_login_required",
+                source_url,
+            ),
+            confidence=0.0,
+            fetched_at=fetched_at,
+        )
+        for ticker in tickers
+    ]
 
 
 def _ticker_linked_content(
@@ -363,6 +408,20 @@ def _ticker_linked_content(
     direction: str,
     linked_status: str,
 ) -> dict[str, object]:
+    if linked_status in VISIBLE_LOGIN_REQUIRED_LINK_STATUSES:
+        return {
+            "summary": (
+                "Linked article was not analyzed because provider login or human "
+                "verification is required. Log in to the provider, acknowledge the "
+                "login prompt, then rerun the email/article agent."
+            ),
+            "thesis": None,
+            "key_points": [],
+            "decision_use": (
+                "Do not count this as bullish or bearish evidence until the article "
+                "is opened and analyzed after login."
+            ),
+        }
     if linked_status == NO_TICKER_MATCH_STATUS:
         return {
             "summary": (
@@ -372,6 +431,19 @@ def _ticker_linked_content(
             "thesis": None,
             "key_points": [],
             "decision_use": "Do not use this linked article as ticker-specific evidence.",
+        }
+    if linked_status == PORTFOLIO_CONTEXT_LINK_STATUS:
+        return {
+            "summary": (
+                f"Linked article was analyzed, but its thesis is not specific to {ticker}; "
+                "keep it as portfolio/theme context only."
+            ),
+            "thesis": None,
+            "key_points": [],
+            "decision_use": (
+                "Do not use this linked article as ticker-specific evidence unless a "
+                "direct causal link is confirmed."
+            ),
         }
     if not _is_analyzed_link_status(linked_status):
         return {
@@ -454,6 +526,8 @@ def _linked_content_status_for_ticker(record: EmailRecord, ticker: str) -> str:
     article_tickers = {item.upper() for item in record.linked_content_tickers}
     if not article_tickers or ticker.upper() not in article_tickers:
         return NO_TICKER_MATCH_STATUS
+    if not _article_has_ticker_specific_claim(record, ticker):
+        return PORTFOLIO_CONTEXT_LINK_STATUS
     return status
 
 
@@ -520,6 +594,74 @@ def _ticker_decision_use(
     if direction == "BEARISH":
         return "Treat as caution context and raise the review burden."
     return "Treat as informational context only."
+
+
+def _article_has_ticker_specific_claim(record: EmailRecord, ticker: str) -> bool:
+    return any(
+        _specific_ticker_mention(ticker, value)
+        for value in (
+            record.linked_content_thesis,
+            record.linked_content_decision_use,
+            *record.linked_content_key_points,
+        )
+    )
+
+
+def _specific_ticker_mention(ticker: str, value: object) -> bool:
+    if not _mentions_ticker(ticker, value):
+        return False
+    return any(
+        _mentions_ticker(ticker, sentence)
+        and not _boilerplate_detection_sentence(ticker, sentence)
+        for sentence in _sentences(str(value))
+    )
+
+
+def _boilerplate_detection_sentence(ticker: str, sentence: str) -> bool:
+    if not _mentions_ticker(ticker, sentence):
+        return False
+    lowered = sentence.lower()
+    return (
+        (
+            "detected" in lowered
+            and (
+                "ticker relevance" in lowered
+                or "article/email context" in lowered
+                or "article context" in lowered
+                or "email context" in lowered
+            )
+        )
+        or _peer_comparison_sentence(ticker, sentence)
+    )
+
+
+def _peer_comparison_sentence(ticker: str, sentence: str) -> bool:
+    lowered = sentence.lower()
+    normalized = re.escape(ticker.lower())
+    patterns = (
+        rf"\b(?:peers?|rivals?|competitors?|companies)\s+"
+        rf"(?:like|including|such as)\b[^.!?;:]*\b{normalized}\b",
+        rf"\b(?:compared|relative)\s+(?:with|to)\b[^.!?;:]*\b{normalized}\b",
+        rf"\b(?:versus|vs\.?)\b[^.!?;:]*\b{normalized}\b",
+    )
+    return any(re.search(pattern, lowered) is not None for pattern in patterns)
+
+
+def _sentences(value: str) -> list[str]:
+    return [sentence.strip() for sentence in re.split(r"(?<=[.!?])\s+", value) if sentence.strip()]
+
+
+def _mentions_ticker(ticker: str, value: object) -> bool:
+    if not isinstance(value, str) or not value.strip():
+        return False
+    normalized = re.escape(ticker.upper())
+    return (
+        re.search(
+            rf"(?<![A-Za-z0-9])(?:\${normalized}|{normalized})(?![A-Za-z0-9])",
+            value,
+        )
+        is not None
+    )
 
 
 def _headline_focus_ticker(title: str) -> str | None:
@@ -662,14 +804,39 @@ def _title(record: EmailRecord, service: str, event_type: str) -> str:
     return f"{prefix}: {event_type.replace('_', ' ')} - {subject}"
 
 
-def _summary(service: str, event_type: str, direction: str, record: EmailRecord) -> str:
+def _summary(
+    service: str,
+    event_type: str,
+    direction: str,
+    record: EmailRecord,
+    *,
+    ticker: str | None = None,
+) -> str:
     summary = (
         f"Email-derived {SERVICE_LABELS[service]} evidence classified as "
         f"{event_type} with {direction.lower()} direction."
     )
-    if record.linked_content_summary is None:
+    linked_summary = (
+        _linked_summary_for_news(record, ticker) if ticker is not None else record.linked_content_summary
+    )
+    if linked_summary is None:
         return summary
-    return f"{summary} {record.linked_content_summary}"
+    return f"{summary} {linked_summary}"
+
+
+def _linked_summary_for_news(record: EmailRecord, ticker: str) -> str | None:
+    status = _linked_content_status_for_ticker(record, ticker)
+    if status == NO_TICKER_MATCH_STATUS:
+        return (
+            f"Linked article was analyzed, but it did not materially mention {ticker}; "
+            "do not use the article as ticker-specific news evidence."
+        )
+    if status == PORTFOLIO_CONTEXT_LINK_STATUS:
+        return (
+            f"Linked article was analyzed, but its thesis is not specific to {ticker}; "
+            "treat it as portfolio/theme context only."
+        )
+    return record.linked_content_summary
 
 
 def _first_url(record: EmailRecord) -> str | None:
@@ -761,6 +928,8 @@ def _confidence(service: str, event_type: str, record: EmailRecord) -> float:
     else:
         base = 0.7
     if record.linked_content_status == "article_analyzed":
+        if record.linked_content_confidence is not None:
+            return min(0.95, max(base, record.linked_content_confidence))
         return min(0.95, base + 0.1)
     return base
 

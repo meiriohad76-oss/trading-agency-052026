@@ -1,0 +1,45 @@
+{
+  "leveraged_alternatives_enabled": false,
+  "leveraged_min_conviction": 0.85,
+  "leveraged_min_source_count": 2,
+  "leveraged_min_confirmed_signals": 2,
+  "max_leveraged_position_pct": 2.0,
+  "leveraged_etf_review_enabled": true,
+  "min_leveraged_etf_avg_dollar_volume": 0.0,
+  "allow_defined_risk_options": false,
+  "allow_covered_option_writes": false,
+  "min_option_days_to_expiration": 14,
+  "max_option_days_to_expiration": 60,
+  "leveraged_etfs": [
+    {
+      "underlying": "AAPL",
+      "ticker": "AAPU",
+      "direction": "LONG",
+      "leverage_factor": 2.0,
+      "issuer": "Direxion",
+      "expense_ratio_pct": null,
+      "enabled": true,
+      "avg_dollar_volume": null
+    },
+    {
+      "underlying": "NVDA",
+      "ticker": "NVDU",
+      "direction": "LONG",
+      "leverage_factor": 2.0,
+      "issuer": "Direxion",
+      "expense_ratio_pct": null,
+      "enabled": true,
+      "avg_dollar_volume": null
+    },
+    {
+      "underlying": "TSLA",
+      "ticker": "TSLL",
+      "direction": "LONG",
+      "leverage_factor": 2.0,
+      "issuer": "Direxion",
+      "expense_ratio_pct": null,
+      "enabled": true,
+      "avg_dollar_volume": null
+    }
+  ]
+}

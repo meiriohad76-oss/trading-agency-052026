@@ -41,6 +41,11 @@
       "type": "string",
       "format": "date-time"
     },
+    "runtime_origin": {
+      "description": "Runtime storage origin. Present when a local/offline artifact fallback explicitly supplied this row.",
+      "type": "string",
+      "enum": ["runtime_artifact_fallback"]
+    },
     "decision": {
       "type": "string",
       "enum": ["ALLOW", "WARN", "BLOCK"]
@@ -117,6 +122,17 @@
         "degraded_source_count": {
           "type": "integer",
           "minimum": 0
+        },
+        "missing_source_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "missing_sources": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
         }
       }
     }

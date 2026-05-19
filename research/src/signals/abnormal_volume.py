@@ -7,7 +7,8 @@ from typing import Protocol
 
 import pandas as pd
 import polars as pl
-from signals._common import positive_float, score_dict, zscore
+from pit.exceptions import DataNotAvailableAt
+from signals._common import directional_rank_score, positive_float, score_dict
 
 DEFAULT_LOOKBACK_DAYS = 60
 MIN_OBSERVATIONS = 2
@@ -44,7 +45,7 @@ def abnormal_volume_frame(
         return _empty_frame()
     try:
         raw = loader.prices(tickers, as_of, lookback_days)
-    except Exception:
+    except DataNotAvailableAt:
         return _empty_frame()
     if raw.is_empty():
         return _empty_frame()
@@ -59,7 +60,11 @@ def abnormal_volume_frame(
     output = pd.DataFrame(rows)
     if output.empty:
         return _empty_frame()
-    output["abnormal_volume_score"] = zscore(output["signed_volume_pressure"])
+    output["abnormal_volume_score"] = (
+        directional_rank_score(output["signed_volume_pressure"])
+        if len(output) >= MIN_OBSERVATIONS
+        else 0.0
+    )
     return output.sort_values(
         ["abnormal_volume_score", "ticker"], ascending=[False, True]
     ).reset_index(drop=True)

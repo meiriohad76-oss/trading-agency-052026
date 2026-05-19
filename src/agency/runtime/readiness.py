@@ -2,14 +2,19 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Mapping, Sequence
+from datetime import UTC, datetime
 from typing import cast
 
 from agency.runtime.readiness_sources import relevant_source_health, used_sources
 
 DEGRADED_SOURCE_STATUSES = {"DEGRADED", "STALE", "UNAVAILABLE", "RATE_LIMITED"}
 DEGRADED_FRESHNESS = {"AGING", "STALE", "UNAVAILABLE"}
+BLOCKING_SOURCE_STATUSES = {"STALE", "UNAVAILABLE", "RATE_LIMITED"}
+BLOCKING_FRESHNESS = {"STALE", "UNAVAILABLE"}
 REVIEWABLE_ACTIONS = {"BUY", "SELL", "SHORT", "COVER", "WATCH", "HOLD"}
-LIVE_PIT_CYCLE_PREFIX = "live-pit-"
+LIVE_CYCLE_PREFIXES = ("live-pit-", "live-ready-")
+CRITICAL_SOURCE_NAMES = {"daily-market-bars", "massive-stock-trades"}
+SOURCE_HEALTH_MAX_AGE_SECONDS = 30 * 60
 
 
 def build_live_readiness(
@@ -40,7 +45,7 @@ def build_live_readiness(
         "verdict": verdict,
         "cycle_id": cycle_id,
         "source_count": len(active_source_health),
-        "degraded_source_count": len(_source_blockers(active_source_health)),
+        "degraded_source_count": len(_degraded_sources(active_source_health)),
         "selection_report_count": len(cycle_reports),
         "risk_decision_count": len(cycle_risks),
         "reviewable_candidate_count": _reviewable_count(cycle_reports),
@@ -84,17 +89,70 @@ def _source_blockers(
 ) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     for source in source_health:
+        source_name = str(source.get("source", "unknown"))
         status = str(source.get("status", "UNKNOWN"))
         freshness = str(source.get("freshness", "UNKNOWN"))
-        if status in DEGRADED_SOURCE_STATUSES or freshness in DEGRADED_FRESHNESS:
+        critical_or_unidentified = (
+            source_name in CRITICAL_SOURCE_NAMES
+            or source_name in {"unknown", "source-health-monitor"}
+        )
+        if status in BLOCKING_SOURCE_STATUSES or freshness in BLOCKING_FRESHNESS:
+            if critical_or_unidentified:
+                rows.append(
+                    _blocker(
+                        "source_health",
+                        source_name,
+                        f"{status} / {freshness}; {_first_note(source)}",
+                    )
+                )
+            continue
+        if source_name not in CRITICAL_SOURCE_NAMES:
+            continue
+        age_seconds = _source_health_age_seconds(source)
+        if age_seconds is None:
             rows.append(
                 _blocker(
                     "source_health",
-                    str(source.get("source", "unknown")),
-                    f"{status} / {freshness}; {_first_note(source)}",
+                    source_name,
+                    "missing checked_at; source-health freshness is unverified",
+                )
+            )
+        elif age_seconds > SOURCE_HEALTH_MAX_AGE_SECONDS:
+            rows.append(
+                _blocker(
+                    "source_health",
+                    source_name,
+                    f"checked_at is {age_seconds}s old; refresh source-health before review",
                 )
             )
     return rows
+
+
+def _degraded_sources(source_health: Sequence[Mapping[str, object]]) -> list[Mapping[str, object]]:
+    return [
+        source
+        for source in source_health
+        if str(source.get("status", "UNKNOWN")) in DEGRADED_SOURCE_STATUSES
+        or str(source.get("freshness", "UNKNOWN")) in DEGRADED_FRESHNESS
+        or _source_health_age_seconds(source) is None
+        or (
+            (_source_health_age_seconds(source) or 0)
+            > SOURCE_HEALTH_MAX_AGE_SECONDS
+        )
+    ]
+
+
+def _source_health_age_seconds(source: Mapping[str, object]) -> int | None:
+    checked_at = source.get("checked_at")
+    if not isinstance(checked_at, str) or not checked_at.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(checked_at.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return max(0, int((datetime.now(UTC) - parsed.astimezone(UTC)).total_seconds()))
 
 
 def _blocker(kind: str, item: str | None, reason: str) -> dict[str, object]:
@@ -157,7 +215,7 @@ def _first_cycle_id(
         if (
             isinstance(cycle_id, str)
             and cycle_id
-            and (not live_pit_only or cycle_id.startswith(LIVE_PIT_CYCLE_PREFIX))
+            and (not live_pit_only or cycle_id.startswith(LIVE_CYCLE_PREFIXES))
         ):
             return cycle_id
     return None

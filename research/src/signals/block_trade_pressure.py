@@ -7,9 +7,10 @@ from typing import Protocol
 
 import pandas as pd
 import polars as pl
-from signals._common import score_dict, zscore
+from market_flow.features import MarketFlowFeatureConfig, market_flow_feature_frame
+from signals._common import directional_rank_score, score_dict
 
-DEFAULT_LOOKBACK_DAYS = 5
+DEFAULT_LOOKBACK_DAYS = 1
 
 
 class StockTradesLoader(Protocol):
@@ -45,23 +46,31 @@ def block_trade_pressure_frame(
     tickers = sorted({item.upper() for item in universe})
     if not tickers:
         return _empty_frame()
-    try:
-        raw = loader.stock_trades(tickers, as_of, lookback_days)
-    except Exception:
+    features = market_flow_feature_frame(
+        as_of,
+        tickers,
+        loader,
+        MarketFlowFeatureConfig(lookback_days=lookback_days),
+    )
+    if features.empty:
         return _empty_frame()
-    if raw.is_empty():
-        return _empty_frame()
-    frame = raw.to_pandas()
-    frame["ticker"] = frame["ticker"].astype(str).str.upper()
-    rows = [
-        row
-        for ticker, group in frame.groupby("ticker", sort=True)
-        if (row := _factor_row(str(ticker), group)) is not None
+    columns = [
+        "ticker",
+        "trade_count",
+        "focus_trade_count",
+        "block_count",
+        "off_exchange_count",
+        "total_notional",
+        "focus_notional",
+        "focus_notional_share",
+        "signed_focus_notional",
+        "directional_pressure",
+        "block_trade_pressure",
     ]
-    output = pd.DataFrame(rows)
+    output = features.loc[:, columns].copy()
     if output.empty:
         return _empty_frame()
-    output["block_trade_pressure_score"] = zscore(output["block_trade_pressure"])
+    output["block_trade_pressure_score"] = directional_rank_score(output["block_trade_pressure"])
     return output.sort_values(
         ["block_trade_pressure_score", "ticker"],
         ascending=[False, True],
@@ -118,7 +127,21 @@ def _notional(frame: pd.DataFrame) -> pd.Series:
 def _bool(frame: pd.DataFrame, column: str) -> pd.Series:
     if column not in frame.columns:
         return pd.Series([False for _ in range(len(frame))], index=frame.index)
-    return frame[column].fillna(False).astype(bool)
+    return frame[column].map(_bool_value).fillna(False).astype(bool)
+
+
+def _bool_value(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None or value is pd.NA or value is pd.NaT:
+        return False
+    if isinstance(value, int | float):
+        if isinstance(value, float) and pd.isna(value):
+            return False
+        return value != 0
+    if isinstance(value, str):
+        return value.strip().casefold() in {"1", "true", "t", "yes", "y"}
+    return bool(value)
 
 
 def _ratio(numerator: float, denominator: float) -> float:

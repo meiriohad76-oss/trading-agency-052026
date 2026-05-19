@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import date
 
 import pytest
+from pit.exceptions import DataNotAvailableAt
 from signals.institutional import institutional_factor_frame, institutional_score
 
 AS_OF = date(2023, 2, 28)
@@ -29,7 +30,7 @@ def test_institutional_factor_frame_skips_missing_or_incomplete_tickers() -> Non
         {
             "AAPL": _holdings(holder_count=5, shares_held=1_000.0, change=200.0),
             "BAD": {"holder_count": 1, "total_shares_held": 100.0},
-            "MISSING": KeyError("missing data"),
+            "MISSING": DataNotAvailableAt("sec_13f", AS_OF, "missing data"),
         }
     )
 

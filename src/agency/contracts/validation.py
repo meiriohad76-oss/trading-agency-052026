@@ -20,6 +20,7 @@ ContractName = Literal[
     "prompt-audit",
     "execution-state",
     "risk-snapshot",
+    "portfolio-snapshot",
     "execution-preview",
     "portfolio-monitor",
     "learning-outcome",
@@ -37,6 +38,7 @@ _SCHEMA_FILES: dict[ContractName, str] = {
     "prompt-audit": "prompt-audit.schema.json",
     "execution-state": "execution-state.schema.json",
     "risk-snapshot": "risk-snapshot.schema.json",
+    "portfolio-snapshot": "portfolio-snapshot.schema.json",
     "execution-preview": "execution-preview.schema.json",
     "portfolio-monitor": "portfolio-monitor.schema.json",
     "learning-outcome": "learning-outcome.schema.json",
@@ -86,6 +88,11 @@ def load_contract_schema(
     """Load a contract schema by name."""
     schemas = _load_schemas(_resolve_schema_dir(schema_dir))
     return schemas[_SCHEMA_FILES[contract]]
+
+
+def contract_names() -> tuple[ContractName, ...]:
+    """Return all contract names with schemas available through the runtime API."""
+    return tuple(_SCHEMA_FILES)
 
 
 def _validator_for(contract: ContractName, schema_dir: Path) -> Draft202012Validator:

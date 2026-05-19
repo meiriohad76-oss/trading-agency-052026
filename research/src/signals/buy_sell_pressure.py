@@ -6,7 +6,8 @@ from typing import Protocol
 
 import pandas as pd
 import polars as pl
-from signals._common import score_dict, zscore
+from market_flow.features import MarketFlowFeatureConfig, market_flow_feature_frame
+from signals._common import directional_rank_score, score_dict
 
 DEFAULT_LOOKBACK_DAYS = 3
 PRE_MARKET_WEIGHT = 0.35
@@ -47,23 +48,35 @@ def buy_sell_pressure_frame(
     tickers = sorted({item.upper() for item in universe})
     if not tickers:
         return _empty_frame()
-    try:
-        raw = loader.stock_trades(tickers, as_of, lookback_days)
-    except Exception:
+    features = market_flow_feature_frame(
+        as_of,
+        tickers,
+        loader,
+        MarketFlowFeatureConfig(
+            lookback_days=lookback_days,
+            pre_market_weight=PRE_MARKET_WEIGHT,
+            net_notional_weight=NET_NOTIONAL_WEIGHT,
+            net_volume_weight=NET_VOLUME_WEIGHT,
+        ),
+    )
+    if features.empty:
         return _empty_frame()
-    if raw.is_empty():
-        return _empty_frame()
-    frame = raw.to_pandas()
-    frame["ticker"] = frame["ticker"].astype(str).str.upper()
-    rows = [
-        row
-        for ticker, group in frame.groupby("ticker", sort=True)
-        if (row := _factor_row(str(ticker), group)) is not None
+    columns = [
+        "ticker",
+        "trade_count",
+        "total_volume",
+        "total_notional",
+        "net_volume_pressure",
+        "net_notional_pressure",
+        "pre_market_volume",
+        "pre_market_volume_share",
+        "pre_market_net_pressure",
+        "buy_sell_pressure",
     ]
-    output = pd.DataFrame(rows)
+    output = features[columns].copy()
     if output.empty:
         return _empty_frame()
-    output["buy_sell_pressure_score"] = zscore(output["buy_sell_pressure"])
+    output["buy_sell_pressure_score"] = directional_rank_score(output["buy_sell_pressure"])
     return output.sort_values(
         ["buy_sell_pressure_score", "ticker"],
         ascending=[False, True],

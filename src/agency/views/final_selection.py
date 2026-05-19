@@ -5,7 +5,11 @@ from collections.abc import Mapping, Sequence
 
 from agency.views._shared import (
     FINAL_SELECTION_REPORT_LIMIT,
+    dashboard_data_health,
     _dashboard_selection_reports,
+    _format_timestamp_label,
+    _human_review_index,
+    _human_review_summary,
     _human_list,
     _int_field,
     _is_actionable_candidate,
@@ -19,6 +23,8 @@ from agency.views._shared import (
     _selection_reports_for_cycle,
     _short_cycle_label,
     _string_list,
+    _lifecycle_events_for_reports,
+    live_dashboard_data_load_status,
 )
 
 
@@ -26,12 +32,44 @@ async def final_selection_context() -> dict[str, object]:
     reports = await _dashboard_selection_reports(limit=FINAL_SELECTION_REPORT_LIMIT)
     cycle_id = _latest_selection_cycle_id(reports)
     cycle_reports = _selection_reports_for_cycle(reports, cycle_id)
-    rows = final_selection_rows(cycle_reports)
+    review_events = await _lifecycle_events_for_reports(
+        cycle_reports,
+        {"cycle_id": cycle_id},
+        event_type="HUMAN_REVIEW",
+        limit_per_ticker=1,
+    )
+    rows = final_selection_rows(cycle_reports, review_events=review_events)
     actionable_rows = [row for row in rows if _is_actionable_candidate(row)]
+    watch_rows = [row for row in rows if str(row["action"]) == "WATCH"]
+    no_trade_rows = [row for row in rows if str(row["action"]) == "NO_TRADE"]
+    blocked_rows = [
+        row
+        for row in rows
+        if str(row["gate_status"]) == "BLOCK"
+        or str(row["action"]) in {"BLOCK", "BLOCKED"}
+    ]
     trace_rows = [row for row in rows if not _is_actionable_candidate(row)]
+    data_load_status = await live_dashboard_data_load_status()
     return {
+        "data_health": dashboard_data_health(
+            "Final selection dashboard",
+            data_load_status=data_load_status,
+            datasets=(
+                "prices_daily",
+                "stock_trades",
+                "sec_company_facts",
+                "sec_form4",
+                "sec_13f",
+                "news_rss",
+                "subscription_emails",
+            ),
+            cycle_id=cycle_id,
+        ),
         "final_rows": rows,
         "actionable_rows": actionable_rows,
+        "watch_rows": watch_rows,
+        "no_trade_rows": no_trade_rows,
+        "blocked_rows": blocked_rows,
         "trace_rows": trace_rows,
         "summary": final_selection_summary(
             rows,
@@ -40,8 +78,25 @@ async def final_selection_context() -> dict[str, object]:
         ),
     }
 
-def final_selection_rows(reports: Sequence[Mapping[str, object]]) -> list[dict[str, object]]:
-    rows = [_final_selection_row(report) for report in reports]
+def final_selection_rows(
+    reports: Sequence[Mapping[str, object]],
+    *,
+    review_events: Sequence[Mapping[str, object]] = (),
+) -> list[dict[str, object]]:
+    review_index = _human_review_index(review_events)
+    rows = [
+        _final_selection_row(
+            report,
+            review_event=review_index.get(
+                (
+                    str(report.get("cycle_id", "")),
+                    str(report.get("ticker", "")),
+                    str(report.get("as_of", "")),
+                )
+            ),
+        )
+        for report in reports
+    ]
     return sorted(rows, key=_final_selection_sort_key)
 
 def final_selection_summary(
@@ -54,11 +109,14 @@ def final_selection_summary(
     historical_count = max(total_report_count - len(rows), 0)
     actionable_count = sum(1 for row in rows if _is_actionable_candidate(row))
     blocked_count = sum(1 for row in rows if row["gate_status"] == "BLOCK")
+    no_trade_count = sum(1 for row in rows if row["action"] == "NO_TRADE")
     return {
         "report_count": len(rows),
         "all_report_count": total_report_count,
+        "selected_count": actionable_count,
         "actionable_count": actionable_count,
         "blocked_count": blocked_count,
+        "no_trade_count": no_trade_count,
         "historical_count": historical_count,
         "cycle_id": cycle_id or "None",
         "cycle_label": _short_cycle_label(cycle_id),
@@ -68,13 +126,18 @@ def final_selection_summary(
         "scope_detail": _final_selection_scope_detail(historical_count, cycle_id),
     }
 
-def _final_selection_row(report: Mapping[str, object]) -> dict[str, object]:
+def _final_selection_row(
+    report: Mapping[str, object],
+    *,
+    review_event: Mapping[str, object] | None = None,
+) -> dict[str, object]:
     from agency.views.candidates import _candidate_row
     from agency.views.risk import _gate_rows, _selection_gate_summary
     from agency.views.signals import _context_signal_rows, _decision_explanation, _signal_group_summary, _signal_rows
     base = _candidate_row(report)
     deterministic = _mapping_field(report, "deterministic")
     llm_review = _mapping_field(report, "llm_review")
+    llm_status = _llm_status(llm_review)
     evidence_pack = _mapping_field(report, "evidence_pack")
     data_quality = _mapping_field(evidence_pack, "data_quality")
     risk_flags = _string_list(report, "risk_flags")
@@ -84,20 +147,27 @@ def _final_selection_row(report: Mapping[str, object]) -> dict[str, object]:
     context_signals = _context_signal_rows(evidence_pack)
     suppressed_signals = _signal_rows(evidence_pack, "suppressed_signals")
     deterministic_reason = _reason_text(deterministic)
+    human_review = _human_review_summary(review_event)
     return {
         **base,
         "cycle_id": str(report["cycle_id"]),
         "generated_at": str(report["generated_at"]),
+        "generated_at_label": _format_timestamp_label(report["generated_at"]),
+        "as_of_label": _format_timestamp_label(report["as_of"]),
         "deterministic_action": str(deterministic["action"]),
         "deterministic_conviction_pct": _percent(deterministic, "conviction"),
         "deterministic_reason": deterministic_reason,
         "llm_action": str(llm_review["action"]),
         "llm_confidence_pct": _percent(llm_review, "confidence"),
         "llm_rationale": str(llm_review["rationale"]),
+        "llm_status_label": llm_status["label"],
+        "llm_status_class": llm_status["status_class"],
+        "llm_status_detail": llm_status["detail"],
         "policy_gates": gates,
         "policy_gate_summary": _selection_gate_summary(gates),
         "risk_flags": risk_flags,
         "risk_flag_text": ", ".join(risk_flags) if risk_flags else "none",
+        "action_class": _action_status_class(str(base["action"]), str(base["gate_status"])),
         "review_bucket": "Actionable review" if actionable else "Traceability",
         "review_bucket_class": "pass" if actionable else "neutral",
         "review_next_step": _final_selection_next_step(base, risk_flags),
@@ -120,7 +190,45 @@ def _final_selection_row(report: Mapping[str, object]) -> dict[str, object]:
             deterministic_reason=deterministic_reason,
             risk_flags=risk_flags,
         ),
+        "human_review_decision": human_review["decision"],
+        "human_review_class": human_review["status_class"],
+        "human_review_reason": human_review["reason"],
+        "human_review_time": human_review["event_time"],
+        "human_review_time_label": _format_timestamp_label(human_review["event_time"]),
     }
+
+def _llm_status(llm_review: Mapping[str, object]) -> dict[str, str]:
+    action = str(llm_review.get("action", "NO_REVIEW")).strip().upper()
+    rationale = str(llm_review.get("rationale") or "").strip()
+    concerns = " ".join(_string_list(llm_review, "concerns")).lower()
+    rationale_lower = rationale.lower()
+    detail = rationale or "No LLM review rationale was recorded."
+    if action != "NO_REVIEW":
+        return {"label": "Included", "status_class": "pass", "detail": detail}
+    if "not enabled" in rationale_lower or "skipped by policy" in rationale_lower:
+        return {"label": "Skipped By Policy", "status_class": "neutral", "detail": detail}
+    if (
+        "missing api key" in rationale_lower
+        or "openai_api_key" in rationale_lower
+        or "not configured" in rationale_lower
+    ):
+        return {"label": "Not Configured", "status_class": "block", "detail": detail}
+    if any(
+        token in f"{rationale_lower} {concerns}"
+        for token in ("failed", "error", "unauthorized", "forbidden", "rate_limited")
+    ):
+        return {"label": "Failed", "status_class": "block", "detail": detail}
+    return {"label": "Skipped", "status_class": "neutral", "detail": detail}
+
+
+def _action_status_class(action: str, gate_status: str) -> str:
+    if gate_status == "BLOCK":
+        return "block"
+    if action == "NO_TRADE":
+        return "neutral"
+    if action in {"WATCH", "BUY", "SELL", "SHORT", "COVER"}:
+        return "pass"
+    return "warn"
 
 def _final_selection_takeaway(
     base: Mapping[str, object],

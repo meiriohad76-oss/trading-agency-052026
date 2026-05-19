@@ -15,12 +15,22 @@ def load_key_statuses(
 ) -> list[dict[str, object]]:
     load_dotenv()
     provider = str(live_config.get("provider", "")).lower()
-    return [
+    keys = [
         _key("ALPACA_API_KEY", ".env", "Alpaca market-data access", provider == "alpaca"),
         _key("ALPACA_SECRET_KEY", ".env", "Alpaca market-data access", provider == "alpaca"),
         _sec_user_agent_key(live_config),
         _key("OPENAI_API_KEY", ".env", "Future LLM review calls", required=False),
     ]
+    if provider == "massive":
+        keys.append(
+            _any_key(
+                ("MASSIVE_API_KEY", "POLYGON_API_KEY"),
+                ".env",
+                "Massive/Polygon market-flow access",
+                required=True,
+            )
+        )
+    return keys
 
 
 def _key(
@@ -33,6 +43,24 @@ def _key(
     status = PASS if present else (BLOCK if required else WARN)
     return {
         "name": name,
+        "required": required,
+        "present": present,
+        "status": status,
+        "file": file_path,
+        "purpose": purpose,
+    }
+
+
+def _any_key(
+    names: tuple[str, ...],
+    file_path: str,
+    purpose: str,
+    required: bool,
+) -> dict[str, object]:
+    present = any(os.environ.get(name, "").strip() != "" for name in names)
+    status = PASS if present else (BLOCK if required else WARN)
+    return {
+        "name": " or ".join(names),
         "required": required,
         "present": present,
         "status": status,

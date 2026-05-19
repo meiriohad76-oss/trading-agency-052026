@@ -6,7 +6,8 @@ from datetime import date
 from typing import Protocol
 
 import pandas as pd
-from signals._common import float_or_none, payload_dict, score_dict, zscore
+from pit.exceptions import DataNotAvailableAt
+from signals._common import directional_rank_score, float_or_none, payload_dict, score_dict
 
 DEFAULT_LOOKBACK_DAYS = 10
 BLOCK_TRADE_TYPES = frozenset(
@@ -72,13 +73,13 @@ def activity_alert_frame(
         return _empty_frame()
     try:
         alerts = loader.activity_alerts(tickers, as_of, lookback_days)
-    except Exception:
+    except DataNotAvailableAt:
         return _empty_frame()
     rows = _rows(tickers, alerts)
     frame = pd.DataFrame(rows)
     if frame.empty:
         return _empty_frame()
-    frame["activity_alert_score"] = zscore(frame["activity_pressure"])
+    frame["activity_alert_score"] = directional_rank_score(frame["activity_pressure"])
     return frame.sort_values(
         ["activity_alert_score", "ticker"], ascending=[False, True]
     ).reset_index(drop=True)

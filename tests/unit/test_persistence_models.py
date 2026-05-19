@@ -10,6 +10,7 @@ from agency.persistence import (
     data_source_health,
     execution_state_history,
     metadata,
+    portfolio_policy,
     portfolio_snapshots,
     prompt_audits,
     risk_decisions,
@@ -28,6 +29,7 @@ def test_metadata_includes_data_source_health_table() -> None:
     assert metadata.tables["execution_state_history"] is execution_state_history
     assert metadata.tables["risk_snapshots"] is risk_snapshots
     assert metadata.tables["portfolio_snapshots"] is portfolio_snapshots
+    assert metadata.tables["portfolio_policy"] is portfolio_policy
 
 
 def test_data_source_health_table_has_runtime_status_columns() -> None:
@@ -152,6 +154,20 @@ def test_portfolio_snapshot_migration_links_to_runtime_audit_revision() -> None:
 
     assert migration.revision == "0007_portfolio_snapshots"
     assert migration.down_revision == "0006_runtime_audit_tables"
+
+
+def test_portfolio_policy_table_has_json_policy_columns() -> None:
+    columns = set(portfolio_policy.c.keys())
+
+    assert {"id", "data", "updated_at"}.issubset(columns)
+    assert portfolio_policy.primary_key.columns.keys() == ["id"]
+
+
+def test_portfolio_policy_migration_links_to_portfolio_snapshot_revision() -> None:
+    migration = _load_migration("0008_portfolio_policy.py")
+
+    assert migration.revision == "0008_portfolio_policy"
+    assert migration.down_revision == "0007_portfolio_snapshots"
 
 
 def _load_migration(filename: str) -> ModuleType:

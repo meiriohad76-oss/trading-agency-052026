@@ -13,7 +13,7 @@ Current project status is tracked in `docs/phase-status.md`.
 
 ## Current Queue
 
-- T115: Massive historical market-flow backtest.
+- No open tickets in the T115/T135/T136 implementation batch.
 
 Completed archive:
 
@@ -72,6 +72,16 @@ Completed archive:
 - T112: market-flow threshold optimizer.
 - T113: market-flow holdout validation.
 - T114: market-flow runtime calibration.
+- T115: Massive historical market-flow backtest.
+- T135: Command dashboard full-live readiness progress.
+- T136: Leveraged alternative review advisor.
+- T137: emergency stock-trade pull safety.
+- T138: market-aware refresh runner.
+- T139: tier-aware scheduler commands.
+- T140: affected-ticker mini-cycle planner.
+- T141: execution freshness gate.
+- T142: off-hours baseline repair.
+- T143: Massive multi-lane data orchestrator.
 - PR #82: provider readiness checklist.
 
 ## Next Ticket Candidates
@@ -80,8 +90,10 @@ Use `docs/phase-status.md` as the source of truth before drafting the next ticke
 
 Recommended next batch:
 
-- Run T115 after adding the local Massive/Polygon key.
-- Run subscription-email ingest after exporting approved `.eml` messages.
+- Expand Massive historical `stock_trades` coverage beyond one trade date so
+  T115 can run a real holdout validation instead of context-only coverage.
+- Enable leveraged-alternative review only after the user explicitly opts in via
+  local policy.
 - Draft the next ticket from the first live validation gap that blocks paper
   testing.
 

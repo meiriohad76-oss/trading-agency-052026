@@ -38,7 +38,35 @@
     "PositionReview": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["ticker", "classification", "reason", "current_action", "conviction"],
+      "required": [
+        "ticker",
+        "classification",
+        "reason",
+        "current_action",
+        "conviction",
+        "quantity",
+        "market_value",
+        "unrealized_pl",
+        "unrealized_plpc",
+        "side",
+        "exit_signal",
+        "exit_priority",
+        "exit_reason",
+        "policy_take_profit_pct",
+        "policy_stop_loss_pct",
+        "policy_trailing_stop_pct",
+        "pnl_class",
+        "pnl_label",
+        "thesis_validity_label",
+        "stop_distance_label",
+        "trailing_stop_drawdown_pct",
+        "trailing_stop_distance_pct",
+        "trailing_stop_proximity_alert",
+        "urgency_label",
+        "exposure_freed_label",
+        "confirm_exit_action",
+        "downstream_effect"
+      ],
       "properties": {
         "ticker": {
           "type": "string",
@@ -59,13 +87,128 @@
           "type": ["number", "null"],
           "minimum": 0,
           "maximum": 1
+        },
+        "quantity": {
+          "type": ["number", "null"]
+        },
+        "market_value": {
+          "type": ["number", "null"]
+        },
+        "unrealized_pl": {
+          "type": ["number", "null"]
+        },
+        "unrealized_plpc": {
+          "type": ["number", "null"]
+        },
+        "side": {
+          "type": ["string", "null"]
+        },
+        "exit_signal": {
+          "type": "string",
+          "enum": [
+            "NONE",
+            "TAKE_PROFIT",
+            "STOP_LOSS",
+            "TRAILING_STOP",
+            "NO_CURRENT_SETUP",
+            "THESIS_BROKEN",
+            "SETUP_WARNING"
+          ]
+        },
+        "exit_priority": {
+          "type": "string",
+          "enum": ["NONE", "NORMAL", "URGENT"]
+        },
+        "exit_reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "policy_take_profit_pct": {
+          "type": "number",
+          "minimum": 0
+        },
+        "policy_stop_loss_pct": {
+          "type": "number",
+          "minimum": 0
+        },
+        "policy_trailing_stop_pct": {
+          "type": "number",
+          "minimum": 0
+        },
+        "pnl_class": {
+          "type": "string",
+          "enum": ["pass", "warn", "block", "neutral"]
+        },
+        "pnl_label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "thesis_validity_label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "stop_distance_label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "trailing_stop_drawdown_pct": {
+          "type": ["number", "null"]
+        },
+        "trailing_stop_distance_pct": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "trailing_stop_proximity_alert": {
+          "type": "boolean"
+        },
+        "urgency_label": {
+          "type": "string",
+          "enum": ["Now", "Soon", "Optional"]
+        },
+        "exposure_freed_label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "confirm_exit_action": {
+          "type": "string",
+          "minLength": 1
+        },
+        "downstream_effect": {
+          "type": "string",
+          "minLength": 1
         }
       }
     },
     "Summary": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["position_count", "hold_count", "review_count", "close_candidate_count"],
+      "required": [
+        "position_count",
+        "hold_count",
+        "review_count",
+        "close_candidate_count",
+        "equity",
+        "cash",
+        "buying_power",
+        "gross_exposure_pct",
+        "max_gross_exposure_pct",
+        "available_exposure_pct",
+        "policy_compliance_state",
+        "policy_compliance_label",
+        "policy_compliance_class",
+        "take_profit_pct",
+        "stop_loss_pct",
+        "trailing_stop_pct",
+        "hourly_loss_alert_pct",
+        "hourly_return_pct",
+        "hourly_pl",
+        "hourly_reference_at",
+        "hourly_current_value",
+        "hourly_status",
+        "hourly_status_class",
+        "hourly_status_label",
+        "hourly_reason"
+      ],
       "properties": {
         "position_count": {
           "type": "integer",
@@ -82,6 +225,83 @@
         "close_candidate_count": {
           "type": "integer",
           "minimum": 0
+        },
+        "equity": {
+          "type": ["number", "null"]
+        },
+        "cash": {
+          "type": ["number", "null"]
+        },
+        "buying_power": {
+          "type": ["number", "null"]
+        },
+        "gross_exposure_pct": {
+          "type": ["number", "null"]
+        },
+        "max_gross_exposure_pct": {
+          "type": "number",
+          "minimum": 0
+        },
+        "available_exposure_pct": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "policy_compliance_state": {
+          "type": "string",
+          "enum": ["UNKNOWN", "WITHIN_LIMITS", "OVER_EXPOSURE"]
+        },
+        "policy_compliance_label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "policy_compliance_class": {
+          "type": "string",
+          "enum": ["pass", "warn", "block", "neutral"]
+        },
+        "take_profit_pct": {
+          "type": "number",
+          "minimum": 0
+        },
+        "stop_loss_pct": {
+          "type": "number",
+          "minimum": 0
+        },
+        "trailing_stop_pct": {
+          "type": "number",
+          "minimum": 0
+        },
+        "hourly_loss_alert_pct": {
+          "type": "number",
+          "minimum": 0
+        },
+        "hourly_return_pct": {
+          "type": ["number", "null"]
+        },
+        "hourly_pl": {
+          "type": ["number", "null"]
+        },
+        "hourly_reference_at": {
+          "type": ["string", "null"],
+          "format": "date-time"
+        },
+        "hourly_current_value": {
+          "type": ["number", "null"]
+        },
+        "hourly_status": {
+          "type": "string",
+          "enum": ["PASS", "WARN", "UNKNOWN"]
+        },
+        "hourly_status_class": {
+          "type": "string",
+          "enum": ["pass", "warn", "neutral"]
+        },
+        "hourly_status_label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "hourly_reason": {
+          "type": "string",
+          "minLength": 1
         }
       }
     }

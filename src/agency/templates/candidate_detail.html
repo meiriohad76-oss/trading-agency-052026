@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_data_health.html" import data_health_panel %}
 
 {% set active_nav = "final" %}
 
@@ -8,26 +9,38 @@
 {% block topbar_meta %}{{ decision_brief.state_label }} &middot; {{ summary.report_count }} reports{% endblock %}
 
 {% block content %}
+  <p class="breadcrumb-row">
+    <a class="text-link" href="/final-selection">Back to candidates</a>
+  </p>
+
   {% if review.can_record %}
-  <div class="sticky-review-bar" role="navigation" aria-label="Quick review actions"
-       style="position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;padding:0.5rem 1rem;background:var(--bg-sidebar,#0f0f1a);border-bottom:1px solid var(--border-subtle,#2a2a3e);">
-    <span class="metric-label" style="white-space:nowrap;">{{ ticker }} &mdash; pending review</span>
+  <div class="sticky-review-bar" role="navigation" aria-label="Quick review actions">
+    <span class="metric-label">{{ ticker }} &middot; Review: {{ review.decision }}</span>
+    {% if review.decision != "Pending" %}
+    <span class="tag tag-{{ review.status_class }}">{{ review.reason }}{% if review.event_time_label != "Time unknown" %} &middot; {{ review.event_time_label }}{% endif %}</span>
+    {% else %}
+    <span class="tag tag-neutral">Needs review</span>
+    {% endif %}
     <span class="inline-actions">
-      <form method="post" action="{{ review.approve_action }}" style="display:inline">
-        <button class="mini-button" type="submit">Approve</button>
+      {% if review.caution_acknowledgement_required %}
+      <a class="mini-button action-approve" href="#paper-review-heading">Review Caution</a>
+      {% else %}
+      <form method="post" action="{{ review.approve_action }}">
+        <button class="mini-button action-approve" type="submit"><span aria-hidden="true">&#10003;</span> Approve</button>
       </form>
-      <form method="post" action="{{ review.defer_action }}" style="display:inline">
-        <button class="mini-button" type="submit">Defer</button>
+      {% endif %}
+      <form method="post" action="{{ review.defer_action }}">
+        <button class="mini-button action-defer" type="submit"><span aria-hidden="true">||</span> Defer</button>
       </form>
-      <form method="post" action="{{ review.reject_action }}" style="display:inline">
-        <button class="mini-button danger-button" type="submit">Reject</button>
+      <form method="post" action="{{ review.reject_action }}">
+        <button class="mini-button danger-button action-reject" type="submit"><span aria-hidden="true">&times;</span> Reject</button>
       </form>
     </span>
-    <a class="text-link" href="#paper-review-heading" style="font-size:0.8rem;">Jump to review</a>
+    <a class="text-link" href="#paper-review-heading">Jump to review</a>
   </div>
   {% endif %}
 
-  <section class="decision-brief decision-brief-{{ decision_brief.state_class }}" aria-label="Decision brief">
+  <section class="decision-brief decision-hero-recommendation decision-brief-{{ decision_brief.state_class }}" aria-label="Decision brief">
     <div class="brief-copy">
       <p class="brief-kicker">{{ decision_brief.state_label }}</p>
       <div class="brief-title-row">
@@ -36,6 +49,9 @@
       </div>
       <p class="brief-headline">{{ decision_brief.headline }}</p>
       <p class="brief-detail">{{ decision_brief.detail }}</p>
+      <p class="holding-context {% if decision_brief.currently_holding %}holding-context-active{% endif %}" data-currently-holding="{{ decision_brief.currently_holding }}">
+        {{ decision_brief.holding_label }}
+      </p>
       <div class="next-step">
         <span>Next step</span>
         <strong>{{ decision_brief.next_step }}</strong>
@@ -63,6 +79,8 @@
       </div>
     </aside>
   </section>
+
+  {{ data_health_panel(data_health) }}
 
   <section class="brief-metrics" aria-label="Candidate metrics">
     {% for item in decision_brief.signal_counts %}
@@ -107,8 +125,48 @@
         </span>
         {% endfor %}
       </div>
+      <p class="panel-note">{{ decision_brief.signal_mix_note }}</p>
     </div>
   </section>
+
+  {% if latest_report %}
+  <section class="panel llm-summary-panel" aria-labelledby="llm-summary-heading">
+    <div class="section-heading">
+      <div>
+        <h2 id="llm-summary-heading">LLM Recommendation</h2>
+        <p class="section-subtitle">{{ latest_report.llm_status_detail }}</p>
+      </div>
+      <span class="tag tag-{{ latest_report.llm_status_class }}">{{ latest_report.llm_status_label }}</span>
+    </div>
+
+    <div class="decision-grid llm-summary-grid">
+      <div>
+        <span class="metric-label">LLM status</span>
+        <strong>{{ latest_report.llm_status_label }}</strong>
+      </div>
+      <div>
+        <span class="metric-label">LLM action</span>
+        <strong>{{ latest_report.llm_action }}</strong>
+      </div>
+      <div>
+        <span class="metric-label">LLM confidence</span>
+        <strong>{{ latest_report.llm_confidence_pct }}%</strong>
+      </div>
+      <div>
+        <span class="metric-label">Rules action</span>
+        <strong>{{ latest_report.deterministic_action }}</strong>
+      </div>
+      <div>
+        <span class="metric-label">Rules conviction</span>
+        <strong>{{ latest_report.deterministic_conviction_pct }}%</strong>
+      </div>
+    </div>
+    <article class="llm-rationale-card">
+      <span class="metric-label">LLM evidence summary</span>
+      <p>{{ latest_report.llm_rationale }}</p>
+    </article>
+  </section>
+  {% endif %}
 
   <section class="driver-layout" aria-label="Signal drivers">
     <section class="panel driver-panel driver-panel-pass" aria-labelledby="support-heading">
@@ -150,11 +208,13 @@
     <div class="section-heading">
       <div>
         <h2 id="signal-evidence-heading">Primary Signal Evidence</h2>
-        <p class="section-subtitle">Market, technical, flow, fundamental, and filing signals used before subscription-email context.</p>
+        <p class="section-subtitle">Decision-driving signals are separated from advisory and blocked context so contradictions are visible without overstating them.</p>
       </div>
       <a class="text-link" href="/signals">Open signal dashboard</a>
     </div>
     {% if latest_report %}
+    <details class="details-panel shared-disclosure">
+      <summary>Supporting detail: signal evidence, advisory context, and blocked signals</summary>
     <div class="signal-evidence-groups">
       <article class="signal-evidence-group">
         <div class="evidence-cell-head">
@@ -167,8 +227,27 @@
             <span class="tag tag-{{ signal.direction_class }}">{{ signal.direction }}</span>
             <div>
               <strong>{{ signal.lane }}</strong>
-              <p>{{ signal.summary }}</p>
-              <details style="display:inline;font-size:0.8em;opacity:0.75;"><summary style="display:inline;cursor:pointer;list-style:none;color:inherit;opacity:0.6;">details</summary> {{ signal.score }} &middot; {{ signal.confidence_pct }}% confidence &middot; {{ signal.source }}</details>
+              <p>{{ signal.trigger_headline or signal.summary }}</p>
+              <p class="microcopy">
+                {{ signal.score }} &middot; {{ signal.confidence_pct }}% confidence &middot;
+                {{ signal.source }} &middot; {{ signal.timestamp_label }}
+              </p>
+              {% if signal.trigger_detail %}
+              <details class="compact-details">
+                <summary>Show hard evidence</summary>
+                <p>{{ signal.trigger_detail }}</p>
+                <p class="muted-line">{{ signal.trigger_window }}</p>
+                <div class="signal-trigger-card-grid">
+                  {% for card in signal.trigger_cards %}
+                  <article class="signal-trigger-card signal-trigger-card-{{ card.tone }}">
+                    <span class="metric-label">{{ card.label }}</span>
+                    <strong>{{ card.value }}</strong>
+                    <p>{{ card.detail }}</p>
+                  </article>
+                  {% endfor %}
+                </div>
+              </details>
+              {% endif %}
             </div>
           </div>
           {% else %}
@@ -188,8 +267,27 @@
             <span class="tag tag-{{ signal.direction_class }}">{{ signal.direction }}</span>
             <div>
               <strong>{{ signal.lane }}</strong>
-              <p>{{ signal.summary }}</p>
-              <details style="display:inline;font-size:0.8em;opacity:0.75;"><summary style="display:inline;cursor:pointer;list-style:none;color:inherit;opacity:0.6;">reason</summary> {{ signal.reason_text }}</details>
+              <p>{{ signal.trigger_headline or signal.summary }}</p>
+              <p class="microcopy">
+                Advisory only: {{ signal.reason_text }} {{ signal.score }} &middot;
+                {{ signal.confidence_pct }}% confidence &middot; {{ signal.source }}
+              </p>
+              {% if signal.trigger_detail %}
+              <details class="compact-details">
+                <summary>Show hard evidence</summary>
+                <p>{{ signal.trigger_detail }}</p>
+                <p class="muted-line">{{ signal.trigger_window }}</p>
+                <div class="signal-trigger-card-grid">
+                  {% for card in signal.trigger_cards %}
+                  <article class="signal-trigger-card signal-trigger-card-{{ card.tone }}">
+                    <span class="metric-label">{{ card.label }}</span>
+                    <strong>{{ card.value }}</strong>
+                    <p>{{ card.detail }}</p>
+                  </article>
+                  {% endfor %}
+                </div>
+              </details>
+              {% endif %}
             </div>
           </div>
           {% else %}
@@ -201,7 +299,7 @@
       <article class="signal-evidence-group">
         <div class="evidence-cell-head">
           <strong title="Signals blocked by freshness or data-quality gates. They are tracked but have no effect on the decision.">Blocked Signals</strong>
-          <span class="tag tag-neutral">{{ latest_report.suppressed_signals | length }}</span>
+          <span class="tag tag-block">{{ latest_report.suppressed_signals | length }}</span>
         </div>
         <div class="signal-mini-list">
           {% for signal in latest_report.suppressed_signals %}
@@ -209,8 +307,27 @@
             <span class="tag tag-{{ signal.direction_class }}">{{ signal.direction }}</span>
             <div>
               <strong>{{ signal.lane }}</strong>
-              <p>{{ signal.summary }}</p>
-              <details style="display:inline;font-size:0.8em;opacity:0.75;"><summary style="display:inline;cursor:pointer;list-style:none;color:inherit;opacity:0.6;">reason</summary> {{ signal.reason_text }}</details>
+              <p>{{ signal.trigger_headline or signal.summary }}</p>
+              <p class="microcopy">
+                Blocked/suppressed: {{ signal.reason_text }} {{ signal.score }} &middot;
+                {{ signal.confidence_pct }}% confidence &middot; {{ signal.source }}
+              </p>
+              {% if signal.trigger_detail %}
+              <details class="compact-details">
+                <summary>Show hard evidence</summary>
+                <p>{{ signal.trigger_detail }}</p>
+                <p class="muted-line">{{ signal.trigger_window }}</p>
+                <div class="signal-trigger-card-grid">
+                  {% for card in signal.trigger_cards %}
+                  <article class="signal-trigger-card signal-trigger-card-{{ card.tone }}">
+                    <span class="metric-label">{{ card.label }}</span>
+                    <strong>{{ card.value }}</strong>
+                    <p>{{ card.detail }}</p>
+                  </article>
+                  {% endfor %}
+                </div>
+              </details>
+              {% endif %}
             </div>
           </div>
           {% else %}
@@ -219,12 +336,13 @@
         </div>
       </article>
     </div>
+    </details>
     {% else %}
     <p class="empty-block">Signal evidence appears after the next runtime cycle persists a selection report.</p>
     {% endif %}
   </section>
 
-  <section class="panel review-panel" aria-labelledby="paper-review-heading">
+  <section class="panel review-panel" aria-labelledby="paper-review-heading" data-empty-copy="No selection report available for review">
     <div class="section-heading">
       <div>
         <h2 id="paper-review-heading">Human Review</h2>
@@ -235,15 +353,25 @@
     {% if review.can_record %}
     <span class="inline-actions">
       <form method="post" action="{{ review.approve_action }}">
-        <button class="mini-button" type="submit">Approve Research</button>
+        {% if review.caution_acknowledgement_required %}
+        <p class="card-next-step">{{ review.caution_acknowledgement_text }}</p>
+        <label class="microcopy">
+          <input type="checkbox" name="caution_acknowledged" value="true" required>
+          I acknowledge this caution and approve this as research/watch-list only.
+        </label>
+        {% endif %}
+        <button class="mini-button action-approve" type="submit"><span aria-hidden="true">&#10003;</span> Approve Research</button>
       </form>
       <form method="post" action="{{ review.defer_action }}">
-        <button class="mini-button" type="submit">Defer</button>
+        <button class="mini-button action-defer" type="submit"><span aria-hidden="true">||</span> Defer</button>
       </form>
       <form method="post" action="{{ review.reject_action }}">
-        <button class="mini-button danger-button" type="submit">Reject</button>
+        <button class="mini-button danger-button action-reject" type="submit"><span aria-hidden="true">&times;</span> Reject</button>
       </form>
     </span>
+    {% if review.decision == "Approve" %}
+    <p class="card-next-step">Approved - execution preview updated. Open Execution Preview to inspect any paper-order intent.</p>
+    {% endif %}
     {% else %}
     <p class="empty-block">No selection report available for review</p>
     {% endif %}
@@ -334,7 +462,7 @@
   <section class="panel intelligence-panel" aria-labelledby="email-evidence-heading">
     <div class="section-heading">
       <div>
-        <h2 id="email-evidence-heading">Supplementary Subscription Intelligence</h2>
+        <h2 id="email-evidence-heading">Email/article evidence</h2>
         <p class="section-subtitle">Supplementary email/article context. It explains the decision but does not replace the primary signal evidence above.</p>
       </div>
       <span class="tag tag-{{ email_evidence.status_class }}">{{ email_evidence.status_label }}</span>
@@ -400,12 +528,12 @@
       </article>
       <article class="pipeline-step {% if email_evidence.feed_count > 0 %}pipeline-step-pass{% else %}pipeline-step-neutral{% endif %}">
         <span>04</span>
-        <strong>Scored</strong>
+        <strong>Score impact</strong>
         <p>{{ email_evidence.feed_count }} feed row(s), latest {{ email_evidence.latest_at }}</p>
       </article>
     </div>
 
-    <details class="details-panel">
+    <details class="details-panel shared-disclosure">
       <summary>Open subscription article details and audit rows</summary>
       <div class="article-insight-list" aria-label="Article-derived subscription evidence">
         {% for card in email_evidence.insight_cards %}
@@ -499,14 +627,14 @@
       <a class="text-link" href="/reports/selection/{{ ticker }}">Selection JSON</a>
     </div>
 
-    <details class="details-panel">
+    <details class="details-panel technical-provenance shared-disclosure" data-empty-copy="No lifecycle events yet">
       <summary>Show latest report details</summary>
       {% if latest_report %}
       <article class="report-card report-card-primary">
         <div class="report-head">
           <div>
             <strong>{{ latest_report.action }}</strong>
-            <span>{{ latest_report.generated_at }} / cycle {{ latest_report.cycle_id }}</span>
+            <span>{{ latest_report.generated_at_label }} / cycle {{ latest_report.cycle_id }}</span>
           </div>
           <span class="tag tag-{{ latest_report.gate_status | lower }}">{{ latest_report.gate_status }}</span>
         </div>
@@ -536,14 +664,14 @@
     </details>
 
     {% if previous_reports %}
-    <details class="details-panel">
+    <details class="details-panel technical-provenance shared-disclosure">
       <summary>Show previous reports ({{ previous_reports | length }})</summary>
       <div class="history-list">
         {% for report in previous_reports %}
         <article class="history-row">
           <div>
             <strong>{{ report.action }} / {{ report.conviction_pct }}%</strong>
-            <span>{{ report.generated_at }} / gate {{ report.gate_status }}</span>
+            <span>{{ report.generated_at_label }} / gate {{ report.gate_status }}</span>
           </div>
           <p>{{ report.decision_explanation }}</p>
         </article>
@@ -552,14 +680,14 @@
     </details>
     {% endif %}
 
-    <details class="details-panel">
+    <details class="details-panel technical-provenance shared-disclosure">
       <summary>Show lifecycle events ({{ timeline | length }})</summary>
       <div class="timeline">
         {% for event in timeline %}
         <article class="timeline-item">
           <div>
             <strong>{{ event.event_type }}</strong>
-            <span>{{ event.event_time }}</span>
+            <span>{{ event.event_time_label }}</span>
           </div>
           <span class="tag tag-neutral">{{ event.status }}</span>
           <p>{{ event.reason or "recorded" }}</p>

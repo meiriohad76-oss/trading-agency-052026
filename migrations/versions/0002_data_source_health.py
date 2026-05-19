@@ -44,16 +44,14 @@ def upgrade() -> None:
             server_default=sa.func.now(),
         ),
         sa.Column("last_error", sa.Text),
-    )
-    op.create_check_constraint(
-        "ck_data_source_health_reliability_score",
-        "data_source_health",
-        "reliability_score >= 0 AND reliability_score <= 1",
-    )
-    op.create_check_constraint(
-        "ck_data_source_health_error_count",
-        "data_source_health",
-        "error_count >= 0",
+        sa.CheckConstraint(
+            "reliability_score >= 0 AND reliability_score <= 1",
+            name="ck_data_source_health_reliability_score",
+        ),
+        sa.CheckConstraint(
+            "error_count >= 0",
+            name="ck_data_source_health_error_count",
+        ),
     )
 
 

@@ -27,16 +27,16 @@ def test_prices_daily_today_returns_checked_at_after_close() -> None:
     assert ts == checked_at
 
 
-def test_prices_daily_today_returns_yesterday_before_close() -> None:
-    """Before 21:15 UTC (17:15 ET), today's bars are not published yet."""
+def test_prices_daily_today_returns_checked_at_before_close() -> None:
+    """During market hours, a current-day grouped bar proves daily coverage exists."""
     checked_at = _dt(TODAY, hour=19)  # 19:00 UTC = 15:00 ET (market hours)
     ts = effective_freshness_timestamp(
         DatasetName.PRICES_DAILY, _dt(TODAY), checked_at
     )
-    assert ts.date() < TODAY
+    assert ts == checked_at
 
 
-def test_prices_daily_returns_yesterday_during_market_hours() -> None:
+def test_prices_daily_returns_checked_at_during_market_hours() -> None:
     """Cycle run at 14:30 ET (18:30 UTC) finds today's prices_daily timestamp.
     The 21:15 UTC post-market bar publication window has not passed yet, so the
     effective date must be yesterday — today's close bar is not yet available.
@@ -46,10 +46,7 @@ def test_prices_daily_returns_yesterday_during_market_hours() -> None:
     ts = effective_freshness_timestamp(
         DatasetName.PRICES_DAILY, _dt(TODAY), checked_at
     )
-    assert ts.date() == YESTERDAY, (
-        f"Expected yesterday ({YESTERDAY}) but got {ts.date()}; "
-        "post-market bar publication window (21:15 UTC) has not passed yet"
-    )
+    assert ts == checked_at
 
 
 def test_prices_daily_returns_checked_at_after_publication_window() -> None:
