@@ -500,6 +500,78 @@ def test_status_check_fetch_json_retries_connection_reset(
     assert attempts == 2
 
 
+@pytest.mark.parametrize(
+    "module_name",
+    [
+        "scripts.check_operational_readiness",
+        "scripts.check_paper_review_status",
+        "scripts.check_paper_trade_path",
+    ],
+)
+def test_status_check_fetch_json_survives_two_connection_resets(
+    monkeypatch: pytest.MonkeyPatch,
+    module_name: str,
+) -> None:
+    module = importlib.import_module(module_name)
+    attempts = 0
+
+    class Response:
+        status = 200
+
+        def __enter__(self) -> "Response":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return b'{"ready": true}'
+
+    def fake_urlopen(*_args: object, **_kwargs: object) -> Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
+            raise ConnectionResetError("reset")
+        return Response()
+
+    monkeypatch.setattr(module, "urlopen", fake_urlopen)
+
+    assert module._fetch_json("http://example.test", "/status") == {"ready": True}
+    assert attempts == 3
+
+
+def test_check_local_runtime_fetch_text_survives_two_connection_resets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    attempts = 0
+
+    class Response:
+        status = 200
+
+        def __enter__(self) -> "Response":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return b"ok"
+
+    def fake_urlopen(*_args: object, **_kwargs: object) -> Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
+            raise ConnectionResetError("reset")
+        return Response()
+
+    monkeypatch.setattr(local_runtime, "urlopen", fake_urlopen)
+
+    result = local_runtime._fetch_text_with_timing("http://example.test", "/status")
+
+    assert result["payload"] == "ok"
+    assert result["attempt"] == 3
+
+
 def test_check_paper_trade_path_summarizes_orderability(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

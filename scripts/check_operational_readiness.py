@@ -11,6 +11,7 @@ from urllib.request import Request, urlopen
 DEFAULT_BASE_URL = "http://127.0.0.1:8000"
 HTTP_OK = 200
 HTTP_TIMEOUT_SECONDS = 60
+HTTP_MAX_ATTEMPTS = 4
 
 
 def main() -> None:
@@ -108,7 +109,7 @@ def _int_value(payload: Mapping[str, object], key: str) -> int:
 
 def _fetch_json(base_url: str, path: str) -> Any:
     last_error: BaseException | None = None
-    for attempt in range(2):
+    for attempt in range(HTTP_MAX_ATTEMPTS):
         try:
             request = Request(f"{base_url}{path}", headers={"Connection": "close"})
             with urlopen(request, timeout=HTTP_TIMEOUT_SECONDS) as response:
@@ -117,8 +118,8 @@ def _fetch_json(base_url: str, path: str) -> Any:
                 return json.loads(response.read().decode("utf-8"))
         except (ConnectionResetError, TimeoutError, URLError) as exc:
             last_error = exc
-            if attempt == 0:
-                time.sleep(0.25)
+            if attempt < HTTP_MAX_ATTEMPTS - 1:
+                time.sleep(0.25 * (attempt + 1))
                 continue
     raise RuntimeError(f"{path} is unavailable") from last_error
 

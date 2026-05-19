@@ -12,6 +12,7 @@ DEFAULT_BASE_URL = "http://127.0.0.1:8000"
 HTTP_OK = 200
 SELECTION_REPORTS_ROUTE_BUDGET_SECONDS = 5.0
 COMMAND_DASHBOARD_FIRST_BYTE_BUDGET_SECONDS = 3.0
+HTTP_MAX_ATTEMPTS = 4
 TimedFetchResult = Mapping[str, object]
 TimedJsonFetcher = Callable[[str, str], TimedFetchResult]
 TimedTextFetcher = Callable[[str, str], TimedFetchResult]
@@ -112,7 +113,7 @@ def _fetch_json_with_timing(base_url: str, path: str) -> dict[str, object]:
 
 def _fetch_text_with_timing(base_url: str, path: str) -> dict[str, object]:
     last_error: BaseException | None = None
-    for attempt in range(2):
+    for attempt in range(HTTP_MAX_ATTEMPTS):
         started = time.perf_counter()
         try:
             request = Request(f"{base_url}{path}", headers={"Connection": "close"})
@@ -131,8 +132,8 @@ def _fetch_text_with_timing(base_url: str, path: str) -> dict[str, object]:
                 }
         except (ConnectionResetError, TimeoutError, URLError) as exc:
             last_error = exc
-            if attempt == 0:
-                time.sleep(0.25)
+            if attempt < HTTP_MAX_ATTEMPTS - 1:
+                time.sleep(0.25 * (attempt + 1))
                 continue
     raise RuntimeError(f"{path} is unavailable") from last_error
 
