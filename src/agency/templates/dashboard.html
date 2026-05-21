@@ -1035,10 +1035,10 @@
         </div>
 
         <details class="data-load-details">
-          <summary>Inspect stale data, repair jobs, and execution freshness</summary>
+          <summary>Inspect data needing refresh, repair jobs, and execution freshness</summary>
           <div class="split-panel scheduler-split">
             <div>
-              <h3>Stale Or Warning Datasets</h3>
+              <h3>Datasets Needing Refresh Or Review</h3>
               <div class="ops-check-list">
                 {% for row in scheduler.stale_rows %}
                 <div class="ops-check-row">
@@ -1047,7 +1047,7 @@
                   <span>{{ row.reason }}</span>
                 </div>
                 {% else %}
-                <p class="empty-block">No stale scheduler dataset rows are currently flagged.</p>
+                <p class="empty-block">No scheduler dataset rows currently need refresh.</p>
                 {% endfor %}
               </div>
             </div>

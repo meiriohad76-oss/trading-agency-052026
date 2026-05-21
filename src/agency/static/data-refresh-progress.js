@@ -1,3 +1,16 @@
+const operatorDataHealthText = (value) =>
+  String(value ?? "")
+    .replace(/\bcheck[- ]stale\b/gi, "health proof needs refresh")
+    .replace(/\bhealth check stale\b/gi, "health proof needs refresh")
+    .replace(/\bhealth monitor stale\b/gi, "health proof needs refresh")
+    .replace(/\bcritical stale source\b/gi, "critical source needs refresh")
+    .replace(/\bare stale\b/gi, "need refresh")
+    .replace(/\bis stale\b/gi, "needs refresh")
+    .replace(/\bstale source\b/gi, "source needing refresh")
+    .replace(/\bstale data\b/gi, "data needing refresh")
+    .replace(/\bdata stale\b/gi, "data needs refresh")
+    .replace(/\bstale\b/gi, "needs refresh");
+
 (() => {
   const panel = document.querySelector("[data-full-live-panel]");
   if (!panel) {
@@ -12,14 +25,16 @@
   const setText = (selector, value) => {
     const element = panel.querySelector(selector);
     if (element) {
-      element.textContent = String(value);
+      element.textContent = operatorDataHealthText(value);
     }
   };
 
   const label = (value) =>
-    String(value || "unknown")
-      .replaceAll("_", " ")
-      .replace(/\b\w/g, (match) => match.toUpperCase());
+    operatorDataHealthText(
+      String(value || "unknown")
+        .replaceAll("_", " ")
+        .replace(/\b\w/g, (match) => match.toUpperCase())
+    );
 
   const setCard = (name, statusClass) => {
     const card = panel.querySelector(`[data-command-card="${name}"]`);
@@ -35,7 +50,7 @@
     const status = panel.querySelector("[data-full-live-status]");
     if (status) {
       status.className = `tag tag-${payload.status_class || "neutral"}`;
-      status.textContent = String(payload.status_label || "Unknown");
+      status.textContent = operatorDataHealthText(payload.status_label || "Unknown");
     }
     const track = panel.querySelector("[data-full-live-track]");
     if (track) {
@@ -71,7 +86,7 @@
     setText("[data-full-live-freshness]", coverage.source_headline || "Source freshness unknown.");
     setText(
       "[data-full-live-freshness-detail]",
-      `${coverage.fresh_source_count || 0}/${coverage.source_count || 0} sources fresh; ${coverage.stale_source_count || 0} stale.`
+      `${coverage.fresh_source_count || 0}/${coverage.source_count || 0} sources fresh; ${coverage.stale_source_count || 0} need refresh.`
     );
     setText("[data-full-live-agents]", coverage.critical_agent_ready_label || "critical lanes unknown");
     setText(
@@ -94,7 +109,7 @@
     setCard("loading", "block");
     setText("[data-full-live-headline]", "Full-live readiness polling is unavailable.");
     setText("[data-full-live-verdict]", "Unavailable");
-    setText("[data-full-live-detail]", "The latest readiness status could not be refreshed; treat the page as stale until polling recovers.");
+    setText("[data-full-live-detail]", "The latest readiness status could not be refreshed; treat the page as unverified until polling recovers.");
     setText("[data-full-live-system]", "Unavailable");
     setText("[data-full-live-system-detail]", "Status endpoint did not return a usable response.");
   };
@@ -129,14 +144,16 @@
   const setText = (selector, value) => {
     const element = panel.querySelector(selector);
     if (element) {
-      element.textContent = String(value);
+      element.textContent = operatorDataHealthText(value);
     }
   };
 
   const label = (value) =>
-    String(value || "unknown")
-      .replaceAll("_", " ")
-      .replace(/\b\w/g, (match) => match.toUpperCase());
+    operatorDataHealthText(
+      String(value || "unknown")
+        .replaceAll("_", " ")
+        .replace(/\b\w/g, (match) => match.toUpperCase())
+    );
 
   const list = (value) => (Array.isArray(value) ? value : []);
 
@@ -190,7 +207,7 @@
     if (["failed", "blocked"].includes(state)) {
       return `${state === "blocked" ? "Blocked" : "Failed"} - ${refreshScopeLabel(scope)}`;
     }
-    if (state === "stale") return "Refresh Status Stale";
+    if (state === "stale") return "Refresh monitor needs restart";
     if (state === "running") return "Refreshing";
     return payload.status_label || label(state);
   };
@@ -305,7 +322,7 @@
       return "Inspect logs and rerun the failed refresh before relying on affected data.";
     }
     if (state === "complete") return "Use the loaded data, subject to each lane's freshness badge.";
-    return "No refresh action is required unless a lane or source becomes stale.";
+    return "No refresh action is required unless a lane or source falls outside policy.";
   };
 
   const enrichRefreshPayload = (payload) => {
@@ -338,7 +355,7 @@
     const status = panel.querySelector("[data-progress-status]");
     if (status) {
       status.className = `tag tag-${view.display_status_class || "neutral"}`;
-      status.textContent = String(view.display_status_label || "Idle");
+      status.textContent = operatorDataHealthText(view.display_status_label || "Idle");
     }
     const track = panel.querySelector("[data-progress-track]");
     if (track) {
@@ -371,7 +388,7 @@
     const status = row.querySelector("[data-progress-failure-status]");
     if (status) {
       status.className = `tag tag-${view.refresh_impact?.status_class || view.display_status_class || "neutral"}`;
-      status.textContent = String(view.display_status_label || "Refresh status");
+      status.textContent = operatorDataHealthText(view.display_status_label || "Refresh status");
     }
     setText("[data-progress-failure-label]", view.failure_label || "");
     setText("[data-progress-failure-detail]", view.failure_detail || "");
@@ -387,7 +404,7 @@
     const status = tradePanel.querySelector("[data-trade-status]");
     if (status) {
       status.className = `tag tag-${tradePull.status_class || "neutral"}`;
-      status.textContent = String(tradePull.status_label || "No Pull");
+      status.textContent = operatorDataHealthText(tradePull.status_label || "No Pull");
     }
     const track = tradePanel.querySelector("[data-trade-track]");
     if (track) {
@@ -421,7 +438,7 @@
     } else if (value instanceof Node) {
       cell.appendChild(value);
     } else {
-      cell.textContent = String(value);
+      cell.textContent = operatorDataHealthText(value);
     }
     row.appendChild(cell);
   };
@@ -429,7 +446,7 @@
   const tag = (value, statusClass) => {
     const element = document.createElement("span");
     element.className = `tag tag-${statusClass || "neutral"}`;
-    element.textContent = String(value || "UNKNOWN");
+    element.textContent = operatorDataHealthText(value || "UNKNOWN");
     return element;
   };
 
@@ -450,7 +467,7 @@
     if (state === "missing_manifest" && laneId.includes("options")) return "Disabled / Entitlement Not Verified";
     if (state === "missing_manifest" && laneId.includes("reference")) return "Reference Not Loaded";
     if (state === "missing_manifest") return "Not Loaded";
-    if (state === "stale") return "Stale";
+    if (state === "stale") return "Refresh recommended";
     if (state === "failed") return "Failed";
     if (state === "blocked") return "Blocked";
     if (status === "READY_FROM_RAW") return "Ready From Live Slices";
@@ -475,19 +492,19 @@
     if (freshness === "UNKNOWN" && manifest === "complete") return "Health Check Needed";
     if (freshness === "UNAVAILABLE") return "Not Enabled / Not Entitled";
     if (["FRESH", "COMPLETE"].includes(freshness) || ["FRESH", "COMPLETE"].includes(health)) return "Verified Current";
-    if (freshness === "STALE") return "Stale";
+    if (freshness === "STALE") return "Refresh recommended";
     return freshness ? label(freshness) : "Unverified";
   };
 
   const massiveDisplayStatusClass = (text) => {
-    if (["Blocked", "Failed", "Stale"].includes(text)) return "block";
+    if (["Blocked", "Failed", "Refresh recommended"].includes(text)) return "block";
     if (["Refresh Due", "Refreshing", "Waiting For Raw Lane", "Usable With Gaps", "Research Repair Partial", "Partial Coverage", "Reference Not Loaded", "Not Loaded"].includes(text)) return "warn";
     if (["Loaded / No Pull Needed", "Ready From Live Slices", "Verified Current"].includes(text)) return "pass";
     return "neutral";
   };
 
   const massiveDisplayHealthClass = (text) => {
-    if (text === "Stale") return "block";
+    if (text === "Refresh recommended") return "block";
     if (["Usable With Gaps", "Partial Coverage", "Health Check Needed"].includes(text)) return "warn";
     if (text === "Verified Current") return "pass";
     return "neutral";
@@ -622,9 +639,9 @@
       const laneCell = document.createElement("td");
       laneCell.dataset.label = "Lane";
       const strong = document.createElement("strong");
-      strong.textContent = String(enriched.label || enriched.lane_id || "Unknown lane");
+      strong.textContent = operatorDataHealthText(enriched.label || enriched.lane_id || "Unknown lane");
       const sub = document.createElement("span");
-      sub.textContent = String(enriched.window_label || "window not recorded");
+      sub.textContent = operatorDataHealthText(enriched.window_label || "window not recorded");
       laneCell.append(strong, sub);
       row.appendChild(laneCell);
       const statusTag = tag(enriched.display_status_label, enriched.display_status_class);
@@ -635,9 +652,9 @@
       appendCell(row, "Updated", enriched.updated_at || "not recorded");
       const meaning = document.createElement("div");
       const meaningStrong = document.createElement("strong");
-      meaningStrong.textContent = String(enriched.impact_label || "Impact unknown");
+      meaningStrong.textContent = operatorDataHealthText(enriched.impact_label || "Impact unknown");
       const meaningDetail = document.createElement("span");
-      meaningDetail.textContent = String(enriched.detail || "No lane detail recorded.");
+      meaningDetail.textContent = operatorDataHealthText(enriched.detail || "No lane detail recorded.");
       meaning.append(meaningStrong, meaningDetail);
       appendCell(row, "Meaning", meaning);
       body.appendChild(row);
@@ -651,7 +668,7 @@
       status.className = "tag tag-block";
       status.textContent = "Unavailable";
     }
-    setText("[data-progress-detail]", "Data-refresh polling is unavailable; the visible progress may be stale.");
+    setText("[data-progress-detail]", "Data-refresh polling is unavailable; the visible progress is unverified.");
     setText("[data-progress-current]", "Unknown");
     setText("[data-progress-eta]", "not available");
     renderMassiveLaneProgress([]);
@@ -787,14 +804,16 @@
   const setText = (selector, value) => {
     const element = panel.querySelector(selector);
     if (element) {
-      element.textContent = String(value);
+      element.textContent = operatorDataHealthText(value);
     }
   };
 
   const label = (value) =>
-    String(value || "unknown")
-      .replaceAll("_", " ")
-      .replace(/\b\w/g, (match) => match.toUpperCase());
+    operatorDataHealthText(
+      String(value || "unknown")
+        .replaceAll("_", " ")
+        .replace(/\b\w/g, (match) => match.toUpperCase())
+    );
 
   const statusOf = (row) => String((row || {}).status || "").toUpperCase();
 
@@ -880,7 +899,7 @@
     } else if (value instanceof Node) {
       cell.appendChild(value);
     } else {
-      cell.textContent = String(value);
+      cell.textContent = operatorDataHealthText(value);
     }
     row.appendChild(cell);
   };
@@ -888,7 +907,7 @@
   const tag = (value, statusClass) => {
     const element = document.createElement("span");
     element.className = `tag tag-${statusClass || "neutral"}`;
-    element.textContent = String(value || "UNKNOWN");
+    element.textContent = operatorDataHealthText(value || "UNKNOWN");
     return element;
   };
 
@@ -941,7 +960,7 @@
     const status = panel.querySelector("[data-massive-status-label]");
     if (status) {
       status.className = `tag tag-${massive.status_class || "neutral"}`;
-      status.textContent = String(massive.status_label || "Unknown");
+      status.textContent = operatorDataHealthText(massive.status_label || "Unknown");
     }
     setText("[data-massive-headline]", massive.status_label || "Unknown");
     setText("[data-massive-detail]", massive.detail || "Massive lane status is unavailable.");
@@ -977,9 +996,9 @@
       const laneCell = document.createElement("td");
       laneCell.dataset.label = "Lane";
       const strong = document.createElement("strong");
-      strong.textContent = String(lane.label || lane.lane_id || "Unknown lane");
+      strong.textContent = operatorDataHealthText(lane.label || lane.lane_id || "Unknown lane");
       const sub = document.createElement("span");
-      sub.textContent = `${String(lane.raw_source_dataset || lane.dataset || "unknown").replaceAll("_", " ")} - ${lane.acquisition_mode || lane.endpoint_family || "unknown"} - ${lane.bucket_label}`;
+      sub.textContent = operatorDataHealthText(`${String(lane.raw_source_dataset || lane.dataset || "unknown").replaceAll("_", " ")} - ${lane.acquisition_mode || lane.endpoint_family || "unknown"} - ${lane.bucket_label}`);
       laneCell.append(strong, sub);
       row.appendChild(laneCell);
       appendCell(row, "Status", [
@@ -990,7 +1009,7 @@
       const impactStrong = document.createElement("strong");
       impactStrong.textContent = lane.impact_label || "Unknown impact";
       const impactText = document.createElement("span");
-      impactText.textContent = lane.impact_detail || "No execution-impact detail recorded.";
+      impactText.textContent = operatorDataHealthText(lane.impact_detail || "No execution-impact detail recorded.");
       impactCell.append(impactStrong, impactText);
       appendCell(row, "Execution Impact", impactCell);
       const batchTickers = lane.batch_ticker_count || lane.command_ticker_count || 0;
@@ -1057,7 +1076,7 @@
     const status = panel.querySelector("[data-scheduler-status]");
     if (status) {
       status.className = `tag tag-${gate.status_class || "neutral"}`;
-      status.textContent = String(gate.status_label || "Unknown");
+      status.textContent = operatorDataHealthText(gate.status_label || "Unknown");
     }
     setText("[data-scheduler-headline]", summary.headline || "Scheduler status is unavailable.");
     setText("[data-scheduler-phase]", label(payload.market_phase));
@@ -1134,19 +1153,21 @@
   const setText = (selector, value) => {
     const element = panel.querySelector(selector);
     if (element) {
-      element.textContent = String(value);
+      element.textContent = operatorDataHealthText(value);
     }
   };
 
   const title = (value) =>
-    String(value || "unknown")
-      .replaceAll("_", " ")
-      .replace(/\b\w/g, (match) => match.toUpperCase());
+    operatorDataHealthText(
+      String(value || "unknown")
+        .replaceAll("_", " ")
+        .replace(/\b\w/g, (match) => match.toUpperCase())
+    );
 
   const tag = (value, statusClass) => {
     const element = document.createElement("span");
     element.className = `tag tag-${statusClass || "neutral"}`;
-    element.textContent = String(value || "UNKNOWN");
+    element.textContent = operatorDataHealthText(value || "UNKNOWN");
     return element;
   };
 
@@ -1158,7 +1179,7 @@
     } else if (value instanceof Node) {
       cell.appendChild(value);
     } else {
-      cell.textContent = String(value);
+      cell.textContent = operatorDataHealthText(value);
     }
     row.appendChild(cell);
   };
@@ -1211,7 +1232,7 @@
       const strong = document.createElement("strong");
       strong.textContent = title(item.label || item.dataset);
       const detail = document.createElement("span");
-      detail.textContent = String(item.detail || "No dataset detail recorded.");
+      detail.textContent = operatorDataHealthText(item.detail || "No dataset detail recorded.");
       nameCell.append(strong, detail);
       row.appendChild(nameCell);
       appendCell(row, "Status", tag(item.status_label || item.status, item.status_class));
@@ -1341,7 +1362,7 @@
     const status = panel.querySelector("[data-load-status]");
     if (status) {
       status.className = `tag tag-${payload.status_class || "neutral"}`;
-      status.textContent = String(payload.status_label || "Unknown");
+      status.textContent = operatorDataHealthText(payload.status_label || "Unknown");
     }
     const track = panel.querySelector("[data-load-track]");
     if (track) {
@@ -1406,7 +1427,7 @@
     }
     setText("[data-load-headline]", "Agency data readiness polling is unavailable.");
     setText("[data-load-overall]", "0%");
-    setText("[data-load-detail]", "The latest data-load status could not be refreshed; treat the dashboard as stale until polling recovers.");
+    setText("[data-load-detail]", "The latest data-load status could not be refreshed; treat the dashboard as unverified until polling recovers.");
     setText("[data-load-checked]", "polling failed");
     setText("[data-load-health-monitor]", "polling failed");
     setText("[data-load-blockers]", 1);

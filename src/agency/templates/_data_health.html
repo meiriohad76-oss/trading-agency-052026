@@ -28,6 +28,20 @@
       </article>
     </div>
 
+    {% if data_health.action_buttons %}
+    <div class="data-health-actions" aria-label="Data health actions">
+      {% for action in data_health.action_buttons %}
+        {% if action.method == "post" %}
+        <form method="post" action="{{ action.action }}" title="{{ action.detail }}">
+          <button class="mini-button data-health-action-button" type="submit">{{ action.label }}</button>
+        </form>
+        {% else %}
+        <a class="mini-button data-health-action-button" href="{{ action.href }}" title="{{ action.detail }}">{{ action.label }}</a>
+        {% endif %}
+      {% endfor %}
+    </div>
+    {% endif %}
+
     <div class="data-health-summary">
       {% for item in data_health.summary_items %}
       <div title="{{ item.tooltip|default('') }}">

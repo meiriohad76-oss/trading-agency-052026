@@ -95,6 +95,7 @@ def contract_names() -> tuple[ContractName, ...]:
     return tuple(_SCHEMA_FILES)
 
 
+@lru_cache(maxsize=64)
 def _validator_for(contract: ContractName, schema_dir: Path) -> Draft202012Validator:
     schemas = _load_schemas(schema_dir)
     resources = [

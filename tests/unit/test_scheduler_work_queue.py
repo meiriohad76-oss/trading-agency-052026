@@ -370,6 +370,213 @@ def test_execution_freshness_gate_blocks_stale_broker_or_critical_sources() -> N
     assert stale_source["ready"] is False
 
 
+def test_execution_freshness_gate_warns_for_dashboard_broker_check_pending() -> None:
+    gate = execution_freshness_gate(
+        {
+            "connected": False,
+            "checked_at": NOW.isoformat(),
+            "status_label": "Broker Check Pending",
+            "status_class": "warn",
+        },
+        _fresh_sources(),
+        now=NOW,
+    )
+
+    assert gate["ready"] is True
+    assert gate["state"] == "warning"
+    assert any(
+        check["label"] == "Broker state"
+        and check["status"] == "WARN"
+        and "not confirmed yet" in check["detail"]
+        for check in gate["checks"]
+    )
+
+
+def test_execution_freshness_gate_warns_for_dashboard_broker_check_delayed() -> None:
+    gate = execution_freshness_gate(
+        {
+            "connected": False,
+            "checked_at": NOW.isoformat(),
+            "status_label": "Broker Check Delayed",
+            "status_class": "warn",
+        },
+        _fresh_sources(),
+        now=NOW,
+    )
+
+    assert gate["ready"] is True
+    assert gate["state"] == "warning"
+    assert any(
+        check["label"] == "Broker state" and check["status"] == "WARN"
+        for check in gate["checks"]
+    )
+
+
+def test_execution_freshness_gate_accepts_closed_market_latest_session_sources() -> None:
+    overnight = datetime(2026, 5, 12, 2, 30, tzinfo=UTC)
+    latest_session_checked = datetime(2026, 5, 11, 22, 0, tzinfo=UTC)
+    sources = [
+        {
+            **_source("daily-market-bars", freshness="FRESH", status="HEALTHY"),
+            "checked_at": latest_session_checked.isoformat(),
+        },
+        {
+            **_source("massive-stock-trades", freshness="FRESH", status="HEALTHY"),
+            "checked_at": latest_session_checked.isoformat(),
+        },
+    ]
+
+    gate = execution_freshness_gate(
+        {"connected": True, "checked_at": overnight.isoformat()},
+        sources,
+        now=overnight,
+        market_phase="overnight_after_hours",
+    )
+
+    assert gate["ready"] is True
+    assert gate["state"] == "pass"
+    assert gate["source_max_age_policy_label"] == "closed-market latest completed session"
+    assert all(
+        "latest completed session" in str(check["detail"])
+        for check in gate["checks"]
+        if check["label"] != "Broker state"
+    )
+
+
+def test_execution_freshness_gate_keeps_broker_strict_when_market_closed() -> None:
+    overnight = datetime(2026, 5, 12, 2, 30, tzinfo=UTC)
+    latest_session_checked = datetime(2026, 5, 11, 22, 0, tzinfo=UTC)
+    sources = [
+        {
+            **_source("daily-market-bars", freshness="FRESH", status="HEALTHY"),
+            "checked_at": latest_session_checked.isoformat(),
+        },
+        {
+            **_source("massive-stock-trades", freshness="FRESH", status="HEALTHY"),
+            "checked_at": latest_session_checked.isoformat(),
+        },
+    ]
+
+    gate = execution_freshness_gate(
+        {"connected": True, "checked_at": (overnight - timedelta(minutes=2)).isoformat()},
+        sources,
+        now=overnight,
+        market_phase="overnight_after_hours",
+    )
+
+    assert gate["ready"] is False
+    assert any(
+        check["label"] == "Broker state" and check["status"] == "BLOCK"
+        for check in gate["checks"]
+    )
+
+
+def test_execution_freshness_gate_still_blocks_stale_sources_during_regular_market() -> None:
+    stale_checked_at = NOW - timedelta(minutes=45)
+    sources = [
+        {
+            **_source("daily-market-bars", freshness="FRESH", status="HEALTHY"),
+            "checked_at": stale_checked_at.isoformat(),
+        },
+        {
+            **_source("massive-stock-trades", freshness="FRESH", status="HEALTHY"),
+            "checked_at": stale_checked_at.isoformat(),
+        },
+    ]
+
+    gate = execution_freshness_gate(
+        {"connected": True, "checked_at": NOW.isoformat()},
+        sources,
+        now=NOW,
+        market_phase="regular_market",
+    )
+
+    assert gate["ready"] is False
+    assert gate["state"] == "blocked"
+
+
+def test_scheduler_queue_uses_closed_market_source_freshness_semantics() -> None:
+    overnight = datetime(2026, 5, 12, 2, 30, tzinfo=UTC)
+    latest_session_checked = datetime(2026, 5, 11, 22, 0, tzinfo=UTC)
+    queue = build_scheduler_work_queue(
+        _market_plan("overnight_after_hours"),
+        tiers=build_ticker_tiers(active_universe=["AAPL", "MSFT"]),
+        data_load_status={"state": "ready", "datasets": []},
+        source_health=[
+            {
+                **_source("daily-market-bars", freshness="FRESH", status="HEALTHY"),
+                "checked_at": latest_session_checked.isoformat(),
+            },
+            {
+                **_source("massive-stock-trades", freshness="FRESH", status="HEALTHY"),
+                "checked_at": latest_session_checked.isoformat(),
+            },
+        ],
+        broker={"connected": True, "mode": "paper", "checked_at": overnight.isoformat()},
+        now=overnight,
+    )
+
+    assert queue["execution_freshness_gate"]["ready"] is True
+    assert queue["tradability"]["state"] == "tradable"
+
+
+def test_execution_freshness_gate_test_mode_extends_source_age_only(monkeypatch) -> None:
+    monkeypatch.setenv("AGENCY_EXECUTION_FRESHNESS_TEST_MODE", "true")
+    monkeypatch.setenv("AGENCY_TEST_STOCK_SOURCE_MAX_AGE_SECONDS", "3600")
+    stale_sources = [
+        {
+            **_source("daily-market-bars", freshness="FRESH", status="HEALTHY"),
+            "checked_at": (NOW - timedelta(minutes=45)).isoformat(),
+        },
+        {
+            **_source("massive-stock-trades", freshness="FRESH", status="HEALTHY"),
+            "checked_at": (NOW - timedelta(minutes=45)).isoformat(),
+        },
+    ]
+
+    gate = execution_freshness_gate(
+        {"connected": True, "checked_at": NOW.isoformat()},
+        stale_sources,
+        now=NOW,
+    )
+    stale_broker = execution_freshness_gate(
+        {"connected": True, "checked_at": (NOW - timedelta(minutes=2)).isoformat()},
+        stale_sources,
+        now=NOW,
+    )
+
+    assert gate["ready"] is True
+    assert gate["test_freshness_mode"] is True
+    assert gate["max_source_age_seconds"] == 3600
+    assert stale_broker["ready"] is False
+    assert any(check["label"] == "Broker state" and check["status"] == "BLOCK" for check in stale_broker["checks"])
+
+
+def test_execution_freshness_gate_production_ignores_test_window_when_disabled(monkeypatch) -> None:
+    monkeypatch.delenv("AGENCY_EXECUTION_FRESHNESS_TEST_MODE", raising=False)
+    monkeypatch.setenv("AGENCY_TEST_STOCK_SOURCE_MAX_AGE_SECONDS", "3600")
+    stale_sources = [
+        {
+            **_source("daily-market-bars", freshness="FRESH", status="HEALTHY"),
+            "checked_at": (NOW - timedelta(minutes=45)).isoformat(),
+        },
+        {
+            **_source("massive-stock-trades", freshness="FRESH", status="HEALTHY"),
+            "checked_at": (NOW - timedelta(minutes=45)).isoformat(),
+        },
+    ]
+
+    gate = execution_freshness_gate(
+        {"connected": True, "checked_at": NOW.isoformat()},
+        stale_sources,
+        now=NOW,
+    )
+
+    assert gate["ready"] is False
+    assert gate["test_freshness_mode"] is False
+    assert gate["max_source_age_seconds"] == 15 * 60
+
+
 def test_execution_freshness_gate_warns_for_fresh_degraded_trade_lane() -> None:
     gate = execution_freshness_gate(
         {"connected": True, "checked_at": NOW.isoformat()},
@@ -403,6 +610,31 @@ def test_scheduler_queue_stays_tradable_for_fresh_degraded_trade_lane() -> None:
     assert queue["execution_freshness_gate"]["state"] == "warning"
     assert queue["tradability"]["state"] == "tradable"
     assert queue["tradability"]["status_class"] == "warn"
+
+
+def test_scheduler_queue_explains_pending_broker_without_claiming_it_is_fresh() -> None:
+    queue = build_scheduler_work_queue(
+        _market_plan("regular_market"),
+        tiers=build_ticker_tiers(active_universe=["AAPL", "MSFT"]),
+        data_load_status={"state": "attention", "review_operational_ready": True, "datasets": []},
+        source_health=_fresh_sources(),
+        broker={
+            "connected": False,
+            "mode": "paper",
+            "checked_at": NOW.isoformat(),
+            "status_label": "Broker Check Delayed",
+            "status_class": "warn",
+        },
+        now=NOW,
+    )
+
+    assert queue["execution_freshness_gate"]["state"] == "warning"
+    assert queue["tradability"]["state"] == "tradable"
+    assert "Critical evidence is fresh" in str(queue["tradability"]["detail"])
+    assert "broker status is not confirmed" in str(queue["tradability"]["detail"])
+    assert "Broker and critical evidence are fresh enough" not in str(
+        queue["tradability"]["detail"]
+    )
 
 
 def test_execution_freshness_gate_blocks_missing_critical_source() -> None:
@@ -876,6 +1108,84 @@ def test_scheduler_daily_bars_lane_command_is_lane_owned_and_scoped() -> None:
         "massive_daily_bars.json"
     )
     assert command[command.index("--tickers") + 1 :] == ["AAPL"]
+    assert lane["batch_ticker_count"] == 1
+
+
+def test_scheduler_daily_bars_repairs_partial_active_universe_even_when_plan_skips(
+    tmp_path: Path,
+) -> None:
+    manifest_path = tmp_path / "massive_daily_bars.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "lane_id": "massive_daily_bars",
+                "status": "complete",
+                "fetched_at": NOW.isoformat(),
+                "window": {"start": "2026-05-11", "end": "2026-05-11"},
+                "coverage_pct": 100,
+                "coverage": [
+                    {
+                        "ticker": "AAPL",
+                        "coverage_status": "complete",
+                        "complete": True,
+                    }
+                ],
+                "tickers": ["AAPL"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    tiers = build_ticker_tiers(active_universe=["AAPL", "MSFT"])
+    plan = _market_plan("overnight_after_hours", dataset="prices_daily", tickers=("AAPL", "MSFT"))
+    plan["massive_orchestrator"] = {
+        "provider": "massive",
+        "market_phase": "overnight_after_hours",
+        "lanes": [
+            {
+                "lane_id": "massive_daily_bars",
+                "label": "Daily Bars",
+                "purpose": "Load daily OHLCV.",
+                "dataset": "prices_daily",
+                "raw_source_dataset": "prices_daily",
+                "endpoint_family": "grouped_daily_or_aggs",
+                "acquisition_mode": "massive_api",
+                "command_profile": "prices_daily",
+                "batch_action": "skip",
+                "priority": 80,
+                "cadence_minutes": 60,
+                "max_tickers_per_batch": 100,
+                "ticker_tier": "T0/T1/T2",
+                "start": "2026-05-11",
+                "end": "2026-05-11",
+                "freshness_requirement_seconds": 86400,
+                "blocks_execution": True,
+                "request_budget_label": "1 grouped-daily request per market date",
+                "storage_manifest": str(manifest_path),
+                "creates_massive_request": True,
+                "reason": "daily price manifest covers the requested window",
+            }
+        ],
+        "derived_signal_lanes": [],
+    }
+
+    queue = build_scheduler_work_queue(
+        plan,
+        tiers=tiers,
+        data_load_status={"state": "ready", "datasets": []},
+        source_health=_fresh_sources(),
+        broker={"connected": True, "checked_at": NOW.isoformat()},
+        now=NOW,
+    )
+
+    lane = queue["massive_orchestrator"]["lanes"][0]
+    command = lane["command"]
+    assert lane["status"] == "DUE_NOW"
+    assert lane["fresh_ticker_count"] == 1
+    assert lane["pending_ticker_count"] == 1
+    assert lane["batch_ticker_count"] == 1
+    assert "missing 1 active ticker" in lane["reason"]
+    assert command[COMMAND_SCRIPT_INDEX] == "research\\scripts\\pull_massive_grouped_daily.py"
+    assert command[command.index("--tickers") + 1 :] == ["MSFT"]
 
 
 def test_scheduler_massive_lane_missing_manifest_overrides_generic_source_health() -> None:

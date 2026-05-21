@@ -25,6 +25,7 @@ DECISION_REASONS = {
     "REJECT": "paper review rejected",
 }
 SELECTION_REPORT_HASH_VERSION = "0.1.0"
+OPERATOR_MANUAL_ADVANCE_TYPE = "PAPER_PROMOTION_OVERRIDE"
 
 
 def selection_report_hash(report: Mapping[str, object]) -> str:
@@ -76,6 +77,53 @@ def build_human_review_event(
         event_time=event_time or _now_utc(),
         status=DECISION_STATUS[normalized_decision],
         reason=DECISION_REASONS[normalized_decision],
+        payload=payload,
+    )
+    validate_contract("candidate-lifecycle-event", event)
+    return event
+
+
+def build_operator_manual_advance_event(
+    *,
+    cycle_id: str,
+    ticker: str,
+    as_of: str,
+    selection_report_hash: str,
+    override_reason: str,
+    blocked_reason: str | None = None,
+    reviewed_by: str = "local-user",
+    notes: str | None = None,
+    event_time: str | None = None,
+    acknowledged: bool = False,
+) -> dict[str, object]:
+    cleaned_reason = _clean_optional(override_reason)
+    if cleaned_reason is None:
+        raise ValueError("operator manual advance requires an override reason")
+    if not acknowledged:
+        raise ValueError("operator manual advance requires explicit acknowledgement")
+    cleaned_hash = _clean_optional(selection_report_hash)
+    if cleaned_hash is None:
+        raise ValueError("operator manual advance requires selection_report_hash")
+    payload: dict[str, object] = {
+        "advance_type": OPERATOR_MANUAL_ADVANCE_TYPE,
+        "scope": "paper_trade_promotion",
+        "reviewed_by": reviewed_by,
+        "override_reason": cleaned_reason,
+        "blocked_reason": _clean_optional(blocked_reason),
+        "notes": _clean_optional(notes),
+        "paper_only": True,
+        "acknowledged": True,
+        "as_of": as_of,
+        "selection_report_hash": cleaned_hash,
+        "selection_report_hash_version": SELECTION_REPORT_HASH_VERSION,
+    }
+    event = build_lifecycle_event(
+        cycle_id=cycle_id,
+        ticker=ticker.upper(),
+        event_type="OPERATOR_MANUAL_ADVANCE",
+        event_time=event_time or _now_utc(),
+        status="PASSED",
+        reason="operator manual paper-promotion advance approved",
         payload=payload,
     )
     validate_contract("candidate-lifecycle-event", event)

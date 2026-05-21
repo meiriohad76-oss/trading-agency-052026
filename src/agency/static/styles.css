@@ -1174,8 +1174,11 @@ th {
 
 .readout-card strong {
   display: block;
+  font-size: clamp(1rem, 0.95vw, 1.14rem);
   line-height: 1.35;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
+  word-break: normal;
+  hyphens: none;
 }
 
 .article-insight-list {
@@ -3153,6 +3156,17 @@ summary:focus-visible {
   overflow-wrap: anywhere;
 }
 
+.data-health-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+.data-health-action-button {
+  min-height: 36px;
+}
+
 .data-health-summary > div {
   min-width: 0;
   padding: 10px;
@@ -4432,6 +4446,55 @@ table.signal-table {
   overflow-wrap: anywhere;
 }
 
+.selection-provenance {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: flex-start;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+
+.selection-provenance > strong {
+  flex-basis: 100%;
+  color: var(--text);
+}
+
+.selection-provenance > span {
+  display: inline-grid;
+  gap: 2px;
+  min-width: min(100%, 150px);
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.cycle-id-chip {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 5px 8px;
+  align-items: center;
+  justify-content: flex-end;
+  max-width: min(100%, 520px);
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text-dim);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.cycle-id-chip strong {
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
 .compact-details {
   grid-column: 1 / -1;
   box-shadow: none;
@@ -5277,6 +5340,40 @@ table.signal-table {
   overflow-wrap: break-word;
 }
 
+.operator-advance-form {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid rgba(154, 91, 0, 0.35);
+  border-radius: 8px;
+  background: rgba(255, 188, 66, 0.08);
+}
+
+.operator-advance-form textarea {
+  width: 100%;
+  min-height: 64px;
+  resize: vertical;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  padding: 8px;
+  font: inherit;
+  line-height: 1.35;
+}
+
+.operator-advance-form .form-field,
+.operator-advance-form .checkbox-row {
+  display: grid;
+  gap: 5px;
+  color: var(--text);
+}
+
+.operator-advance-form .checkbox-row {
+  grid-template-columns: auto 1fr;
+  align-items: start;
+}
+
 .action-approve {
   border-color: rgba(19, 121, 91, 0.35);
   color: var(--green);
@@ -5293,6 +5390,19 @@ table.signal-table {
   border-color: rgba(150, 41, 41, 0.36);
   color: #962929;
   background: rgba(150, 41, 41, 0.1);
+}
+
+.mini-button:disabled {
+  color: var(--text-muted);
+  border-color: var(--border);
+  background: var(--surface-2);
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.mini-button:disabled:hover {
+  border-color: var(--border);
+  background: var(--surface-2);
 }
 
 .pnl-value {

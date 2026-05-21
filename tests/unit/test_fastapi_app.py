@@ -22,6 +22,7 @@ import agency.views.execution as execution_module
 import agency.views.market_regime as market_regime_module
 import agency.views.portfolio as portfolio_module
 import agency.views.signals as signals_module
+import agency.services.leveraged_alternatives as leveraged_module
 from agency.api.health import runtime_data_source_status
 from agency.app import create_app
 from agency.dashboard import (
@@ -227,7 +228,7 @@ def test_shared_dashboard_data_health_formats_timestamp_labels() -> None:
     assert "+00:00" not in str(dataset_row)
 
 
-def test_shared_dashboard_data_health_labels_stale_monitor_as_health_check_stale() -> None:
+def test_shared_dashboard_data_health_labels_old_monitor_as_health_proof_refresh() -> None:
     health = shared_module.dashboard_data_health(
         "Command dashboard",
         data_load_status={
@@ -266,11 +267,205 @@ def test_shared_dashboard_data_health_labels_stale_monitor_as_health_check_stale
         datasets=("prices_daily",),
     )
 
-    assert health["status_label"] == "Health Check Stale"
-    assert "health check is stale" in str(health["headline"]).lower()
-    assert "stale or blocked data" not in str(health["headline"]).lower()
+    assert health["status_label"] == "Health proof needs refresh"
+    assert "health proof needs refresh" in str(health["headline"]).lower()
+    assert "stale" not in str(health).lower()
     assert "Last verified" in {item["label"] for item in health["summary_items"]}
     assert "tooltip" in health
+
+
+def test_shared_dashboard_data_health_offers_trade_lane_refresh_for_old_massive_monitor() -> None:
+    health = shared_module.dashboard_data_health(
+        "Final selection dashboard",
+        data_load_status={
+            "overall_percent": 56,
+            "cycle_id": "live-pit-current",
+            "health_monitor": {
+                "status_label": "Health Monitor Stale",
+                "status_class": "block",
+                "live": False,
+                "reliable": False,
+                "row_count": 21,
+                "latest_checked_at": "2026-05-20T20:00:00+00:00",
+                "max_age_seconds": 900,
+                "detail": (
+                    "massive-stock-trades source-health is older than its SLA "
+                    "(900s > 600s)."
+                ),
+            },
+            "datasets": [],
+            "lanes": [],
+        },
+    )
+
+    assert health["status_label"] == "Health proof needs refresh"
+    assert "stale" not in str(health).lower()
+    assert health["action_buttons"][0] == {
+        "label": "Refresh Live Trade Slices",
+        "action": "/scheduler/massive-lanes/massive_live_trade_slices/refresh",
+        "method": "post",
+        "detail": (
+            "Runs the trade-aware Massive live trade slice refresh, then updates "
+            "runtime health proof."
+        ),
+    }
+    assert health["action_buttons"][1]["label"] == "Open Refresh Queue"
+
+
+def test_shared_dashboard_data_health_recommends_refresh_for_analyzed_old_data() -> None:
+    health = shared_module.dashboard_data_health(
+        "Signals dashboard",
+        data_load_status={
+            "overall_percent": 82,
+            "cycle_id": "live-pit-current",
+            "health_monitor": {
+                "status_label": "Live Health Monitor",
+                "status_class": "pass",
+                "live": True,
+                "reliable": True,
+                "row_count": 21,
+                "latest_checked_at": "2026-05-20T20:00:00+00:00",
+            },
+            "datasets": [
+                {
+                    "dataset": "massive_live_trade_slices",
+                    "label": "Live Trade Slices",
+                    "status_label": "Analyzed but out of policy",
+                    "status_class": "warn",
+                    "source_freshness": "STALE",
+                    "coverage_pct": 95,
+                    "loaded_ticker_count": 160,
+                    "expected_ticker_count": 168,
+                    "source_last_success_at": "2026-05-20T19:40:00+00:00",
+                    "detail": "Live trade data was analyzed, but the result is STALE.",
+                }
+            ],
+            "lanes": [],
+        },
+        datasets=("massive_live_trade_slices",),
+    )
+
+    assert health["status_label"] == "Refresh recommended"
+    assert "analyzed data" in str(health["meaning"]).lower()
+    assert health["action_buttons"][0]["label"] == "Refresh Live Trade Slices"
+    assert "stale" not in str(health).lower()
+
+
+def test_shared_dashboard_data_health_identifies_available_data_waiting_for_analysis() -> None:
+    health = shared_module.dashboard_data_health(
+        "Technical analysis dashboard",
+        data_load_status={
+            "overall_percent": 76,
+            "cycle_id": "live-pit-current",
+            "health_monitor": {
+                "status_label": "Live Health Monitor",
+                "status_class": "pass",
+                "live": True,
+                "reliable": True,
+                "row_count": 21,
+                "latest_checked_at": "2026-05-20T20:00:00+00:00",
+            },
+            "datasets": [],
+            "lanes": [
+                {
+                    "lane": "technical_analysis",
+                    "label": "Technical Analysis",
+                    "status_label": "No analysis rows",
+                    "status_class": "block",
+                    "source_freshness": "FRESH",
+                    "coverage_pct": 0,
+                    "produced_count": 0,
+                    "expected_count": 168,
+                    "source_last_success_at": "2026-05-20T19:58:00+00:00",
+                    "detail": "Source data is available, but the agent has produced 0 rows.",
+                }
+            ],
+        },
+        lanes=("technical_analysis",),
+    )
+
+    assert health["status_label"] == "Waiting for analysis"
+    assert "agent has not produced analysis" in str(health["meaning"]).lower()
+    assert "Run the Technical Analysis lane" in str(health["recommended_action"])
+    assert "stale" not in str(health).lower()
+
+
+def test_shared_dashboard_data_health_identifies_unavailable_data_plainly() -> None:
+    health = shared_module.dashboard_data_health(
+        "Candidate dashboard",
+        data_load_status={
+            "overall_percent": 50,
+            "cycle_id": "live-pit-current",
+            "health_monitor": {
+                "status_label": "Live Health Monitor",
+                "status_class": "pass",
+                "live": True,
+                "reliable": True,
+                "row_count": 21,
+                "latest_checked_at": "2026-05-20T20:00:00+00:00",
+            },
+            "datasets": [
+                {
+                    "dataset": "subscription_emails",
+                    "label": "Subscription Email Thesis",
+                    "status_label": "Unavailable",
+                    "status_class": "block",
+                    "source_freshness": "UNAVAILABLE",
+                    "coverage_pct": 0,
+                    "detail": "The email article source is unavailable because login is required.",
+                }
+            ],
+            "lanes": [],
+        },
+        datasets=("subscription_emails",),
+    )
+
+    assert health["status_label"] == "Data unavailable"
+    assert "problem reaching or loading" in str(health["meaning"]).lower()
+    assert "login" in str(health["primary_blocker_detail"]).lower()
+    assert "stale" not in str(health).lower()
+
+
+def test_shared_dashboard_data_health_offers_refresh_queue_for_warning_issue() -> None:
+    health = shared_module.dashboard_data_health(
+        "Candidate brief",
+        data_load_status={
+            "overall_percent": 88,
+            "cycle_id": "live-pit-current",
+            "health_monitor": {
+                "status_label": "Live Health Monitor",
+                "status_class": "pass",
+                "live": True,
+                "reliable": True,
+                "row_count": 21,
+                "latest_checked_at": "2026-05-20T20:00:00+00:00",
+            },
+            "datasets": [
+                {
+                    "dataset": "subscription_emails",
+                    "label": "Subscription Emails",
+                    "status_label": "Context Health Needs Refresh",
+                    "status_class": "warn",
+                    "source_freshness": "AGING",
+                    "coverage_pct": 70,
+                    "detail": "subscription-email-thesis source-health is older than its SLA.",
+                }
+            ],
+            "lanes": [],
+        },
+        datasets=("subscription_emails",),
+    )
+
+    assert health["status_label"] == "Refresh recommended"
+    assert "stale" not in str(health).lower()
+    assert health["action_buttons"] == [
+        {
+            "label": "Open Refresh Queue",
+            "href": "/#scheduler-heading",
+            "method": "get",
+            "detail": "Opens Command at the scheduler and lane refresh controls.",
+        }
+    ]
 
 
 def test_shared_dashboard_data_health_explains_blocked_lanes_actionably() -> None:
@@ -728,7 +923,7 @@ async def test_broker_status_context_can_return_nonblocking_pending_status(
     assert "strict fresh Alpaca checks" in str(context["detail"])
 
 
-async def test_execution_preview_uses_uncached_broker_read_for_promotion(
+async def test_execution_preview_uses_bounded_broker_read_for_page_render(
     monkeypatch: MonkeyPatch,
 ) -> None:
     captured: dict[str, object] = {}
@@ -761,7 +956,109 @@ async def test_execution_preview_uses_uncached_broker_read_for_promotion(
 
     await execution_module.execution_preview_context(raw_reports=[], data_sources=[])
 
-    assert captured["use_cache"] is False
+    assert captured["use_cache"] is True
+
+
+async def test_execution_preview_reuses_leveraged_policy_for_render(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    from_env_count = 0
+
+    def fake_from_env(
+        cls: type[leveraged_module.LeveragedAlternativePolicy],
+        env: object | None = None,
+    ) -> leveraged_module.LeveragedAlternativePolicy:
+        nonlocal from_env_count
+        from_env_count += 1
+        return cls()
+
+    async def fake_policy() -> PortfolioPolicy:
+        return PortfolioPolicy()
+
+    async def fake_review_events(*_args: object, **_kwargs: object) -> list[dict[str, object]]:
+        return []
+
+    def fake_scheduler_context(**_kwargs: object) -> dict[str, object]:
+        return {"tradability": {"state": "tradable", "status_label": "Tradable"}}
+
+    monkeypatch.setattr(
+        leveraged_module.LeveragedAlternativePolicy,
+        "from_env",
+        classmethod(fake_from_env),
+    )
+    monkeypatch.setattr(execution_module, "load_active_portfolio_policy", fake_policy)
+    monkeypatch.setattr(command_module, "human_review_events_for_reports", fake_review_events)
+    monkeypatch.setattr(execution_module, "scheduler_work_queue_context", fake_scheduler_context)
+
+    reports = [
+        _selection_report_for_cycle("cycle-1", "AAPL", "2026-05-07T09:31:00Z"),
+        _selection_report_for_cycle("cycle-1", "MSFT", "2026-05-07T09:31:00Z"),
+    ]
+    broker = {
+        "connected": True,
+        "mode": "paper",
+        "checked_at": datetime.now(UTC).isoformat(),
+        "account": {"status": "ACTIVE", "equity": 100000.0, "buying_power": 100000.0},
+        "positions": [],
+        "orders": [],
+        "gross_exposure_pct": 0.0,
+    }
+
+    await execution_module.execution_preview_context(
+        raw_reports=reports,
+        data_sources=[],
+        broker=broker,
+    )
+
+    assert from_env_count == 1
+
+
+async def test_execution_preview_page_render_uses_fast_contract_builders(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    async def fake_policy() -> PortfolioPolicy:
+        return PortfolioPolicy()
+
+    async def fake_review_events(*_args: object, **_kwargs: object) -> list[dict[str, object]]:
+        return []
+
+    def fake_risk_decisions(*_args: object, **kwargs: object) -> list[object]:
+        captured["risk_validate_contracts"] = kwargs.get("validate_contracts")
+        return []
+
+    def fake_execution_previews(*_args: object, **kwargs: object) -> list[object]:
+        captured["preview_validate_contracts"] = kwargs.get("validate_contracts")
+        return []
+
+    def fake_scheduler_context(**_kwargs: object) -> dict[str, object]:
+        return {"tradability": {"state": "tradable", "status_label": "Tradable"}}
+
+    monkeypatch.setattr(execution_module, "load_active_portfolio_policy", fake_policy)
+    monkeypatch.setattr(command_module, "human_review_events_for_reports", fake_review_events)
+    monkeypatch.setattr(execution_module, "build_risk_decisions", fake_risk_decisions)
+    monkeypatch.setattr(execution_module, "build_execution_previews", fake_execution_previews)
+    monkeypatch.setattr(execution_module, "scheduler_work_queue_context", fake_scheduler_context)
+
+    await execution_module.execution_preview_context(
+        raw_reports=[],
+        data_sources=[],
+        broker={
+            "connected": True,
+            "mode": "paper",
+            "checked_at": datetime.now(UTC).isoformat(),
+            "account": {"status": "ACTIVE", "equity": 100000.0, "buying_power": 100000.0},
+            "positions": [],
+            "orders": [],
+            "gross_exposure_pct": 0.0,
+        },
+    )
+
+    assert captured == {
+        "risk_validate_contracts": False,
+        "preview_validate_contracts": False,
+    }
 
 
 async def test_dashboard_readiness_inputs_load_blocking_artifacts_concurrently(
@@ -1229,6 +1526,47 @@ def test_candidate_review_post_accepts_form_caution_acknowledgement(
 
     assert response.status_code == HTTP_SEE_OTHER
     assert writes[0]["caution_acknowledged"] is True
+
+
+def test_operator_manual_advance_post_records_hash_bound_event(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    writes: list[dict[str, object]] = []
+    session = _FakeSession()
+
+    @asynccontextmanager
+    async def fake_session_provider() -> AsyncIterator[_FakeSession]:
+        yield session
+
+    async def fake_report_hash(**_kwargs: object) -> str:
+        return "b" * 64
+
+    async def fake_record(_session_arg: object, event: dict[str, object]) -> None:
+        writes.append(event)
+
+    monkeypatch.setattr(dashboard_module, "get_session", fake_session_provider)
+    monkeypatch.setattr(dashboard_module, "_selection_report_hash_for_review", fake_report_hash)
+    monkeypatch.setattr(dashboard_module, "record_candidate_lifecycle_event", fake_record)
+
+    response = TestClient(create_app()).post(
+        "/execution-preview/operator-advance"
+        "?cycle_id=cycle-1&ticker=aapl&as_of=2026-05-07T09%3A30%3A00Z",
+        data={
+            "override_reason": "Operator accepts this block for a paper rehearsal.",
+            "blocked_reason": "selection policy gate blocked",
+            "acknowledged": "true",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == HTTP_SEE_OTHER
+    assert response.headers["location"] == "/execution-preview#execution-followup-heading"
+    assert session.committed is True
+    assert writes[0]["event_type"] == "OPERATOR_MANUAL_ADVANCE"
+    assert writes[0]["payload"]["selection_report_hash"] == "b" * 64
+    assert writes[0]["payload"]["override_reason"] == (
+        "Operator accepts this block for a paper rehearsal."
+    )
 
 
 def test_candidate_defer_redirects_back_to_candidate(monkeypatch: MonkeyPatch) -> None:
@@ -1882,7 +2220,7 @@ def test_full_live_readiness_view_uses_plain_readiness_and_tooltip_labels() -> N
     assert view["command_map"]["system"]["label"] == "Agency Mode"
     assert view["command_map"]["system"]["value"] == "Review Ready · Paper Trading Gated"
     assert view["command_map"]["freshness"]["label"] == "Freshness Proof"
-    assert view["command_map"]["freshness"]["value"] == "Health check stale"
+    assert view["command_map"]["freshness"]["value"] == "Health proof needs refresh"
     assert view["command_map"]["agents"]["label"] == "Signal Worker Readiness"
     assert view["command_map"]["agents"]["value"] == "0/7 fully ready · 5/7 usable with warnings"
     assert view["command_map"]["loading"]["label"] == "Active Refresh"
@@ -1951,7 +2289,7 @@ def test_full_live_readiness_view_never_marks_gated_review_ready() -> None:
     assert view["trading_gate_label"] == "Paper Trading Gated"
     assert view["mode_summary"] == "Review Gated · Paper Trading Gated"
     assert view["command_map"]["system"]["value"] == "Review Gated · Paper Trading Gated"
-    assert "Daily bars are stale" in view["blocking_reason_label"]
+    assert "Daily bars need refresh" in view["blocking_reason_label"]
 
 
 def test_source_status_rows_add_status_classes() -> None:
@@ -2222,9 +2560,12 @@ def test_data_load_status_view_explains_source_health_rows() -> None:
     assert "No action needed" in daily["next_action"]
     assert "why" in daily["tooltip"].lower()
     assert news["impact_label"] == "Current-context"
+    assert news["status"] == "Needs refresh"
+    assert news["freshness"] == "Needs refresh"
     assert news["validity_label"] == "Refresh needed"
     assert "Rerun the news refresh" in news["next_action"]
     assert view["source_health_kpi"]["action_detail"] == "Refresh 1 current-context source."
+    assert "stale" not in str(view).lower()
 
 
 def test_live_config_view_exposes_check_rows() -> None:
@@ -2491,6 +2832,25 @@ def test_final_selection_rows_follow_service_contract() -> None:
     assert rows[0]["actionable_signals"][0]["score"] == "+0.70 bullish"
 
 
+def test_final_selection_freshness_gate_shows_timestamp_proof() -> None:
+    report = build_final_selection(_evidence_pack()).selection_report
+
+    rows = final_selection_rows([report])
+
+    freshness_gate = next(gate for gate in rows[0]["policy_gates"] if gate["name"] == "freshness")
+    assert "Data as of 2026-05-07 09:30 UTC" in freshness_gate["meaning"]
+    assert "report generated 2026-05-07 09:31 UTC" in freshness_gate["meaning"]
+    assert "No refresh is needed only while those timestamps remain current" in freshness_gate["next_step"]
+    assert rows[0]["freshness_proof_label"] == (
+        "Data as of 2026-05-07 09:30 UTC; report generated 2026-05-07 09:31 UTC."
+    )
+    assert rows[0]["provenance_items"] == [
+        {"label": "Generated", "value": "2026-05-07 09:31 UTC"},
+        {"label": "Data as of", "value": "2026-05-07 09:30 UTC"},
+        {"label": "Cycle", "value": "cycle-1"},
+    ]
+
+
 def test_final_selection_rows_sort_by_conviction_descending() -> None:
     low = _selection_report_for_cycle(
         "live-pit-current",
@@ -2748,6 +3108,26 @@ def test_final_selection_summary_names_latest_cycle_scope() -> None:
     assert summary["cycle_label"].endswith("20260510T062128Z")
     assert summary["historical_count"] == EXPECTED_SUMMARY_HISTORICAL_COUNT
     assert "latest-cycle" in str(summary["topbar_label"])
+
+
+def test_final_selection_topbar_does_not_show_truncated_cycle_id() -> None:
+    rows = final_selection_rows([
+        _selection_report_for_cycle(
+            "live-pit-paper-rehearsal-submit-20260519T201725Z",
+            "NVDA",
+            "2026-05-19T18:42:00Z",
+        )
+    ])
+    summary = final_selection_summary(
+        rows,
+        all_report_count=160,
+        cycle_id="live-pit-paper-rehearsal-submit-20260519T201725Z",
+    )
+
+    assert summary["topbar_label"] == "1 latest-cycle report / read-only"
+    assert "...l-submit" not in str(summary["topbar_label"])
+    assert "...l-submit" not in str(summary["detail"])
+    assert "full cycle id" in str(summary["detail"]).lower()
 
 
 def test_risk_decision_rows_summarize_risk_contract() -> None:
@@ -4059,6 +4439,30 @@ def test_candidate_email_evidence_summarizes_email_and_feed_rows(tmp_path: Path)
     assert "does not change the judgment yet" in str(
         judged["insight_cards"][1]["judgement_contribution"]
     )
+
+
+def test_candidate_email_empty_state_uses_operator_friendly_copy(tmp_path: Path) -> None:
+    evidence = candidate_email_evidence(
+        "NVDA",
+        event_path=tmp_path / "missing_subscription_emails.parquet",
+        news_path=tmp_path / "missing_news_rss.parquet",
+    )
+    judged = candidate_email_evidence_with_judgement(
+        "NVDA",
+        evidence,
+        {
+            "action": "WATCH",
+            "gate_status": "PASS",
+            "conviction_pct": 100,
+            "actionable_signals": [{"direction": "BULLISH", "summary": "institutional positioning is constructive"}],
+            "context_signals": [],
+            "suppressed_signals": [],
+        },
+    )
+
+    assert "No subscription article analysis is attached" in str(judged["judgement_summary"])
+    assert "subscription_thesis" not in str(judged["pipeline_summary"])
+    assert "No analyzed subscription article changes" not in str(judged["judgement_summary"])
 
 
 def test_candidate_email_evidence_counts_keyword_only_analysis(tmp_path: Path) -> None:

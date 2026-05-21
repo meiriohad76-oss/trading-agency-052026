@@ -444,7 +444,7 @@ def _signal_decision_effect_text(
         )
     return (
         f"Excluded from the latest {ticker} decision score. It remains visible so the "
-        f"user can audit weak, stale, duplicated, or unavailable evidence. Main reason: {reason}"
+        f"user can audit weak, refresh-needed, duplicated, or unavailable evidence. Main reason: {reason}"
     )
 
 def _signal_decision_alignment_text(

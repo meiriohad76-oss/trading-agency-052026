@@ -39,6 +39,7 @@ from agency.views._shared import (
     _list_field,
     _mapping_field,
     _mapping_list_field,
+    _operator_text,
     _plural,
     _risk_decisions_for_reports,
     _runtime_payload_key,
@@ -484,7 +485,7 @@ def _data_refresh_display_status_label(
         prefix = "Blocked" if state == "blocked" else "Failed"
         return f"{prefix} - {_data_refresh_scope_label(scope)}"
     if state == "stale":
-        return "Refresh Status Stale"
+        return "Refresh monitor needs restart"
     if state == "running":
         return "Refreshing"
     if state in {"complete", "planned", "idle", "unavailable"}:
@@ -639,7 +640,7 @@ def _data_refresh_next_action(scope: str, state: str) -> str:
         return "Inspect logs and rerun the failed refresh before relying on affected data."
     if state == "complete":
         return "Use the loaded data, subject to each lane's freshness badge."
-    return "No refresh action is required unless a lane or source becomes stale."
+    return "No refresh action is required unless a lane or source falls outside policy."
 
 
 def _data_refresh_failure_label(
@@ -724,7 +725,7 @@ def _data_refresh_massive_lane_status_label(row: Mapping[str, object]) -> str:
             return "Reference Not Loaded"
         return "Not Loaded"
     if state == "stale":
-        return "Stale"
+        return "Refresh recommended"
     if state == "failed":
         return "Failed"
     if state == "blocked":
@@ -742,7 +743,7 @@ def _data_refresh_massive_lane_status_class(
 ) -> str:
     if status_label in {"Verified Current"}:
         return "pass"
-    if status_label in {"Failed", "Blocked", "Stale"}:
+    if status_label in {"Failed", "Blocked", "Refresh recommended"}:
         return "block"
     if status_label == "Disabled / Entitlement Not Verified":
         return "neutral"
@@ -1304,7 +1305,7 @@ def _process_status_label(value: str) -> str:
         "not verified": "Not Checked",
         "health monitor fallback": "Unavailable",
         "health monitor unavailable": "Unavailable",
-        "health monitor stale": "Stale",
+        "health monitor stale": "Needs Refresh",
         "health monitor missing": "Missing",
         "health monitor unverified": "Unverified",
         "live health monitor": "Live",
@@ -1425,7 +1426,7 @@ def _scheduler_action(scheduler: Mapping[str, object]) -> str:
     if status_class == "pass":
         return "Scheduler does not block paper-order readiness."
     if status_class == "warn":
-        return "Run due jobs or inspect stale datasets before paper submission."
+        return "Run due jobs or inspect datasets that need refresh before paper submission."
     return "Fix scheduler or freshness blockers before using execution."
 
 def _massive_orchestrator_eta(orchestrator: Mapping[str, object]) -> str:
@@ -1450,7 +1451,7 @@ def _refresh_action(data_refresh: Mapping[str, object]) -> str:
         return "Wait for the active refresh, then verify data health again."
     if state in {"failed", "blocked", "stale"}:
         return "Open logs, fix the failed source, and rerun the refresh."
-    return "Rerun only when a source is stale or the scheduler marks it due."
+    return "Rerun only when a source falls outside policy or the scheduler marks it due."
 
 def _trade_pull_action(trade_pull: Mapping[str, object]) -> str:
     status_class = str(trade_pull.get("status_class") or "neutral")
@@ -1534,7 +1535,11 @@ def _status_overview_row(
 
 def data_load_status_view(status: Mapping[str, object]) -> dict[str, object]:
     view = cast(dict[str, object], _humanize_nested(dict(status)))
-    view["detail"] = _humanize_seconds_in_text(str(status.get("detail") or ""))
+    view["detail"] = _operator_text(status.get("detail") or "")
+    if isinstance(view.get("health_monitor"), dict):
+        monitor = cast(dict[str, object], view["health_monitor"])
+        monitor["status_label"] = _operator_text(monitor.get("status_label") or "not verified")
+        monitor["detail"] = _operator_text(monitor.get("detail") or "")
     view["as_of_label"] = _format_timestamp_or_text(status.get("as_of"))
     view["generated_at_label"] = _format_timestamp_or_text(status.get("generated_at"))
     view["status_checked_at_label"] = _format_timestamp_or_text(
@@ -1583,7 +1588,7 @@ def data_load_status_view(status: Mapping[str, object]) -> dict[str, object]:
 
 
 def _source_health_kpi(rows: Sequence[Mapping[str, object]]) -> dict[str, str]:
-    blocked = stale = partial = check_stale = verified = 0
+    blocked = needs_refresh = partial = check_needs_refresh = verified = 0
     context_refresh = 0
     for row in rows:
         status_class = str(row.get("status_class") or "")
@@ -1594,11 +1599,11 @@ def _source_health_kpi(rows: Sequence[Mapping[str, object]]) -> dict[str, str]:
         if status_class == "pass":
             verified += 1
         elif "source-health row is" in detail or "older than" in detail:
-            check_stale += 1
+            check_needs_refresh += 1
         elif freshness == "PARTIAL" or status == "DEGRADED":
             partial += 1
         elif freshness == "STALE" or status == "STALE":
-            stale += 1
+            needs_refresh += 1
         elif status_class == "block":
             blocked += 1
         else:
@@ -1610,27 +1615,28 @@ def _source_health_kpi(rows: Sequence[Mapping[str, object]]) -> dict[str, str]:
     total = len(rows)
     action_detail = _source_health_action_detail(
         blocked=blocked,
-        stale=stale,
+        stale=needs_refresh,
         partial=partial,
-        check_stale=check_stale,
+        check_stale=check_needs_refresh,
         context_refresh=context_refresh,
     )
     return {
         "label": f"{total} monitored",
         "detail": (
-            f"{blocked} blocked · {stale} stale · {partial} partial · "
-            f"{check_stale} check-stale"
+            f"{blocked} unavailable/blocked · {needs_refresh} need refresh · "
+            f"{partial} partial · {check_needs_refresh} health-proof refresh"
         ),
         "short_detail": (
-            "health proof stale"
-            if check_stale or blocked
+            "health proof needs refresh"
+            if check_needs_refresh or blocked
             else f"{verified}/{total} verified current"
         ),
         "action_detail": action_detail,
         "tooltip": (
-            "Source Health buckets: blocked cannot be used; stale data is out of date; "
-            "partial usable can support review with warnings; check-stale means the "
-            "data may be valid but monitor proof must refresh; verified current passes."
+            "Source Health buckets: unavailable/blocked cannot be used; data needing "
+            "refresh is outside policy; partial usable can support review with warnings; "
+            "health-proof refresh means the data may be valid but monitor proof must "
+            "refresh; verified current passes."
         ),
     }
 
@@ -1638,7 +1644,7 @@ def full_live_readiness_view(readiness: Mapping[str, object]) -> dict[str, objec
     view = cast(dict[str, object], _humanize_nested(dict(readiness)))
     coverage = _mapping_field(readiness, "coverage")
     active_refresh = _mapping_field(readiness, "active_refresh")
-    view["detail"] = _humanize_seconds_in_text(str(readiness.get("detail") or ""))
+    view["detail"] = _operator_text(readiness.get("detail") or "")
     view["coverage"] = cast(dict[str, object], _humanize_nested(dict(coverage)))
     view["active_refresh"] = cast(dict[str, object], _humanize_nested(dict(active_refresh)))
     view["mode_label"] = _agency_mode_label(readiness)
@@ -1662,7 +1668,7 @@ def full_live_readiness_view(readiness: Mapping[str, object]) -> dict[str, objec
         for row in _list_field(readiness, "warnings")
     ]
     view["next_action_rows"] = [
-        _humanize_seconds_in_text(str(row)) for row in _list_field(readiness, "next_actions")
+        _operator_text(row) for row in _list_field(readiness, "next_actions")
     ]
     view["refresh_job_rows"] = [
         cast(Mapping[str, object], _humanize_nested(row))
@@ -1684,12 +1690,12 @@ def _humanized_mapping(
     view = dict(row)
     for field in fields:
         if field in view:
-            view[field] = _humanize_seconds_in_text(str(view[field]))
+            view[field] = _operator_text(view[field])
     return view
 
 def _humanize_nested(value: object) -> object:
     if isinstance(value, str):
-        return _humanize_seconds_in_text(value)
+        return _operator_text(value)
     if isinstance(value, Mapping):
         return {key: _humanize_nested(item) for key, item in value.items()}
     if isinstance(value, list):
@@ -2062,7 +2068,7 @@ def _massive_lane_display_health_label(row: Mapping[str, object]) -> str:
     if freshness in {"FRESH", "COMPLETE"} or health_status in {"FRESH", "COMPLETE"}:
         return "Verified Current"
     if freshness == "STALE":
-        return "Stale"
+        return "Refresh recommended"
     return freshness.replace("_", " ").title() if freshness else "Unverified"
 
 
@@ -2071,7 +2077,7 @@ def _massive_lane_impact(row: Mapping[str, object]) -> tuple[str, str]:
     if row.get("blocks_execution") is True:
         return (
             "Execution-critical",
-            "This lane can affect paper-order readiness when its data or health proof is stale, due, or blocked.",
+            "This lane can affect paper-order readiness when its data or health proof needs refresh, is due, or is blocked.",
         )
     if "options" in lane_id:
         return (
@@ -2243,7 +2249,7 @@ def _massive_display_status_class(status_label: str) -> str:
 
 
 def _massive_display_health_class(health_label: str) -> str:
-    if health_label == "Stale":
+    if health_label == "Refresh recommended":
         return "block"
     if health_label in {"Usable With Gaps", "Partial Coverage", "Health Check Needed"}:
         return "warn"
@@ -2561,7 +2567,10 @@ def provider_readiness_view(readiness: Mapping[str, object]) -> dict[str, object
 def _data_load_row(row: Mapping[str, object]) -> dict[str, object]:
     view = dict(row)
     if "detail" in view:
-        view["detail"] = _humanize_seconds_in_text(str(view["detail"]))
+        view["detail"] = _operator_text(view["detail"])
+    for key in ("status", "status_label", "source_freshness", "freshness"):
+        if key in view:
+            view[key] = _operator_text(view[key])
     name = row.get("label") or row.get("lane") or row.get("dataset") or "Unknown"
     view["name"] = _label_text(str(name))
     view["group_label"] = _label_text(str(row.get("group") or "unknown"))
@@ -2582,7 +2591,7 @@ def _data_load_issue(
         "kind": _label_text(str(row.get("kind") or "issue")),
         "item": _label_text(str(row.get("item") or "unknown")),
         "reason": _humanize_seconds_in_text(
-            str(row.get("reason") or "No detail available.")
+            _operator_text(row.get("reason") or "No detail available.")
         ),
         "status_class": str(row.get("status_class") or fallback_status_class),
     }
@@ -2592,9 +2601,9 @@ def _freshness_status_row(row: Mapping[str, object]) -> dict[str, object]:
     status = str(row.get("status") or "UNKNOWN")
     freshness = str(row.get("freshness") or "UNKNOWN")
     status_class = str(row.get("status_class") or "neutral")
-    detail = _humanize_seconds_in_text(
-        str(row.get("detail") or "No freshness detail recorded.")
-    )
+    display_status = "Needs refresh" if status.upper() == "STALE" else _operator_text(status)
+    display_freshness = "Needs refresh" if freshness.upper() == "STALE" else _operator_text(freshness)
+    detail = _operator_text(row.get("detail") or "No freshness detail recorded.")
     impact_label = _source_impact_label(row)
     validity_label = _source_validity_label(row)
     next_action = _source_next_action(row, impact_label=impact_label)
@@ -2605,8 +2614,8 @@ def _freshness_status_row(row: Mapping[str, object]) -> dict[str, object]:
     return {
         "label": str(row.get("label") or row.get("source") or "Unknown source"),
         "source": source,
-        "status": status,
-        "freshness": freshness,
+        "status": display_status,
+        "freshness": display_freshness,
         "status_class": status_class,
         "last_success_at": str(row.get("last_success_at") or "not recorded"),
         "last_success_at_label": _format_timestamp_or_text(row.get("last_success_at")),
@@ -2619,7 +2628,7 @@ def _freshness_status_row(row: Mapping[str, object]) -> dict[str, object]:
         "impact_label": impact_label,
         "validity_label": validity_label,
         "next_action": next_action,
-        "tooltip": _humanize_seconds_in_text(tooltip),
+        "tooltip": _operator_text(tooltip),
         "detail": detail,
     }
 
@@ -2637,7 +2646,7 @@ def _source_health_action_detail(
     if context_refresh:
         return f"Refresh {_count_phrase(context_refresh, 'current-context source')}."
     if stale:
-        return f"Refresh {_count_phrase(stale, 'stale source')}."
+        return f"Refresh {_count_phrase(stale, 'source needing refresh')}."
     if check_stale:
         return f"Refresh {_count_phrase(check_stale, 'health-proof row')}."
     if partial:
@@ -2811,10 +2820,10 @@ def _full_live_blocking_reason(readiness: Mapping[str, object]) -> str:
         first = blockers[0]
         item = str(first.get("item") or "readiness")
         reason = str(first.get("reason") or readiness.get("detail") or "No reason recorded.")
-        return f"{item}: {reason}"
+        return _operator_text(f"{item}: {reason}")
     detail = str(readiness.get("detail") or "").strip()
     if detail:
-        return detail
+        return _operator_text(detail)
     if readiness.get("review_operational_ready") is True:
         return "Review is operational; execution still depends on downstream gates."
     return "Review and execution gates are not open yet."
@@ -2823,11 +2832,11 @@ def _full_live_blocking_reason(readiness: Mapping[str, object]) -> str:
 def _freshness_proof_value(coverage: Mapping[str, object]) -> str:
     headline = str(coverage.get("source_headline") or "")
     if "health proof" in headline.lower() or "source-health row" in headline.lower():
-        return "Health check stale"
+        return "Health proof needs refresh"
     if "critical stale source" in headline.lower():
-        return "Health check stale"
+        return "Health proof needs refresh"
     if _optional_int(coverage, "critical_source_blocker_count"):
-        return "Health check stale"
+        return "Health proof needs refresh"
     if _optional_int(coverage, "source_warning_count"):
         return "Usable with warnings"
     return "Verified current"
@@ -2847,7 +2856,7 @@ def _freshness_proof_tooltip(coverage: Mapping[str, object]) -> str:
         "Freshness proof is the monitor timestamp that confirms displayed source state. "
         "It is different from source data freshness. A source can be HEALTHY/FRESH while "
         "its health proof is too old for execution. "
-        f"Current headline: {coverage.get('source_headline', 'unknown')}."
+        f"Current headline: {_operator_text(coverage.get('source_headline', 'unknown'))}."
     )
 
 

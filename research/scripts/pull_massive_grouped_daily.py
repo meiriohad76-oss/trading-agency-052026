@@ -130,6 +130,7 @@ def main() -> int:
             for ticker in sorted({str(ticker).upper() for ticker in tickers})
         ],
         request_budget_label="1 grouped-daily request per market date",
+        merge_existing=True,
     )
     print(
         json.dumps(

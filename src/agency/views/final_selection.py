@@ -143,6 +143,9 @@ def _final_selection_row(
     risk_flags = _string_list(report, "risk_flags")
     actionable = _is_actionable_candidate(base)
     gates = _gate_rows(report)
+    generated_at_label = _format_timestamp_label(report["generated_at"])
+    as_of_label = _format_timestamp_label(report["as_of"])
+    cycle_id = str(report["cycle_id"])
     actionable_signals = _signal_rows(evidence_pack, "actionable_signals")
     context_signals = _context_signal_rows(evidence_pack)
     suppressed_signals = _signal_rows(evidence_pack, "suppressed_signals")
@@ -150,10 +153,19 @@ def _final_selection_row(
     human_review = _human_review_summary(review_event)
     return {
         **base,
-        "cycle_id": str(report["cycle_id"]),
+        "cycle_id": cycle_id,
         "generated_at": str(report["generated_at"]),
-        "generated_at_label": _format_timestamp_label(report["generated_at"]),
-        "as_of_label": _format_timestamp_label(report["as_of"]),
+        "generated_at_label": generated_at_label,
+        "as_of_label": as_of_label,
+        "freshness_proof_label": _freshness_proof_label(
+            as_of_label=as_of_label,
+            generated_at_label=generated_at_label,
+        ),
+        "provenance_items": _selection_provenance_items(
+            generated_at_label=generated_at_label,
+            as_of_label=as_of_label,
+            cycle_id=cycle_id,
+        ),
         "deterministic_action": str(deterministic["action"]),
         "deterministic_conviction_pct": _percent(deterministic, "conviction"),
         "deterministic_reason": deterministic_reason,
@@ -196,6 +208,21 @@ def _final_selection_row(
         "human_review_time": human_review["event_time"],
         "human_review_time_label": _format_timestamp_label(human_review["event_time"]),
     }
+
+def _freshness_proof_label(*, as_of_label: str, generated_at_label: str) -> str:
+    return f"Data as of {as_of_label}; report generated {generated_at_label}."
+
+def _selection_provenance_items(
+    *,
+    generated_at_label: str,
+    as_of_label: str,
+    cycle_id: str,
+) -> list[dict[str, str]]:
+    return [
+        {"label": "Generated", "value": generated_at_label},
+        {"label": "Data as of", "value": as_of_label},
+        {"label": "Cycle", "value": cycle_id},
+    ]
 
 def _llm_status(llm_review: Mapping[str, object]) -> dict[str, str]:
     action = str(llm_review.get("action", "NO_REVIEW")).strip().upper()
@@ -364,8 +391,7 @@ def _final_selection_headline(report_count: int, actionable_count: int) -> str:
 def _final_selection_topbar(report_count: int, cycle_id: str | None) -> str:
     if report_count == 0:
         return "no latest-cycle reports / read-only"
-    cycle_label = _short_cycle_label(cycle_id)
-    return f"{report_count} latest-cycle reports / {cycle_label} / read-only"
+    return f"{report_count} latest-cycle {_plural('report', report_count)} / read-only"
 
 def _final_selection_detail(
     report_count: int,
@@ -374,22 +400,24 @@ def _final_selection_detail(
 ) -> str:
     if report_count == 0:
         return "The runtime has not persisted selection reports for a current cycle yet."
-    scope = _short_cycle_label(cycle_id)
     if historical_count == 0:
-        return f"Showing the active runtime cycle ({scope}) so this page matches Command."
+        return (
+            "Showing the active runtime cycle so this page matches Command; "
+            "the full cycle id is shown in the queue header and row provenance."
+        )
     return (
-        f"Showing the active runtime cycle ({scope}) so this page matches Command; "
-        f"{historical_count} {_plural('older report', historical_count)} remain in history."
+        "Showing the active runtime cycle so this page matches Command; "
+        f"{historical_count} {_plural('older report', historical_count)} remain in history. "
+        "The full cycle id is shown in the queue header and row provenance."
     )
 
 def _final_selection_scope_detail(historical_count: int, cycle_id: str | None) -> str:
-    cycle_label = _short_cycle_label(cycle_id)
     if cycle_id is None:
         return "Waiting for the first persisted runtime cycle."
     if historical_count == 0:
-        return f"Latest cycle only: {cycle_label}."
+        return "Latest cycle only; full cycle id appears in the queue header."
     return (
-        f"Latest cycle only: {cycle_label}. "
+        "Latest cycle only. "
         f"{historical_count} {_plural('older report', historical_count)} are hidden "
-        "from this decision queue."
+        "from this decision queue; full cycle id appears in the queue header."
     )

@@ -8,6 +8,7 @@ from agency.services import (
     TRADE_PROMOTION_REQUIRES_ORDER_APPROVAL_FLAG,
     build_execution_preview,
     build_human_review_event,
+    build_operator_manual_advance_event,
     build_risk_decisions,
     promote_paper_trade_reports,
     selection_report_hash,
@@ -90,6 +91,142 @@ def test_paper_trade_promotion_requires_human_approval_and_no_policy_blocks() ->
 
     assert promoted[0]["final_action"] == "BUY"
     assert promoted[1]["final_action"] == "WATCH"
+
+
+def test_operator_manual_advance_promotes_hash_bound_policy_block_with_caution() -> None:
+    report = selection_report(
+        action="WATCH",
+        score=0.95,
+        policy_status="BLOCK",
+        policy_reason="only one confirmed signal is available",
+    )
+    review = build_human_review_event(
+        cycle_id=str(report["cycle_id"]),
+        ticker=str(report["ticker"]),
+        as_of=str(report["as_of"]),
+        decision="APPROVE",
+        selection_report_hash=selection_report_hash(report),
+    )
+    advance = build_operator_manual_advance_event(
+        cycle_id=str(report["cycle_id"]),
+        ticker=str(report["ticker"]),
+        as_of=str(report["as_of"]),
+        selection_report_hash=selection_report_hash(report),
+        override_reason="Paper rehearsal after reviewing the one-signal warning.",
+        blocked_reason="selection policy gate blocked: evidence_breadth",
+        acknowledged=True,
+    )
+
+    promoted = promote_paper_trade_reports(
+        [report],
+        review_states={_key(report): review},
+        operator_advance_states={_key(report): advance},
+        broker_ready=True,
+        config=PaperTradePromotionConfig(
+            enabled=True,
+            min_source_count=1,
+            min_confirmed_signals=1,
+        ),
+    )
+    risk = build_risk_decisions(
+        promoted,
+        [source_health()],
+        policy=PortfolioPolicy(default_position_pct=1.0, broker_submit_enabled=True),
+    )[0].risk_decision
+    preview = build_execution_preview(
+        risk,
+        policy=PortfolioPolicy(default_position_pct=1.0, broker_submit_enabled=True),
+        account={"status": "ACTIVE", "equity": 100000.0, "buying_power": 100000.0},
+    ).preview
+
+    assert promoted[0]["final_action"] == "BUY"
+    assert promoted[0]["policy_gates"][0]["status"] == "WARN"
+    assert "Operator manual advance acknowledged" in str(promoted[0]["policy_gates"][0]["reason"])
+    assert any("operator manual advance" in note for note in promoted[0]["trade_plan"]["notes"])
+    assert risk["decision"] == "ALLOW"
+    assert preview["preview_state"] == "READY"
+    assert preview["notional"] == EXPECTED_NOTIONAL
+
+
+def test_operator_manual_advance_requires_current_report_hash() -> None:
+    report = selection_report(
+        action="WATCH",
+        score=0.95,
+        policy_status="BLOCK",
+        policy_reason="only one confirmed signal is available",
+    )
+    review = build_human_review_event(
+        cycle_id=str(report["cycle_id"]),
+        ticker=str(report["ticker"]),
+        as_of=str(report["as_of"]),
+        decision="APPROVE",
+        selection_report_hash=selection_report_hash(report),
+    )
+    stale_advance = build_operator_manual_advance_event(
+        cycle_id=str(report["cycle_id"]),
+        ticker=str(report["ticker"]),
+        as_of=str(report["as_of"]),
+        selection_report_hash="a" * 64,
+        override_reason="This belongs to an older report.",
+        acknowledged=True,
+    )
+
+    promoted = promote_paper_trade_reports(
+        [report],
+        review_states={_key(report): review},
+        operator_advance_states={_key(report): stale_advance},
+        broker_ready=True,
+        config=PaperTradePromotionConfig(
+            enabled=True,
+            min_source_count=1,
+            min_confirmed_signals=1,
+        ),
+    )
+
+    assert promoted[0]["final_action"] == "WATCH"
+
+
+def test_operator_manual_advance_does_not_bypass_broker_or_position_conflicts() -> None:
+    report = selection_report(action="WATCH", score=0.95)
+    review = build_human_review_event(
+        cycle_id=str(report["cycle_id"]),
+        ticker=str(report["ticker"]),
+        as_of=str(report["as_of"]),
+        decision="APPROVE",
+        selection_report_hash=selection_report_hash(report),
+    )
+    advance = build_operator_manual_advance_event(
+        cycle_id=str(report["cycle_id"]),
+        ticker=str(report["ticker"]),
+        as_of=str(report["as_of"]),
+        selection_report_hash=selection_report_hash(report),
+        override_reason="Try to advance despite a safety conflict.",
+        acknowledged=True,
+    )
+    config = PaperTradePromotionConfig(
+        enabled=True,
+        min_source_count=1,
+        min_confirmed_signals=1,
+    )
+
+    broker_blocked = promote_paper_trade_reports(
+        [report],
+        review_states={_key(report): review},
+        operator_advance_states={_key(report): advance},
+        broker_ready=False,
+        config=config,
+    )
+    position_blocked = promote_paper_trade_reports(
+        [report],
+        review_states={_key(report): review},
+        operator_advance_states={_key(report): advance},
+        positions=[{"ticker": report["ticker"], "qty": 1.0}],
+        broker_ready=True,
+        config=config,
+    )
+
+    assert broker_blocked[0]["final_action"] == "WATCH"
+    assert position_blocked[0]["final_action"] == "WATCH"
 
 
 def test_approved_watch_with_policy_warning_promotes_to_ready_paper_buy_preview() -> None:

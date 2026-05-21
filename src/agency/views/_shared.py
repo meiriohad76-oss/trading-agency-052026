@@ -27,6 +27,25 @@ ACTIONABLE_ACTIONS = {"BUY", "SELL", "SHORT", "COVER", "WATCH", "HOLD"}
 OPEN_RISK_DECISIONS = {"ALLOW", "WARN"}
 DEGRADED_SOURCE_STATUSES = {"DEGRADED", "STALE", "UNAVAILABLE", "RATE_LIMITED"}
 DEGRADED_FRESHNESS = {"AGING", "STALE", "UNAVAILABLE"}
+REFRESHABLE_MASSIVE_LANES = {
+    "massive_daily_bars": "Refresh Daily Bars",
+    "prices_daily": "Refresh Daily Bars",
+    "daily-market-bars": "Refresh Daily Bars",
+    "massive_live_trade_slices": "Refresh Live Trade Slices",
+    "massive-stock-trades": "Refresh Live Trade Slices",
+    "stock_trades": "Refresh Live Trade Slices",
+    "massive_premarket_trade_slices": "Refresh Premarket Trade Slices",
+    "massive_block_trade_feed": "Refresh Block Trade Feed",
+    "massive_options_flow": "Refresh Options Flow",
+    "massive_reference": "Refresh Massive Reference",
+    "massive_backtest_trade_tape": "Refresh Backtest Trade Tape",
+}
+REFRESHABLE_DATASET_TO_LANE = {
+    "prices_daily": "massive_daily_bars",
+    "daily-market-bars": "massive_daily_bars",
+    "massive-stock-trades": "massive_live_trade_slices",
+    "stock_trades": "massive_live_trade_slices",
+}
 FINAL_SELECTION_REPORT_LIMIT = 1000
 SIGNALS_REPORT_LIMIT = 300
 SIGNALS_RENDER_LIMIT = 50
@@ -354,7 +373,7 @@ def _reason_summary(reason_code: str) -> str:
         "sector_momentum_bearish": "Sector momentum is negative.",
         "signal_strength_below_threshold": "Combined signal strength is below threshold.",
         "source_unavailable": "Source was unavailable.",
-        "stale_evidence": "Evidence is stale, so it is context only.",
+        "stale_evidence": "Evidence needs refresh, so it is context only.",
         "subscription_thesis_context_only": "Subscription article thesis is context only.",
         "technical_analysis_bullish": "Technical setup is constructive.",
         "technical_analysis_bearish": "Technical setup is negative.",
@@ -692,11 +711,16 @@ def dashboard_data_health(
         or _provider_label_from_status(status)
         or "provider unavailable"
     )
-    monitor_label = str(health_monitor.get("status_label") or "Not verified")
+    raw_monitor_label = str(health_monitor.get("status_label") or "Not verified")
     monitor_live = health_monitor.get("live") is True
     overall_percent = _bounded_percent(status.get("overall_percent"))
     issue_label = _data_health_issue_label(rows)
     health_state = _data_health_state(rows, health_monitor)
+    monitor_label = (
+        _data_health_status_label(status_class, health_state)
+        if health_state in {"health_proof_needs_refresh", "health_proof_unavailable"}
+        else _operator_text(raw_monitor_label)
+    )
     status_label = _data_health_status_label(status_class, health_state)
     primary_issue = _data_health_primary_issue(rows, health_state)
     primary_blocker = _data_health_primary_blocker_label(primary_issue, health_state)
@@ -746,6 +770,7 @@ def dashboard_data_health(
         "visible_row_count": len(rows),
         "hidden_row_count": 0,
         "issue_label": issue_label,
+        "action_buttons": _data_health_action_buttons(primary_issue, health_state),
         "summary_items": [
             {"label": "As of", "value": _format_timestamp_or_text(status.get("as_of"))},
             {"label": "Decision status", "value": status_label},
@@ -776,7 +801,7 @@ def dashboard_data_health(
             {"label": "Runtime mode", "value": str(status.get("mode_label") or status.get("status_label") or "runtime mode unknown")},
             {
                 "label": "Monitor status",
-                "value": str(health_monitor.get("status_label") or "Not verified"),
+                "value": monitor_label,
                 "tooltip": _health_monitor_tooltip(health_monitor),
             },
             {
@@ -880,6 +905,177 @@ def _matching_health_rows(
         return list(rows)
     return [row for row in rows if str(row.get(key) or "") in wanted_set]
 
+def _operator_text(value: object, default: str = "") -> str:
+    """Translate backend health terms into operator-facing wording."""
+    text = _humanize_seconds_in_text(str(value or default))
+    if not text:
+        return default
+    replacements = (
+        (r"\bcheck[- ]stale\b", "health proof needs refresh"),
+        (r"\bhealth check stale\b", "health proof needs refresh"),
+        (r"\bhealth monitor stale\b", "health proof needs refresh"),
+        (r"\bcritical stale source\b", "critical source needs refresh"),
+        (r"\bare stale\b", "need refresh"),
+        (r"\bis stale\b", "needs refresh"),
+        (r"\bstale source\b", "source that needs refresh"),
+        (r"\bstale data\b", "data that needs refresh"),
+        (r"\bdata stale\b", "data needs refresh"),
+        (r"\bstale\b", "needs refresh"),
+    )
+    cleaned = text
+    for pattern, replacement in replacements:
+        cleaned = re.sub(pattern, replacement, cleaned, flags=re.IGNORECASE)
+    return cleaned
+
+def _refresh_lane_id_for_row(row: Mapping[str, object]) -> str:
+    raw = str(
+        row.get("refresh_lane_id")
+        or row.get("lane")
+        or row.get("dataset")
+        or row.get("source")
+        or row.get("source_dataset")
+        or ""
+    ).strip()
+    return REFRESHABLE_DATASET_TO_LANE.get(raw, raw)
+
+def _operator_issue_state(
+    row: Mapping[str, object],
+    *,
+    kind: str,
+    status_class: str,
+    detail: str,
+) -> str:
+    status = str(row.get("status") or "").upper()
+    freshness = str(row.get("source_freshness") or row.get("freshness") or "").upper()
+    status_label = str(row.get("status_label") or "").casefold()
+    detail_lc = detail.casefold()
+    row_count = _safe_int(row.get("row_count"))
+    produced_count = _safe_int(row.get("produced_count"))
+    expected_count = _safe_int(row.get("expected_count") or row.get("expected_ticker_count"))
+
+    if kind == "Health monitor":
+        if "stale" in status_label or "older than" in detail_lc or status == "STALE":
+            return "health_proof_needs_refresh"
+        if status in {"MISSING", "UNAVAILABLE"} or any(
+            token in status_label for token in ("missing", "unavailable", "unverified")
+        ):
+            return "health_proof_unavailable"
+        return "verified_current" if status_class == "pass" else "unverified"
+
+    unavailable_tokens = (
+        "unavailable",
+        "missing",
+        "failed",
+        "timeout",
+        "login required",
+        "credential",
+        "permission",
+        "rate limit",
+        "rate-limited",
+        "manifest is missing",
+    )
+    if freshness == "UNAVAILABLE" or status in {"UNAVAILABLE", "MISSING", "FAILED", "RATE_LIMITED"}:
+        return "data_unavailable"
+    if any(token in status_label or token in detail_lc for token in unavailable_tokens):
+        return "data_unavailable"
+
+    if kind == "Agent lane" and (
+        produced_count == 0
+        or (expected_count > 0 and row_count == 0 and "produced" in detail_lc)
+        or "no analysis rows" in status_label
+        or "produced 0 rows" in detail_lc
+    ):
+        return "waiting_for_analysis"
+
+    if freshness == "STALE" or status == "STALE" or "stale" in status_label or "stale" in detail_lc:
+        return "refresh_recommended"
+    if "older than" in detail_lc and "source-health row" not in detail_lc:
+        return "refresh_recommended"
+    if status_class == "block":
+        return "data_blocked"
+    if status_class in {"warn", "warning"}:
+        return "usable_with_gaps"
+    if status_class == "pass":
+        return "verified_current"
+    return "unverified"
+
+def _operator_row_status_label(
+    row: Mapping[str, object],
+    *,
+    kind: str,
+    issue_state: str,
+) -> str:
+    if issue_state == "health_proof_needs_refresh":
+        return "Health proof needs refresh"
+    if issue_state == "health_proof_unavailable":
+        return "Health proof unavailable"
+    if issue_state == "data_unavailable":
+        return "Data unavailable"
+    if issue_state == "waiting_for_analysis":
+        return "Waiting for analysis"
+    if issue_state == "refresh_recommended":
+        return "Refresh recommended"
+    raw = str(row.get("status_label") or row.get("status") or "Unknown")
+    if kind == "Health monitor" and raw == "Unknown":
+        raw = "Health Monitor Unverified"
+    return _operator_text(raw)
+
+def _operator_freshness_label(value: object) -> str:
+    freshness = str(value or "not checked")
+    normalized = freshness.upper()
+    if normalized == "STALE":
+        return "Needs refresh"
+    if normalized == "AGING":
+        return "Aging"
+    if normalized == "UNAVAILABLE":
+        return "Unavailable"
+    return _operator_text(freshness)
+
+def _operator_issue_reason(
+    issue_state: str,
+    *,
+    name: str,
+    kind: str,
+    status_class: str,
+    detail: str,
+) -> str:
+    if issue_state == "data_unavailable":
+        return f"{name} is unavailable. {_operator_text(detail)}"
+    if issue_state == "waiting_for_analysis":
+        return (
+            f"{name} has source data available, but the agent has not produced "
+            "analysis rows yet."
+        )
+    if issue_state == "refresh_recommended":
+        return (
+            f"{name} was analyzed, but the result is no longer current enough "
+            "for the policy window."
+        )
+    if issue_state == "health_proof_needs_refresh":
+        return f"{name} needs a newer health-monitor check before execution."
+    if issue_state == "health_proof_unavailable":
+        return f"{name} cannot currently prove dashboard data health."
+    return _row_blocking_reason(name, status_class, detail)
+
+def _operator_recommended_action(
+    issue_state: str,
+    *,
+    kind: str,
+    name: str,
+    status_class: str,
+) -> str:
+    if issue_state == "data_unavailable":
+        return (
+            f"Fix access for {name}, then refresh that source and reload this dashboard."
+        )
+    if issue_state == "waiting_for_analysis":
+        return f"Run the {name} lane, then re-run the affected candidate cycle."
+    if issue_state == "refresh_recommended":
+        return f"Refresh {name}, then re-run the affected candidate cycle."
+    if issue_state in {"health_proof_needs_refresh", "health_proof_unavailable"}:
+        return "Refresh source-health monitoring, then reload this dashboard."
+    return _row_recommended_action(kind, name, status_class)
+
 def _dashboard_dataset_health_rows(
     rows: Sequence[Mapping[str, object]],
 ) -> list[dict[str, object]]:
@@ -890,22 +1086,46 @@ def _dashboard_dataset_health_rows(
             str(row.get("detail") or "No dataset detail recorded.")
         )
         status_class = str(row.get("status_class") or "neutral")
+        issue_state = _operator_issue_state(
+            row,
+            kind="Dataset",
+            status_class=status_class,
+            detail=detail,
+        )
+        freshness_label = _dataset_freshness_label(row)
         health_row = {
             "kind": "Dataset",
             "name": name,
-            "status_label": str(row.get("status_label") or "Unknown"),
+            "status_label": _operator_row_status_label(
+                row,
+                kind="Dataset",
+                issue_state=issue_state,
+            ),
             "status_class": status_class,
             "coverage_label": _coverage_label(row),
-            "freshness_label": _dataset_freshness_label(row),
+            "freshness_label": _operator_freshness_label(freshness_label),
             "last_update": _format_timestamp_or_text(
                 row.get("source_last_success_at") or row.get("max_as_of")
             ),
-            "detail": _row_display_detail("Dataset", name, status_class, detail),
-            "diagnostic_detail": detail,
-            "blocking_reason": _row_blocking_reason(name, status_class, detail),
-            "recommended_action": _row_recommended_action("Dataset", name, status_class),
+            "detail": _row_display_detail("Dataset", name, status_class, _operator_text(detail)),
+            "diagnostic_detail": _operator_text(detail),
+            "blocking_reason": _operator_issue_reason(
+                issue_state,
+                name=name,
+                kind="Dataset",
+                status_class=status_class,
+                detail=detail,
+            ),
+            "recommended_action": _operator_recommended_action(
+                issue_state,
+                kind="Dataset",
+                name=name,
+                status_class=status_class,
+            ),
             "why_it_matters": _row_why_it_matters("Dataset", name),
             "tooltip": _dataset_health_tooltip(row),
+            "issue_state": issue_state,
+            "refresh_lane_id": _refresh_lane_id_for_row(row),
         }
         output.append(health_row)
     return output
@@ -920,25 +1140,48 @@ def _dashboard_lane_health_rows(
             str(row.get("detail") or "No lane detail recorded.")
         )
         status_class = str(row.get("status_class") or "neutral")
+        issue_state = _operator_issue_state(
+            row,
+            kind="Agent lane",
+            status_class=status_class,
+            detail=detail,
+        )
         health_row = {
             "kind": "Agent lane",
             "name": name,
-            "status_label": str(row.get("status_label") or "Unknown"),
+            "status_label": _operator_row_status_label(
+                row,
+                kind="Agent lane",
+                issue_state=issue_state,
+            ),
             "status_class": status_class,
             "coverage_label": _coverage_label(row),
-            "freshness_label": str(row.get("source_freshness") or "not checked"),
+            "freshness_label": _operator_freshness_label(row.get("source_freshness") or "not checked"),
             "last_update": _format_timestamp_or_text(
                 row.get("source_last_success_at")
                 or row.get("max_as_of")
                 or row.get("source_dataset")
                 or "runtime signal output"
             ),
-            "detail": _row_display_detail("Agent lane", name, status_class, detail),
-            "diagnostic_detail": detail,
-            "blocking_reason": _row_blocking_reason(name, status_class, detail),
-            "recommended_action": _row_recommended_action("Agent lane", name, status_class),
+            "detail": _row_display_detail("Agent lane", name, status_class, _operator_text(detail)),
+            "diagnostic_detail": _operator_text(detail),
+            "blocking_reason": _operator_issue_reason(
+                issue_state,
+                name=name,
+                kind="Agent lane",
+                status_class=status_class,
+                detail=detail,
+            ),
+            "recommended_action": _operator_recommended_action(
+                issue_state,
+                kind="Agent lane",
+                name=name,
+                status_class=status_class,
+            ),
             "why_it_matters": _row_why_it_matters("Agent lane", name),
             "tooltip": _lane_health_tooltip(row),
+            "issue_state": issue_state,
+            "refresh_lane_id": _refresh_lane_id_for_row(row),
         }
         output.append(health_row)
     return output
@@ -959,10 +1202,20 @@ def _health_monitor_data_health_row(monitor: Mapping[str, object]) -> dict[str, 
         f"{monitor.get('detail') or 'Health monitor detail is unavailable.'} "
         f"Origin: {origin}; monitor is {live} and {reliable}."
     )
+    issue_state = _operator_issue_state(
+        monitor,
+        kind="Health monitor",
+        status_class=status_class,
+        detail=detail,
+    )
     return {
         "kind": "Health monitor",
         "name": "Source-health reliability",
-        "status_label": str(monitor.get("status_label") or "Health Monitor Unverified"),
+        "status_label": _operator_row_status_label(
+            monitor,
+            kind="Health monitor",
+            issue_state=issue_state,
+        ),
         "status_class": status_class,
         "coverage_label": f"{row_count} source-health row(s)",
         "freshness_label": age_label,
@@ -970,12 +1223,29 @@ def _health_monitor_data_health_row(monitor: Mapping[str, object]) -> dict[str, 
             monitor.get("latest_checked_at"),
             default="not checked",
         ),
-        "detail": _row_display_detail("Health monitor", "Source-health reliability", status_class, detail),
-        "diagnostic_detail": detail,
-        "blocking_reason": _row_blocking_reason("Source-health reliability", status_class, detail),
-        "recommended_action": _row_recommended_action("Health monitor", "Source-health reliability", status_class),
+        "detail": _row_display_detail(
+            "Health monitor",
+            "Source-health reliability",
+            status_class,
+            _operator_text(detail),
+        ),
+        "diagnostic_detail": _operator_text(detail),
+        "blocking_reason": _operator_issue_reason(
+            issue_state,
+            name="Source-health reliability",
+            kind="Health monitor",
+            status_class=status_class,
+            detail=detail,
+        ),
+        "recommended_action": _operator_recommended_action(
+            issue_state,
+            kind="Health monitor",
+            name="Source-health reliability",
+            status_class=status_class,
+        ),
         "why_it_matters": _row_why_it_matters("Health monitor", "Source-health reliability"),
         "tooltip": _health_monitor_tooltip(monitor),
+        "issue_state": issue_state,
     }
 
 def _normal_data_health_row(row: Mapping[str, object]) -> dict[str, object]:
@@ -985,22 +1255,50 @@ def _normal_data_health_row(row: Mapping[str, object]) -> dict[str, object]:
     detail = _humanize_seconds_in_text(
         str(row.get("detail") or "No source detail recorded.")
     )
+    issue_state = _operator_issue_state(
+        row,
+        kind=kind,
+        status_class=status_class,
+        detail=detail,
+    )
     return {
         "kind": kind,
         "name": name,
-        "status_label": str(row.get("status_label") or row.get("status") or "Unknown"),
+        "status_label": _operator_row_status_label(
+            row,
+            kind=kind,
+            issue_state=issue_state,
+        ),
         "status_class": status_class,
         "coverage_label": str(row.get("coverage_label") or row.get("coverage") or "not tracked"),
-        "freshness_label": str(row.get("freshness_label") or row.get("freshness") or "not checked"),
+        "freshness_label": _operator_freshness_label(
+            row.get("freshness_label") or row.get("freshness") or "not checked"
+        ),
         "last_update": _format_timestamp_or_text(row.get("last_update") or row.get("checked_at")),
-        "detail": _row_display_detail(kind, name, status_class, detail),
-        "diagnostic_detail": detail,
-        "blocking_reason": _row_blocking_reason(name, status_class, detail),
-        "recommended_action": str(row.get("recommended_action") or _row_recommended_action(kind, name, status_class)),
+        "detail": _row_display_detail(kind, name, status_class, _operator_text(detail)),
+        "diagnostic_detail": _operator_text(detail),
+        "blocking_reason": _operator_issue_reason(
+            issue_state,
+            name=name,
+            kind=kind,
+            status_class=status_class,
+            detail=detail,
+        ),
+        "recommended_action": str(
+            row.get("recommended_action")
+            or _operator_recommended_action(
+                issue_state,
+                kind=kind,
+                name=name,
+                status_class=status_class,
+            )
+        ),
         "why_it_matters": str(row.get("why_it_matters") or _row_why_it_matters(kind, name)),
         "tooltip": _humanize_seconds_in_text(
-            str(row.get("tooltip") or row.get("detail") or "No source detail recorded.")
+            _operator_text(row.get("tooltip") or row.get("detail") or "No source detail recorded.")
         ),
+        "issue_state": issue_state,
+        "refresh_lane_id": _refresh_lane_id_for_row(row),
     }
 
 def _row_display_detail(
@@ -1016,6 +1314,88 @@ def _row_display_detail(
     if status_class == "pass":
         return f"{name} passed the displayed-data checks. {detail}"
     return f"{kind} status is not fully verified. {detail}"
+
+def _data_health_action_buttons(
+    primary_issue: Mapping[str, object] | None,
+    health_state: str,
+) -> list[dict[str, str]]:
+    issue_status_class = (
+        str(primary_issue.get("status_class") or "").lower()
+        if primary_issue is not None
+        else ""
+    )
+    issue_text = " ".join(
+        str(primary_issue.get(key) or "")
+        for key in (
+            "name",
+            "detail",
+            "diagnostic_detail",
+            "blocking_reason",
+            "recommended_action",
+            "tooltip",
+        )
+    ).lower() if primary_issue is not None else ""
+    buttons: list[dict[str, str]] = []
+    refresh_lane_id = (
+        str(primary_issue.get("refresh_lane_id") or "")
+        if primary_issue is not None
+        else ""
+    )
+    if refresh_lane_id in REFRESHABLE_MASSIVE_LANES:
+        buttons.append(
+            {
+                "label": REFRESHABLE_MASSIVE_LANES[refresh_lane_id],
+                "action": f"/scheduler/massive-lanes/{refresh_lane_id}/refresh",
+                "method": "post",
+                "detail": (
+                    "Runs the trade-aware lane refresh, then updates runtime health proof."
+                ),
+            }
+        )
+    elif "massive-stock-trades" in issue_text or "live trade" in issue_text:
+        buttons.append(
+            {
+                "label": "Refresh Live Trade Slices",
+                "action": "/scheduler/massive-lanes/massive_live_trade_slices/refresh",
+                "method": "post",
+                "detail": (
+                    "Runs the trade-aware Massive live trade slice refresh, then updates "
+                    "runtime health proof."
+                ),
+            }
+        )
+    elif "daily-market-bars" in issue_text or "daily bar" in issue_text:
+        buttons.append(
+            {
+                "label": "Refresh Daily Bars",
+                "action": "/scheduler/massive-lanes/massive_daily_bars/refresh",
+                "method": "post",
+                "detail": (
+                    "Runs the trade-aware Massive daily bar refresh, then updates "
+                    "runtime health proof."
+                ),
+            }
+        )
+    if (
+        health_state in {
+            "health_proof_needs_refresh",
+            "health_proof_unavailable",
+            "data_unavailable",
+            "waiting_for_analysis",
+            "refresh_recommended",
+            "data_blocked",
+        }
+        or issue_status_class in {"warn", "warning", "block"}
+    ):
+        buttons.append(
+            {
+                "label": "Open Refresh Queue",
+                "href": "/#scheduler-heading",
+                "method": "get",
+                "detail": "Opens Command at the scheduler and lane refresh controls.",
+            }
+        )
+    return buttons
 
 def _row_blocking_reason(name: str, status_class: str, detail: str) -> str:
     cleaned = detail.strip()
@@ -1059,7 +1439,7 @@ def _row_why_it_matters(kind: str, name: str) -> str:
     if kind == "Health monitor":
         return (
             "This proves whether the health badges themselves are live and reliable. "
-            "A stale monitor means the page cannot prove its own freshness."
+            "An old monitor check means the page cannot prove its own freshness."
         )
     return f"{name} contributes to the displayed decision context."
 
@@ -1102,14 +1482,18 @@ def _worst_health_class(rows: Sequence[Mapping[str, object]]) -> str:
     return "neutral"
 
 def _data_health_status_label(status_class: str, health_state: str = "") -> str:
-    if health_state == "health_check_stale":
-        return "Health Check Stale"
-    if health_state == "health_check_unavailable":
-        return "Health Check Unavailable"
+    if health_state == "health_proof_needs_refresh":
+        return "Health proof needs refresh"
+    if health_state == "health_proof_unavailable":
+        return "Health proof unavailable"
+    if health_state == "data_unavailable":
+        return "Data unavailable"
+    if health_state == "waiting_for_analysis":
+        return "Waiting for analysis"
+    if health_state == "refresh_recommended":
+        return "Refresh recommended"
     if health_state == "data_blocked":
         return "Blocked"
-    if health_state == "data_stale":
-        return "Data Stale"
     return {
         "pass": "Verified Current",
         "warn": "Usable With Gaps",
@@ -1123,17 +1507,21 @@ def _data_health_headline(
     issue_label: str,
     health_state: str = "",
 ) -> str:
-    if health_state == "health_check_stale":
+    if health_state == "health_proof_needs_refresh":
         return (
-            f"{page_label} data is mostly loaded, but the health check is stale; "
-            "refresh monitoring before execution."
+            f"{page_label} data is mostly loaded, but the health proof needs refresh "
+            "before execution."
         )
-    if health_state == "health_check_unavailable":
+    if health_state == "health_proof_unavailable":
         return f"{page_label} cannot prove displayed data health because monitoring is unavailable."
+    if health_state == "data_unavailable":
+        return f"{page_label} cannot load one required data source."
+    if health_state == "waiting_for_analysis":
+        return f"{page_label} has source data available, but an agent still needs to analyze it."
+    if health_state == "refresh_recommended":
+        return f"{page_label} has analyzed data that needs refresh before acting."
     if health_state == "data_blocked":
         return f"{page_label} has blocked data; refresh before acting."
-    if health_state == "data_stale":
-        return f"{page_label} has stale source data; refresh before acting."
     if status_class == "pass":
         return f"{page_label} is using verified-current, usable data."
     if status_class == "warn":
@@ -1155,7 +1543,18 @@ def _data_health_primary_issue(
     rows: Sequence[Mapping[str, object]],
     health_state: str,
 ) -> Mapping[str, object] | None:
-    if health_state in {"data_blocked", "data_stale"}:
+    target_issue = {
+        "health_proof_needs_refresh": "health_proof_needs_refresh",
+        "health_proof_unavailable": "health_proof_unavailable",
+        "data_unavailable": "data_unavailable",
+        "waiting_for_analysis": "waiting_for_analysis",
+        "refresh_recommended": "refresh_recommended",
+    }.get(health_state)
+    if target_issue:
+        for row in rows:
+            if row.get("issue_state") == target_issue:
+                return row
+    if health_state == "data_blocked":
         for row in rows:
             if row.get("kind") != "Health monitor" and str(row.get("status_class") or "") == "block":
                 return row
@@ -1178,10 +1577,12 @@ def _data_health_primary_blocker_label(
         return "No blocker detected."
     name = str(primary_issue.get("name") or "Displayed data")
     status = str(primary_issue.get("status_label") or primary_issue.get("status_class") or "").strip()
-    if health_state == "health_check_stale":
-        return f"{name} health check is stale"
-    if health_state == "health_check_unavailable":
+    if health_state == "health_proof_needs_refresh":
+        return f"{name} health proof needs refresh"
+    if health_state == "health_proof_unavailable":
         return f"{name} health check is unavailable"
+    if health_state in {"data_unavailable", "waiting_for_analysis", "refresh_recommended"}:
+        return f"{name} - {_data_health_status_label('', health_state)}"
     return f"{name} - {status}" if status else name
 
 def _data_health_primary_blocker_detail(
@@ -1202,22 +1603,32 @@ def _data_health_meaning(
     health_state: str,
 ) -> str:
     issue_name = str(primary_issue.get("name") or "one required input") if primary_issue else "all required inputs"
+    if health_state == "data_unavailable":
+        return (
+            f"This dashboard is not execution-ready because {issue_name} has a "
+            "problem reaching or loading its data."
+        )
+    if health_state == "waiting_for_analysis":
+        return (
+            f"This dashboard is not execution-ready because {issue_name} has source "
+            "data, but its agent has not produced analysis rows yet."
+        )
+    if health_state == "refresh_recommended":
+        return (
+            f"This dashboard has analyzed data for {issue_name}, but the result is "
+            "not current enough for the policy window."
+        )
     if health_state == "data_blocked":
         return (
             f"This dashboard is not execution-ready because {issue_name} is blocked. "
             "Use it for review context only until the blocker is cleared."
         )
-    if health_state == "data_stale":
+    if health_state == "health_proof_needs_refresh":
         return (
-            f"This dashboard is not execution-ready because {issue_name} is stale. "
-            "The displayed recommendation may be based on old evidence."
+            "The displayed data may be usable for review, but the dashboard needs "
+            "a newer health-monitor proof before execution."
         )
-    if health_state == "health_check_stale":
-        return (
-            "The displayed data may be usable, but the monitor proof is stale. "
-            "Refresh monitoring before execution."
-        )
-    if health_state == "health_check_unavailable":
+    if health_state == "health_proof_unavailable":
         return (
             "The page cannot prove whether the displayed data is current because "
             "source-health monitoring is unavailable."
@@ -1233,12 +1644,16 @@ def _data_health_recommended_action(
     if primary_issue is not None:
         row_action = str(primary_issue.get("recommended_action") or "").strip()
         if row_action:
-            return row_action
+            return _operator_text(row_action)
+    if health_state == "data_unavailable":
+        return "Fix the data access problem, refresh that source, then reload this dashboard."
+    if health_state == "waiting_for_analysis":
+        return "Run the relevant agent lane, then re-run the affected candidate cycle."
+    if health_state == "refresh_recommended":
+        return "Refresh the relevant data lane, then re-run the affected candidate cycle."
     if health_state == "data_blocked":
         return "Refresh the relevant data lane, then reload the dashboard before acting."
-    if health_state == "data_stale":
-        return "Refresh stale source data, then re-run the affected candidate cycle."
-    if health_state in {"health_check_stale", "health_check_unavailable"}:
+    if health_state in {"health_proof_needs_refresh", "health_proof_unavailable"}:
         return "Refresh source-health monitoring, then reload this dashboard."
     return "No immediate action required; continue normal review."
 
@@ -1260,27 +1675,33 @@ def _data_health_state(
             monitor_status = "unverified"
     data_rows = [row for row in rows if row.get("kind") != "Health monitor"]
     data_blocked = any(str(row.get("status_class") or "") == "block" for row in data_rows)
-    data_stale = any(
-        str(row.get("freshness_label") or "").upper().startswith("STALE")
-        for row in data_rows
-    )
+    data_unavailable = any(row.get("issue_state") == "data_unavailable" for row in data_rows)
+    waiting_for_analysis = any(row.get("issue_state") == "waiting_for_analysis" for row in data_rows)
+    refresh_recommended = any(row.get("issue_state") == "refresh_recommended" for row in data_rows)
     if monitor_status == "stale":
-        return "health_check_stale"
+        return "health_proof_needs_refresh"
     if monitor_status in {"missing", "unavailable", "unverified"}:
-        return "health_check_unavailable"
+        return "health_proof_unavailable"
+    if data_unavailable:
+        return "data_unavailable"
+    if waiting_for_analysis:
+        return "waiting_for_analysis"
+    if refresh_recommended:
+        return "refresh_recommended"
     if data_blocked:
         return "data_blocked"
-    if data_stale:
-        return "data_stale"
     return "verified_current" if rows else "unverified"
 
 
 def _data_health_proof_label(health_state: str) -> str:
     return {
-        "health_check_stale": "stale",
-        "health_check_unavailable": "unavailable",
+        "health_proof_needs_refresh": "proof needs refresh",
+        "health_proof_unavailable": "proof unavailable",
+        "data_unavailable": "data unavailable",
+        "waiting_for_analysis": "waiting for analysis",
+        "refresh_recommended": "refresh recommended",
         "data_blocked": "monitor current; data blocked",
-        "data_stale": "monitor current; data stale",
+        "data_needs_refresh": "monitor current; data needs refresh",
         "verified_current": "monitor current",
     }.get(health_state, "unverified")
 
@@ -1313,28 +1734,32 @@ def _health_monitor_tooltip(monitor: Mapping[str, object]) -> str:
     max_age_label = _duration_label(max_age) if isinstance(max_age, int) else "not configured"
     return (
         f"Health monitor origin: {origin}. Latest check: {checked}. "
-        f"Monitor SLA: {max_age_label}. A stale monitor gates execution confidence "
+        f"Monitor SLA: {max_age_label}. An old monitor check gates execution confidence "
         "even when source data may still be usable for review."
     )
 
 
 def _dataset_health_tooltip(row: Mapping[str, object]) -> str:
     return _humanize_seconds_in_text(
-        "Dataset health combines source status, source freshness, coverage, last "
-        f"success, and ticker coverage. Source freshness: {row.get('source_freshness', 'unknown')}; "
-        "last success: "
-        f"{_format_timestamp_or_text(row.get('source_last_success_at') or row.get('max_as_of'))}. "
-        f"{row.get('detail') or ''}"
+        _operator_text(
+            "Dataset health combines source status, source freshness, coverage, last "
+            f"success, and ticker coverage. Source freshness: {row.get('source_freshness', 'unknown')}; "
+            "last success: "
+            f"{_format_timestamp_or_text(row.get('source_last_success_at') or row.get('max_as_of'))}. "
+            f"{row.get('detail') or ''}"
+        )
     )
 
 
 def _lane_health_tooltip(row: Mapping[str, object]) -> str:
     return _humanize_seconds_in_text(
-        "Signal worker readiness requires produced rows and a passing source freshness "
-        f"gate. Source dataset: {row.get('source_dataset', 'unknown')}; "
-        f"coverage: {row.get('coverage_pct', 'not tracked')}%; "
-        f"freshness: {row.get('source_freshness', 'unknown')}. "
-        f"{row.get('detail') or ''}"
+        _operator_text(
+            "Signal worker readiness requires produced rows and a passing source freshness "
+            f"gate. Source dataset: {row.get('source_dataset', 'unknown')}; "
+            f"coverage: {row.get('coverage_pct', 'not tracked')}%; "
+            f"freshness: {row.get('source_freshness', 'unknown')}. "
+            f"{row.get('detail') or ''}"
+        )
     )
 
 def _data_health_issue_label(rows: Sequence[Mapping[str, object]]) -> str:

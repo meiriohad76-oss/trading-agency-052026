@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 import pytest
 from fastapi.testclient import TestClient
 
+import agency.api.candidates as candidates_api
 from agency.api.candidates import (
     RuntimeCandidateTimelineUnavailable,
     runtime_candidate_timeline,
@@ -17,7 +18,13 @@ HTTP_SERVICE_UNAVAILABLE = 503
 EXPECTED_LIMIT = 7
 
 
-def test_candidate_timeline_endpoint_reports_storage_unavailable() -> None:
+def test_candidate_timeline_endpoint_reports_storage_unavailable(monkeypatch) -> None:
+    async def unavailable(*_args: object, **_kwargs: object) -> list[dict[str, object]]:
+        raise RuntimeCandidateTimelineUnavailable(
+            "runtime candidate timeline storage is unavailable"
+        )
+
+    monkeypatch.setattr(candidates_api, "runtime_candidate_timeline", unavailable)
     client = TestClient(create_app())
 
     response = client.get("/candidates/AAPL/timeline")

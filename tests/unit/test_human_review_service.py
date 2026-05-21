@@ -10,6 +10,7 @@ from agency.contracts import ContractValidationError, validate_contract
 from agency.services import (
     build_and_persist_human_review_event,
     build_human_review_event,
+    build_operator_manual_advance_event,
     persist_human_review_event,
     selection_report_hash,
 )
@@ -66,6 +67,55 @@ def test_build_human_review_event_records_caution_acknowledgement() -> None:
 
     validate_contract("candidate-lifecycle-event", event)
     assert event["payload"]["caution_acknowledged"] is True
+
+
+def test_build_operator_manual_advance_event_is_report_hash_bound() -> None:
+    report = selection_report(policy_status="BLOCK", policy_reason="operator accepted risk")
+    report_hash = selection_report_hash(report)
+
+    event = build_operator_manual_advance_event(
+        cycle_id=str(report["cycle_id"]),
+        ticker=str(report["ticker"]),
+        as_of=str(report["as_of"]),
+        selection_report_hash=report_hash,
+        override_reason="Operator accepts the policy block for a paper rehearsal.",
+        blocked_reason="selection policy gate blocked: evidence_breadth",
+        acknowledged=True,
+        event_time="2026-05-07T10:02:00Z",
+    )
+
+    validate_contract("candidate-lifecycle-event", event)
+    assert event["event_type"] == "OPERATOR_MANUAL_ADVANCE"
+    assert event["status"] == "PASSED"
+    assert event["payload"]["advance_type"] == "PAPER_PROMOTION_OVERRIDE"
+    assert event["payload"]["paper_only"] is True
+    assert event["payload"]["acknowledged"] is True
+    assert event["payload"]["selection_report_hash"] == report_hash
+    assert event["payload"]["blocked_reason"] == "selection policy gate blocked: evidence_breadth"
+
+
+def test_build_operator_manual_advance_event_requires_reason_and_acknowledgement() -> None:
+    report = selection_report()
+    report_hash = selection_report_hash(report)
+
+    with pytest.raises(ValueError, match="reason"):
+        build_operator_manual_advance_event(
+            cycle_id=str(report["cycle_id"]),
+            ticker=str(report["ticker"]),
+            as_of=str(report["as_of"]),
+            selection_report_hash=report_hash,
+            override_reason=" ",
+            acknowledged=True,
+        )
+    with pytest.raises(ValueError, match="acknowledgement"):
+        build_operator_manual_advance_event(
+            cycle_id=str(report["cycle_id"]),
+            ticker=str(report["ticker"]),
+            as_of=str(report["as_of"]),
+            selection_report_hash=report_hash,
+            override_reason="Paper rehearsal override.",
+            acknowledged=False,
+        )
 
 
 async def test_build_and_persist_human_review_event_writes_lifecycle() -> None:

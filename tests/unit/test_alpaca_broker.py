@@ -9,6 +9,7 @@ from agency.broker.alpaca import (
     AlpacaBrokerClient,
     AlpacaBrokerError,
     AlpacaTradingConfig,
+    _ssl_context,
     broker_snapshot,
     build_market_order_payload,
 )
@@ -16,6 +17,10 @@ from agency.broker.alpaca import (
 EXPECTED_REQUEST_COUNT = 3
 EXPECTED_GROSS_EXPOSURE = 25.0
 EXPECTED_CLOSE_POSITION_QTY = 0.01706939
+
+
+def test_alpaca_ssl_context_is_not_shared_across_concurrent_requests() -> None:
+    assert _ssl_context() is not _ssl_context()
 
 
 async def test_alpaca_broker_snapshot_reads_account_positions_and_orders() -> None:

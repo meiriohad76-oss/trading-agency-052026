@@ -33,6 +33,7 @@ def build_execution_previews(
     open_orders: Sequence[Mapping[str, object]] = (),
     research_approval_required: bool = False,
     research_approval_records: Mapping[tuple[str, str, str], bool] | None = None,
+    validate_contracts: bool = True,
 ) -> list[ExecutionPreviewResult]:
     approvals = {} if research_approval_records is None else research_approval_records
     return [
@@ -45,6 +46,7 @@ def build_execution_previews(
             open_orders=open_orders,
             research_approval_required=research_approval_required,
             research_approval_recorded=approvals.get(_runtime_key(risk_decision), False),
+            validate_contracts=validate_contracts,
         )
         for risk_decision in risk_decisions
     ]
@@ -60,9 +62,11 @@ def build_execution_preview(
     open_orders: Sequence[Mapping[str, object]] = (),
     research_approval_required: bool = False,
     research_approval_recorded: bool = False,
+    validate_contracts: bool = True,
 ) -> ExecutionPreviewResult:
     """Build a no-submit paper execution preview from a risk decision."""
-    validate_contract("risk-decision", risk_decision)
+    if validate_contracts:
+        validate_contract("risk-decision", risk_decision)
     normalized_policy = policy or PortfolioPolicy()
     final_action = str(risk_decision["final_action"])
     risk_state = str(risk_decision["decision"])
@@ -142,7 +146,8 @@ def build_execution_preview(
         ),
         "reasons": reasons,
     }
-    validate_contract("execution-preview", preview)
+    if validate_contracts:
+        validate_contract("execution-preview", preview)
     lifecycle_event = build_lifecycle_event(
         cycle_id=str(preview["cycle_id"]),
         ticker=str(preview["ticker"]),
@@ -152,7 +157,8 @@ def build_execution_preview(
         reason=reasons[0],
         payload={"execution_preview": dict(preview)},
     )
-    validate_contract("candidate-lifecycle-event", lifecycle_event)
+    if validate_contracts:
+        validate_contract("candidate-lifecycle-event", lifecycle_event)
     return ExecutionPreviewResult(preview, lifecycle_event)
 
 

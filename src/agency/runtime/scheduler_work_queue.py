@@ -74,6 +74,8 @@ HIGH_CONVICTION_PERCENT = 75.0
 SECONDS_PER_MINUTE = 60
 EXPLICIT_COMMAND_TICKER_LIMIT = 20
 DEFAULT_MAX_SOURCE_HEALTH_AGE_SECONDS = 15 * SECONDS_PER_MINUTE
+TEST_FRESHNESS_MODE_ENV = "AGENCY_EXECUTION_FRESHNESS_TEST_MODE"
+TEST_SOURCE_MAX_AGE_SECONDS_ENV = "AGENCY_TEST_STOCK_SOURCE_MAX_AGE_SECONDS"
 MASSIVE_LIVE_SLICE_ROW_LIMIT = 1_000
 LOCAL_DERIVATION_COMMAND_PROFILES = {"derive_block_trades_from_live_slices"}
 MASSIVE_COMMAND_PROFILES_WITH_RUNNERS = {
@@ -292,7 +294,12 @@ def build_scheduler_work_queue(
         now=current,
     )
     jobs = sorted([*dataset_jobs, *signal_jobs], key=_job_sort_key)
-    gate = execution_freshness_gate(broker_snapshot, source_health, now=current)
+    gate = execution_freshness_gate(
+        broker_snapshot,
+        source_health,
+        now=current,
+        market_phase=phase,
+    )
     stale = _stale_dataset_rows(load_status, source_health)
     tradability = _tradability(
         data_load_status=load_status,
@@ -391,9 +398,17 @@ def execution_freshness_gate(
     *,
     now: datetime | None = None,
     max_broker_age_seconds: int = 60,
-    max_source_age_seconds: int = DEFAULT_MAX_SOURCE_HEALTH_AGE_SECONDS,
+    max_source_age_seconds: int | None = None,
+    market_phase: str | None = None,
 ) -> dict[str, object]:
     current = _utc(now)
+    phase = str(market_phase or "unspecified")
+    closed_market_source_policy = market_phase is not None and phase in OFF_HOURS_PHASES
+    test_freshness_mode = _env_bool(os.environ.get(TEST_FRESHNESS_MODE_ENV))
+    effective_max_source_age_seconds = _effective_source_max_age_seconds(
+        max_source_age_seconds,
+        test_freshness_mode=test_freshness_mode,
+    )
     broker_checked_at = _parse_datetime(broker.get("checked_at"))
     broker_age = (
         None
@@ -417,7 +432,8 @@ def execution_freshness_gate(
         _source_freshness_check(
             row,
             now=current,
-            max_source_age_seconds=max_source_age_seconds,
+            max_source_age_seconds=effective_max_source_age_seconds,
+            market_phase=phase,
         )
         for row in critical_by_source.values()
     )
@@ -450,7 +466,15 @@ def execution_freshness_gate(
         "status_label": status_label,
         "status_class": _status_class(state),
         "max_broker_age_seconds": max_broker_age_seconds,
-        "max_source_age_seconds": max_source_age_seconds,
+        "max_source_age_seconds": effective_max_source_age_seconds,
+        "market_phase": phase,
+        "closed_market_source_policy": closed_market_source_policy,
+        "test_freshness_mode": test_freshness_mode,
+        "source_max_age_policy_label": _source_max_age_policy_label(
+            effective_max_source_age_seconds,
+            test_freshness_mode=test_freshness_mode,
+            closed_market_source_policy=closed_market_source_policy,
+        ),
         "broker_age_seconds": broker_age,
         "checks": checks,
         "blocker_count": len(blocked),
@@ -855,6 +879,20 @@ def _broker_freshness_check(
                 "execution submit will refresh it before any paper order."
             ),
         }
+    if _broker_connection_not_confirmed(broker):
+        status_label = str(broker.get("status_label") or "Broker check pending")
+        detail = str(broker.get("detail") or "").strip()
+        return {
+            "label": "Broker state",
+            "status": "WARN",
+            "status_class": "warn",
+            "detail": (
+                f"{status_label}: broker connection is not confirmed yet. "
+                "Execution submit still performs a strict fresh Alpaca paper check "
+                "before any order can be submitted."
+                + (f" {detail}" if detail else "")
+            ),
+        }
     if broker.get("connected") is not True:
         return {
             "label": "Broker state",
@@ -891,17 +929,30 @@ def _broker_freshness_check(
     }
 
 
+def _broker_connection_not_confirmed(broker: Mapping[str, object]) -> bool:
+    if broker.get("connected") is True:
+        return False
+    status_label = str(broker.get("status_label") or "").strip().lower()
+    return status_label in {"broker check pending", "broker check delayed"}
+
+
 def _source_freshness_check(
     row: Mapping[str, object],
     *,
     now: datetime,
     max_source_age_seconds: int,
+    market_phase: str,
 ) -> dict[str, object]:
     source = str(row.get("source", "unknown"))
     freshness = str(row.get("freshness", "UNAVAILABLE"))
     status = str(row.get("status", "UNKNOWN"))
     checked_at = _parse_datetime(row.get("checked_at"))
     age_seconds = None if checked_at is None else int((now - checked_at).total_seconds())
+    closed_market_current = (
+        checked_at is not None
+        and market_phase in OFF_HOURS_PHASES
+        and _closed_market_source_current(source, checked_at=checked_at, now=now)
+    )
     blocked = freshness in {"STALE", "UNAVAILABLE"} or status in {
         "STALE",
         "UNAVAILABLE",
@@ -918,12 +969,23 @@ def _source_freshness_check(
         blocked = True
         warned = False
         detail = f"{source} has no checked_at timestamp; execution freshness is unverified."
-    elif age_seconds is not None and age_seconds > max_source_age_seconds:
+    elif (
+        age_seconds is not None
+        and age_seconds > max_source_age_seconds
+        and not closed_market_current
+    ):
         blocked = True
         warned = False
         detail = (
             f"{source} source-health row is {age_seconds}s old; refresh critical "
             "evidence before submitting."
+        )
+    elif closed_market_current and age_seconds is not None:
+        detail = (
+            f"{source} freshness is {freshness}; source status is {status}; "
+            f"checked {age_seconds}s ago. Closed-market validation accepts the "
+            "latest completed session because no new tape is expected until the "
+            "next trading session."
         )
     else:
         detail = (
@@ -937,6 +999,86 @@ def _source_freshness_check(
         "status_class": "block" if blocked else "warn" if warned else "pass",
         "detail": detail,
     }
+
+
+def _effective_source_max_age_seconds(
+    explicit_value: int | None,
+    *,
+    test_freshness_mode: bool,
+) -> int:
+    if explicit_value is not None:
+        return explicit_value
+    if not test_freshness_mode:
+        return DEFAULT_MAX_SOURCE_HEALTH_AGE_SECONDS
+    return _positive_int_env(
+        TEST_SOURCE_MAX_AGE_SECONDS_ENV,
+        default=DEFAULT_MAX_SOURCE_HEALTH_AGE_SECONDS,
+    )
+
+
+def _source_max_age_policy_label(
+    max_age_seconds: int,
+    *,
+    test_freshness_mode: bool,
+    closed_market_source_policy: bool,
+) -> str:
+    if closed_market_source_policy and not test_freshness_mode:
+        return "closed-market latest completed session"
+    label = _eta_label(max_age_seconds)
+    if test_freshness_mode:
+        return f"test rehearsal source-health window: {label}"
+    return f"production source-health window: {label}"
+
+
+def _closed_market_source_current(
+    source: str,
+    *,
+    checked_at: datetime,
+    now: datetime,
+) -> bool:
+    if source not in CRITICAL_EXECUTION_SOURCES:
+        return False
+    return checked_at.date() >= _latest_completed_market_date(now)
+
+
+def _latest_completed_market_date(now: datetime) -> date:
+    try:
+        from data_refresh.market_calendar import (
+            classify_market_session,
+            previous_trading_day,
+        )
+    except ModuleNotFoundError:
+        return _previous_weekday(now.date()) if now.weekday() >= 5 else now.date()
+    session = classify_market_session(now)
+    if not session.is_trading_day:
+        return previous_trading_day(session.market_date)
+    if session.phase in {"pre_market", "regular_market", "overnight_before_pre_market"}:
+        return previous_trading_day(session.market_date)
+    return session.market_date
+
+
+def _previous_weekday(value: date) -> date:
+    candidate = value - timedelta(days=1)
+    while candidate.weekday() >= 5:
+        candidate -= timedelta(days=1)
+    return candidate
+
+
+def _positive_int_env(name: str, *, default: int) -> int:
+    value = os.environ.get(name)
+    if value is None or not value.strip():
+        return default
+    try:
+        parsed = int(value)
+    except ValueError:
+        return default
+    return parsed if parsed > 0 else default
+
+
+def _env_bool(value: str | None) -> bool:
+    if value is None or not value.strip():
+        return False
+    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _tradability(
@@ -983,7 +1125,14 @@ def _tradability(
         detail = "Some datasets are stale or warning; keep decisions in review mode."
     else:
         state = "tradable"
-        if execution_gate.get("state") == "warning":
+        if _execution_gate_has_unconfirmed_broker_warning(execution_gate):
+            detail = (
+                "Critical evidence is fresh; broker status is not confirmed in this "
+                "dashboard check. Paper submit remains protected by a strict live "
+                "Alpaca broker check before any order can be sent: "
+                f"{execution_gate.get('detail', 'broker check pending.')}"
+            )
+        elif execution_gate.get("state") == "warning":
             detail = (
                 "Broker and critical evidence are fresh enough for paper orders "
                 f"with caution: {execution_gate.get('detail', 'review freshness warnings.')}"
@@ -1003,6 +1152,19 @@ def _tradability(
         "status_class": "warn" if tradable_with_warning else "pass" if state == "tradable" else "warn",
         "detail": detail,
     }
+
+
+def _execution_gate_has_unconfirmed_broker_warning(
+    execution_gate: Mapping[str, object],
+) -> bool:
+    for check in _mapping_rows(execution_gate, "checks"):
+        if (
+            str(check.get("label")) == "Broker state"
+            and str(check.get("status")) == "WARN"
+            and "not confirmed" in str(check.get("detail", "")).lower()
+        ):
+            return True
+    return False
 
 
 def _running_refresh_blocks_tradability(
@@ -1134,7 +1296,14 @@ def _massive_lane_row(
         manifest=manifest,
         now=now,
     )
-    fresh_tickers = set(tickers).intersection(_fresh_live_lane_tickers(row, manifest, now=now))
+    fresh_tickers = set(tickers).intersection(_fresh_massive_lane_tickers(row, manifest, now=now))
+    if _daily_bar_active_repair_due(row, status=status, tickers=tickers, fresh_tickers=fresh_tickers):
+        missing_count = max(len(tickers) - len(fresh_tickers), 0)
+        status = "DUE_NOW"
+        reason = (
+            f"{reason} Massive Daily Bars lane coverage is incomplete for the active "
+            f"universe: missing {missing_count} active ticker(s)."
+        )
     command_tickers = _command_scope_tickers(
         row,
         tickers=tickers,
@@ -1163,7 +1332,7 @@ def _massive_lane_row(
         config_path=config_path,
         market_date=str(session.get("market_date") or ""),
     )
-    command_ticker_count = sum(1 for item in command if item == "--ticker")
+    command_ticker_count = _command_ticker_count(command)
     return {
         "job_id": f"massive:{lane_id}",
         "kind": "massive_lane",
@@ -1258,10 +1427,14 @@ def _command_scope_tickers(
 ) -> list[str]:
     if status not in {"DUE_NOW", "RUNNING"}:
         return list(tickers)
-    if str(row.get("command_profile") or "") not in {
+    profile = str(row.get("command_profile") or "")
+    if profile not in {
         "stock_trades_live",
         "stock_trades_premarket",
+        "prices_daily",
     }:
+        return list(tickers)
+    if profile == "prices_daily" and str(row.get("batch_action") or "") != "skip":
         return list(tickers)
     pending = [ticker for ticker in tickers if ticker not in fresh_tickers]
     if pending:
@@ -1293,16 +1466,16 @@ def _massive_lane_tickers(
     return row_tickers
 
 
-def _fresh_live_lane_tickers(
+def _fresh_massive_lane_tickers(
     row: Mapping[str, object],
     manifest: Mapping[str, object],
     *,
     now: datetime,
 ) -> set[str]:
-    if str(row.get("command_profile") or "") not in {
-        "stock_trades_live",
-        "stock_trades_premarket",
-    }:
+    profile = str(row.get("command_profile") or "")
+    if profile == "prices_daily":
+        return _fresh_daily_bar_lane_tickers(row, manifest, now=now)
+    if profile not in {"stock_trades_live", "stock_trades_premarket"}:
         return set()
     if not manifest or not _manifest_window_matches_row(row, manifest):
         return set()
@@ -1328,6 +1501,73 @@ def _fresh_live_lane_tickers(
             continue
         fresh.add(ticker)
     return fresh
+
+
+def _fresh_daily_bar_lane_tickers(
+    row: Mapping[str, object],
+    manifest: Mapping[str, object],
+    *,
+    now: datetime,
+) -> set[str]:
+    if not manifest or not _daily_bar_manifest_covers_row(row, manifest):
+        return set()
+    required_seconds = _int_or_none(row.get("freshness_requirement_seconds")) or 0
+    fetched_at = _parse_datetime(manifest.get("fetched_at"))
+    if required_seconds > 0 and fetched_at is not None:
+        age_seconds = (now - fetched_at).total_seconds()
+        if age_seconds > required_seconds and not _closed_market_lane_manifest_current(row, manifest, now=now):
+            return set()
+    coverage = [
+        _mapping(item)
+        for item in _sequence(manifest.get("coverage"))
+        if str(_mapping(item).get("ticker") or "").strip()
+    ]
+    complete = {
+        str(item.get("ticker") or "").upper().strip()
+        for item in coverage
+        if item.get("complete") is True
+        or str(item.get("coverage_status") or item.get("status") or "").lower() == "complete"
+    }
+    if complete:
+        return {ticker for ticker in complete if ticker}
+    if str(manifest.get("status") or "").lower() != "complete":
+        return set()
+    return {
+        str(ticker).upper().strip()
+        for ticker in _sequence(manifest.get("tickers"))
+        if str(ticker).strip()
+    }
+
+
+def _daily_bar_active_repair_due(
+    row: Mapping[str, object],
+    *,
+    status: str,
+    tickers: Sequence[str],
+    fresh_tickers: set[str],
+) -> bool:
+    if str(row.get("command_profile") or "") != "prices_daily":
+        return False
+    if status not in {"SKIPPED", "READY"}:
+        return False
+    return bool(tickers) and len(fresh_tickers) < len(tickers)
+
+
+def _daily_bar_manifest_covers_row(
+    row: Mapping[str, object],
+    manifest: Mapping[str, object],
+) -> bool:
+    requested = _row_date_text(row.get("end")) or _row_date_text(row.get("start"))
+    if not requested:
+        return True
+    manifest_end = _manifest_window_end_date(manifest) or _manifest_fetched_date(manifest)
+    if manifest_end is None:
+        return False
+    try:
+        requested_date = date.fromisoformat(requested)
+    except ValueError:
+        return False
+    return manifest_end >= requested_date
 
 
 def _manifest_window_matches_row(
@@ -1574,6 +1814,18 @@ def _massive_lane_command(
             status=status,
         )
     return []
+
+
+def _command_ticker_count(command: Sequence[str]) -> int:
+    count = sum(1 for item in command if item == "--ticker")
+    if "--tickers" not in command:
+        return count
+    start = command.index("--tickers") + 1
+    for item in command[start:]:
+        if str(item).startswith("--"):
+            break
+        count += 1
+    return count
 
 
 def _unsupported_massive_api_lane_due(row: Mapping[str, object], status: str) -> bool:

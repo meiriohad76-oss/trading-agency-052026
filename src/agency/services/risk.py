@@ -305,6 +305,7 @@ def build_risk_decisions(
     policy: PortfolioPolicy | None = None,
     current_gross_exposure_pct: float = 0.0,
     pending_opening_order_exposure_pct: float = 0.0,
+    validate_contracts: bool = True,
 ) -> list[RiskDecisionResult]:
     """Build v0 risk decisions for selection reports without broker calls."""
     normalized_policy = policy or PortfolioPolicy()
@@ -325,6 +326,7 @@ def build_risk_decisions(
             policy=normalized_policy,
             candidate_index=opening_trade_index,
             projected_gross_exposure_pct=projected_exposure,
+            validate_contracts=validate_contracts,
         )
         results.append(result)
         if is_opening_trade and result.risk_decision["decision"] == "ALLOW":
@@ -340,9 +342,11 @@ def build_risk_decision(
     policy: PortfolioPolicy | None = None,
     candidate_index: int = 0,
     projected_gross_exposure_pct: float | None = None,
+    validate_contracts: bool = True,
 ) -> RiskDecisionResult:
     """Build one schema-valid v0 risk decision and audit event."""
-    validate_contract("selection-report", selection_report)
+    if validate_contracts:
+        validate_contract("selection-report", selection_report)
     normalized_policy = policy or PortfolioPolicy()
     projected_exposure = (
         normalized_policy.default_position_pct
@@ -376,7 +380,8 @@ def build_risk_decision(
         "risk_flags": _string_list(selection_report, "risk_flags"),
         "source_health": dict(source_health_summary),
     }
-    validate_contract("risk-decision", risk_decision)
+    if validate_contracts:
+        validate_contract("risk-decision", risk_decision)
     lifecycle_event = build_report_lifecycle_event(
         risk_decision,
         event_type="RISK_DECISION",
@@ -384,7 +389,8 @@ def build_risk_decision(
         reason=reasons[0],
         payload={"risk_decision": dict(risk_decision)},
     )
-    validate_contract("candidate-lifecycle-event", lifecycle_event)
+    if validate_contracts:
+        validate_contract("candidate-lifecycle-event", lifecycle_event)
     return RiskDecisionResult(risk_decision, lifecycle_event)
 
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
+import agency.audit_dashboard as audit_dashboard_module
 from agency.app import create_app
 from agency.audit_dashboard import (
     agent_run_rows,
@@ -14,7 +15,23 @@ from agency.audit_dashboard import (
 HTTP_OK = 200
 
 
-def test_audit_dashboard_renders_empty_state() -> None:
+def test_audit_dashboard_renders_empty_state(monkeypatch) -> None:
+    async def empty_rows(*_args: object, **_kwargs: object) -> list[dict[str, object]]:
+        return []
+
+    async def empty_data_load_status() -> dict[str, object]:
+        return {}
+
+    monkeypatch.setattr(audit_dashboard_module, "runtime_agent_runs", empty_rows)
+    monkeypatch.setattr(audit_dashboard_module, "runtime_prompt_audits", empty_rows)
+    monkeypatch.setattr(audit_dashboard_module, "runtime_risk_snapshots", empty_rows)
+    monkeypatch.setattr(audit_dashboard_module, "runtime_execution_states", empty_rows)
+    monkeypatch.setattr(audit_dashboard_module, "runtime_portfolio_snapshots", empty_rows)
+    monkeypatch.setattr(
+        audit_dashboard_module,
+        "live_dashboard_data_load_status",
+        empty_data_load_status,
+    )
     client = TestClient(create_app())
 
     response = client.get("/audit")

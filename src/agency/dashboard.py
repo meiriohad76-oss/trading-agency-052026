@@ -28,6 +28,7 @@ from agency.services import (
     PortfolioPolicy,
     build_and_persist_human_review_event,
     build_human_review_event,
+    build_operator_manual_advance_event,
     build_order_approval_event,
     load_active_portfolio_policy,
     persist_portfolio_snapshot,
@@ -281,6 +282,61 @@ async def final_selection(request: Request) -> Response:
     )
 
 
+@router.post("/execution-preview/operator-advance")
+async def record_operator_manual_advance(
+    request: Request,
+    cycle_id: str,
+    ticker: str,
+    as_of: str,
+    override_reason: str | None = None,
+    blocked_reason: str | None = None,
+    acknowledged: bool = False,
+) -> Response:
+    report_hash = await _selection_report_hash_for_review(
+        cycle_id=cycle_id,
+        ticker=ticker,
+        as_of=as_of,
+    )
+    if report_hash is None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "current selection report not found; refresh the execution preview "
+                "before recording a hash-bound manual advance"
+            ),
+        )
+    reason = override_reason or await _request_form_text(request, "override_reason")
+    blocked = blocked_reason or await _request_form_text(request, "blocked_reason")
+    acknowledged = acknowledged or await _request_form_bool(request, "acknowledged")
+    try:
+        event = build_operator_manual_advance_event(
+            cycle_id=cycle_id,
+            ticker=ticker,
+            as_of=as_of,
+            selection_report_hash=report_hash,
+            override_reason=reason or "",
+            blocked_reason=blocked,
+            acknowledged=acknowledged,
+        )
+        async with get_session() as session:
+            await record_candidate_lifecycle_event(session, event)
+            await session.commit()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (MissingDatabaseConfigurationError, OSError, SQLAlchemyError) as exc:
+        try:
+            append_runtime_lifecycle_event_artifact(event)
+        except OSError as write_error:
+            raise HTTPException(
+                status_code=503,
+                detail="operator manual advance could not be persisted",
+            ) from write_error
+    return RedirectResponse(
+        url="/execution-preview#execution-followup-heading",
+        status_code=303,
+    )
+
+
 @router.get("/risk")
 async def risk(request: Request) -> Response:
     return templates.TemplateResponse(
@@ -431,7 +487,11 @@ async def approve_execution_order(
         runtime_data_source_status(),
     )
     _require_immediate_execution_freshness(broker, data_sources)
-    context = await execution_preview_context(broker=broker, data_sources=data_sources)
+    context = await execution_preview_context(
+        broker=broker,
+        data_sources=data_sources,
+        validate_contracts=True,
+    )
     gate = _mapping_field(context, "execution_freshness_gate")
     if gate["ready"] is not True:
         raise HTTPException(status_code=409, detail=str(gate["detail"]))
@@ -480,7 +540,11 @@ async def submit_execution_order(
         runtime_data_source_status(),
     )
     _require_immediate_execution_freshness(broker, data_sources)
-    context = await execution_preview_context(broker=broker, data_sources=data_sources)
+    context = await execution_preview_context(
+        broker=broker,
+        data_sources=data_sources,
+        validate_contracts=True,
+    )
     gate = _mapping_field(context, "execution_freshness_gate")
     if gate["ready"] is not True:
         raise HTTPException(status_code=409, detail=str(gate["detail"]))
@@ -662,12 +726,37 @@ async def _request_form_bool(request: Request, field_name: str) -> bool:
     return _truthy_form_value(form.get(field_name))
 
 
+async def _request_form_text(request: Request, field_name: str) -> str | None:
+    content_type = request.headers.get("content-type", "")
+    if "application/x-www-form-urlencoded" in content_type:
+        try:
+            body = (await request.body()).decode("utf-8")
+        except UnicodeDecodeError:
+            return None
+        values = parse_qs(body, keep_blank_values=True)
+        return _clean_form_text(values.get(field_name, [""])[0])
+    if "multipart/form-data" not in content_type:
+        return None
+    try:
+        form = await request.form()
+    except Exception:  # noqa: BLE001
+        return None
+    return _clean_form_text(form.get(field_name))
+
+
 def _truthy_form_value(value: object) -> bool:
     if value is None:
         return False
     if isinstance(value, bool):
         return value
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _clean_form_text(value: object) -> str | None:
+    if value is None:
+        return None
+    cleaned = " ".join(str(value).split())
+    return cleaned or None
 
 
 @router.get("/policy")

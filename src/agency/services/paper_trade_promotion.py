@@ -5,7 +5,10 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from agency.contracts import validate_contract
-from agency.services.human_review import selection_report_hash
+from agency.services.human_review import (
+    OPERATOR_MANUAL_ADVANCE_TYPE,
+    selection_report_hash,
+)
 
 TRADE_PROMOTION_NOTE = (
     "paper trade promotion: approved WATCH creates a paper BUY order-intent preview"
@@ -19,6 +22,14 @@ DEFAULT_MIN_CONVICTION = 0.9
 DEFAULT_MIN_SOURCE_COUNT = 2
 DEFAULT_MIN_CONFIRMED_SIGNALS = 2
 DEFAULT_MAX_PROMOTIONS = 1
+OPERATOR_OVERRIDABLE_CHECKS = {
+    "conviction",
+    "risk_flags",
+    "policy_gates",
+    "source_count",
+    "confirmed_signal_count",
+    "freshness",
+}
 
 
 @dataclass(frozen=True)
@@ -65,6 +76,7 @@ def promote_paper_trade_reports(
     selection_reports: Sequence[Mapping[str, object]],
     *,
     review_states: Mapping[tuple[str, str, str], Mapping[str, object]],
+    operator_advance_states: Mapping[tuple[str, str, str], Mapping[str, object]] | None = None,
     positions: Sequence[Mapping[str, object]] = (),
     open_orders: Sequence[Mapping[str, object]] = (),
     broker_ready: bool = False,
@@ -73,9 +85,11 @@ def promote_paper_trade_reports(
     """Return report copies with eligible approved WATCH rows promoted to paper BUY."""
     normalized_config = config or PaperTradePromotionConfig()
     reports = [_validated_report(report) for report in selection_reports]
+    advances = {} if operator_advance_states is None else operator_advance_states
     evaluations = _paper_trade_promotion_evaluation_list(
         reports,
         review_states=review_states,
+        operator_advance_states=advances,
         positions=positions,
         open_orders=open_orders,
         broker_ready=broker_ready,
@@ -83,7 +97,13 @@ def promote_paper_trade_reports(
     )
     selected_indices = _selected_promotion_indices(reports, evaluations, normalized_config)
     return [
-        _promoted_report(report)
+        _promoted_report(
+            report,
+            operator_advance=_valid_operator_manual_advance(
+                advances.get(_report_key(report)),
+                report,
+            ),
+        )
         if index in selected_indices
         else dict(report)
         for index, report in enumerate(reports)
@@ -94,6 +114,7 @@ def paper_trade_promotion_evaluations(
     selection_reports: Sequence[Mapping[str, object]],
     *,
     review_states: Mapping[tuple[str, str, str], Mapping[str, object]],
+    operator_advance_states: Mapping[tuple[str, str, str], Mapping[str, object]] | None = None,
     positions: Sequence[Mapping[str, object]] = (),
     open_orders: Sequence[Mapping[str, object]] = (),
     broker_ready: bool = False,
@@ -102,9 +123,11 @@ def paper_trade_promotion_evaluations(
     """Explain paper-only WATCH-to-BUY promotion eligibility for each report."""
     normalized_config = config or PaperTradePromotionConfig()
     reports = [_validated_report(report) for report in selection_reports]
+    advances = {} if operator_advance_states is None else operator_advance_states
     base_evaluations = _paper_trade_promotion_evaluation_list(
         reports,
         review_states=review_states,
+        operator_advance_states=advances,
         positions=positions,
         open_orders=open_orders,
         broker_ready=broker_ready,
@@ -126,6 +149,7 @@ def _paper_trade_promotion_evaluation_list(
     reports: Sequence[Mapping[str, object]],
     *,
     review_states: Mapping[tuple[str, str, str], Mapping[str, object]],
+    operator_advance_states: Mapping[tuple[str, str, str], Mapping[str, object]],
     positions: Sequence[Mapping[str, object]],
     open_orders: Sequence[Mapping[str, object]],
     broker_ready: bool,
@@ -137,13 +161,14 @@ def _paper_trade_promotion_evaluation_list(
         _paper_trade_promotion_evaluation(
             report,
             review_states=review_states,
-                held_tickers=held_tickers,
-                open_order_tickers=open_order_tickers,
-                broker_ready=broker_ready,
-                config=config,
-            )
-            for report in reports
-        ]
+            operator_advance=operator_advance_states.get(_report_key(report)),
+            held_tickers=held_tickers,
+            open_order_tickers=open_order_tickers,
+            broker_ready=broker_ready,
+            config=config,
+        )
+        for report in reports
+    ]
 
 
 def _selected_promotion_indices(
@@ -168,12 +193,14 @@ def _paper_trade_promotion_evaluation(
     report: Mapping[str, object],
     *,
     review_states: Mapping[tuple[str, str, str], Mapping[str, object]],
+    operator_advance: Mapping[str, object] | None,
     held_tickers: set[str],
     open_order_tickers: set[str],
     broker_ready: bool,
     config: PaperTradePromotionConfig,
 ) -> dict[str, object]:
-    checks = _promotion_checks(
+    valid_advance = _valid_operator_manual_advance(operator_advance, report)
+    raw_checks = _promotion_checks(
         report,
         review_states=review_states,
         held_tickers=held_tickers,
@@ -181,7 +208,12 @@ def _paper_trade_promotion_evaluation(
         broker_ready=broker_ready,
         config=config,
     )
+    manual_advance_available = (
+        valid_advance is None and _manual_advance_can_help(raw_checks, report)
+    )
+    checks = _apply_operator_manual_advance(raw_checks, valid_advance)
     failed = [check for check in checks if check["status"] != "PASS"]
+    advanced = [check for check in checks if check.get("operator_advanced") is True]
     eligible = not failed
     can_promote_after_approval = (
         not eligible
@@ -208,6 +240,10 @@ def _paper_trade_promotion_evaluation(
         "can_promote_after_approval": can_promote_after_approval,
         "checks": checks,
         "reasons": [str(check["detail"]) for check in failed],
+        "operator_manual_advance": _operator_advance_summary(valid_advance),
+        "operator_advanced_reasons": [str(check["detail"]) for check in advanced],
+        "manual_advance_available": manual_advance_available,
+        "manual_advance_blocked_reasons": _manual_advance_blocked_reasons(raw_checks),
     }
     output.update(_promotion_state_fields(state))
     return output
@@ -377,6 +413,113 @@ def _check(
         "required": required,
         "value_detail": _check_value_detail(observed=observed, required=required),
     }
+
+
+def _apply_operator_manual_advance(
+    checks: Sequence[Mapping[str, object]],
+    operator_advance: Mapping[str, object] | None,
+) -> list[dict[str, object]]:
+    if operator_advance is None:
+        return [dict(check) for check in checks]
+    reason = _operator_advance_reason(operator_advance)
+    advanced_checks: list[dict[str, object]] = []
+    for check in checks:
+        row = dict(check)
+        name = str(row.get("name") or "")
+        if name in OPERATOR_OVERRIDABLE_CHECKS and row.get("status") != "PASS":
+            original_detail = str(row.get("detail") or "blocked")
+            row.update(
+                {
+                    "status": "PASS",
+                    "status_class": "warn",
+                    "detail": (
+                        "Operator manual advance accepted this paper-promotion "
+                        f"block: {original_detail} Reason: {reason}"
+                    ),
+                    "required": "operator acknowledgement",
+                    "value_detail": (
+                        f"{row.get('observed', 'blocked')} / operator acknowledged"
+                    ),
+                    "operator_advanced": True,
+                    "original_status": check.get("status"),
+                    "original_detail": original_detail,
+                }
+            )
+        advanced_checks.append(row)
+    return advanced_checks
+
+
+def _manual_advance_can_help(
+    checks: Sequence[Mapping[str, object]],
+    _report: Mapping[str, object],
+) -> bool:
+    approval = next(
+        (check for check in checks if str(check.get("name") or "") == "human_approval"),
+        None,
+    )
+    if approval is None or approval.get("status") != "PASS":
+        return False
+    failed = [check for check in checks if check.get("status") != "PASS"]
+    if not failed:
+        return False
+    return all(str(check.get("name") or "") in OPERATOR_OVERRIDABLE_CHECKS for check in failed)
+
+
+def _manual_advance_blocked_reasons(
+    checks: Sequence[Mapping[str, object]],
+) -> list[str]:
+    return [
+        str(check.get("detail") or "")
+        for check in checks
+        if check.get("status") != "PASS"
+        and str(check.get("name") or "") not in OPERATOR_OVERRIDABLE_CHECKS
+    ]
+
+
+def _valid_operator_manual_advance(
+    event: Mapping[str, object] | None,
+    report: Mapping[str, object],
+) -> Mapping[str, object] | None:
+    if event is None:
+        return None
+    if str(event.get("event_type")) != "OPERATOR_MANUAL_ADVANCE":
+        return None
+    if str(event.get("status")) not in {"PASSED", "RECORDED"}:
+        return None
+    payload = event.get("payload")
+    if not isinstance(payload, Mapping):
+        return None
+    if str(payload.get("advance_type")) != OPERATOR_MANUAL_ADVANCE_TYPE:
+        return None
+    if str(payload.get("scope") or "paper_trade_promotion") != "paper_trade_promotion":
+        return None
+    if payload.get("paper_only") is not True or payload.get("acknowledged") is not True:
+        return None
+    if str(payload.get("as_of") or "") != str(report["as_of"]):
+        return None
+    if str(payload.get("selection_report_hash") or "") != selection_report_hash(report):
+        return None
+    return event
+
+
+def _operator_advance_summary(
+    event: Mapping[str, object] | None,
+) -> dict[str, object] | None:
+    if event is None:
+        return None
+    payload = _mapping_field(event, "payload")
+    return {
+        "status": "accepted",
+        "reason": _operator_advance_reason(event),
+        "reviewed_by": str(payload.get("reviewed_by") or "local-user"),
+        "event_time": str(event.get("event_time") or ""),
+        "selection_report_hash": str(payload.get("selection_report_hash") or ""),
+    }
+
+
+def _operator_advance_reason(event: Mapping[str, object]) -> str:
+    payload = _mapping_field(event, "payload")
+    return str(payload.get("override_reason") or "operator acknowledged this block")
 
 
 def _approval_check(
@@ -586,9 +729,15 @@ def _review_approves_report(
     return bool(approved_hash) and approved_hash == selection_report_hash(report)
 
 
-def _promoted_report(report: Mapping[str, object]) -> dict[str, object]:
+def _promoted_report(
+    report: Mapping[str, object],
+    *,
+    operator_advance: Mapping[str, object] | None = None,
+) -> dict[str, object]:
     promoted = dict(report)
     promoted["final_action"] = "BUY"
+    if operator_advance is not None:
+        promoted["policy_gates"] = _operator_advanced_policy_gates(report, operator_advance)
     promoted["trade_plan"] = {
         "entry": None,
         "stop_loss": None,
@@ -600,10 +749,43 @@ def _promoted_report(report: Mapping[str, object]) -> dict[str, object]:
             TRADE_PROMOTION_REQUIRES_ORDER_APPROVAL_FLAG,
             TRADE_PROMOTION_APPROVAL_NOTE,
             *_policy_warning_notes(report),
+            *_operator_advance_notes(operator_advance),
         ],
     }
     validate_contract("selection-report", promoted)
     return promoted
+
+
+def _operator_advanced_policy_gates(
+    report: Mapping[str, object],
+    operator_advance: Mapping[str, object],
+) -> list[dict[str, object]]:
+    reason = _operator_advance_reason(operator_advance)
+    rows: list[dict[str, object]] = []
+    for gate in _mapping_list(report, "policy_gates"):
+        row = dict(gate)
+        if str(row.get("status")) == "BLOCK":
+            original_reason = str(row.get("reason") or "blocked")
+            row["status"] = "WARN"
+            row["reason"] = (
+                "Operator manual advance acknowledged this policy block for paper "
+                f"trading. Original: {original_reason}. Reason: {reason}"
+            )
+        rows.append(row)
+    return rows
+
+
+def _operator_advance_notes(
+    operator_advance: Mapping[str, object] | None,
+) -> list[str]:
+    if operator_advance is None:
+        return []
+    return [
+        (
+            "operator manual advance: paper-promotion blockers were acknowledged "
+            f"for this exact selection report. Reason: {_operator_advance_reason(operator_advance)}"
+        )
+    ]
 
 
 def _promotion_sort_key(report: Mapping[str, object]) -> tuple[float, str]:

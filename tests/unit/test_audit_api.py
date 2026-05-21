@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 
 from fastapi.testclient import TestClient
 
+import agency.api.audit as audit_api
 from agency.api.audit import (
     RuntimeAuditUnavailable,
     runtime_agent_runs,
@@ -17,7 +18,15 @@ HTTP_OK = 200
 EXPECTED_LIMIT = 5
 
 
-def test_audit_endpoints_report_storage_unavailable() -> None:
+def test_audit_endpoints_report_storage_unavailable(monkeypatch) -> None:
+    async def unavailable(*_args: object, **_kwargs: object) -> list[dict[str, object]]:
+        raise RuntimeAuditUnavailable("runtime audit storage is unavailable")
+
+    monkeypatch.setattr(audit_api, "runtime_agent_runs", unavailable)
+    monkeypatch.setattr(audit_api, "runtime_prompt_audits", unavailable)
+    monkeypatch.setattr(audit_api, "runtime_risk_snapshots", unavailable)
+    monkeypatch.setattr(audit_api, "runtime_execution_states", unavailable)
+    monkeypatch.setattr(audit_api, "runtime_portfolio_snapshots", unavailable)
     client = TestClient(create_app())
 
     assert client.get("/audit/agent-runs").status_code == 503
@@ -96,7 +105,11 @@ async def test_runtime_agent_runs_can_raise_storage_unavailable() -> None:
         raise AssertionError("expected RuntimeAuditUnavailable")
 
 
-def test_agent_runs_route_returns_storage_unavailable_without_config() -> None:
+def test_agent_runs_route_returns_storage_unavailable_without_config(monkeypatch) -> None:
+    async def unavailable(*_args: object, **_kwargs: object) -> list[dict[str, object]]:
+        raise RuntimeAuditUnavailable("runtime audit storage is unavailable")
+
+    monkeypatch.setattr(audit_api, "runtime_agent_runs", unavailable)
     client = TestClient(create_app())
 
     response = client.get("/audit/agent-runs")

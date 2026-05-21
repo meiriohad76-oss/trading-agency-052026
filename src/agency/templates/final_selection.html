@@ -74,7 +74,15 @@
           <span class="muted-line">{{ row.human_review_reason }}{% if row.human_review_time_label != "Time unknown" %} / {{ row.human_review_time_label }}{% endif %}</span>
           {% endif %}
         </div>
-        <span class="muted-line">Generated {{ row.generated_at_label }} / data as of {{ row.as_of_label }} / cycle {{ row.cycle_id }}</span>
+      </div>
+      <div class="selection-provenance" aria-label="Freshness and provenance proof">
+        <strong>{{ row.freshness_proof_label }}</strong>
+        {% for item in row.provenance_items %}
+        <span>
+          <span class="metric-label">{{ item.label }}</span>
+          <span>{{ item.value }}</span>
+        </span>
+        {% endfor %}
       </div>
       <div class="split-panel">
         <div>
@@ -175,7 +183,10 @@
           These are the latest-cycle WATCH candidates eligible for human review, sorted by conviction.
         </p>
       </div>
-      <span class="tag tag-neutral">{{ summary.cycle_label }}</span>
+      <span class="cycle-id-chip" title="{{ summary.cycle_id }}">
+        <span>Cycle</span>
+        <strong>{{ summary.cycle_id }}</strong>
+      </span>
     </div>
     <div class="selection-list">
       {% for row in watch_rows %}

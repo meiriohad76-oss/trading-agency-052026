@@ -16,12 +16,14 @@ from agency.runtime.data_load_status import load_data_load_status
 from agency.runtime.data_refresh_progress import load_data_refresh_progress
 from agency.services import (
     TRADE_PROMOTION_REQUIRES_ORDER_APPROVAL_FLAG,
+    LeveragedAlternativePolicy,
     PaperTradePromotionConfig,
     PortfolioPolicy,
     build_execution_previews,
     build_leveraged_alternative_review,
     build_risk_decisions,
     load_active_portfolio_policy,
+    load_leveraged_etf_catalog,
     paper_trade_promotion_evaluations,
     persist_order_execution_state,
     persist_order_intent_execution_state,
@@ -55,6 +57,7 @@ async def execution_preview_context(
     raw_reports: Sequence[Mapping[str, object]] | None = None,
     data_sources: Sequence[Mapping[str, object]] | None = None,
     broker: Mapping[str, object] | None = None,
+    validate_contracts: bool = False,
 ) -> dict[str, object]:
     from agency.views.command import human_review_events_for_reports
     from agency.views.market_regime import broker_status_context
@@ -70,7 +73,7 @@ async def execution_preview_context(
         fetched_reports, fetched_sources, fetched_broker = await asyncio.gather(
             _dashboard_selection_reports(limit=FINAL_SELECTION_REPORT_LIMIT),
             live_runtime_source_health_rows(runtime_data_source_status),
-            broker_status_context(use_cache=False),
+            broker_status_context(use_cache=True),
         )
         if raw_reports is None:
             raw_reports = fetched_reports
@@ -93,10 +96,14 @@ async def execution_preview_context(
     review_states = _human_review_index(
         await human_review_events_for_reports(reports, readiness)
     )
+    operator_advance_states = _human_review_index(
+        await operator_manual_advance_events_for_reports(reports, readiness)
+    )
     promotion_config = PaperTradePromotionConfig.from_env()
     promotion_evaluations = paper_trade_promotion_evaluations(
         reports,
         review_states=review_states,
+        operator_advance_states=operator_advance_states,
         positions=broker_positions,
         open_orders=_broker_orders(broker),
         broker_ready=_broker_ready_for_paper_promotion(broker),
@@ -105,6 +112,7 @@ async def execution_preview_context(
     promoted_reports = promote_paper_trade_reports(
         reports,
         review_states=review_states,
+        operator_advance_states=operator_advance_states,
         positions=broker_positions,
         open_orders=_broker_orders(broker),
         broker_ready=_broker_ready_for_paper_promotion(broker),
@@ -116,6 +124,7 @@ async def execution_preview_context(
         policy=policy,
         current_gross_exposure_pct=_broker_gross_exposure_pct(broker),
         pending_opening_order_exposure_pct=_pending_opening_order_exposure_pct(broker),
+        validate_contracts=validate_contracts,
     )
     research_approval_keys = await execution_approval_keys(
         reports=reports,
@@ -130,6 +139,7 @@ async def execution_preview_context(
         open_orders=_broker_orders(broker),
         research_approval_required=True,
         research_approval_records={key: True for key in research_approval_keys},
+        validate_contracts=validate_contracts,
     )
     freshness_gate = execution_freshness_gate(broker, data_sources)
     scheduler_gate = scheduler_work_queue_context(
@@ -157,10 +167,14 @@ async def execution_preview_context(
         execution_gate=execution_gate,
         promotion_evaluations=promotion_evaluations,
     )
+    leveraged_policy = LeveragedAlternativePolicy.from_env()
+    leveraged_catalog = load_leveraged_etf_catalog()
     leveraged_reviews = [
         build_leveraged_alternative_review(
             report,
             risk_decision=risk_result.risk_decision,
+            policy=leveraged_policy,
+            etf_catalog=leveraged_catalog,
         )
         for report, risk_result in zip(promoted_reports, risk_results, strict=True)
     ]
@@ -387,6 +401,18 @@ async def order_approval_events_for_reports(
         reports,
         readiness,
         event_type="ORDER_APPROVAL",
+        limit_per_ticker=100,
+    )
+
+
+async def operator_manual_advance_events_for_reports(
+    reports: Sequence[Mapping[str, object]],
+    readiness: Mapping[str, object],
+) -> list[dict[str, object]]:
+    return await _lifecycle_events_for_reports(
+        reports,
+        readiness,
+        event_type="OPERATOR_MANUAL_ADVANCE",
         limit_per_ticker=100,
     )
 
@@ -712,6 +738,11 @@ def _execution_preview_row(
             as_of=as_of,
             order_intent_hash=order_intent_hash,
         ),
+        "operator_manual_advance_action": _execution_operator_advance_url(
+            cycle_id=cycle_id,
+            ticker=ticker,
+            as_of=as_of,
+        ),
         "human_approved": human_approved,
         "human_review_decision": review_decision,
         "human_review_class": str(human_review["status_class"]),
@@ -780,6 +811,16 @@ def _execution_preview_row(
         ),
         "paper_promotion_checks": _promotion_check_rows(promotion_evaluation),
         "paper_promotion_check_summary": _promotion_check_summary(
+            promotion_evaluation,
+        ),
+        "operator_manual_advance_available": bool(
+            promotion_evaluation is not None
+            and promotion_evaluation.get("manual_advance_available") is True
+        ),
+        "operator_manual_advance_status_label": _operator_manual_advance_status_label(
+            promotion_evaluation,
+        ),
+        "operator_manual_advance_detail": _operator_manual_advance_detail(
             promotion_evaluation,
         ),
         "caution_acknowledgement_required": caution["required"],
@@ -944,6 +985,23 @@ def _execution_approve_order_url(
         }
     )
     return f"/execution-preview/orders/approve?{query}"
+
+
+def _execution_operator_advance_url(
+    *,
+    cycle_id: str,
+    ticker: str,
+    as_of: str,
+) -> str:
+    query = urlencode(
+        {
+            "cycle_id": cycle_id,
+            "ticker": ticker,
+            "as_of": as_of,
+        }
+    )
+    return f"/execution-preview/operator-advance?{query}"
+
 
 def _submit_blocker(
     *,
@@ -1330,6 +1388,53 @@ def _promotion_reasons(
     if not isinstance(reasons, Sequence) or isinstance(reasons, str | bytes):
         return []
     return [str(reason) for reason in reasons]
+
+
+def _operator_manual_advance_status_label(
+    promotion_evaluation: Mapping[str, object] | None,
+) -> str:
+    advance = _promotion_mapping(promotion_evaluation, "operator_manual_advance")
+    if advance is not None:
+        return "Advanced with caution"
+    if (
+        promotion_evaluation is not None
+        and promotion_evaluation.get("manual_advance_available") is True
+    ):
+        return "Manual advance available"
+    return ""
+
+
+def _operator_manual_advance_detail(
+    promotion_evaluation: Mapping[str, object] | None,
+) -> str:
+    advance = _promotion_mapping(promotion_evaluation, "operator_manual_advance")
+    if advance is not None:
+        return (
+            "Operator manual advance is recorded for this exact selection report. "
+            f"Reason: {advance.get('reason', 'not recorded')}"
+        )
+    if (
+        promotion_evaluation is not None
+        and promotion_evaluation.get("manual_advance_available") is True
+    ):
+        reasons = _promotion_reasons(promotion_evaluation)
+        blocker = reasons[0] if reasons else "paper-promotion checks blocked this row"
+        return (
+            "A human operator can advance this paper workflow with caution. "
+            f"Current blocker: {blocker}"
+        )
+    return ""
+
+
+def _promotion_mapping(
+    promotion_evaluation: Mapping[str, object] | None,
+    key: str,
+) -> Mapping[str, object] | None:
+    if promotion_evaluation is None:
+        return None
+    value = promotion_evaluation.get(key)
+    return value if isinstance(value, Mapping) else None
+
 
 def _promotion_primary_reason(
     promotion_evaluation: Mapping[str, object] | None,

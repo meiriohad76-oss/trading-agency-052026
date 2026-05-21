@@ -8,7 +8,6 @@ import ssl
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from functools import lru_cache
 from typing import Self, cast
 from urllib.parse import urlparse
 
@@ -357,7 +356,6 @@ def _headers(config: AlpacaTradingConfig) -> dict[str, str]:
     }
 
 
-@lru_cache(maxsize=1)
 def _ssl_context() -> ssl.SSLContext:
     return truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
 

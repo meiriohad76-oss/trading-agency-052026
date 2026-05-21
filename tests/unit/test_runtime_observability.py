@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 
 from fastapi.testclient import TestClient
 
+import agency.api.health as health_api
 from agency.api.health import runtime_metrics
 from agency.app import create_app
 from agency.runtime import runtime_metrics_text, structured_log
@@ -12,7 +13,19 @@ from agency.runtime import runtime_metrics_text, structured_log
 HTTP_OK = 200
 
 
-def test_metrics_endpoint_returns_prometheus_text() -> None:
+def test_metrics_endpoint_returns_prometheus_text(monkeypatch) -> None:
+    async def source_status() -> list[dict[str, object]]:
+        return [{"status": "STALE", "freshness": "STALE"}]
+
+    async def selection_reports() -> list[dict[str, object]]:
+        return []
+
+    async def risk_decisions() -> list[dict[str, object]]:
+        return []
+
+    monkeypatch.setattr(health_api, "_default_source_status", source_status)
+    monkeypatch.setattr(health_api, "_default_selection_reports", selection_reports)
+    monkeypatch.setattr(health_api, "_default_risk_decisions", risk_decisions)
     client = TestClient(create_app())
 
     response = client.get("/metrics")

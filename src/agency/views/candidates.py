@@ -540,7 +540,7 @@ def _email_judgement_summary(
     insight_cards: Sequence[Mapping[str, object]],
 ) -> str:
     if not insight_cards:
-        return f"{context['judgement']} No analyzed subscription article changes that view."
+        return f"{context['judgement']} No subscription article analysis is attached to this ticker yet."
     top = insight_cards[0]
     contribution = _row_text(top, "judgement_contribution")
     return _clip_text(contribution or str(context["judgement"]), 360)
@@ -1261,7 +1261,7 @@ def _email_pipeline_summary(
     if analyzed_count:
         pending = _email_analysis_gap_sentence(status_counts)
         return _clip_text(
-            "Analyzed article rows feed the subscription_thesis context lane in the "
+            "Analyzed article rows feed the subscription thesis context lane in the "
             "next runtime cycle. They help explain candidates but do not satisfy "
             f"evidence breadth by themselves. {pending}",
             420,
@@ -1273,7 +1273,7 @@ def _email_pipeline_summary(
             f"until an article body is analyzed. {pending}",
             420,
         )
-    return "The subscription_thesis lane has no current input for this ticker."
+    return "No subscription article thesis input is attached to this ticker yet."
 
 def _email_quality_summary(
     event_count: int,
@@ -2089,7 +2089,7 @@ def _signal_mix_note(
         1 for signal in [*context, *suppressed] if signal.get("direction") == "BEARISH"
     )
     return (
-        "Conviction is driven by actionable signals only. Advisory and blocked signals "
+        "Conviction is driven by actionable signals only. Advisory and score-excluded signals "
         "are shown as caution/context, so bearish advisory rows can coexist with a "
         f"bullish review state. Current mix: {actionable_bullish} actionable bullish, "
         f"{actionable_bearish} actionable bearish, {advisory_bullish} advisory bullish, "

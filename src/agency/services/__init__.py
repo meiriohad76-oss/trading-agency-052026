@@ -42,6 +42,7 @@ from .human_review import (
     HumanReviewWriter,
     build_and_persist_human_review_event,
     build_human_review_event,
+    build_operator_manual_advance_event,
     persist_human_review_event,
     selection_report_hash,
 )
@@ -142,6 +143,7 @@ __all__ = [
     "build_order_approval_event",
     "build_final_selection",
     "build_human_review_event",
+    "build_operator_manual_advance_event",
     "build_learning_outcome",
     "build_leveraged_alternative_review",
     "build_near_miss_journal",

@@ -16,6 +16,7 @@ from agency.views._shared import (
     dashboard_data_health,
     _dashboard_selection_reports,
     _decision_class,
+    _format_timestamp_label,
     _float_field,
     _human_list,
     _human_review_index,
@@ -91,7 +92,7 @@ async def risk_context() -> dict[str, object]:
                     "coverage_label": f"{len(data_sources)} sources checked",
                     "freshness_label": "latest runtime source-health",
                     "last_update": source_last_update,
-                    "detail": "Risk uses source-health rows to block or warn candidates when critical evidence is stale.",
+                    "detail": "Risk uses source-health rows to block or warn candidates when critical evidence needs refresh.",
                 },
             ),
         ),
@@ -301,8 +302,8 @@ def _check_rows(payload: Mapping[str, object], key: str) -> list[dict[str, str]]
                 "status": status,
                 "reason": reason,
                 "criteria": _gate_criteria(name),
-                "meaning": _gate_meaning(name, status, reason),
-                "next_step": _gate_next_step(name, status),
+                "meaning": _gate_meaning(name, status, reason, payload),
+                "next_step": _gate_next_step(name, status, payload),
                 "status_class": status.lower(),
             }
         )
@@ -336,7 +337,23 @@ def _gate_criteria(name: str) -> str:
     }
     return criteria.get(name, "Risk gate must satisfy the configured policy.")
 
-def _gate_meaning(name: str, status: str, reason: str) -> str:
+def _gate_meaning(
+    name: str,
+    status: str,
+    reason: str,
+    payload: Mapping[str, object] | None = None,
+) -> str:
+    if name == "freshness" and payload is not None:
+        data_as_of, generated_at = _freshness_proof_labels(payload)
+        if status == "PASS":
+            return (
+                f"Passed: evidence is marked fresh. Proof: Data as of {data_as_of}; "
+                f"report generated {generated_at}."
+            )
+        return (
+            f"{status.title()}: {reason}. Proof: Data as of {data_as_of}; "
+            f"report generated {generated_at}."
+        )
     if status == "PASS":
         return f"Passed: {reason}."
     meanings = {
@@ -361,7 +378,7 @@ def _gate_meaning(name: str, status: str, reason: str) -> str:
             "paper candidate."
         ),
         ("runtime_sources", "WARN"): (
-            "One or more runtime data sources are degraded or stale; treat the "
+            "One or more runtime data sources are degraded or need refresh; treat the "
             "decision conservatively."
         ),
         ("risk_flags", "WARN"): (
@@ -374,7 +391,13 @@ def _gate_meaning(name: str, status: str, reason: str) -> str:
         return selected
     return f"{status.title()}: {reason}."
 
-def _gate_next_step(name: str, status: str) -> str:
+def _gate_next_step(
+    name: str,
+    status: str,
+    payload: Mapping[str, object] | None = None,
+) -> str:
+    if name == "freshness" and status == "PASS":
+        return "No refresh is needed only while those timestamps remain current for the trading session."
     if status == "PASS":
         return "No action needed for this gate."
     steps = {
@@ -394,6 +417,12 @@ def _gate_next_step(name: str, status: str) -> str:
         ),
     }
     return steps.get(name, "Review this gate before approving the candidate.")
+
+def _freshness_proof_labels(payload: Mapping[str, object]) -> tuple[str, str]:
+    return (
+        _format_timestamp_label(payload.get("as_of")),
+        _format_timestamp_label(payload.get("generated_at")),
+    )
 
 def _selection_gate_summary(gates: Sequence[Mapping[str, object]]) -> str:
     if not gates:

@@ -88,6 +88,26 @@
       </div>
     </details>
     {% endif %}
+    {% if row.operator_manual_advance_status_label %}
+    <p class="microcopy">
+      <strong>{{ row.operator_manual_advance_status_label }}:</strong>
+      {{ row.operator_manual_advance_detail }}
+    </p>
+    {% endif %}
+    {% if row.operator_manual_advance_available %}
+    <form class="operator-advance-form" method="post" action="{{ row.operator_manual_advance_action }}">
+      <input type="hidden" name="blocked_reason" value="{{ row.paper_promotion_primary_blocker }}">
+      <label class="form-field">
+        <span class="metric-label">Manual advance reason</span>
+        <textarea name="override_reason" rows="2" required placeholder="Plain-English reason for advancing this paper workflow"></textarea>
+      </label>
+      <label class="checkbox-row">
+        <input type="checkbox" name="acknowledged" value="true" required>
+        <span>I acknowledge this advances a paper workflow with caution and does not approve or submit an order.</span>
+      </label>
+      <button class="mini-button" type="submit">Advance with caution</button>
+    </form>
+    {% endif %}
     <p class="card-reason">{{ row.reason }}</p>
     <p class="card-next-step">{{ row.next_step }}</p>
     {% if row.order_approval_available and not row.order_approved %}

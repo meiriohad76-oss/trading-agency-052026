@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 from data_refresh.extraction_plan import ExtractionDecision
@@ -306,6 +306,42 @@ def test_lane_manifest_writer_records_lane_level_coverage(tmp_path: Path) -> Non
     assert payload["coverage_pct"] == 42
     assert read_lane_manifest(path)["tickers"] == ["AAPL", "MSFT"]
     assert json.loads(path.read_text(encoding="utf-8"))["lane_id"] == "massive_live_trade_slices"
+
+
+def test_lane_manifest_writer_can_merge_same_window_batches(tmp_path: Path) -> None:
+    path = tmp_path / "massive_lanes" / "massive_daily_bars.json"
+    common = {
+        "lane_id": "massive_daily_bars",
+        "dataset": "prices_daily",
+        "raw_source_dataset": "prices_daily",
+        "requested_start": date(2026, 5, 19),
+        "requested_end": date(2026, 5, 19),
+        "source_manifest": "prices_daily.json",
+        "status": "complete",
+        "merge_existing": True,
+    }
+
+    write_lane_manifest(
+        path,
+        fetched_at=datetime(2026, 5, 20, 3, 0, tzinfo=UTC),
+        tickers=("AAPL",),
+        row_count=1,
+        coverage=[{"ticker": "AAPL", "coverage_status": "complete", "complete": True}],
+        **common,
+    )
+    payload = write_lane_manifest(
+        path,
+        fetched_at=datetime(2026, 5, 20, 3, 30, tzinfo=UTC),
+        tickers=("MSFT",),
+        row_count=1,
+        coverage=[{"ticker": "MSFT", "coverage_status": "complete", "complete": True}],
+        **common,
+    )
+
+    assert payload["tickers"] == ["AAPL", "MSFT"]
+    assert payload["row_count"] == 2
+    assert payload["coverage_pct"] == 100
+    assert [row["ticker"] for row in payload["coverage"]] == ["AAPL", "MSFT"]
 
 
 def _config(

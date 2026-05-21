@@ -8,6 +8,8 @@ import pytest
 from jsonschema import Draft202012Validator, ValidationError
 from referencing import Registry, Resource
 
+from agency.contracts import validation as validation_module
+
 SCHEMA_DIR = Path("schemas")
 SCHEMA_NAMES = [
     "provenance.schema.json",
@@ -31,6 +33,13 @@ SCHEMA_NAMES = [
 def test_contract_schemas_are_valid_draft_2020_12() -> None:
     for schema in _schemas().values():
         Draft202012Validator.check_schema(schema)
+
+
+def test_runtime_contract_validators_are_cached() -> None:
+    first = validation_module._validator_for("execution-preview", SCHEMA_DIR)
+    second = validation_module._validator_for("execution-preview", SCHEMA_DIR)
+
+    assert first is second
 
 
 def test_selection_report_validates_nested_evidence_pack() -> None:
@@ -60,6 +69,7 @@ def test_candidate_lifecycle_event_validates_audit_payload() -> None:
     _validator("candidate-lifecycle-event.schema.json").validate(_candidate_lifecycle_event())
     _validator("candidate-lifecycle-event.schema.json").validate(_human_review_event())
     _validator("candidate-lifecycle-event.schema.json").validate(_order_approval_event())
+    _validator("candidate-lifecycle-event.schema.json").validate(_operator_manual_advance_event())
 
 
 def test_risk_decision_validates_runtime_payload() -> None:
@@ -251,6 +261,30 @@ def _order_approval_event() -> dict[str, object]:
             "as_of": "2026-05-07T09:30:00Z",
             "order_intent_version": "0.1.0",
             "order_intent_hash": "a" * 64,
+        },
+    }
+
+
+def _operator_manual_advance_event() -> dict[str, object]:
+    return {
+        "schema_version": "0.1.0",
+        "event_id": "e" * 64,
+        "cycle_id": "cycle-1",
+        "ticker": "AAPL",
+        "event_type": "OPERATOR_MANUAL_ADVANCE",
+        "event_time": "2026-05-07T10:02:00Z",
+        "status": "PASSED",
+        "reason": "operator manual paper-promotion advance approved",
+        "payload": {
+            "advance_type": "PAPER_PROMOTION_OVERRIDE",
+            "reviewed_by": "local-user",
+            "paper_only": True,
+            "acknowledged": True,
+            "as_of": "2026-05-07T09:30:00Z",
+            "selection_report_hash": "a" * 64,
+            "selection_report_hash_version": "0.1.0",
+            "override_reason": "Operator accepted the policy block for paper rehearsal.",
+            "blocked_reason": "selection policy gate blocked: evidence_breadth",
         },
     }
 

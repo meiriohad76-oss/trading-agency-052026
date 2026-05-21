@@ -32,6 +32,26 @@ def test_final_selection_surfaces_actionable_decision_before_details() -> None:
     assert "technical-provenance" in html
 
 
+def test_final_selection_shows_readable_provenance_and_cycle_ids() -> None:
+    html = _template("final_selection.html")
+    css = STYLE_PATH.read_text(encoding="utf-8")
+
+    assert "selection-provenance" in html
+    assert "freshness_proof_label" in html
+    assert "provenance_items" in html
+    assert "cycle-id-chip" in html
+    assert 'title="{{ summary.cycle_id }}"' in html
+    assert ".selection-provenance" in css
+    assert ".cycle-id-chip" in css
+
+    provenance_block = css.split(".selection-provenance", 1)[1].split("}", 1)[0]
+    cycle_chip_block = css.split(".cycle-id-chip", 1)[1].split("}", 1)[0]
+    assert "grid-column: 1 / -1" in provenance_block
+    assert "overflow-wrap: anywhere" in provenance_block
+    assert "white-space: normal" in cycle_chip_block
+    assert "overflow-wrap: anywhere" in cycle_chip_block
+
+
 def test_command_dashboard_has_queue_cta_and_collapsed_diagnostics() -> None:
     html = _template("dashboard.html")
 
@@ -64,6 +84,9 @@ def test_candidate_detail_prioritizes_decision_and_collapses_technical_detail() 
     assert "Email/article evidence" in html
     assert "Score impact" in html
     assert "Approved - execution preview updated" in html
+    assert "Blocked Signals" not in html
+    assert "blocked signals" not in html
+    assert "Excluded Signals" in html
 
 
 def test_portfolio_monitor_contains_exit_recommendation_workflow() -> None:
@@ -128,6 +151,41 @@ def test_data_health_panel_uses_actionable_user_copy_not_internal_telemetry() ->
     assert "row.blocking_reason" in html
     assert "row.recommended_action" in html
     assert "row.why_it_matters" in html
+    assert "data_health.action_buttons" in html
+    assert "button" in html
+
+
+def test_operator_data_health_copy_does_not_use_stale_wording() -> None:
+    dashboard_html = _template("dashboard.html")
+    signals_html = _template("signals.html")
+    progress_js = Path("src/agency/static/data-refresh-progress.js").read_text(
+        encoding="utf-8"
+    )
+
+    forbidden_visible_copy = [
+        "Refresh Status Stale",
+        "Health check stale",
+        "Stale Or Warning",
+        "No stale scheduler",
+        "treat the page as stale",
+        "treat the dashboard as stale",
+        "visible progress may be stale",
+        "return \"Stale\"",
+        "staleness",
+    ]
+
+    combined = "\n".join([dashboard_html, signals_html, progress_js])
+    for phrase in forbidden_visible_copy:
+        assert phrase not in combined
+
+
+def test_candidate_email_readout_avoids_bad_word_breaks() -> None:
+    css = STYLE_PATH.read_text(encoding="utf-8")
+
+    readout_block = css.split(".readout-card strong", 1)[1].split("}", 1)[0]
+    assert "overflow-wrap: break-word" in readout_block
+    assert "word-break: normal" in readout_block
+    assert "hyphens: none" in readout_block
 
 
 def test_dark_disclosures_and_signal_evidence_keep_readable_contrast() -> None:
@@ -148,7 +206,7 @@ def test_base_audit_and_styles_expose_shared_design_system_markers() -> None:
     assert "workflow-nav" in base_html
     assert "status-icon" in base_html
     assert "nav-secondary" in base_html
-    assert "ux-health-llm-20260519" in base_html
+    assert "ux-health-disabled-actions-20260521" in base_html
     assert "paper-mode-card" in audit_html
     assert "Show details: LLM rationale" in audit_html
     assert ".paper-mode-card" in css
@@ -156,6 +214,16 @@ def test_base_audit_and_styles_expose_shared_design_system_markers() -> None:
     assert ".tag-urgent" in css
     assert ".shared-disclosure" in css
     assert ".action-approve" in css
+
+
+def test_disabled_mini_buttons_are_visually_muted() -> None:
+    css = STYLE_PATH.read_text(encoding="utf-8")
+
+    assert ".mini-button:disabled" in css
+    disabled_block = css.split(".mini-button:disabled", 1)[1].split("}", 1)[0]
+    assert "cursor: not-allowed" in disabled_block
+    assert "var(--text-muted)" in disabled_block
+    assert "var(--surface-2)" in disabled_block
 
 
 def test_operational_tooltips_are_keyboard_accessible() -> None:
