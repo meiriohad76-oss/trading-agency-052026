@@ -3,26 +3,27 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 from pytest import MonkeyPatch
 
-import agency.dashboard as dashboard_module
 import agency.api.health as health_module
+import agency.dashboard as dashboard_module
 import agency.runtime.artifact_fallbacks as artifact_fallbacks
+import agency.services.leveraged_alternatives as leveraged_module
 import agency.views._shared as shared_module
 import agency.views.command as command_module
 import agency.views.execution as execution_module
 import agency.views.market_regime as market_regime_module
 import agency.views.portfolio as portfolio_module
 import agency.views.signals as signals_module
-import agency.services.leveraged_alternatives as leveraged_module
 from agency.api.health import runtime_data_source_status
 from agency.app import create_app
 from agency.dashboard import (
@@ -34,8 +35,8 @@ from agency.dashboard import (
     candidate_email_evidence_with_judgement,
     candidate_review_summary,
     candidate_rows,
-    command_summary,
     command_status_overview,
+    command_summary,
     data_load_status_view,
     data_refresh_progress_view,
     execution_preview_rows,
@@ -61,6 +62,7 @@ from agency.dashboard import (
     timeline_rows,
 )
 from agency.services import (
+    PortfolioPolicy,
     build_evidence_pack,
     build_execution_preview,
     build_final_selection,
@@ -69,7 +71,6 @@ from agency.services import (
     build_portfolio_monitor,
     build_risk_decision,
     build_signal_result,
-    PortfolioPolicy,
     selection_report_hash,
 )
 
@@ -906,6 +907,51 @@ async def test_broker_status_context_bounds_dashboard_broker_reads(
     assert datetime.fromisoformat(str(context["checked_at"])) >= started
 
 
+async def test_broker_status_context_caches_completed_delayed_broker_reads(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    calls = 0
+
+    async def delayed_broker_snapshot(*, config: object) -> dict[str, object]:
+        nonlocal calls
+        calls += 1
+        await asyncio.sleep(0.05)
+        return {
+            "provider": "alpaca",
+            "mode": "paper",
+            "connected": True,
+            "checked_at": datetime.now(UTC).isoformat(),
+            "account": {"status": "ACTIVE"},
+            "positions": [],
+            "orders": [],
+            "gross_exposure_pct": 0.0,
+            "status_label": "Broker Connected",
+            "status_class": "pass",
+            "detail": "broker response",
+        }
+
+    market_regime_module._broker_status_context_cache.clear()
+    monkeypatch.setenv("AGENCY_ALPACA_BROKER_ENABLED", "true")
+    monkeypatch.setenv("ALPACA_API_KEY", "paper-key")
+    monkeypatch.setenv("ALPACA_SECRET_KEY", "paper-secret")
+    monkeypatch.setattr(market_regime_module, "broker_snapshot", delayed_broker_snapshot)
+    monkeypatch.setattr(
+        market_regime_module,
+        "DASHBOARD_BROKER_STATUS_TIMEOUT_SECONDS",
+        0.01,
+        raising=False,
+    )
+
+    delayed = await market_regime_module.broker_status_context(use_cache=True)
+    await asyncio.sleep(0.06)
+    recovered = await market_regime_module.broker_status_context(use_cache=True)
+
+    assert delayed["status_label"] == "Broker Check Delayed"
+    assert recovered["status_label"] == "Broker Connected"
+    assert recovered["connected"] is True
+    assert calls == 1
+
+
 async def test_broker_status_context_can_return_nonblocking_pending_status(
     monkeypatch: MonkeyPatch,
 ) -> None:
@@ -957,6 +1003,124 @@ async def test_execution_preview_uses_bounded_broker_read_for_page_render(
     await execution_module.execution_preview_context(raw_reports=[], data_sources=[])
 
     assert captured["use_cache"] is True
+
+
+async def test_execution_preview_recovers_from_delayed_cached_broker_read(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    broker_calls: list[object] = []
+
+    async def fake_broker_status_context(**kwargs: object) -> dict[str, object]:
+        broker_calls.append(kwargs.get("use_cache"))
+        if kwargs.get("use_cache") is True:
+            return {
+                "connected": False,
+                "mode": "paper",
+                "checked_at": datetime.now(UTC).isoformat(),
+                "account": None,
+                "positions": [],
+                "orders": [],
+                "gross_exposure_pct": 0.0,
+                "status_label": "Broker Check Delayed",
+                "status_class": "warn",
+                "detail": "delayed",
+            }
+        return {
+            "connected": True,
+            "mode": "paper",
+            "checked_at": datetime.now(UTC).isoformat(),
+            "account": {"status": "ACTIVE", "equity": 100000.0, "buying_power": 100000.0},
+            "positions": [],
+            "orders": [],
+            "gross_exposure_pct": 0.0,
+            "status_label": "Broker Connected",
+            "status_class": "pass",
+            "detail": "connected",
+        }
+
+    async def fake_policy() -> PortfolioPolicy:
+        return PortfolioPolicy()
+
+    async def fake_review_events(*_args: object, **_kwargs: object) -> list[dict[str, object]]:
+        return []
+
+    def fake_scheduler_context(**_kwargs: object) -> dict[str, object]:
+        return {"tradability": {"state": "tradable", "status_label": "Tradable"}}
+
+    monkeypatch.setattr(market_regime_module, "broker_status_context", fake_broker_status_context)
+    monkeypatch.setattr(execution_module, "load_active_portfolio_policy", fake_policy)
+    monkeypatch.setattr(command_module, "human_review_events_for_reports", fake_review_events)
+    monkeypatch.setattr(execution_module, "scheduler_work_queue_context", fake_scheduler_context)
+
+    context = await execution_module.execution_preview_context(raw_reports=[], data_sources=[])
+
+    assert broker_calls == [True, False]
+    assert context["broker"]["status_label"] == "Broker Connected"
+
+
+async def test_execution_preview_passes_market_phase_to_freshness_gate(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+    classified: dict[str, object] = {}
+
+    async def fake_policy() -> PortfolioPolicy:
+        return PortfolioPolicy()
+
+    async def fake_review_events(*_args: object, **_kwargs: object) -> list[dict[str, object]]:
+        return []
+
+    def fake_scheduler_context(**_kwargs: object) -> dict[str, object]:
+        return {"tradability": {"state": "tradable", "status_label": "Tradable"}}
+
+    def fake_freshness_gate(
+        broker: Mapping[str, object],
+        source_health: Sequence[Mapping[str, object]],
+        **kwargs: object,
+    ) -> dict[str, object]:
+        captured["broker"] = broker
+        captured["source_health"] = source_health
+        captured.update(kwargs)
+        return {
+            "ready": True,
+            "state": "pass",
+            "status_label": "Ready",
+            "status_class": "pass",
+            "checks": [],
+            "blocker_count": 0,
+            "detail": "Broker and critical source freshness passed.",
+        }
+
+    def fake_classify_market_session(now: datetime) -> SimpleNamespace:
+        classified["now"] = now
+        return SimpleNamespace(phase="overnight_after_hours")
+
+    monkeypatch.setattr(execution_module, "load_active_portfolio_policy", fake_policy)
+    monkeypatch.setattr(command_module, "human_review_events_for_reports", fake_review_events)
+    monkeypatch.setattr(execution_module, "scheduler_work_queue_context", fake_scheduler_context)
+    monkeypatch.setattr(execution_module, "execution_freshness_gate", fake_freshness_gate)
+    monkeypatch.setattr(
+        execution_module,
+        "classify_market_session",
+        fake_classify_market_session,
+    )
+
+    await execution_module.execution_preview_context(
+        raw_reports=[],
+        data_sources=[],
+        broker={
+            "connected": True,
+            "mode": "paper",
+            "checked_at": datetime.now(UTC).isoformat(),
+            "account": {"status": "ACTIVE", "equity": 100000.0, "buying_power": 100000.0},
+            "positions": [],
+            "orders": [],
+            "gross_exposure_pct": 0.0,
+        },
+    )
+
+    assert captured["market_phase"] == "overnight_after_hours"
+    assert captured["now"] == classified["now"]
 
 
 async def test_execution_preview_reuses_leveraged_policy_for_render(
@@ -3938,24 +4102,158 @@ def test_submit_execution_order_records_intent_before_broker_submit(
     assert submitted_audit["reconciliation"]["state"] == "client_order_id_confirmed"  # type: ignore[index]
 
 
-def test_submit_execution_order_rechecks_freshness_before_broker_submit(
+def test_submit_execution_order_allows_closed_market_latest_session_sources(
     monkeypatch: MonkeyPatch,
 ) -> None:
-    broker_calls: list[str] = []
+    overnight = datetime(2026, 5, 12, 2, 30, tzinfo=UTC)
+    latest_session_checked = datetime(2026, 5, 11, 22, 0, tzinfo=UTC).isoformat()
+    calls: list[str] = []
 
     async def fake_broker() -> dict[str, object]:
         return {
             "connected": True,
             "mode": "paper",
-            "checked_at": datetime.now(UTC).isoformat(),
+            "checked_at": overnight.isoformat(),
             "account": {"status": "ACTIVE", "equity": 100000.0, "buying_power": 100000.0},
             "positions": [],
             "orders": [],
         }
 
     async def fake_sources() -> list[dict[str, object]]:
-        fresh = datetime.now(UTC).isoformat()
-        stale = (datetime.now(UTC) - timedelta(minutes=20)).isoformat()
+        return [
+            {
+                "schema_version": "0.1.0",
+                "source": source,
+                "source_tier": "MARKET_DATA",
+                "status": "HEALTHY",
+                "checked_at": latest_session_checked,
+                "freshness": "FRESH",
+                "last_success_at": latest_session_checked,
+                "observed_lag_seconds": 60,
+                "error_count": 0,
+                "reliability_score": 1.0,
+                "rate_limit_reset_at": None,
+                "notes": [],
+            }
+            for source in ("daily-market-bars", "massive-stock-trades")
+        ]
+
+    async def fake_context(**_kwargs: object) -> dict[str, object]:
+        return {
+            "execution_freshness_gate": {"ready": True, "detail": "closed market fresh"},
+            "preview_rows": [
+                {
+                    "cycle_id": "cycle-1",
+                    "ticker": "AAPL",
+                    "as_of": "2026-05-07T09:30:00Z",
+                    "side": "BUY",
+                    "quantity": None,
+                    "notional": 1000.0,
+                    "time_in_force": "DAY",
+                    "order_intent_hash": "a" * 64,
+                    "order_approved": True,
+                    "submit_enabled": True,
+                    "submit_blocker": "ready",
+                    "preview": {
+                        "cycle_id": "cycle-1",
+                        "ticker": "AAPL",
+                        "as_of": "2026-05-07T09:30:00Z",
+                        "order_intent_hash": "a" * 64,
+                        "order_intent_version": "0.1.0",
+                    },
+                }
+            ],
+        }
+
+    async def fake_record_intent(row: object, order_payload: object) -> None:
+        del row, order_payload
+        calls.append("intent")
+
+    async def fake_record_submitted(
+        row: object,
+        order: object,
+        reconciliation: object | None = None,
+    ) -> None:
+        del row, order, reconciliation
+        calls.append("submitted")
+
+    class FakeClient:
+        def __init__(self, _config: object) -> None:
+            self.client_order_id = ""
+
+        async def submit_order(self, payload: object) -> dict[str, object]:
+            calls.append("broker")
+            self.client_order_id = str(payload["client_order_id"])  # type: ignore[index]
+            return {
+                "order_id": "order-1",
+                "client_order_id": self.client_order_id,
+                "ticker": "AAPL",
+                "status": "ACCEPTED",
+            }
+
+        async def order_by_client_order_id(self, client_order_id: str) -> dict[str, object]:
+            calls.append("reconcile")
+            assert client_order_id == self.client_order_id
+            return {
+                "order_id": "order-1",
+                "client_order_id": self.client_order_id,
+                "ticker": "AAPL",
+                "status": "ACCEPTED",
+            }
+
+    monkeypatch.setenv("AGENCY_ALPACA_BROKER_ENABLED", "true")
+    monkeypatch.setenv("AGENCY_BROKER_SUBMIT_ENABLED", "true")
+    monkeypatch.setenv("ALPACA_API_KEY", "key")
+    monkeypatch.setenv("ALPACA_SECRET_KEY", "secret")
+    monkeypatch.setattr(
+        dashboard_module,
+        "_execution_freshness_now",
+        lambda: overnight,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        dashboard_module,
+        "classify_market_session",
+        lambda _now: SimpleNamespace(phase="overnight_after_hours"),
+        raising=False,
+    )
+    monkeypatch.setattr(dashboard_module, "_fresh_broker_status_context", fake_broker)
+    monkeypatch.setattr(dashboard_module, "runtime_data_source_status", fake_sources)
+    monkeypatch.setattr(dashboard_module, "execution_preview_context", fake_context)
+    monkeypatch.setattr(dashboard_module, "_record_order_submission_intent", fake_record_intent)
+    monkeypatch.setattr(dashboard_module, "_record_submitted_order", fake_record_submitted)
+    monkeypatch.setattr(dashboard_module, "AlpacaBrokerClient", FakeClient)
+
+    response = TestClient(create_app()).post(
+        "/execution-preview/orders"
+        "?cycle_id=cycle-1&ticker=AAPL&as_of=2026-05-07T09%3A30%3A00Z"
+        f"&order_intent_hash={'a' * 64}",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == HTTP_SEE_OTHER
+    assert calls == ["intent", "broker", "reconcile", "submitted"]
+
+
+def test_submit_execution_order_rechecks_freshness_before_broker_submit(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    broker_calls: list[str] = []
+    regular_market = datetime(2026, 5, 11, 14, 0, tzinfo=UTC)
+
+    async def fake_broker() -> dict[str, object]:
+        return {
+            "connected": True,
+            "mode": "paper",
+            "checked_at": regular_market.isoformat(),
+            "account": {"status": "ACTIVE", "equity": 100000.0, "buying_power": 100000.0},
+            "positions": [],
+            "orders": [],
+        }
+
+    async def fake_sources() -> list[dict[str, object]]:
+        fresh = regular_market.isoformat()
+        stale = (regular_market - timedelta(minutes=20)).isoformat()
         return [
             {
                 "schema_version": "0.1.0",
@@ -4026,6 +4324,18 @@ def test_submit_execution_order_rechecks_freshness_before_broker_submit(
     monkeypatch.setenv("AGENCY_BROKER_SUBMIT_ENABLED", "true")
     monkeypatch.setenv("ALPACA_API_KEY", "key")
     monkeypatch.setenv("ALPACA_SECRET_KEY", "secret")
+    monkeypatch.setattr(
+        dashboard_module,
+        "_execution_freshness_now",
+        lambda: regular_market,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        dashboard_module,
+        "classify_market_session",
+        lambda _now: SimpleNamespace(phase="regular_market"),
+        raising=False,
+    )
     monkeypatch.setattr(dashboard_module, "_fresh_broker_status_context", fake_broker)
     monkeypatch.setattr(dashboard_module, "runtime_data_source_status", fake_sources)
     monkeypatch.setattr(dashboard_module, "execution_preview_context", fake_context)
@@ -4041,6 +4351,85 @@ def test_submit_execution_order_rechecks_freshness_before_broker_submit(
     assert response.status_code == 409
     assert "massive-stock-trades source-health row" in response.json()["detail"]
     assert broker_calls == []
+
+
+def test_immediate_execution_freshness_allows_closed_market_latest_session_sources(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    overnight = datetime(2026, 5, 12, 2, 30, tzinfo=UTC)
+    latest_session_checked = datetime(2026, 5, 11, 22, 0, tzinfo=UTC).isoformat()
+    broker = {
+        "connected": True,
+        "mode": "paper",
+        "checked_at": overnight.isoformat(),
+    }
+    sources = [
+        {
+            **_source_health(source),
+            "source_tier": "MARKET_DATA",
+            "checked_at": latest_session_checked,
+            "last_success_at": latest_session_checked,
+        }
+        for source in ("daily-market-bars", "massive-stock-trades")
+    ]
+
+    monkeypatch.setattr(
+        dashboard_module,
+        "_execution_freshness_now",
+        lambda: overnight,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        dashboard_module,
+        "classify_market_session",
+        lambda _now: SimpleNamespace(phase="overnight_after_hours"),
+        raising=False,
+    )
+
+    gate = dashboard_module._require_immediate_execution_freshness(broker, sources)
+
+    assert gate["ready"] is True
+    assert gate["source_max_age_policy_label"] == "closed-market latest completed session"
+
+
+def test_immediate_execution_freshness_keeps_broker_strict_after_close(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    overnight = datetime(2026, 5, 12, 2, 30, tzinfo=UTC)
+    latest_session_checked = datetime(2026, 5, 11, 22, 0, tzinfo=UTC).isoformat()
+    broker = {
+        "connected": True,
+        "mode": "paper",
+        "checked_at": (overnight - timedelta(minutes=2)).isoformat(),
+    }
+    sources = [
+        {
+            **_source_health(source),
+            "source_tier": "MARKET_DATA",
+            "checked_at": latest_session_checked,
+            "last_success_at": latest_session_checked,
+        }
+        for source in ("daily-market-bars", "massive-stock-trades")
+    ]
+
+    monkeypatch.setattr(
+        dashboard_module,
+        "_execution_freshness_now",
+        lambda: overnight,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        dashboard_module,
+        "classify_market_session",
+        lambda _now: SimpleNamespace(phase="overnight_after_hours"),
+        raising=False,
+    )
+
+    with pytest.raises(dashboard_module.HTTPException) as exc:
+        dashboard_module._require_immediate_execution_freshness(broker, sources)
+
+    assert exc.value.status_code == 409
+    assert "Broker snapshot is" in str(exc.value.detail)
 
 
 def test_record_portfolio_snapshot_uses_fresh_broker_context(

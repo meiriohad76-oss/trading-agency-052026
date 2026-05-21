@@ -1,25 +1,24 @@
 """View-model constructors for the market_regime page."""
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from time import monotonic
-import asyncio
 
 from agency.broker import AlpacaBrokerError, AlpacaTradingConfig, broker_snapshot
 from agency.runtime.market_regime import load_market_regime_snapshot
-
 from agency.views._shared import (
     BROKER_STATUS_CONTEXT_CACHE_SECONDS,
     MARKET_REGIME_CONTEXT_CACHE_SECONDS,
-    dashboard_data_health,
     _env_bool_text,
     _format_timestamp_label,
+    dashboard_data_health,
     live_dashboard_data_load_status,
 )
 
 _market_regime_context_cache: dict[str, tuple[float, dict[str, object]]] = {}
 _broker_status_context_cache: dict[str, tuple[float, dict[str, object]]] = {}
-DASHBOARD_BROKER_STATUS_TIMEOUT_SECONDS = 1.0
+DASHBOARD_BROKER_STATUS_TIMEOUT_SECONDS = 2.5
 
 
 async def market_regime_context() -> dict[str, object]:
@@ -99,19 +98,24 @@ async def broker_status_context(
         }
         _store_broker_status_context(cache_key, context)
         return context
+    cache_context = True
     try:
         config = AlpacaTradingConfig.from_env()
         config.require_paper(purpose="dashboard broker reads")
-        broker_read = broker_snapshot(config=config)
+        broker_read = asyncio.create_task(broker_snapshot(config=config))
         context = (
             await asyncio.wait_for(
-                broker_read,
+                asyncio.shield(broker_read),
                 timeout=DASHBOARD_BROKER_STATUS_TIMEOUT_SECONDS,
             )
             if use_cache
             else await broker_read
         )
     except TimeoutError:
+        cache_context = False
+        broker_read.add_done_callback(
+            lambda task: _store_completed_broker_status_context(cache_key, task),
+        )
         context = {
             "provider": "alpaca",
             "mode": "paper",
@@ -143,7 +147,8 @@ async def broker_status_context(
             "status_class": "warn",
             "detail": str(exc),
         }
-    _store_broker_status_context(cache_key, context)
+    if cache_context:
+        _store_broker_status_context(cache_key, context)
     return context
 
 def _cached_market_regime_context() -> dict[str, object] | None:
@@ -179,6 +184,18 @@ def _cached_broker_status_context(key: str) -> dict[str, object] | None:
 
 def _store_broker_status_context(key: str, context: dict[str, object]) -> None:
     _broker_status_context_cache[key] = (monotonic(), dict(context))
+
+
+def _store_completed_broker_status_context(
+    key: str,
+    task: asyncio.Task[dict[str, object]],
+) -> None:
+    try:
+        context = task.result()
+    except (asyncio.CancelledError, AlpacaBrokerError, OSError):
+        return
+    if isinstance(context, dict):
+        _store_broker_status_context(key, context)
 
 
 def _broker_status_cache_key() -> str:

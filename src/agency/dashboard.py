@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import suppress
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import parse_qs
 
+from data_refresh.market_calendar import classify_market_session
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from fastapi.responses import RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
@@ -22,8 +24,8 @@ from agency.runtime import record_candidate_lifecycle_event
 from agency.runtime.artifact_fallbacks import append_runtime_lifecycle_event_artifact
 from agency.runtime.lane_promotion import load_lane_promotion_status
 from agency.runtime.live_config_readiness import load_live_config_readiness
-from agency.runtime.scheduler_work_queue import execution_freshness_gate
 from agency.runtime.scheduler_runner import run_manual_massive_lane_refresh
+from agency.runtime.scheduler_work_queue import execution_freshness_gate
 from agency.services import (
     PortfolioPolicy,
     build_and_persist_human_review_event,
@@ -39,8 +41,8 @@ from agency.views._shared import (
     _dashboard_risk_decisions,
     _dashboard_selection_reports,
     _env_bool_text,
-    _matching_payload,
     _mapping_field,
+    _matching_payload,
     _optional_float_field,
     _runtime_payload_key,
     dashboard_data_health,
@@ -52,6 +54,7 @@ from agency.views._shared import (
 # callers of ``agency.dashboard`` (and tests) keep working after the split.
 from agency.views.candidates import (  # noqa: F401
     _candidate_review_redirect_url,
+    _review_caution,
     candidate_decision_brief,
     candidate_detail_context,
     candidate_detail_report_rows,
@@ -60,7 +63,6 @@ from agency.views.candidates import (  # noqa: F401
     candidate_email_evidence_with_judgement,
     candidate_review_summary,
     candidate_rows,
-    _review_caution,
     timeline_rows,
 )
 from agency.views.command import (  # noqa: F401
@@ -629,7 +631,14 @@ def _require_immediate_execution_freshness(
     broker: dict[str, object],
     data_sources: list[dict[str, object]],
 ) -> dict[str, object]:
-    gate = execution_freshness_gate(broker, data_sources)
+    current_time = _execution_freshness_now()
+    market_phase = classify_market_session(current_time).phase
+    gate = execution_freshness_gate(
+        broker,
+        data_sources,
+        now=current_time,
+        market_phase=market_phase,
+    )
     if gate.get("ready") is not True:
         raise HTTPException(
             status_code=409,
@@ -639,6 +648,10 @@ def _require_immediate_execution_freshness(
             ),
         )
     return gate
+
+
+def _execution_freshness_now() -> datetime:
+    return datetime.now(UTC)
 
 
 async def _reconcile_submitted_order(

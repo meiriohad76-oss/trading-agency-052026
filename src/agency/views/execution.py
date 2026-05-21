@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from datetime import UTC, datetime
 from urllib.parse import urlencode
+
+from data_refresh.market_calendar import classify_market_session
 
 from agency.api.health import runtime_data_source_status
 from agency.db import get_session
@@ -33,7 +36,6 @@ from agency.services.human_review import selection_report_hash
 from agency.views._shared import (
     FINAL_SELECTION_REPORT_LIMIT,
     _active_cycle_reports,
-    dashboard_data_health,
     _dashboard_selection_reports,
     _float_field,
     _format_timestamp_label,
@@ -48,6 +50,7 @@ from agency.views._shared import (
     _runtime_payload_key,
     _source_health_origin_label,
     _string_list,
+    dashboard_data_health,
     live_runtime_source_health_rows,
 )
 
@@ -73,7 +76,7 @@ async def execution_preview_context(
         fetched_reports, fetched_sources, fetched_broker = await asyncio.gather(
             _dashboard_selection_reports(limit=FINAL_SELECTION_REPORT_LIMIT),
             live_runtime_source_health_rows(runtime_data_source_status),
-            broker_status_context(use_cache=True),
+            _execution_preview_broker_status_context(broker_status_context),
         )
         if raw_reports is None:
             raw_reports = fetched_reports
@@ -141,7 +144,14 @@ async def execution_preview_context(
         research_approval_records={key: True for key in research_approval_keys},
         validate_contracts=validate_contracts,
     )
-    freshness_gate = execution_freshness_gate(broker, data_sources)
+    current_time = datetime.now(UTC)
+    market_phase = classify_market_session(current_time).phase
+    freshness_gate = execution_freshness_gate(
+        broker,
+        data_sources,
+        now=current_time,
+        market_phase=market_phase,
+    )
     scheduler_gate = scheduler_work_queue_context(
         reports=promoted_reports,
         review_queue=_review_queue_from_reports(promoted_reports, review_states),
@@ -237,6 +247,19 @@ async def execution_preview_context(
         "freshness_gate": freshness_gate,
         "scheduler_tradability": _mapping_field(scheduler_gate, "tradability"),
     }
+
+
+async def _execution_preview_broker_status_context(
+    broker_status_context_fn: Callable[..., Awaitable[dict[str, object]]],
+) -> dict[str, object]:
+    context = await broker_status_context_fn(use_cache=True)
+    if str(context.get("status_label") or "") != "Broker Check Delayed":
+        return context
+    try:
+        return await broker_status_context_fn(use_cache=False)
+    except TypeError:
+        return await broker_status_context_fn()
+
 
 async def execution_preview_order_row(
     *,
