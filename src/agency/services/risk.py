@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Mapping, Sequence
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime

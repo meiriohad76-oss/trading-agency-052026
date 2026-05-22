@@ -39,12 +39,13 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.reviewer == "mock_approve_all":
-        reviewer = lambda as_of, ticker, score, evidence: ReviewDecision(approved=True)
+        def reviewer(*_args: object) -> ReviewDecision:
+            return ReviewDecision(approved=True)
     else:
         rng = random.Random(42)
         rate = args.mock_approval_rate
 
-        def reviewer(as_of, ticker, score, evidence):
+        def reviewer(*_args: object) -> ReviewDecision:
             return ReviewDecision(approved=rng.random() < rate)
 
     config = WalkForwardConfig(

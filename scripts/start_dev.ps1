@@ -41,6 +41,10 @@ $env:PYTHONPATH = "$RepoRoot\src;$RepoRoot\research\src"
 $DotEnvDatabaseUrl = Get-DotEnvValue "DATABASE_URL"
 if (-not $env:DATABASE_URL -or -not $env:DATABASE_URL.Trim()) {
     if ($DotEnvDatabaseUrl) {
+        $env:DATABASE_URL = $DotEnvDatabaseUrl
+        if ($env:DATABASE_URL.Trim().ToLowerInvariant().StartsWith("sqlite:///")) {
+            $env:DATABASE_URL = $env:DATABASE_URL -replace "^sqlite:///", "sqlite+aiosqlite:///"
+        }
         Write-Host "DATABASE_URL is configured from .env"
     } else {
         $env:DATABASE_URL = "sqlite+aiosqlite:///./agency_local.db"

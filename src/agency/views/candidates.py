@@ -1,23 +1,23 @@
 """View-model constructors for the candidates page."""
 from __future__ import annotations
 
+import asyncio
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, cast
 from urllib.parse import urlencode, urlsplit
-import asyncio
+
 import pandas as pd
 
 from agency.runtime.signal_evidence import enrich_signal_rows_with_evidence
 from agency.services import build_leveraged_alternative_review
-
 from agency.views._shared import (
     EMAIL_ANALYZED_STATUSES,
     EMAIL_ASSET_DOMAIN_PREFIXES,
     EMAIL_ASSET_EXTENSIONS,
-    EMAIL_EVENTS_PATH,
     EMAIL_EVENT_LABELS,
+    EMAIL_EVENTS_PATH,
     EMAIL_HEADLINE_FOCUS_RE,
     EMAIL_LINKED_STATUS_PRIORITY,
     MIN_BRIEF_CONFIRMED_COUNT,
@@ -27,7 +27,6 @@ from agency.views._shared import (
     OPEN_RISK_DECISIONS,
     _clean_text,
     _clip_text,
-    dashboard_data_health,
     _dashboard_candidate_timeline,
     _dashboard_risk_decisions,
     _dashboard_selection_reports,
@@ -53,6 +52,7 @@ from agency.views._shared import (
     _source_id_core,
     _string_list,
     _timestamp_sort_value,
+    dashboard_data_health,
     live_dashboard_data_load_status,
 )
 
@@ -76,6 +76,7 @@ async def candidate_detail_context(ticker: str) -> dict[str, object]:
         email_evidence,
         latest_report,
     )
+    news_evidence = candidate_news_evidence(normalized_ticker)
     review = candidate_review_summary(report_rows, timeline, risk_decisions=risk_decisions)
     data_load_status = await live_dashboard_data_load_status()
     return {
@@ -102,6 +103,7 @@ async def candidate_detail_context(ticker: str) -> dict[str, object]:
             cycle_id=str(latest_report.get("cycle_id") if latest_report else ""),
         ),
         "email_evidence": email_evidence,
+        "news_evidence": news_evidence,
         "leveraged_review": build_leveraged_alternative_review(
             latest_raw_report or latest_report,
             risk_decision=latest_risk_decision,
@@ -317,6 +319,83 @@ def candidate_email_evidence(
             analyzed_count,
             status_counts,
         ),
+    }
+
+def candidate_news_evidence(
+    ticker: str,
+    *,
+    news_path: Path = NEWS_RSS_PATH,
+    limit: int = 5,
+) -> dict[str, object]:
+    normalized = ticker.upper()
+    frame = _read_candidate_news_frame(news_path)
+    if frame.empty:
+        return {
+            "ticker": normalized,
+            "resolved_count": 0,
+            "unresolved_context_count": 0,
+            "latest_at": "None",
+            "status_label": "No RSS Evidence",
+            "status_class": "neutral",
+            "coverage_summary": "No RSS/news rows are available for this ticker.",
+            "context_summary": "No unresolved generic RSS rows are available for context.",
+            "rows": [],
+            "context_rows": [],
+        }
+
+    if "ticker" in frame.columns:
+        ticker_values = frame["ticker"].astype(str).str.upper()
+        ticker_mask = ticker_values.eq(normalized)
+    else:
+        ticker_mask = pd.Series(False, index=frame.index)
+    status_values = (
+        frame["ticker_match_status"].apply(_candidate_news_match_status)
+        if "ticker_match_status" in frame.columns
+        else pd.Series("feed_ticker", index=frame.index)
+    )
+    source_tier_values = (
+        frame["source_tier"].astype(str)
+        if "source_tier" in frame.columns
+        else pd.Series("", index=frame.index)
+    )
+    scored_mask = ticker_mask & status_values.isin({"resolved", "feed_ticker"})
+    scored_mask &= ~source_tier_values.eq("PAID_SUB_EMAIL")
+    context_mask = status_values.isin({"unresolved", "ambiguous"})
+    if "ticker" in frame.columns:
+        clean_tickers = frame["ticker"].map(_clean_text)
+        context_mask &= clean_tickers.isna()
+
+    resolved_frame = frame[scored_mask].copy()
+    context_frame = frame[context_mask].copy()
+    if "timestamp_as_of" in resolved_frame.columns:
+        resolved_frame = resolved_frame.sort_values("timestamp_as_of", ascending=False)
+    if "timestamp_as_of" in context_frame.columns:
+        context_frame = context_frame.sort_values("timestamp_as_of", ascending=False)
+
+    rows = [
+        _candidate_news_row(row, normalized, signal_use="Ticker news signal")
+        for row in _records(resolved_frame.head(limit))
+    ]
+    context_rows = [
+        _candidate_news_row(row, normalized, signal_use="Context only")
+        for row in _records(context_frame.head(limit))
+    ]
+    latest_at = _latest_text([*rows, *context_rows])
+    return {
+        "ticker": normalized,
+        "resolved_count": len(resolved_frame),
+        "unresolved_context_count": len(context_frame),
+        "latest_at": latest_at or "None",
+        "status_label": "RSS Resolved" if len(resolved_frame) else "Context Only",
+        "status_class": "pass" if len(resolved_frame) else "warn",
+        "coverage_summary": _candidate_news_coverage_summary(
+            normalized,
+            resolved_count=len(resolved_frame),
+            context_count=len(context_frame),
+        ),
+        "context_summary": _candidate_news_context_summary(normalized, len(context_frame)),
+        "rows": rows,
+        "context_rows": context_rows,
     }
 
 def candidate_email_evidence_with_judgement(
@@ -730,6 +809,142 @@ def _candidate_email_feed_rows(
         )
     deduped = _dedupe_email_feed_rows(rows)
     return deduped[:limit] if limit is not None else deduped
+
+def _read_candidate_news_frame(news_path: Path) -> pd.DataFrame:
+    if not news_path.is_file():
+        return pd.DataFrame()
+    try:
+        frame = pd.read_parquet(news_path)
+    except (OSError, ValueError, ImportError):
+        return pd.DataFrame()
+    return frame
+
+def _candidate_news_row(
+    row: Mapping[str, object],
+    ticker: str,
+    *,
+    signal_use: str,
+) -> dict[str, object]:
+    timestamp = _clean_text(row.get("timestamp_as_of")) or "unknown"
+    status = _candidate_news_match_status(row.get("ticker_match_status"))
+    return {
+        "ticker": _row_text(row, "ticker", ticker).upper(),
+        "feed_name": _candidate_news_feed_label(row.get("feed_name")),
+        "title": _clip_text(_clean_text(row.get("title")) or "RSS/news headline", 140),
+        "summary": _clip_text(_clean_text(row.get("summary")) or "No summary recorded", 220),
+        "timestamp": timestamp,
+        "timestamp_label": _format_timestamp_label(timestamp),
+        "source_id": _clean_text(row.get("source_id")) or "",
+        "source_id_core": _source_id_core(row.get("source_id")) or "",
+        "source_url": _clean_text(row.get("source_url")) or _clean_text(row.get("url")) or "",
+        "match_status_label": _candidate_news_status_label(status),
+        "match_method_label": _candidate_news_method_label(row.get("ticker_match_method")),
+        "match_confidence": _candidate_news_confidence(row.get("ticker_match_confidence")),
+        "matched_text": _clean_text(row.get("matched_text")) or "",
+        "match_reason": _clip_text(_clean_text(row.get("ticker_match_reason")) or "", 180),
+        "match_explanation": _candidate_news_match_explanation(row, ticker),
+        "signal_use": signal_use,
+    }
+
+def _candidate_news_match_explanation(
+    row: Mapping[str, object],
+    ticker: str,
+) -> str:
+    feed = _candidate_news_feed_label(row.get("feed_name"))
+    status = _candidate_news_match_status(row.get("ticker_match_status"))
+    if status in {"unresolved", "ambiguous"}:
+        reason = (
+            "multiple possible ticker matches need review"
+            if status == "ambiguous"
+            else "no high-confidence ticker match was found"
+        )
+        return (
+            f"Generic {feed} headline collected but not attached to {ticker} "
+            f"because {reason}."
+        )
+    method = _candidate_news_method_label(row.get("ticker_match_method"))
+    matched = _clean_text(row.get("matched_text"))
+    confidence = _candidate_news_confidence(row.get("ticker_match_confidence"))
+    if matched:
+        return (
+            f'{feed} matched {ticker} by {method} "{matched}"; '
+            f"confidence {confidence:.2f}."
+        )
+    match_reason = _clean_text(row.get("ticker_match_reason"))
+    if match_reason:
+        return (
+            f"{feed} matched {ticker} by {method}; confidence {confidence:.2f}. "
+            f"{match_reason}"
+        )
+    return f"{feed} matched {ticker} by {method}; confidence {confidence:.2f}."
+
+def _candidate_news_feed_label(value: object) -> str:
+    return _clean_text(value) or "RSS/news"
+
+def _candidate_news_match_status(value: object) -> str:
+    status = (_clean_text(value) or "feed_ticker").lower()
+    if status in {"resolved", "feed_ticker", "unresolved", "ambiguous"}:
+        return status
+    return "unresolved"
+
+def _candidate_news_status_label(status: str) -> str:
+    labels = {
+        "resolved": "Ticker Matched",
+        "feed_ticker": "Ticker Feed",
+        "unresolved": "Context Only",
+        "ambiguous": "Needs Review",
+    }
+    return labels.get(status, _label_text(status))
+
+def _candidate_news_method_label(value: object) -> str:
+    method = (_clean_text(value) or "feed ticker").lower()
+    labels = {
+        "legal_name": "legal name",
+        "ticker_symbol": "ticker symbol",
+        "feed_ticker": "ticker feed",
+        "alias": "alias",
+        "cik": "SEC CIK",
+    }
+    return labels.get(method, method.replace("_", " "))
+
+def _candidate_news_confidence(value: object) -> float:
+    if isinstance(value, bool) or value is None:
+        return 1.0
+    if not isinstance(value, int | float | str):
+        return 1.0
+    try:
+        confidence = float(value)
+    except (TypeError, ValueError):
+        return 1.0
+    if pd.isna(confidence):
+        return 1.0
+    return max(0.0, min(confidence, 1.0))
+
+def _candidate_news_coverage_summary(
+    ticker: str,
+    *,
+    resolved_count: int,
+    context_count: int,
+) -> str:
+    if resolved_count:
+        return (
+            f"{resolved_count} RSS/news headline(s) are attached to {ticker} "
+            "with explicit ticker-match evidence."
+        )
+    if context_count:
+        return (
+            f"No RSS/news headline is attached to {ticker}. Generic headlines are "
+            "shown as context only until a high-confidence ticker match exists."
+        )
+    return f"No RSS/news headline currently matches {ticker}."
+
+def _candidate_news_context_summary(ticker: str, context_count: int) -> str:
+    if context_count:
+        return (
+            f"{context_count} unresolved generic RSS headline(s) were collected, "
+            f"but they are not used as {ticker} signals."
+        )
+    return "No unresolved generic RSS context rows are currently waiting for ticker resolution."
 
 def _dedupe_email_event_rows(
     rows: Sequence[Mapping[str, object]],

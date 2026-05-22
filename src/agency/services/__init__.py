@@ -54,6 +54,7 @@ from .leveraged_alternatives import (
     load_leveraged_etf_catalog,
 )
 from .llm_review import (
+    DEFAULT_AUTO_LLM_REVIEW_MAX_CANDIDATES,
     LlmReviewBatchResult,
     LlmReviewPrompt,
     LlmReviewProvider,
@@ -70,8 +71,8 @@ from .llm_review import (
     review_evidence_packs,
 )
 from .paper_trade_promotion import (
-    PaperTradePromotionConfig,
     TRADE_PROMOTION_REQUIRES_ORDER_APPROVAL_FLAG,
+    PaperTradePromotionConfig,
     paper_trade_promotion_evaluations,
     promote_paper_trade_reports,
 )
@@ -110,6 +111,7 @@ __all__ = [
     "FinalSelectionResult",
     "HumanReviewWriter",
     "ExecutionPreviewResult",
+    "DEFAULT_AUTO_LLM_REVIEW_MAX_CANDIDATES",
     "ActionabilityGateConfig",
     "LaneActionabilityRule",
     "LlmReviewProvider",

@@ -3,9 +3,9 @@ from __future__ import annotations
 from service_fixtures import selection_report, source_health
 
 from agency.services import (
+    TRADE_PROMOTION_REQUIRES_ORDER_APPROVAL_FLAG,
     PaperTradePromotionConfig,
     PortfolioPolicy,
-    TRADE_PROMOTION_REQUIRES_ORDER_APPROVAL_FLAG,
     build_execution_preview,
     build_human_review_event,
     build_operator_manual_advance_event,

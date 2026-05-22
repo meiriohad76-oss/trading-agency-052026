@@ -3,12 +3,18 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 
 import httpx
+import pandas as pd
 from prices.massive_grouped_daily import (
     MassiveGroupedDailyConfig,
     normalize_massive_grouped_daily,
     pull_massive_grouped_daily,
 )
-from research.scripts.pull_massive_grouped_daily import _validate_lane_invocation
+from prices.storage import DateRange
+
+from research.scripts.pull_massive_grouped_daily import (
+    _fill_grouped_daily_missing_tickers,
+    _validate_lane_invocation,
+)
 
 FETCHED_AT = datetime(2026, 5, 12, 6, 30, tzinfo=UTC)
 OPEN_PRICE = 100.0
@@ -87,6 +93,88 @@ def test_grouped_daily_script_requires_daily_lane_and_explicit_tickers() -> None
             raise AssertionError("invalid grouped-daily lane invocation should exit")
 
 
+async def test_grouped_daily_script_repairs_missing_ticker_with_daily_aggs() -> None:
+    grouped = normalize_massive_grouped_daily(
+        day=date(2026, 5, 11),
+        rows=[_row("AAPL", OPEN_PRICE, HIGH_PRICE, LOW_PRICE, CLOSE_PRICE, VOLUME)],
+        tickers={"AAPL", "BK"},
+        source_url="https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/2026-05-11",
+        fetched_at=FETCHED_AT,
+    )
+    calls: list[tuple[str, DateRange]] = []
+
+    async def fake_daily_downloader(ticker: str, requested: DateRange) -> pd.DataFrame:
+        calls.append((ticker, requested))
+        raw = pd.DataFrame(
+            [
+                {
+                    "t": _ms("2026-05-11T04:00:00Z"),
+                    "o": 40.0,
+                    "h": 41.0,
+                    "l": 39.0,
+                    "c": 40.5,
+                    "v": 500,
+                }
+            ]
+        )
+        raw.attrs["source_url"] = "https://api.polygon.io/v2/aggs/ticker/BK"
+        raw.attrs["requested_start"] = date(2026, 5, 11)
+        raw.attrs["requested_end"] = date(2026, 5, 11)
+        raw.attrs["adjusted"] = True
+        return raw
+
+    frame = await _fill_grouped_daily_missing_tickers(
+        day=date(2026, 5, 11),
+        tickers=["AAPL", "BK"],
+        grouped_frame=grouped,
+        fetched_at=FETCHED_AT,
+        daily_downloader=fake_daily_downloader,
+    )
+
+    assert calls == [("BK", DateRange(date(2026, 5, 4), date(2026, 5, 11)))]
+    assert sorted(frame["ticker"].to_list()) == ["AAPL", "BK"]
+    bk = frame[frame["ticker"] == "BK"].iloc[0]
+    assert bk["source_id"] == "massive:BK:2026-05-11"
+    assert bk["close"] == 40.5
+
+
+async def test_grouped_daily_script_uses_latest_available_daily_aggs_bar() -> None:
+    calls: list[tuple[str, DateRange]] = []
+
+    async def fake_daily_downloader(ticker: str, requested: DateRange) -> pd.DataFrame:
+        calls.append((ticker, requested))
+        raw = pd.DataFrame(
+            [
+                {
+                    "t": _ms("2026-05-20T04:00:00Z"),
+                    "o": 39.0,
+                    "h": 40.0,
+                    "l": 38.0,
+                    "c": 39.5,
+                    "v": 400,
+                }
+            ]
+        )
+        raw.attrs["source_url"] = "https://api.polygon.io/v2/aggs/ticker/BK"
+        raw.attrs["requested_start"] = requested.start
+        raw.attrs["requested_end"] = requested.end
+        raw.attrs["adjusted"] = True
+        return raw
+
+    frame = await _fill_grouped_daily_missing_tickers(
+        day=date(2026, 5, 21),
+        tickers=["BK"],
+        grouped_frame=pd.DataFrame(),
+        fetched_at=FETCHED_AT,
+        daily_downloader=fake_daily_downloader,
+    )
+
+    assert calls == [("BK", DateRange(date(2026, 5, 14), date(2026, 5, 21)))]
+    assert frame["ticker"].to_list() == ["BK"]
+    assert frame.iloc[0]["date"] == date(2026, 5, 20)
+    assert frame.iloc[0]["close"] == 39.5
+
+
 def _row(
     ticker: str,
     open_price: float,
@@ -104,3 +192,7 @@ def _row(
         "v": volume,
         "t": 1_778_457_600_000,
     }
+
+
+def _ms(value: str) -> int:
+    return int(pd.Timestamp(value).timestamp() * 1_000)

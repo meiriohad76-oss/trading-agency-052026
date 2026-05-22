@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-import agency.runtime.scheduler_status as scheduler_status
 from agency.app import _scheduler_enabled_for_app
+from agency.runtime import scheduler_status
 
 
 def test_scheduler_enabled_defaults_to_basic_app_automation(monkeypatch) -> None:

@@ -13,6 +13,7 @@ EXPECTED_FORM4_MAX_AGE_DAYS = 2
 EXPECTED_13F_MAX_AGE_DAYS = 60
 EXPECTED_NEWS_MAX_AGE_MINUTES = 20
 EXPECTED_EMAIL_MAX_AGE_MINUTES = 5
+EXPECTED_NEWS_RESOLUTION_MIN_CONFIDENCE = 0.82
 
 
 def test_load_refresh_config_parses_live_inputs(tmp_path: Path) -> None:
@@ -48,6 +49,10 @@ def test_load_refresh_config_parses_live_inputs(tmp_path: Path) -> None:
                 "sec_form4_max_age_days": EXPECTED_FORM4_MAX_AGE_DAYS,
                 "sec_13f_max_age_days": EXPECTED_13F_MAX_AGE_DAYS,
                 "news_rss_max_age_minutes": EXPECTED_NEWS_MAX_AGE_MINUTES,
+                "news_ticker_aliases_path": "news-aliases.json",
+                "news_resolve_generic_tickers": True,
+                "news_resolution_min_confidence": EXPECTED_NEWS_RESOLUTION_MIN_CONFIDENCE,
+                "news_keep_unresolved_generic": False,
                 "subscription_email_max_age_minutes": EXPECTED_EMAIL_MAX_AGE_MINUTES,
                 "runtime_signals": ["options_anomaly", "activity_alerts"],
                 "runtime_universe": "active",
@@ -82,6 +87,10 @@ def test_load_refresh_config_parses_live_inputs(tmp_path: Path) -> None:
     assert config.sec_form4_max_age_days == EXPECTED_FORM4_MAX_AGE_DAYS
     assert config.sec_13f_max_age_days == EXPECTED_13F_MAX_AGE_DAYS
     assert config.news_rss_max_age_minutes == EXPECTED_NEWS_MAX_AGE_MINUTES
+    assert config.news_ticker_aliases_path == tmp_path / "news-aliases.json"
+    assert config.news_resolve_generic_tickers is True
+    assert config.news_resolution_min_confidence == EXPECTED_NEWS_RESOLUTION_MIN_CONFIDENCE
+    assert config.news_keep_unresolved_generic is False
     assert config.subscription_email_max_age_minutes == EXPECTED_EMAIL_MAX_AGE_MINUTES
     assert config.runtime_signals == ("options_anomaly", "activity_alerts")
     assert config.runtime_universe == "active"

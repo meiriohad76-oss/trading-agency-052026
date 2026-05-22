@@ -495,6 +495,33 @@ def test_execution_freshness_gate_still_blocks_stale_sources_during_regular_mark
     assert gate["state"] == "blocked"
 
 
+def test_execution_freshness_gate_accepts_daily_bars_latest_completed_session_intraday() -> None:
+    now = datetime(2026, 5, 21, 14, 0, tzinfo=UTC)
+    previous_close_daily_bar_check = datetime(2026, 5, 20, 20, 12, tzinfo=UTC)
+
+    gate = execution_freshness_gate(
+        {"connected": True, "checked_at": now.isoformat()},
+        [
+            {
+                **_source("daily-market-bars", freshness="FRESH", status="HEALTHY"),
+                "checked_at": previous_close_daily_bar_check.isoformat(),
+            },
+            {
+                **_source("massive-stock-trades", freshness="FRESH", status="HEALTHY"),
+                "checked_at": now.isoformat(),
+            },
+        ],
+        now=now,
+        market_phase="regular_market",
+    )
+
+    assert gate["ready"] is True
+    assert gate["state"] == "pass"
+    daily_check = next(check for check in gate["checks"] if check["label"] == "Daily Market Bars")
+    assert daily_check["status"] == "PASS"
+    assert "latest completed" in str(daily_check["detail"])
+
+
 def test_scheduler_queue_uses_closed_market_source_freshness_semantics() -> None:
     overnight = datetime(2026, 5, 12, 2, 30, tzinfo=UTC)
     latest_session_checked = datetime(2026, 5, 11, 22, 0, tzinfo=UTC)
@@ -981,6 +1008,26 @@ def test_scheduler_context_uses_data_load_freshness_when_source_rows_are_missing
 
     assert gate["ready"] is False
     assert any("massive-stock-trades" in str(check["detail"]) for check in gate["checks"])
+
+
+def test_scheduler_context_exposes_refresh_rows_for_blocking_source_status() -> None:
+    queue = scheduler_work_queue_context(
+        source_health=[
+            _source("daily-market-bars", freshness="FRESH", status="HEALTHY"),
+            _source("massive-stock-trades", freshness="UNKNOWN", status="STALE"),
+        ],
+        data_load_status={"state": "ready", "datasets": []},
+        broker={"connected": True, "checked_at": NOW.isoformat()},
+        now=NOW,
+    )
+
+    stale_rows = queue["stale_datasets"]
+
+    assert any(row["dataset"] == "stock_trades" for row in stale_rows)
+    stock_trade = next(row for row in stale_rows if row["dataset"] == "stock_trades")
+    assert stock_trade["status"] == "STALE"
+    assert stock_trade["status_class"] == "warn"
+    assert "status STALE" in stock_trade["reason"]
 
 
 def test_scheduler_exposes_massive_orchestrator_lane_status_and_command(

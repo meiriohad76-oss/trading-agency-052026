@@ -42,6 +42,10 @@ class RefreshConfigOverrides:
     sec_13f_max_age_days: int | None = None
     news_rss_max_age_minutes: int | None = None
     subscription_email_max_age_minutes: int | None = None
+    news_ticker_aliases_path: Path | None = None
+    news_resolve_generic_tickers: bool | None = None
+    news_resolution_min_confidence: float | None = None
+    news_keep_unresolved_generic: bool | None = None
     runtime_signals: tuple[str, ...] = ()
     runtime_universe: str | None = None
     runtime_max_tickers: int | None = None
@@ -91,6 +95,17 @@ def load_refresh_config(path: Path, *, repo_root: Path) -> RefreshConfigOverride
         sec_form4_max_age_days=_optional_int(payload, "sec_form4_max_age_days"),
         sec_13f_max_age_days=_optional_int(payload, "sec_13f_max_age_days"),
         news_rss_max_age_minutes=_optional_int(payload, "news_rss_max_age_minutes"),
+        news_ticker_aliases_path=_optional_path(
+            payload,
+            "news_ticker_aliases_path",
+            repo_root=repo_root,
+        ),
+        news_resolve_generic_tickers=_optional_bool(payload, "news_resolve_generic_tickers"),
+        news_resolution_min_confidence=_optional_float(
+            payload,
+            "news_resolution_min_confidence",
+        ),
+        news_keep_unresolved_generic=_optional_bool(payload, "news_keep_unresolved_generic"),
         subscription_email_max_age_minutes=_optional_int(
             payload,
             "subscription_email_max_age_minutes",
@@ -147,6 +162,15 @@ def _optional_int(payload: Mapping[str, Any], key: str) -> int | None:
     if isinstance(value, bool) or not isinstance(value, int):
         raise TypeError(f"{key} must be an integer")
     return int(value)
+
+
+def _optional_float(payload: Mapping[str, Any], key: str) -> float | None:
+    if key not in payload or payload[key] is None:
+        return None
+    value = payload[key]
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise TypeError(f"{key} must be a number")
+    return float(value)
 
 
 def _optional_bool(payload: Mapping[str, Any], key: str) -> bool | None:

@@ -136,8 +136,16 @@
         <h2 id="llm-summary-heading">LLM Recommendation</h2>
         <p class="section-subtitle">{{ latest_report.llm_status_detail }}</p>
       </div>
-      <span class="tag tag-{{ latest_report.llm_status_class }}">{{ latest_report.llm_status_label }}</span>
+      <div class="section-actions">
+        <span class="tag tag-{{ latest_report.llm_status_class }}">{{ latest_report.llm_status_label }}</span>
+        <form method="post" action="/candidates/{{ ticker }}/llm-review">
+          <input type="hidden" name="cycle_id" value="{{ latest_report.cycle_id }}">
+          <input type="hidden" name="as_of" value="{{ latest_report.as_of }}">
+          <button class="mini-button action-defer" type="submit">Run LLM review for this stock</button>
+        </form>
+      </div>
     </div>
+    <p class="panel-note">Automatic LLM review is limited to the top 10 ranked candidates. Use this button to run the same reviewer for this ticker on demand.</p>
 
     <div class="decision-grid llm-summary-grid">
       <div>
@@ -457,6 +465,87 @@
       <p class="empty-block">No leveraged alternative is available for this candidate under current policy.</p>
       {% endfor %}
     </div>
+  </section>
+
+  <section class="panel intelligence-panel" aria-labelledby="rss-evidence-heading">
+    <div class="section-heading">
+      <div>
+        <h2 id="rss-evidence-heading">RSS/news ticker evidence</h2>
+        <p class="section-subtitle">Generic RSS headlines are shown only when the agency can explain why the headline belongs to {{ ticker }}.</p>
+      </div>
+      <span class="tag tag-{{ news_evidence.status_class }}">{{ news_evidence.status_label }}</span>
+    </div>
+
+    <div class="intelligence-strip">
+      <div>
+        <span class="metric-label">Ticker Matches</span>
+        <strong>{{ news_evidence.resolved_count }}</strong>
+      </div>
+      <div>
+        <span class="metric-label">Context Only</span>
+        <strong>{{ news_evidence.unresolved_context_count }}</strong>
+      </div>
+      <div>
+        <span class="metric-label">Latest RSS</span>
+        <strong>{{ news_evidence.latest_at }}</strong>
+      </div>
+    </div>
+
+    <div class="subscription-readout" aria-label="RSS/news evidence readout">
+      <article class="readout-card readout-card-{{ news_evidence.status_class }}">
+        <span class="metric-label">Signal Use</span>
+        <strong>{{ news_evidence.coverage_summary }}</strong>
+      </article>
+      <article class="readout-card">
+        <span class="metric-label">Unresolved Context</span>
+        <strong>{{ news_evidence.context_summary }}</strong>
+      </article>
+    </div>
+
+    <details class="details-panel shared-disclosure">
+      <summary>Open RSS/news match explanations</summary>
+      <div class="article-insight-list" aria-label="Ticker-resolved RSS evidence">
+        {% for row in news_evidence.rows %}
+        <article class="article-insight-card">
+          <div class="article-insight-head">
+            <div>
+              <div class="article-insight-meta">
+                <span class="evidence-cell-label">{{ row.feed_name }} / {{ row.signal_use }}</span>
+                <span class="evidence-timestamp">{{ row.timestamp_label }}</span>
+              </div>
+              <strong>{{ row.title }}</strong>
+            </div>
+            <span class="tag tag-pass">{{ row.match_status_label }}</span>
+          </div>
+          <p class="article-focus">{{ row.match_explanation }}</p>
+          <p class="article-thesis">{{ row.summary }}</p>
+        </article>
+        {% else %}
+        <p class="empty-block">No ticker-resolved RSS headline currently matches {{ ticker }}.</p>
+        {% endfor %}
+      </div>
+
+      <div class="article-insight-list" aria-label="Unresolved generic RSS context">
+        {% for row in news_evidence.context_rows %}
+        <article class="article-insight-card">
+          <div class="article-insight-head">
+            <div>
+              <div class="article-insight-meta">
+                <span class="evidence-cell-label">{{ row.feed_name }} / {{ row.signal_use }}</span>
+                <span class="evidence-timestamp">{{ row.timestamp_label }}</span>
+              </div>
+              <strong>{{ row.title }}</strong>
+            </div>
+            <span class="tag tag-warn">{{ row.match_status_label }}</span>
+          </div>
+          <p class="article-focus">{{ row.match_explanation }}</p>
+          <p class="article-thesis">{{ row.summary }}</p>
+        </article>
+        {% else %}
+        <p class="empty-block">No unresolved generic RSS context rows are currently waiting for ticker resolution.</p>
+        {% endfor %}
+      </div>
+    </details>
   </section>
 
   <section class="panel intelligence-panel" aria-labelledby="email-evidence-heading">

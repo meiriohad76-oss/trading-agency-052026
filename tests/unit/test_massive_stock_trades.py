@@ -9,7 +9,6 @@ import httpx
 import pandas as pd
 from market_flow.classification import classify_trades
 from market_flow.massive import (
-    DownloadedTradeDay,
     MassiveTradesConfig,
     _params,
     _trade_session_window_utc,
@@ -24,6 +23,7 @@ from market_flow.storage import (
     write_manifest,
     write_stock_trade_frame,
 )
+
 from research.scripts.pull_massive_stock_trades import (
     StockTradeProgressWriter,
     _lane_default_limit,
@@ -802,9 +802,7 @@ async def test_row_count_verified_true_when_last_page_partial(tmp_path: Path) ->
                         _raw(str(call_count * 10 + 1), 101.0, 200, "2026-05-06T13:32:00Z"),
                     ],
                     "results_count": 2,
-                    "next_url": "https://api.polygon.io/v3/trades/AAPL?cursor=page{}".format(
-                        call_count
-                    ),
+                    "next_url": f"https://api.polygon.io/v3/trades/AAPL?cursor=page{call_count}",
                 },
             )
         # Last page: fewer rows than limit

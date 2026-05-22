@@ -1,25 +1,24 @@
 {
-  "as_of": "2026-05-19T00:00:00+00:00",
-  "cycle_id": "live-pit-2026-05-19-20260519T104953Z",
+  "as_of": "2026-05-22T00:00:00+00:00",
+  "cycle_id": "live-pit-2026-05-22-20260522T033507Z",
   "evidence_pack_count": 168,
   "execution_state_counts": {
     "BLOCKED": 148,
     "DISABLED": 20
   },
-  "generated_at": "2026-05-19T10:49:53.260545+00:00",
+  "generated_at": "2026-05-22T03:35:07.551776+00:00",
   "lane_counts": {
     "abnormal_volume": 168,
-    "block_trade_pressure": 168,
-    "buy_sell_pressure": 168,
+    "block_trade_pressure": 165,
+    "buy_sell_pressure": 165,
     "fundamentals": 136,
     "insider": 168,
     "institutional": 10,
-    "market_flow_trend": 168,
-    "news": 26,
-    "pre_market_unusual_activity": 168,
+    "market_flow_trend": 165,
+    "pre_market_unusual_activity": 165,
     "subscription_thesis": 9,
     "technical_analysis": 168,
-    "unusual_trade_activity": 168
+    "unusual_trade_activity": 165
   },
   "llm_prompt_action_counts": {
     "AGREE": 5
@@ -41,10 +40,11 @@
     "NO_TRADE": 148,
     "WATCH": 20
   },
-  "signal_count": 1525,
+  "signal_count": 1484,
   "source_status_counts": {
-    "DEGRADED": 1,
-    "HEALTHY": 7
+    "HEALTHY": 6,
+    "STALE": 1,
+    "UNAVAILABLE": 1
   },
   "tickers": [
     "AAPL",

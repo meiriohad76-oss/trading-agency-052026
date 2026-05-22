@@ -98,6 +98,10 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--sec-form4-max-age-days", type=int)
     parser.add_argument("--sec-13f-max-age-days", type=int)
     parser.add_argument("--news-rss-max-age-minutes", type=int)
+    parser.add_argument("--news-ticker-aliases", type=Path)
+    parser.add_argument("--news-resolve-generic-tickers", action=argparse.BooleanOptionalAction)
+    parser.add_argument("--news-resolution-min-confidence", type=float)
+    parser.add_argument("--news-keep-unresolved-generic", action=argparse.BooleanOptionalAction)
     parser.add_argument("--subscription-email-max-age-minutes", type=int)
     parser.add_argument(
         "--output-root",
@@ -223,6 +227,22 @@ def _batch_config(
             overrides.news_rss_max_age_minutes,
             30,
         ),
+        news_ticker_aliases_path=args.news_ticker_aliases or overrides.news_ticker_aliases_path,
+        news_resolve_generic_tickers=_bool_value(
+            args.news_resolve_generic_tickers,
+            overrides.news_resolve_generic_tickers,
+            default=False,
+        ),
+        news_resolution_min_confidence=_float_setting(
+            args.news_resolution_min_confidence,
+            overrides.news_resolution_min_confidence,
+            0.70,
+        ),
+        news_keep_unresolved_generic=_bool_value(
+            args.news_keep_unresolved_generic,
+            overrides.news_keep_unresolved_generic,
+            default=True,
+        ),
         subscription_email_max_age_minutes=_int_setting(
             args.subscription_email_max_age_minutes,
             overrides.subscription_email_max_age_minutes,
@@ -325,6 +345,17 @@ def _setting(
 
 
 def _int_setting(cli_value: int | None, config_value: int | None, default: int) -> int:
+    for value in (cli_value, config_value):
+        if value is not None:
+            return value
+    return default
+
+
+def _float_setting(
+    cli_value: float | None,
+    config_value: float | None,
+    default: float,
+) -> float:
     for value in (cli_value, config_value):
         if value is not None:
             return value

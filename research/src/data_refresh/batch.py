@@ -4,6 +4,7 @@ import subprocess
 import sys
 import threading
 from collections.abc import Callable, Sequence
+from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TextIO
@@ -254,10 +255,8 @@ def _stream_pipe(pipe: TextIO | None, sink: TextIO, parts: list[str]) -> None:
             sink.write(chunk)
             sink.flush()
     finally:
-        try:
+        with suppress(Exception):
             pipe.close()
-        except Exception:
-            pass
 
 
 def _tail(value: str, limit: int = 1000) -> str:

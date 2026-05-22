@@ -1,0 +1,26 @@
+{
+  "aliases": [
+    {
+      "ticker": "AAPL",
+      "cik": "0000320193",
+      "legal_names": ["Apple Inc."],
+      "brand_aliases": ["Apple"],
+      "allow_plain_brand": true
+    },
+    {
+      "ticker": "MSFT",
+      "cik": "0000789019",
+      "legal_names": ["Microsoft Corporation"],
+      "brand_aliases": ["Azure", "Microsoft"],
+      "allow_plain_brand": true
+    },
+    {
+      "ticker": "NVDA",
+      "cik": "0001045810",
+      "legal_names": ["NVIDIA Corporation"],
+      "brand_aliases": ["NVIDIA"],
+      "allow_plain_brand": true
+    }
+  ],
+  "ambiguous_symbols": ["A", "C", "F", "T", "APP", "NOW", "ON"]
+}

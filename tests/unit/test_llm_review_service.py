@@ -167,6 +167,44 @@ async def test_review_evidence_packs_reviews_only_bounded_watch_candidates() -> 
     assert provider.reviewed == ["AAPL"]
 
 
+async def test_review_evidence_packs_defaults_to_top_ten_by_conviction() -> None:
+    provider = _FakeProvider()
+    tickers_by_ascending_conviction = [
+        "AAPL",
+        "MSFT",
+        "NVDA",
+        "AMZN",
+        "META",
+        "TSLA",
+        "NFLX",
+        "ORCL",
+        "INTC",
+        "CSCO",
+        "ADBE",
+        "CRM",
+    ]
+    packs = [
+        _evidence_pack(ticker=ticker, score=0.51 + index * 0.01)
+        for index, ticker in enumerate(tickers_by_ascending_conviction)
+    ]
+
+    batch = await review_evidence_packs(packs, provider=provider)
+
+    assert batch.reviewed_tickers == [
+        "CRM",
+        "ADBE",
+        "CSCO",
+        "INTC",
+        "ORCL",
+        "NFLX",
+        "TSLA",
+        "META",
+        "AMZN",
+        "NVDA",
+    ]
+    assert provider.reviewed == batch.reviewed_tickers
+
+
 # ---------------------------------------------------------------------------
 # T137 — structured JSON logging for LLM review runs
 # ---------------------------------------------------------------------------

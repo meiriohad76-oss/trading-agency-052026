@@ -1,15 +1,15 @@
 """View-model constructors for the command page."""
 from __future__ import annotations
 
+import asyncio
+import re
 from collections.abc import Awaitable, Mapping, Sequence
 from datetime import UTC, datetime
 from typing import cast
-import asyncio
-import re
 
 from agency.api.health import (
     contract_summaries,
-    runtime_data_source_status,
+    runtime_data_source_status,  # noqa: F401 - kept for dashboard test monkeypatching.
     runtime_data_source_status_with_load_status,
     unavailable_data_source_status,
 )
@@ -21,12 +21,11 @@ from agency.runtime.live_config_readiness import load_live_config_readiness
 from agency.runtime.operational_readiness import build_operational_readiness
 from agency.runtime.provider_readiness import load_provider_readiness
 from agency.services import PortfolioPolicy, load_active_portfolio_policy
-
 from agency.views._shared import (
     ACTIONABLE_ACTIONS,
     FINAL_SELECTION_REPORT_LIMIT,
+    REFRESHABLE_MASSIVE_LANES,
     _active_cycle_reports,
-    dashboard_data_health,
     _dashboard_risk_decisions,
     _dashboard_selection_reports,
     _float_field,
@@ -43,8 +42,9 @@ from agency.views._shared import (
     _plural,
     _risk_decisions_for_reports,
     _runtime_payload_key,
-    _source_is_degraded,
     _source_health_origin_label,
+    _source_is_degraded,
+    dashboard_data_health,
 )
 
 DASHBOARD_RUNTIME_QUERY_TIMEOUT_SECONDS = 5.0
@@ -60,6 +60,10 @@ LIVE_CRITICAL_SCHEDULER_SIGNALS = {
     "technical_analysis",
     "unusual_trade_activity",
 }
+
+
+class RuntimeRowsUnavailable(RuntimeError):
+    """Raised when persisted runtime rows cannot be read for status endpoints."""
 
 
 async def dashboard_context() -> dict[str, object]:
@@ -275,9 +279,9 @@ async def _dashboard_selection_reports_live(
 async def _runtime_data_source_status_live() -> list[dict[str, object]]:
     payload = await _runtime_data_source_status_with_load_status_live()
     data_sources = _mapping_list_field(payload, "data_sources")
-    return list(data_sources) if data_sources else unavailable_data_source_status(
-        "live source-health reader returned no rows"
-    )
+    if not data_sources:
+        return unavailable_data_source_status("live source-health reader returned no rows")
+    return [dict(row) for row in data_sources]
 
 
 async def _runtime_data_source_status_with_load_status_live() -> dict[str, object]:
@@ -298,20 +302,23 @@ async def _runtime_data_source_status_with_load_status_live() -> dict[str, objec
                 source_health_origin=_source_health_origin_label(rows),
             ),
         }
-    data_sources = _mapping_list_field(payload, "data_sources")
-    if not data_sources:
-        data_sources = unavailable_data_source_status(
-            "live source-health reader returned no rows"
-        )
+    data_source_rows: list[Mapping[str, object]] = _mapping_list_field(payload, "data_sources")
+    if not data_source_rows:
+        data_source_rows = [
+            cast(Mapping[str, object], row)
+            for row in unavailable_data_source_status(
+                "live source-health reader returned no rows"
+            )
+        ]
     data_load_status = _mapping_field(payload, "data_load_status")
     if not data_load_status:
         data_load_status = await asyncio.to_thread(
             load_data_load_status,
-            source_health_rows=data_sources,
-            source_health_origin=_source_health_origin_label(data_sources),
+            source_health_rows=data_source_rows,
+            source_health_origin=_source_health_origin_label(data_source_rows),
         )
     return {
-        "data_sources": list(data_sources),
+        "data_sources": [dict(row) for row in data_source_rows],
         "data_load_status": data_load_status,
     }
 
@@ -323,6 +330,64 @@ async def _dashboard_risk_decisions_live(
     return await _rows_from_live_runtime(
         _dashboard_risk_decisions(limit=limit),
     )
+
+
+async def _dashboard_selection_reports_live_checked(
+    limit: int,
+) -> list[dict[str, object]]:
+    try:
+        try:
+            return list(
+                await asyncio.wait_for(
+                    _dashboard_selection_reports(
+                        limit=limit,
+                        raise_on_unavailable=True,
+                    ),
+                    timeout=DASHBOARD_RUNTIME_QUERY_TIMEOUT_SECONDS,
+                )
+            )
+        except TypeError as exc:
+            if "raise_on_unavailable" not in str(exc):
+                raise
+            return list(
+                await asyncio.wait_for(
+                    _dashboard_selection_reports(limit=limit),
+                    timeout=DASHBOARD_RUNTIME_QUERY_TIMEOUT_SECONDS,
+                )
+            )
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeRowsUnavailable(
+            "Runtime selection-report reader is unavailable."
+        ) from exc
+
+
+async def _dashboard_risk_decisions_live_checked(
+    limit: int,
+) -> list[dict[str, object]]:
+    try:
+        try:
+            return list(
+                await asyncio.wait_for(
+                    _dashboard_risk_decisions(
+                        limit=limit,
+                        raise_on_unavailable=True,
+                    ),
+                    timeout=DASHBOARD_RUNTIME_QUERY_TIMEOUT_SECONDS,
+                )
+            )
+        except TypeError as exc:
+            if "raise_on_unavailable" not in str(exc):
+                raise
+            return list(
+                await asyncio.wait_for(
+                    _dashboard_risk_decisions(limit=limit),
+                    timeout=DASHBOARD_RUNTIME_QUERY_TIMEOUT_SECONDS,
+                )
+            )
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeRowsUnavailable(
+            "Runtime risk-decision reader is unavailable."
+        ) from exc
 
 
 async def _rows_from_live_runtime(
@@ -1565,11 +1630,12 @@ def data_load_status_view(status: Mapping[str, object]) -> dict[str, object]:
         _data_load_issue(cast(Mapping[str, object], row), fallback_status_class="warn")
         for row in _list_field(status, "warnings")
     ]
-    view["freshness_rows"] = [
+    freshness_rows = [
         _freshness_status_row(cast(Mapping[str, object], row))
         for row in _list_field_or_empty(status, "freshness_rows")
     ]
-    source_kpi = _source_health_kpi(view["freshness_rows"])
+    view["freshness_rows"] = freshness_rows
+    source_kpi = _source_health_kpi(freshness_rows)
     view["source_health_kpi"] = source_kpi
     view["runtime_coverage_label"] = (
         f"{view.get('overall_percent', 0)}% loaded · "
@@ -1627,8 +1693,10 @@ def _source_health_kpi(rows: Sequence[Mapping[str, object]]) -> dict[str, str]:
             f"{partial} partial · {check_needs_refresh} health-proof refresh"
         ),
         "short_detail": (
-            "health proof needs refresh"
-            if check_needs_refresh or blocked
+            "data source unavailable"
+            if blocked
+            else "health proof needs refresh"
+            if check_needs_refresh
             else f"{verified}/{total} verified current"
         ),
         "action_detail": action_detail,
@@ -2171,11 +2239,18 @@ def _massive_lane_refresh_control(row: Mapping[str, object]) -> dict[str, object
     return {
         "refresh_enabled": enabled,
         "refresh_action_url": f"/scheduler/massive-lanes/{lane_id}/refresh" if lane_id else "",
-        "refresh_button_label": "Refresh lane" if enabled else "Policy locked",
+        "refresh_button_label": _massive_lane_refresh_button_label(lane_id, enabled=enabled),
         "refresh_disabled_reason": disabled_reason,
         "refresh_scope_label": scope_label,
         "refresh_tooltip": tooltip,
     }
+
+
+def _massive_lane_refresh_button_label(lane_id: str, *, enabled: bool) -> str:
+    label = REFRESHABLE_MASSIVE_LANES.get(lane_id)
+    if label:
+        return label
+    return "Refresh lane" if enabled else "Policy locked"
 
 
 def _massive_lane_refresh_scope_label(row: Mapping[str, object]) -> str:
@@ -2559,7 +2634,7 @@ def provider_readiness_view(readiness: Mapping[str, object]) -> dict[str, object
         else f"{planned_configured} planned providers configured"
     )
     view["provider_rows"] = [
-        _provider_readiness_row(cast(Mapping[str, object], row))
+        _provider_readiness_row(row)
         for row in provider_rows
     ]
     return view
@@ -2971,10 +3046,24 @@ def operational_readiness_view(readiness: Mapping[str, object]) -> dict[str, obj
     return view
 
 async def paper_review_status_context() -> dict[str, object]:
-    reports, data_sources, risk_decisions = await asyncio.gather(
-        _dashboard_selection_reports_live(FINAL_SELECTION_REPORT_LIMIT),
+    report_result, data_sources, risk_result = await asyncio.gather(
+        _dashboard_selection_reports_live_checked(FINAL_SELECTION_REPORT_LIMIT),
         _runtime_data_source_status_live(),
-        _dashboard_risk_decisions_live(FINAL_SELECTION_REPORT_LIMIT),
+        _dashboard_risk_decisions_live_checked(FINAL_SELECTION_REPORT_LIMIT),
+        return_exceptions=True,
+    )
+    if isinstance(report_result, BaseException) or isinstance(risk_result, BaseException):
+        return _runtime_unavailable_paper_status(
+            _runtime_unavailable_readiness(report_result, risk_result)
+        )
+    if isinstance(data_sources, BaseException):
+        data_sources = unavailable_data_source_status(
+            "live source-health reader timed out or failed"
+        )
+    reports = _active_cycle_reports(cast(Sequence[Mapping[str, object]], report_result))
+    risk_decisions = _risk_decisions_for_reports(
+        cast(Sequence[Mapping[str, object]], risk_result),
+        reports,
     )
     readiness = readiness_view(
         build_live_readiness(
@@ -2991,26 +3080,41 @@ async def paper_review_status_context() -> dict[str, object]:
 
 async def operational_readiness_context() -> dict[str, object]:
     from agency.views.portfolio import _broker_execution_enabled
-    reports, source_load_status, risk_decisions = await asyncio.gather(
-        _dashboard_selection_reports_live(FINAL_SELECTION_REPORT_LIMIT),
+    report_result, source_load_status, risk_result = await asyncio.gather(
+        _dashboard_selection_reports_live_checked(FINAL_SELECTION_REPORT_LIMIT),
         _runtime_data_source_status_with_load_status_live(),
-        _dashboard_risk_decisions_live(FINAL_SELECTION_REPORT_LIMIT),
+        _dashboard_risk_decisions_live_checked(FINAL_SELECTION_REPORT_LIMIT),
+        return_exceptions=True,
+    )
+    source_load_status = (
+        source_load_status
+        if isinstance(source_load_status, Mapping)
+        else {"data_sources": [], "data_load_status": {}}
     )
     data_sources = _mapping_list_field(source_load_status, "data_sources")
     data_load_status = _mapping_field(source_load_status, "data_load_status")
     live_config = _mapping_field(data_load_status, "live_config")
     if not live_config:
         live_config = await asyncio.to_thread(load_live_config_readiness)
-    readiness = build_live_readiness(
-        source_health=data_sources,
-        selection_reports=reports,
-        risk_decisions=risk_decisions,
-    )
-    paper_status = await paper_review_status_from_runtime(
-        reports=reports,
-        risk_decisions=risk_decisions,
-        readiness=readiness,
-    )
+    if isinstance(report_result, BaseException) or isinstance(risk_result, BaseException):
+        readiness = _runtime_unavailable_readiness(report_result, risk_result)
+        paper_status = _runtime_unavailable_paper_status(readiness)
+    else:
+        reports = _active_cycle_reports(cast(Sequence[Mapping[str, object]], report_result))
+        risk_decisions = _risk_decisions_for_reports(
+            cast(Sequence[Mapping[str, object]], risk_result),
+            reports,
+        )
+        readiness = build_live_readiness(
+            source_health=data_sources,
+            selection_reports=reports,
+            risk_decisions=risk_decisions,
+        )
+        paper_status = await paper_review_status_from_runtime(
+            reports=reports,
+            risk_decisions=risk_decisions,
+            readiness=readiness,
+        )
     return build_operational_readiness(
         health={"status": "ok", "service": "trading-agency-v2"},
         live_config=live_config,
@@ -3020,6 +3124,69 @@ async def operational_readiness_context() -> dict[str, object]:
         paper_review=paper_status,
         broker_execution_enabled=_broker_execution_enabled(),
     )
+
+
+def _runtime_unavailable_readiness(*errors: object) -> dict[str, object]:
+    details = [
+        str(error)
+        for error in errors
+        if isinstance(error, BaseException) and str(error)
+    ]
+    detail = (
+        "Runtime repository is unavailable for selection reports or risk decisions. "
+        "Refresh/restart the runtime database connection, then reload this status."
+    )
+    if details:
+        detail = f"{detail} Reader detail: {'; '.join(details)}"
+    return {
+        "schema_version": "0.1.0",
+        "ready": False,
+        "verdict": "runtime_reader_unavailable",
+        "cycle_id": None,
+        "source_count": 0,
+        "degraded_source_count": 0,
+        "selection_report_count": 0,
+        "risk_decision_count": 0,
+        "reviewable_candidate_count": 0,
+        "open_risk_decision_count": 0,
+        "blocked_risk_decision_count": 0,
+        "source_status_counts": {},
+        "final_action_counts": {},
+        "risk_decision_counts": {},
+        "blockers": [
+            {
+                "kind": "runtime_reader_unavailable",
+                "item": "runtime",
+                "reason": detail,
+            }
+        ],
+        "headline": "Runtime repository is unavailable.",
+        "detail": detail,
+    }
+
+
+def _runtime_unavailable_paper_status(
+    readiness: Mapping[str, object],
+) -> dict[str, object]:
+    return {
+        "schema_version": "0.1.0",
+        "cycle_id": readiness.get("cycle_id"),
+        "ready": False,
+        "verdict": readiness.get("verdict"),
+        "progress": {
+            "total_count": 0,
+            "reviewed_count": 0,
+            "pending_count": 0,
+            "approve_count": 0,
+            "defer_count": 0,
+            "reject_count": 0,
+            "reviewed_label": "0/0",
+            "status_label": "Runtime Unavailable",
+            "status_class": "block",
+            "detail": "Paper-review queue cannot be read until runtime storage is available.",
+        },
+        "queue": [],
+    }
 
 async def scheduler_work_queue_raw_context() -> dict[str, object]:
     from agency.views.market_regime import broker_status_context
@@ -3126,7 +3293,11 @@ def paper_review_queue(
 def paper_review_progress(
     review_queue: Sequence[Mapping[str, object]],
 ) -> dict[str, object]:
-    from agency.views.candidates import _review_progress_detail, _review_progress_status_class, _review_progress_status_label
+    from agency.views.candidates import (
+        _review_progress_detail,
+        _review_progress_status_class,
+        _review_progress_status_label,
+    )
     total_count = len(review_queue)
     decisions = [_review_decision_key(row.get("human_review_decision")) for row in review_queue]
     pending_count = decisions.count("pending")

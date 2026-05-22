@@ -21,11 +21,11 @@ from subscription_email.classifiers import classify_subscription_emails
 from subscription_email.config import SubscriptionEmailConfig, load_subscription_email_config
 from subscription_email.linked_content import (
     ARTICLE_UNAVAILABLE_STATUS,
+    LOGIN_GATED_LINK_STATUS,
+    LOGIN_PREFLIGHT_REQUIRED_STATUS,
     ArticleAnalyzer,
     ArticleFetcher,
     ArticleLoginHandler,
-    LOGIN_GATED_LINK_STATUS,
-    LOGIN_PREFLIGHT_REQUIRED_STATUS,
     LinkedContentStats,
     enrich_records_with_linked_content,
 )

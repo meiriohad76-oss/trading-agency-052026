@@ -138,7 +138,9 @@ def build_scheduler(db_url: str | None = None) -> Any:
 
     jobstores = {}
     if db_url and PERSIST_SCHEDULER_JOBS:
-        from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore  # type: ignore[import-untyped]
+        from apscheduler.jobstores.sqlalchemy import (  # type: ignore[import-untyped]
+            SQLAlchemyJobStore,
+        )
 
         jobstores["default"] = SQLAlchemyJobStore(url=db_url)
     scheduler = AsyncIOScheduler(jobstores=jobstores, timezone="UTC")
@@ -192,7 +194,6 @@ def _run_work_queue_tick() -> None:
         load_scheduler_runtime_status,
         record_scheduler_runtime_status,
     )
-    from agency.runtime.scheduler_work_queue import scheduler_work_queue_context
 
     if _WORK_QUEUE_TICK_RUNNING:
         previous = load_scheduler_runtime_status()
@@ -780,7 +781,8 @@ def _record_failed_data_refresh_status(
     completed = sum(1 for job in updated_jobs if str(job.get("status")) in complete_statuses)
     running = sum(1 for job in updated_jobs if str(job.get("status")) == "running")
     pending = sum(1 for job in updated_jobs if str(job.get("status")) == "pending")
-    progress = dict(payload.get("progress")) if isinstance(payload.get("progress"), dict) else {}
+    progress_value = payload.get("progress")
+    progress = dict(progress_value) if isinstance(progress_value, dict) else {}
     progress.update(
         {
             "state": "failed",
@@ -829,7 +831,7 @@ def _normalize_command(command: list[str]) -> list[str]:
     if not command:
         return command
     first = command[0].replace("/", "\\").lower()
-    if first.endswith("\\.venv\\scripts\\python") or first.endswith("\\.venv\\scripts\\python.exe"):
+    if first.endswith(("\\.venv\\scripts\\python", "\\.venv\\scripts\\python.exe")):
         return [PYTHON, *command[1:]]
     return command
 

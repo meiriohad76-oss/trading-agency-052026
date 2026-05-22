@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Callable, Sequence
-from datetime import datetime
 from dataclasses import replace
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -138,7 +138,34 @@ def _news_job(config: RefreshBatchConfig) -> RefreshJob:
     command = _base_command(config, "pull_news_rss.py")
     for feed in config.rss_feeds:
         command.extend(["--feed", feed])
-    reasons = () if config.rss_feeds else ("missing RSS feed specs",)
+    reasons: list[str] = []
+    if not config.rss_feeds:
+        reasons.append("missing RSS feed specs")
+    elif config.news_resolve_generic_tickers:
+        command.append("--resolve-generic-tickers")
+        if config.news_ticker_aliases_path is None:
+            reasons.append("missing news ticker aliases config")
+        else:
+            command.extend(["--ticker-aliases", str(config.news_ticker_aliases_path)])
+            if not config.news_ticker_aliases_path.is_file():
+                display_path = _display_path(config.news_ticker_aliases_path, config.repo_root)
+                reasons.append(f"missing news ticker aliases config: {display_path}")
+        _extend_news_resolution_tickers(command, config)
+        if not config.tickers and not _universe_path(config).is_file():
+            reasons.append(
+                f"missing universe file: {_display_path(_universe_path(config), config.repo_root)}"
+            )
+        command.extend(
+            [
+                "--news-resolution-min-confidence",
+                str(config.news_resolution_min_confidence),
+            ]
+        )
+        command.append(
+            "--keep-unresolved-generic-news"
+            if config.news_keep_unresolved_generic
+            else "--no-keep-unresolved-generic-news"
+        )
     return _job(config, "news_rss", command, reasons)
 
 
@@ -275,17 +302,33 @@ def _extend_tickers(command: list[str], tickers: Sequence[str], flag: str) -> No
         command.extend(ticker.upper() for ticker in tickers)
 
 
+def _extend_news_resolution_tickers(
+    command: list[str],
+    config: RefreshBatchConfig,
+) -> None:
+    if config.tickers:
+        for ticker in config.tickers:
+            command.extend(["--ticker", ticker.upper()])
+        return
+    universe_path = _universe_path(config)
+    command.extend(["--universe-path", str(universe_path)])
+
+
 def _universe_reasons(config: RefreshBatchConfig) -> tuple[str, ...]:
-    universe_path = (
+    universe_path = _universe_path(config)
+    if config.tickers or universe_path.is_file():
+        return ()
+    return (f"missing universe file: {_display_path(universe_path, config.repo_root)}",)
+
+
+def _universe_path(config: RefreshBatchConfig) -> Path:
+    return (
         config.repo_root
         / "research"
         / "data"
         / "parquet"
         / "universe_membership.parquet"
     )
-    if config.tickers or universe_path.is_file():
-        return ()
-    return (f"missing universe file: {_display_path(universe_path, config.repo_root)}",)
 
 
 def _sec_reasons(config: RefreshBatchConfig) -> tuple[str, ...]:
@@ -371,3 +414,5 @@ def _validate_config(config: RefreshBatchConfig) -> None:
     for numeric_label, numeric_value in numeric_settings:
         if numeric_value < 1:
             raise ValueError(f"{numeric_label} must be >= 1")
+    if not (0.0 <= config.news_resolution_min_confidence <= 1.0):
+        raise ValueError("news_resolution_min_confidence must be between 0.0 and 1.0")

@@ -5,12 +5,11 @@ from pathlib import Path
 from service_fixtures import selection_report
 
 from agency.services import PortfolioPolicy, build_execution_preview, build_portfolio_monitor
+from agency.services.human_review import selection_report_hash
 from agency.services.paper_trade_promotion import (
     PaperTradePromotionConfig,
     promote_paper_trade_reports,
 )
-from agency.services.human_review import selection_report_hash
-
 
 TEMPLATE_ROOT = Path("src/agency/templates")
 STYLE_PATH = Path("src/agency/static/styles.css")

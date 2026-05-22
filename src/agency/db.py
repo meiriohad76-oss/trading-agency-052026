@@ -5,10 +5,10 @@ from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from functools import lru_cache
+from typing import Any, cast
 
 from dotenv import load_dotenv
-from sqlalchemy import URL
-from sqlalchemy import event
+from sqlalchemy import URL, event
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -176,7 +176,7 @@ def _install_sqlite_pragmas(
 ) -> None:
     @event.listens_for(engine.sync_engine, "connect")
     def _set_sqlite_pragmas(dbapi_connection: object, _connection_record: object) -> None:
-        cursor = dbapi_connection.cursor()
+        cursor = cast(Any, dbapi_connection).cursor()
         try:
             cursor.execute("PRAGMA journal_mode=WAL")
             cursor.execute(f"PRAGMA busy_timeout={busy_timeout_ms}")

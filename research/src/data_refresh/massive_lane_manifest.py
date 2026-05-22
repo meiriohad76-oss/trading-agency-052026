@@ -6,7 +6,6 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
-
 DEFAULT_LANE_MANIFEST_ROOT = Path("research/data/manifests/massive_lanes")
 
 
@@ -138,14 +137,14 @@ def _merged_coverage(
     current: Sequence[Mapping[str, object]],
 ) -> list[dict[str, object]]:
     by_ticker: dict[str, dict[str, object]] = {}
-    for row in _mapping_rows(existing):
-        ticker = str(row.get("ticker") or "").upper().strip()
+    for existing_row in _mapping_rows(existing):
+        ticker = str(existing_row.get("ticker") or "").upper().strip()
         if ticker:
-            by_ticker[ticker] = {**row, "ticker": ticker}
-    for row in current:
-        ticker = str(row.get("ticker") or "").upper().strip()
+            by_ticker[ticker] = {**dict(existing_row), "ticker": ticker}
+    for current_row in current:
+        ticker = str(current_row.get("ticker") or "").upper().strip()
         if ticker:
-            by_ticker[ticker] = {**dict(row), "ticker": ticker}
+            by_ticker[ticker] = {**dict(current_row), "ticker": ticker}
     return [by_ticker[ticker] for ticker in sorted(by_ticker)]
 
 

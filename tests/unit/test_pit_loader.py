@@ -350,6 +350,72 @@ def test_stock_trade_activity_frames_can_allow_partial_live_slice(tmp_path: Path
     assert daily.get_column("date").to_list() == [date(2026, 5, 6)]
 
 
+def test_stock_trade_activity_frames_for_trade_window_uses_separate_knowledge_cutoff(
+    tmp_path: Path,
+) -> None:
+    parquet_root = tmp_path / "parquet"
+    manifest_root = tmp_path / "manifests"
+    trade_root = parquet_root / "stock_trades"
+    aapl_path = trade_root / "ticker=AAPL" / "year=2026" / "trades.parquet"
+    aapl_path.parent.mkdir(parents=True)
+    manifest_root.mkdir()
+    pl.DataFrame(
+        [
+            {
+                **stock_trade("AAPL", date(2026, 5, 6), date(2026, 5, 6), "known-next-day"),
+                "timestamp_as_of": datetime(2026, 5, 7, 0, 5, tzinfo=UTC),
+            },
+            {
+                **stock_trade("AAPL", date(2026, 5, 6), date(2026, 5, 6), "future-later"),
+                "timestamp_as_of": datetime(2026, 5, 8, 0, 5, tzinfo=UTC),
+            },
+        ]
+    ).write_parquet(aapl_path)
+    (trade_root / "_coverage.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "0.1.0",
+                "ticker_days": {
+                    "AAPL|2026-05-06": {
+                        "ticker": "AAPL",
+                        "trade_date": "2026-05-06",
+                        "coverage_status": "partial",
+                        "downloaded_row_count": 2,
+                        "pages_downloaded": 1,
+                        "order": "desc",
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    write_manifest(manifest_root, DatasetName.STOCK_TRADES, "stock_trades", row_count=2)
+    loader = PITLoader(
+        parquet_root=parquet_root,
+        manifest_root=manifest_root,
+        today=lambda: date(2026, 5, 8),
+    )
+
+    with pytest.raises(DataNotAvailableAt, match="no stock trade rows matched"):
+        loader.stock_trade_activity_frames(
+            ["AAPL"],
+            date(2026, 5, 6),
+            lookback_days=1,
+            allow_partial_coverage=True,
+        )
+
+    total, daily = loader.stock_trade_activity_frames_for_trade_window(
+        ["AAPL"],
+        trade_end=date(2026, 5, 6),
+        knowledge_as_of=date(2026, 5, 7),
+        lookback_days=1,
+        allow_partial_coverage=True,
+    )
+
+    assert total.get_column("trade_count").to_list() == [1]
+    assert daily.get_column("trade_count").to_list() == [1]
+
+
 def test_stock_trades_reject_missing_requested_coverage_rows(tmp_path: Path) -> None:
     parquet_root = tmp_path / "parquet"
     manifest_root = tmp_path / "manifests"

@@ -6,9 +6,9 @@ from collections.abc import Callable, Sequence
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
-import data_refresh.batch as batch
 import pandas as pd
 import pytest
+from data_refresh import batch
 from data_refresh.batch import build_refresh_jobs, run_refresh_batch
 from data_refresh.status import result_progress
 from data_refresh.types import (
@@ -24,6 +24,7 @@ EXPECTED_COMMAND_DURATION_SECONDS = 3.0
 EXPECTED_FORM4_ETA_SECONDS = 570
 SMOKE_STOCK_TRADES_LIMIT = 1000
 SMOKE_STOCK_TRADES_MAX_PAGES = 2
+EXPECTED_NEWS_RESOLUTION_MIN_CONFIDENCE = 0.82
 
 
 def test_build_refresh_jobs_blocks_missing_optional_source_config(tmp_path: Path) -> None:
@@ -150,6 +151,101 @@ def test_build_refresh_jobs_accepts_subscription_email_config(tmp_path: Path) ->
     assert blocked_job.blocked_reasons == ("missing subscription email config",)
     assert ready_job.blocked_reasons == ()
     assert ready_job.display_command[-2:] == ("--config", "subscription-email.json")
+
+
+def test_news_job_passes_alias_registry_and_active_tickers(tmp_path: Path) -> None:
+    aliases_path = tmp_path / "news-aliases.json"
+    aliases_path.write_text('{"aliases": []}', encoding="utf-8")
+    config = _config(
+        tmp_path,
+        datasets=("news_rss",),
+        tickers=("aapl", "MSFT"),
+        rss_feeds=("PRN,https://example.test/prn.xml",),
+        news_ticker_aliases_path=aliases_path,
+        news_resolve_generic_tickers=True,
+        news_resolution_min_confidence=EXPECTED_NEWS_RESOLUTION_MIN_CONFIDENCE,
+    )
+
+    job = build_refresh_jobs(config)[0]
+
+    assert job.blocked_reasons == ()
+    assert "--resolve-generic-tickers" in job.display_command
+    assert job.display_command[job.display_command.index("--ticker-aliases") + 1] == (
+        "news-aliases.json"
+    )
+    assert job.display_command.count("--ticker") == 2
+    assert "AAPL" in job.display_command
+    assert "MSFT" in job.display_command
+    assert job.display_command[job.display_command.index("--news-resolution-min-confidence") + 1] == (
+        str(EXPECTED_NEWS_RESOLUTION_MIN_CONFIDENCE)
+    )
+    assert "--keep-unresolved-generic-news" in job.display_command
+
+
+def test_news_job_uses_active_universe_when_tickers_are_not_configured(
+    tmp_path: Path,
+) -> None:
+    aliases_path = tmp_path / "news-aliases.json"
+    aliases_path.write_text('{"aliases": []}', encoding="utf-8")
+    universe_root = tmp_path / "research" / "data" / "parquet"
+    universe_root.mkdir(parents=True)
+    pd.DataFrame(
+        [
+            {
+                "ticker": "AAPL",
+                "start_date": date(2021, 1, 1),
+                "end_date": None,
+            }
+        ]
+    ).to_parquet(universe_root / "universe_membership.parquet", index=False)
+    config = _config(
+        tmp_path,
+        datasets=("news_rss",),
+        rss_feeds=("PRN,https://example.test/prn.xml",),
+        news_ticker_aliases_path=aliases_path,
+        news_resolve_generic_tickers=True,
+    )
+
+    job = build_refresh_jobs(config)[0]
+
+    assert job.blocked_reasons == ()
+    assert job.display_command[job.display_command.index("--universe-path") + 1] == (
+        "/".join(["research", "data", "parquet", "universe_membership.parquet"])
+    )
+
+
+def test_news_job_can_disable_generic_resolution(tmp_path: Path) -> None:
+    config = _config(
+        tmp_path,
+        datasets=("news_rss",),
+        rss_feeds=("PRN,https://example.test/prn.xml",),
+        news_resolve_generic_tickers=False,
+    )
+
+    job = build_refresh_jobs(config)[0]
+
+    assert job.blocked_reasons == ()
+    assert "--resolve-generic-tickers" not in job.display_command
+    assert "--ticker-aliases" not in job.display_command
+    assert "--news-resolution-min-confidence" not in job.display_command
+
+
+def test_news_job_blocks_when_alias_file_missing_and_resolution_enabled(
+    tmp_path: Path,
+) -> None:
+    config = _config(
+        tmp_path,
+        datasets=("news_rss",),
+        tickers=("AAPL",),
+        rss_feeds=("PRN,https://example.test/prn.xml",),
+        news_ticker_aliases_path=tmp_path / "missing-aliases.json",
+        news_resolve_generic_tickers=True,
+    )
+
+    job = build_refresh_jobs(config)[0]
+
+    assert job.blocked_reasons == ("missing news ticker aliases config: missing-aliases.json",)
+    assert "--resolve-generic-tickers" in job.display_command
 
 
 def test_build_refresh_jobs_blocks_missing_subscription_email_input(tmp_path: Path) -> None:
@@ -729,6 +825,10 @@ def _config(
     stock_trades_max_pages_per_day: int | None = None,
     stock_trades_start: date | None = None,
     stock_trades_end: date | None = None,
+    news_ticker_aliases_path: Path | None = None,
+    news_resolve_generic_tickers: bool = False,
+    news_resolution_min_confidence: float = 0.70,
+    news_keep_unresolved_generic: bool = True,
 ) -> RefreshBatchConfig:
     return RefreshBatchConfig(
         repo_root=tmp_path,
@@ -751,6 +851,10 @@ def _config(
         stock_trades_end=stock_trades_end,
         stock_trades_limit=stock_trades_limit,
         stock_trades_max_pages_per_day=stock_trades_max_pages_per_day,
+        news_ticker_aliases_path=news_ticker_aliases_path,
+        news_resolve_generic_tickers=news_resolve_generic_tickers,
+        news_resolution_min_confidence=news_resolution_min_confidence,
+        news_keep_unresolved_generic=news_keep_unresolved_generic,
     )
 
 

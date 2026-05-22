@@ -4,7 +4,6 @@ import warnings
 
 import pandas as pd
 import pytest
-
 from signals._common import zscore
 
 
@@ -28,8 +27,6 @@ def test_zscore_no_warning_when_sufficient() -> None:
         warnings.simplefilter("error")
         result = zscore(pd.Series([1.0, 2.0, 3.0]))
 
-    # Population zscore for [1, 2, 3]: mean=2, std=0.8165...
-    # z = [-1.2247, 0.0, 1.2247]
     assert abs(result.iloc[0] - (-1.2247448713915892)) < 1e-6
     assert abs(result.iloc[1] - 0.0) < 1e-6
     assert abs(result.iloc[2] - 1.2247448713915892) < 1e-6

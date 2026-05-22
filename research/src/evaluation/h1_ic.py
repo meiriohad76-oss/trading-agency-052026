@@ -7,8 +7,8 @@ from datetime import date
 from statistics.forward_returns import RETURN_PREFIX, compute_forward_returns
 from statistics.ic import compute_ic
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 from backtests.scoped_loader import LoaderLike, ScopedPITLoader
 
 SignalFn = Callable[[date, set[str], LoaderLike], dict[str, float]]

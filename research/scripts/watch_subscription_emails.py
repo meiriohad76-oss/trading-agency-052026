@@ -39,7 +39,7 @@ def _acquire_lock() -> None:
     """Exit if another email ingest process is already running (Windows file lock)."""
     global _lock_fd
     LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
-    _lock_fd = open(LOCK_FILE, "w")  # noqa: SIM115
+    _lock_fd = LOCK_FILE.open("w")
     try:
         msvcrt.locking(_lock_fd.fileno(), msvcrt.LK_NBLCK, 1)
     except OSError:
@@ -49,7 +49,7 @@ def _acquire_lock() -> None:
             f"(lock: {LOCK_FILE}). Exiting.",
             file=sys.stderr,
         )
-        raise SystemExit(1)
+        raise SystemExit(1) from None
 
 
 def main() -> int:

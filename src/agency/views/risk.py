@@ -1,23 +1,26 @@
 """View-model constructors for the risk page."""
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Mapping, Sequence
 from typing import cast
-import asyncio
 
 from agency.api.health import runtime_data_source_status
 from agency.runtime import build_live_readiness
 from agency.runtime.data_load_status import load_data_load_status
-from agency.services import PaperTradePromotionConfig, build_risk_decisions, load_active_portfolio_policy, promote_paper_trade_reports
-
+from agency.services import (
+    PaperTradePromotionConfig,
+    build_risk_decisions,
+    load_active_portfolio_policy,
+    promote_paper_trade_reports,
+)
 from agency.views._shared import (
     FINAL_SELECTION_REPORT_LIMIT,
     _active_cycle_reports,
-    dashboard_data_health,
     _dashboard_selection_reports,
     _decision_class,
-    _format_timestamp_label,
     _float_field,
+    _format_timestamp_label,
     _human_list,
     _human_review_index,
     _int_field,
@@ -26,9 +29,10 @@ from agency.views._shared import (
     _mapping_field,
     _percent,
     _runtime_payload_key,
-    _source_is_degraded,
     _source_health_origin_label,
+    _source_is_degraded,
     _string_list,
+    dashboard_data_health,
     live_runtime_source_health_rows,
 )
 
@@ -36,7 +40,13 @@ from agency.views._shared import (
 async def risk_context() -> dict[str, object]:
     from agency.views.command import human_review_events_for_reports, source_status_rows
     from agency.views.market_regime import broker_status_context
-    from agency.views.portfolio import _broker_gross_exposure_pct, _broker_orders, _broker_positions, _broker_ready_for_paper_promotion, _pending_opening_order_exposure_pct
+    from agency.views.portfolio import (
+        _broker_gross_exposure_pct,
+        _broker_orders,
+        _broker_positions,
+        _broker_ready_for_paper_promotion,
+        _pending_opening_order_exposure_pct,
+    )
     raw_reports, data_sources, broker = await asyncio.gather(
         _dashboard_selection_reports(limit=FINAL_SELECTION_REPORT_LIMIT),
         live_runtime_source_health_rows(runtime_data_source_status),
@@ -262,6 +272,8 @@ def _risk_deterministic_score_label(selection_report: Mapping[str, object] | Non
         or selection_report.get("final_conviction")
         or 0.0
     )
+    if isinstance(value, bool) or not isinstance(value, int | float | str):
+        value = 0.0
     try:
         conviction = float(value)
     except (TypeError, ValueError):

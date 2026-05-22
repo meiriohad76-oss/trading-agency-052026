@@ -5,12 +5,10 @@ import json
 from pathlib import Path
 
 import pytest
-
 from service_fixtures import selection_report
 
 from agency.services import PortfolioPolicy, build_portfolio_monitor
 from agency.services.portfolio_monitor import update_high_water_marks
-
 
 # ---------------------------------------------------------------------------
 # Helpers

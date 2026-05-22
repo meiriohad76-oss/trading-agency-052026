@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import importlib
 import json
+import sys
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -13,10 +14,12 @@ from data_refresh.types import RefreshBatchConfig
 from pit.manifest import DatasetName
 from pit_fixtures import member, write_manifest
 
-from research.scripts.run_data_refresh_batch import _market_aware_config
-from research.scripts import plan_market_aware_refresh
-from scripts.backup_postgres import default_backup_path, pg_dump_command
 import scripts.check_local_runtime as local_runtime
+import scripts.run_live_runtime_cycle as live_runtime_cycle_script
+from agency.services import build_human_review_event
+from research.scripts import plan_market_aware_refresh
+from research.scripts.run_data_refresh_batch import _market_aware_config
+from scripts.backup_postgres import default_backup_path, pg_dump_command
 from scripts.check_local_runtime import metric_value
 from scripts.check_operational_readiness import check_operational_readiness
 from scripts.check_paper_review_status import check_paper_review_status
@@ -30,14 +33,12 @@ from scripts.run_first_version_pipeline import (
     subscription_email_requires_console,
     write_pipeline_report,
 )
-import scripts.run_live_runtime_cycle as live_runtime_cycle_script
 from scripts.run_live_runtime_cycle import (
     _human_review_state_index,
     _max_tickers,
     _runtime_as_of,
     _tickers,
 )
-from agency.services import build_human_review_event
 
 EXPECTED_SOURCE_HEALTH = 2.0
 EXPECTED_REVIEW_QUEUE_COUNT = 4
@@ -51,6 +52,16 @@ MASSIVE_OPERATOR_RUNBOOK_PATHS = (
     Path("docs/phase-status.md"),
     Path("docs/mvp-gap-analysis.md"),
 )
+
+
+def test_live_runtime_cycle_default_output_root_is_canonical_latest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sys, "argv", ["run_live_runtime_cycle.py"])
+
+    args = live_runtime_cycle_script._parse_args()
+
+    assert args.output_root == live_runtime_cycle_script.CANONICAL_RUNTIME_OUTPUT_ROOT
 
 
 def test_default_backup_path_uses_timestamped_postgres_directory() -> None:
@@ -121,6 +132,7 @@ def test_start_dev_respects_dotenv_database_url_before_sqlite_fallback() -> None
     script = Path("scripts/start_dev.ps1").read_text(encoding="utf-8")
 
     assert "Get-DotEnvValue" in script
+    assert "$env:DATABASE_URL = $DotEnvDatabaseUrl" in script
     assert "DATABASE_URL is configured from .env" in script
 
 
@@ -175,9 +187,7 @@ def test_check_local_runtime_records_route_budget_timings() -> None:
         payload: object
         if path == "/health":
             payload = {"status": "ok"}
-        elif path == "/reports/selection":
-            payload = [{"ticker": "AAPL"}]
-        elif path == "/risk/decisions":
+        elif path in {"/reports/selection", "/risk/decisions"}:
             payload = [{"ticker": "AAPL"}]
         else:
             raise AssertionError(path)
@@ -478,7 +488,7 @@ def test_status_check_fetch_json_retries_connection_reset(
     class Response:
         status = 200
 
-        def __enter__(self) -> "Response":
+        def __enter__(self) -> Response:
             return self
 
         def __exit__(self, *_args: object) -> None:
@@ -518,7 +528,7 @@ def test_status_check_fetch_json_survives_two_connection_resets(
     class Response:
         status = 200
 
-        def __enter__(self) -> "Response":
+        def __enter__(self) -> Response:
             return self
 
         def __exit__(self, *_args: object) -> None:
@@ -548,7 +558,7 @@ def test_check_local_runtime_fetch_text_survives_two_connection_resets(
     class Response:
         status = 200
 
-        def __enter__(self) -> "Response":
+        def __enter__(self) -> Response:
             return self
 
         def __exit__(self, *_args: object) -> None:
@@ -796,6 +806,53 @@ def test_check_operational_readiness_fails_when_full_live_is_not_review_operatio
     assert "full-live readiness is not review-operational (loading)" in message
     assert "Wait for stock_trades to finish" in message
     assert "Do not start paper review yet" in message
+
+
+def test_check_operational_readiness_fails_on_cycle_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_fetch_json(_base_url: str, path: str) -> dict[str, object]:
+        if path == "/status/full-live-readiness":
+            return {
+                "verdict": "ready_with_partial_lanes",
+                "state": "attention",
+                "status_label": "Review Operational",
+                "review_operational_ready": True,
+                "tradable_ready": False,
+            }
+        assert path == "/status/operational-readiness"
+        return {
+            "ready": True,
+            "state": "attention",
+            "status_label": "Operational With Attention",
+            "blocker_count": 0,
+            "warning_count": 1,
+            "live_readiness": {"cycle_id": "live-pit-old"},
+            "data_load_status": {
+                "cycle_id": "live-pit-current",
+                "state": "ready",
+                "status_label": "Ready",
+            },
+            "paper_review": {
+                "progress": {
+                    "total_count": EXPECTED_REVIEW_QUEUE_COUNT,
+                    "reviewed_count": EXPECTED_REVIEWED_COUNT,
+                    "pending_count": EXPECTED_PENDING_COUNT,
+                }
+            },
+        }
+
+    monkeypatch.setattr(
+        "scripts.check_operational_readiness._fetch_json",
+        fake_fetch_json,
+    )
+
+    with pytest.raises(RuntimeError) as exc:
+        check_operational_readiness(min_queue=4, min_reviewed=1)
+
+    assert "cycle mismatch" in str(exc.value)
+    assert "live-pit-old" in str(exc.value)
+    assert "live-pit-current" in str(exc.value)
 
 
 def test_check_provider_readiness_summarizes_endpoint(

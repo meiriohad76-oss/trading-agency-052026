@@ -40,6 +40,17 @@ def check_operational_readiness(
     live_readiness = _optional_mapping(payload.get("live_readiness"))
     total_count = _int_value(progress, "total_count")
     reviewed_count = _int_value(progress, "reviewed_count")
+    runtime_cycle_id = _optional_text(live_readiness.get("cycle_id"))
+    data_load_cycle_id = _optional_text(data_load.get("cycle_id"))
+    if (
+        runtime_cycle_id
+        and data_load_cycle_id
+        and runtime_cycle_id != data_load_cycle_id
+    ):
+        raise RuntimeError(
+            "operational readiness cycle mismatch: "
+            f"runtime={runtime_cycle_id}; data_load={data_load_cycle_id}"
+        )
     if payload.get("ready") is not True:
         raise RuntimeError(_failure_detail(payload, "operational readiness is blocked"))
     if full_live.get("review_operational_ready") is not True:
@@ -63,7 +74,7 @@ def check_operational_readiness(
         "status_label": payload["status_label"],
         "blocker_count": _int_value(payload, "blocker_count"),
         "warning_count": warning_count,
-        "cycle_id": live_readiness.get("cycle_id") or data_load.get("cycle_id"),
+        "cycle_id": runtime_cycle_id or data_load_cycle_id,
         "full_live_verdict": full_live.get("verdict"),
         "full_live_state": full_live.get("state"),
         "full_live_status_label": full_live.get("status_label"),
@@ -98,6 +109,10 @@ def _mapping(value: object) -> Mapping[str, object]:
 
 def _optional_mapping(value: object) -> Mapping[str, object]:
     return value if isinstance(value, Mapping) else {}
+
+
+def _optional_text(value: object) -> str:
+    return value if isinstance(value, str) and value.strip() else ""
 
 
 def _int_value(payload: Mapping[str, object], key: str) -> int:

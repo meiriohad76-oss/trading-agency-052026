@@ -17,7 +17,6 @@ from data_refresh.massive_orchestrator import (
 )
 from data_refresh.types import RefreshBatchConfig
 
-
 RAW_LANE_IDS = {
     "massive_daily_bars",
     "massive_live_trade_slices",

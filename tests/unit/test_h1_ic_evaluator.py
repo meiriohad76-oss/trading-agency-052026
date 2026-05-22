@@ -2,11 +2,17 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-import polars as pl
 import pandas as pd
+import polars as pl
 import pytest
-from evaluation.h1_ic import H1ICConfig, _two_sided_p_value, evaluate_signal_ic
-from evaluation.h1_ic import _hac_lag, _hac_t_stat, _moving_block_bootstrap_p_value
+from evaluation.h1_ic import (
+    H1ICConfig,
+    _hac_lag,
+    _hac_t_stat,
+    _moving_block_bootstrap_p_value,
+    _two_sided_p_value,
+    evaluate_signal_ic,
+)
 from pit.exceptions import LookaheadRequested
 
 EXPECTED_OBSERVATIONS = 4

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import math
 import logging
-from inspect import signature
+import math
 from datetime import UTC, date, datetime, time, timedelta
+from inspect import signature
 from typing import Any, cast
 
 from evaluation.signal_registry import SIGNALS
@@ -159,7 +159,29 @@ class _LiveStockTradeLoader:
                 as_of,
                 "no requested ticker has complete stock-trade coverage for live market-flow lanes",
             )
-        method = getattr(self._loader, "stock_trade_activity_frames")
+        window_method = getattr(self._loader, "stock_trade_activity_frames_for_trade_window", None)
+        if callable(window_method) and effective_as_of != as_of:
+            if "allow_partial_coverage" in signature(window_method).parameters:
+                return cast(
+                    tuple[Any, Any],
+                    window_method(
+                        complete_tickers,
+                        trade_end=effective_as_of,
+                        knowledge_as_of=as_of,
+                        lookback_days=effective_lookback_days,
+                        allow_partial_coverage=True,
+                    ),
+                )
+            return cast(
+                tuple[Any, Any],
+                window_method(
+                    complete_tickers,
+                    trade_end=effective_as_of,
+                    knowledge_as_of=as_of,
+                    lookback_days=effective_lookback_days,
+                ),
+            )
+        method = self._loader.stock_trade_activity_frames
         if "allow_partial_coverage" in signature(method).parameters:
             return cast(
                 tuple[Any, Any],

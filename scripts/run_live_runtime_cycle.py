@@ -33,6 +33,7 @@ from agency.db import MissingDatabaseConfigurationError, get_session  # noqa: E4
 from agency.runtime import list_candidate_lifecycle_events  # noqa: E402
 from agency.runtime.artifact_fallbacks import runtime_lifecycle_event_artifacts  # noqa: E402
 from agency.services import (  # noqa: E402
+    DEFAULT_AUTO_LLM_REVIEW_MAX_CANDIDATES,
     OpenAILlmReviewProvider,
     PaperTradePromotionConfig,
     RuntimeCycleResult,
@@ -206,7 +207,10 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--llm-review-max-candidates",
         type=int,
-        default=_env_int("AGENCY_LLM_REVIEW_MAX_CANDIDATES", default=5),
+        default=_env_int(
+            "AGENCY_LLM_REVIEW_MAX_CANDIDATES",
+            default=DEFAULT_AUTO_LLM_REVIEW_MAX_CANDIDATES,
+        ),
     )
     parser.add_argument("--llm-review-include-no-trade", action="store_true")
     parser.add_argument("--persist", action=argparse.BooleanOptionalAction, default=True)
@@ -223,7 +227,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output-root",
         type=Path,
-        default=ROOT / "research/results/t83-live-runtime-cycle",
+        default=CANONICAL_RUNTIME_OUTPUT_ROOT,
     )
     return parser.parse_args()
 

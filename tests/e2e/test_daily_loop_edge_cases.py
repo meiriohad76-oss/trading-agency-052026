@@ -37,7 +37,6 @@ from agency.services.demo_cycle import (
 from agency.services.final_selection import build_final_selection
 from agency.services.selection_events import build_report_lifecycle_event, status_for_action
 
-
 # ---------------------------------------------------------------------------
 # Helpers shared by multiple tests
 # ---------------------------------------------------------------------------

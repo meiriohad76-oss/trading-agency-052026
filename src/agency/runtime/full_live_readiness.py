@@ -609,9 +609,10 @@ def _warning_degrades_full_live(
         return True
     item = str(warning.get("item") or "")
     reason = str(warning.get("reason") or "")
-    if not _refresh_dataset_blocks(item) and reason.startswith("Refresh is still loading"):
-        return False
-    return True
+    return not (
+        not _refresh_dataset_blocks(item)
+        and reason.startswith("Refresh is still loading")
+    )
 
 
 def _context_only_warning(warning: Mapping[str, object]) -> bool:
@@ -658,9 +659,7 @@ def _refresh_blocks_live_readiness(
         return True
     if _nonblocking_refresh_issue_jobs(active_refresh):
         return not _load_review_operational(data_load_status)
-    if _nonblocking_current_refresh_dataset(data_refresh, data_load_status):
-        return False
-    return True
+    return not _nonblocking_current_refresh_dataset(data_refresh, data_load_status)
 
 
 def _core_refresh_issue_jobs(
@@ -711,9 +710,7 @@ def _refresh_dataset_blocks(dataset: str) -> bool:
     normalized = dataset.strip().lower()
     if normalized in CORE_REFRESH_DATASETS:
         return True
-    if normalized in NON_BLOCKING_REFRESH_DATASETS:
-        return False
-    return True
+    return normalized not in NON_BLOCKING_REFRESH_DATASETS
 
 
 def _trade_pull_status(

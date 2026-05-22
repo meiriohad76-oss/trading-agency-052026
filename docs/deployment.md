@@ -89,7 +89,7 @@ To include supervised LLM review for bounded WATCH candidates:
 ```powershell
 .\.venv\Scripts\python scripts\run_live_runtime_cycle.py `
   --enable-llm-review `
-  --llm-review-max-candidates 5 `
+  --llm-review-max-candidates 10 `
   --output-root research\results\t83-live-runtime-cycle
 ```
 

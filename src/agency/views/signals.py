@@ -8,14 +8,12 @@ from typing import cast
 from agency.runtime.lane_promotion import load_lane_promotion_status
 from agency.runtime.live_config_readiness import load_live_config_readiness
 from agency.runtime.signal_evidence import enrich_signal_rows_with_evidence
-
 from agency.views._shared import (
     SIGNALS_CONTEXT_CACHE_SECONDS,
     SIGNALS_RENDER_LIMIT,
     SIGNALS_REPORT_LIMIT,
     _clean_text,
     _clip_text,
-    dashboard_data_health,
     _dashboard_selection_reports,
     _direction_class,
     _float_field,
@@ -35,6 +33,7 @@ from agency.views._shared import (
     _short_cycle_label,
     _sorted_signals,
     _string_list,
+    dashboard_data_health,
     live_dashboard_data_load_status,
 )
 

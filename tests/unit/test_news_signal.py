@@ -9,6 +9,12 @@ from signals.news import news_factor_frame, news_score
 
 AS_OF = date(2026, 5, 7)
 LOOKBACK_DAYS = 3
+LOW_RESOLUTION_CONFIDENCE = 0.69
+HIGH_RESOLUTION_CONFIDENCE = 0.90
+LOW_WEIGHT_CONFIDENCE = 0.70
+EXPECTED_WEIGHTED_SENTIMENT = 0.125
+EXPECTED_WEIGHTED_HEADLINE_COUNT = 1.60
+EXPECTED_MATCH_CONFIDENCE_AVG = 0.80
 
 
 def test_news_score_ranks_positive_neutral_and_negative_headlines() -> None:
@@ -56,6 +62,88 @@ def test_news_sentiment_is_normalized_by_headline_coverage() -> None:
     assert by_ticker.loc["AAPL", "sentiment_score"] == pytest.approx(0.25)
     assert by_ticker.loc["MSFT", "sentiment_score"] == pytest.approx(1.0)
     assert by_ticker.loc["MSFT", "news_score"] > by_ticker.loc["AAPL", "news_score"]
+
+
+def test_news_signal_ignores_ambiguous_news_rows() -> None:
+    loader = _FakeNewsLoader(
+        [
+            _item(
+                "AAPL",
+                "AAPL upgrade after product launch",
+                "PRN",
+                ticker_match_status="ambiguous",
+                ticker_match_confidence=HIGH_RESOLUTION_CONFIDENCE,
+            )
+        ]
+    )
+
+    frame = news_factor_frame(AS_OF, {"AAPL"}, loader)
+
+    assert frame.empty
+
+
+def test_news_signal_requires_min_resolution_confidence() -> None:
+    loader = _FakeNewsLoader(
+        [
+            _item(
+                "AAPL",
+                "AAPL upgrade after product launch",
+                "PRN",
+                ticker_match_status="resolved",
+                ticker_match_confidence=LOW_RESOLUTION_CONFIDENCE,
+            )
+        ]
+    )
+
+    frame = news_factor_frame(AS_OF, {"AAPL"}, loader)
+
+    assert frame.empty
+
+
+def test_news_sentiment_is_weighted_by_match_confidence() -> None:
+    loader = _FakeNewsLoader(
+        [
+            _item(
+                "AAPL",
+                "AAPL upgrade after product launch",
+                "PRN",
+                ticker_match_status="resolved",
+                ticker_match_confidence=HIGH_RESOLUTION_CONFIDENCE,
+            ),
+            _item(
+                "AAPL",
+                "AAPL downgrade after regulatory probe",
+                "PRN",
+                ticker_match_status="resolved",
+                ticker_match_confidence=LOW_WEIGHT_CONFIDENCE,
+            ),
+        ]
+    )
+
+    frame = news_factor_frame(AS_OF, {"AAPL"}, loader)
+
+    assert frame.iloc[0]["sentiment_score"] == pytest.approx(EXPECTED_WEIGHTED_SENTIMENT)
+    assert frame.iloc[0]["weighted_headline_count"] == pytest.approx(
+        EXPECTED_WEIGHTED_HEADLINE_COUNT
+    )
+    assert frame.iloc[0]["match_confidence_avg"] == pytest.approx(
+        EXPECTED_MATCH_CONFIDENCE_AVG
+    )
+
+
+def test_news_signal_keeps_source_count_by_unique_feed_or_url() -> None:
+    loader = _FakeNewsLoader(
+        [
+            _item("AAPL", "AAPL upgrade", "", url="https://example.test/one"),
+            _item("AAPL", "AAPL raises guidance", "", url="https://example.test/two"),
+            _item("AAPL", "AAPL beats estimates", "PRN", url="https://example.test/three"),
+            _item("AAPL", "AAPL approval expands", "PRN", url="https://example.test/four"),
+        ]
+    )
+
+    frame = news_factor_frame(AS_OF, {"AAPL"}, loader)
+
+    assert frame.iloc[0]["source_count"] == 3
 
 
 def test_news_sentiment_uses_word_boundaries() -> None:
@@ -116,11 +204,29 @@ class _BuggyNewsLoader:
         raise KeyError((as_of, lookback_days, tickers))
 
 
-def _item(ticker: str, title: str, feed_name: str) -> dict[str, object]:
+def _item(
+    ticker: str,
+    title: str,
+    feed_name: str,
+    *,
+    url: str | None = None,
+    ticker_match_status: str | None = None,
+    ticker_match_confidence: float | None = None,
+) -> dict[str, object]:
     return {
         "ticker": ticker,
         "title": title,
         "summary": "",
         "feed_name": feed_name,
-        "url": f"https://example.test/{ticker}",
+        "url": url or f"https://example.test/{ticker}",
+        **(
+            {"ticker_match_status": ticker_match_status}
+            if ticker_match_status is not None
+            else {}
+        ),
+        **(
+            {"ticker_match_confidence": ticker_match_confidence}
+            if ticker_match_confidence is not None
+            else {}
+        ),
     }

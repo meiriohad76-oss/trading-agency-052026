@@ -20,6 +20,7 @@ from agency.runtime import make_lifecycle_event_id
 from agency.services.deterministic_rules import evaluate_deterministic_rules
 
 DEFAULT_OPENAI_LLM_REVIEW_MODEL = "gpt-4.1-mini"
+DEFAULT_AUTO_LLM_REVIEW_MAX_CANDIDATES = 10
 HTTP_BAD_REQUEST = 400
 HTTP_UNAUTHORIZED = 401
 HTTP_FORBIDDEN = 403
@@ -97,6 +98,13 @@ class OpenAILlmErrorInfo:
     detail: str
     http_status: int | None = None
     retryable: bool = False
+
+
+@dataclass(frozen=True)
+class _ReviewCandidate:
+    pack: Mapping[str, object]
+    deterministic_decision: Mapping[str, object]
+    sort_key: tuple[int, float, int, int, str]
 
 
 @dataclass(frozen=True)
@@ -387,10 +395,10 @@ async def review_evidence_packs(
     evidence_packs: list[Mapping[str, object]],
     *,
     provider: LlmReviewProvider,
-    max_reviews: int = 5,
+    max_reviews: int = DEFAULT_AUTO_LLM_REVIEW_MAX_CANDIDATES,
     include_no_trade_with_evidence: bool = False,
 ) -> LlmReviewBatchResult:
-    """Review a bounded set of candidate evidence packs before final selection."""
+    """Review the top ranked candidate evidence packs before final selection."""
     reviews_by_ticker: dict[str, dict[str, object]] = {}
     lifecycle_events: list[dict[str, object]] = []
     prompt_audits: list[dict[str, object]] = []
@@ -401,19 +409,15 @@ async def review_evidence_packs(
         max_reviews=max_reviews,
         model=str(getattr(provider, "model", provider.__class__.__name__)),
     )
-    for pack in evidence_packs:
-        validate_contract("evidence-pack", pack)
-        deterministic = evaluate_deterministic_rules(pack).decision
-        if not _should_review_pack(
-            pack,
-            deterministic,
-            include_no_trade_with_evidence=include_no_trade_with_evidence,
-        ):
-            continue
+    candidates = _ranked_review_candidates(
+        evidence_packs,
+        include_no_trade_with_evidence=include_no_trade_with_evidence,
+    )
+    for candidate in candidates:
         if len(reviewed_tickers) >= max_reviews:
             break
-        result = await provider.review(pack, deterministic)
-        ticker = str(pack["ticker"]).upper()
+        result = await provider.review(candidate.pack, candidate.deterministic_decision)
+        ticker = str(candidate.pack["ticker"]).upper()
         reviews_by_ticker[ticker] = result.review
         lifecycle_events.append(result.lifecycle_event)
         reviewed_tickers.append(ticker)
@@ -431,6 +435,52 @@ async def review_evidence_packs(
         lifecycle_events=lifecycle_events,
         prompt_audits=prompt_audits,
         reviewed_tickers=reviewed_tickers,
+    )
+
+
+def _ranked_review_candidates(
+    evidence_packs: list[Mapping[str, object]],
+    *,
+    include_no_trade_with_evidence: bool,
+) -> list[_ReviewCandidate]:
+    candidates: list[_ReviewCandidate] = []
+    for pack in evidence_packs:
+        validate_contract("evidence-pack", pack)
+        deterministic = evaluate_deterministic_rules(pack).decision
+        if not _should_review_pack(
+            pack,
+            deterministic,
+            include_no_trade_with_evidence=include_no_trade_with_evidence,
+        ):
+            continue
+        candidates.append(
+            _ReviewCandidate(
+                pack=pack,
+                deterministic_decision=deterministic,
+                sort_key=_review_candidate_sort_key(pack, deterministic),
+            )
+        )
+    return sorted(candidates, key=lambda candidate: candidate.sort_key)
+
+
+def _review_candidate_sort_key(
+    evidence_pack: Mapping[str, object],
+    deterministic_decision: Mapping[str, object],
+) -> tuple[int, float, int, int, str]:
+    action = str(deterministic_decision.get("action", "")).upper()
+    data_quality = evidence_pack.get("data_quality")
+    source_count = 0
+    confirmed_signal_count = 0
+    if isinstance(data_quality, Mapping):
+        source_count = _int_or_zero(data_quality.get("source_count"))
+        confirmed_signal_count = _int_or_zero(data_quality.get("confirmed_signal_count"))
+    conviction = _number_or_zero(deterministic_decision.get("conviction"))
+    return (
+        0 if action == "WATCH" else 1,
+        -conviction,
+        -confirmed_signal_count,
+        -source_count,
+        str(evidence_pack["ticker"]).upper(),
     )
 
 
@@ -775,6 +825,18 @@ def _clamp_float(value: object) -> float:
     if not isinstance(value, int | float):
         return 0.0
     return min(1.0, max(0.0, float(value)))
+
+
+def _number_or_zero(value: object) -> float:
+    if not isinstance(value, int | float):
+        return 0.0
+    return float(value)
+
+
+def _int_or_zero(value: object) -> int:
+    if not isinstance(value, int):
+        return 0
+    return value
 
 
 def _domain(value: object) -> str | None:

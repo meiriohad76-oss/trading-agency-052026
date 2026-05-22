@@ -65,5 +65,9 @@
   "sec_form4_max_age_days": 1,
   "sec_13f_max_age_days": 45,
   "news_rss_max_age_minutes": 30,
+  "news_ticker_aliases_path": "research/config/news-ticker-aliases.example.json",
+  "news_resolve_generic_tickers": true,
+  "news_resolution_min_confidence": 0.7,
+  "news_keep_unresolved_generic": true,
   "subscription_email_max_age_minutes": 10
 }

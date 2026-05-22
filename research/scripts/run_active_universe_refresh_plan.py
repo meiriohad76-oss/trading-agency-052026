@@ -143,11 +143,14 @@ def _validate_command_scope(command: list[str], *, batch_id: object) -> None:
             "regenerate a lane-owned plan with plan_active_universe_refresh.py "
             "and run stock-trade data through the Massive Lane Orchestrator"
         )
-    if "backfill_massive_stock_trades.py" in command_text:
-        if "--ticker" not in command and "--allow-active-universe" not in command:
-            raise ValueError(
-                f"batch {batch_id} backtest trade-tape command has no explicit ticker scope"
-            )
+    if (
+        "backfill_massive_stock_trades.py" in command_text
+        and "--ticker" not in command
+        and "--allow-active-universe" not in command
+    ):
+        raise ValueError(
+            f"batch {batch_id} backtest trade-tape command has no explicit ticker scope"
+        )
     if "pull_massive_stock_trades.py" in command_text and "--lane-id" not in command:
         raise ValueError(
             f"batch {batch_id} Massive stock-trade command is missing --lane-id"

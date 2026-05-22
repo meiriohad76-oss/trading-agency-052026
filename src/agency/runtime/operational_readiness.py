@@ -256,9 +256,7 @@ def _refresh_dataset_blocks(dataset: str) -> bool:
     normalized = dataset.strip().lower()
     if normalized in CORE_REFRESH_DATASETS:
         return True
-    if normalized in NON_BLOCKING_REFRESH_DATASETS:
-        return False
-    return True
+    return normalized not in NON_BLOCKING_REFRESH_DATASETS
 
 
 def _paper_review_check(paper_review: Mapping[str, object]) -> dict[str, object]:

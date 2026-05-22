@@ -8,6 +8,7 @@ from urllib.parse import urlencode
 
 from data_refresh.market_calendar import classify_market_session
 
+from agency.api.audit import runtime_execution_states
 from agency.api.health import runtime_data_source_status
 from agency.db import get_session
 from agency.runtime import (
@@ -53,6 +54,17 @@ from agency.views._shared import (
     dashboard_data_health,
     live_runtime_source_health_rows,
 )
+
+EXECUTION_PREVIEW_BROKER_MAX_AGE_SECONDS = 60
+RECORDED_ORDER_STATES = {
+    "ACCEPTED",
+    "SUBMITTED",
+    "PENDING_CANCEL",
+    "FILLED",
+    "CANCELED",
+    "REJECTED",
+    "EXPIRED",
+}
 
 
 async def execution_preview_context(
@@ -141,7 +153,7 @@ async def execution_preview_context(
         positions=broker_positions,
         open_orders=_broker_orders(broker),
         research_approval_required=True,
-        research_approval_records={key: True for key in research_approval_keys},
+        research_approval_records=dict.fromkeys(research_approval_keys, True),
         validate_contracts=validate_contracts,
     )
     current_time = datetime.now(UTC)
@@ -150,6 +162,7 @@ async def execution_preview_context(
         broker,
         data_sources,
         now=current_time,
+        max_broker_age_seconds=EXECUTION_PREVIEW_BROKER_MAX_AGE_SECONDS,
         market_phase=market_phase,
     )
     scheduler_gate = scheduler_work_queue_context(
@@ -169,6 +182,9 @@ async def execution_preview_context(
         data_sources=data_sources,
         previews=[result.preview for result in preview_results],
     )
+    execution_states = await execution_states_for_previews(
+        [result.preview for result in preview_results]
+    )
     preview_rows = execution_preview_rows(
         [result.preview for result in preview_results],
         approval_keys=research_approval_keys,
@@ -176,6 +192,7 @@ async def execution_preview_context(
         review_states=review_states,
         execution_gate=execution_gate,
         promotion_evaluations=promotion_evaluations,
+        execution_states=execution_states,
     )
     leveraged_policy = LeveragedAlternativePolicy.from_env()
     leveraged_catalog = load_leveraged_etf_catalog()
@@ -252,13 +269,43 @@ async def execution_preview_context(
 async def _execution_preview_broker_status_context(
     broker_status_context_fn: Callable[..., Awaitable[dict[str, object]]],
 ) -> dict[str, object]:
-    context = await broker_status_context_fn(use_cache=True)
-    if str(context.get("status_label") or "") != "Broker Check Delayed":
+    try:
+        context = await broker_status_context_fn(use_cache=True)
+    except TypeError:
+        return await broker_status_context_fn()
+    if not _execution_preview_broker_context_needs_refresh(context):
         return context
     try:
         return await broker_status_context_fn(use_cache=False)
     except TypeError:
         return await broker_status_context_fn()
+
+
+def _execution_preview_broker_context_needs_refresh(
+    context: Mapping[str, object],
+    *,
+    now: datetime | None = None,
+    max_age_seconds: int = EXECUTION_PREVIEW_BROKER_MAX_AGE_SECONDS,
+) -> bool:
+    if str(context.get("status_label") or "") == "Broker Check Delayed":
+        return True
+    checked_at = _parse_execution_preview_timestamp(context.get("checked_at"))
+    if checked_at is None:
+        return True
+    current = now or datetime.now(UTC)
+    return (current - checked_at).total_seconds() > max_age_seconds
+
+
+def _parse_execution_preview_timestamp(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 async def execution_preview_order_row(
@@ -304,6 +351,54 @@ async def execution_approval_keys(
         ):
             approved.add(_human_review_key(event))
     return approved
+
+
+async def execution_states_for_previews(
+    previews: Sequence[Mapping[str, object]],
+) -> dict[tuple[str, str, str, str], Mapping[str, object]]:
+    if not previews:
+        return {}
+    cycle_id = str(previews[0].get("cycle_id") or "")
+    if not cycle_id:
+        return {}
+    try:
+        states = await runtime_execution_states(cycle_id=cycle_id, limit=500)
+    except Exception:  # noqa: BLE001
+        return {}
+    return _execution_state_index(states)
+
+
+def _execution_state_index(
+    states: Sequence[Mapping[str, object]],
+) -> dict[tuple[str, str, str, str], Mapping[str, object]]:
+    indexed: dict[tuple[str, str, str, str], Mapping[str, object]] = {}
+    for state in states:
+        key = _execution_state_key(state)
+        if all(key) and key not in indexed:
+            indexed[key] = state
+    return indexed
+
+
+def _execution_state_key(state: Mapping[str, object]) -> tuple[str, str, str, str]:
+    payload_value = state.get("payload")
+    if not isinstance(payload_value, Mapping):
+        return ("", "", "", "")
+    payload = payload_value
+    preview_value = payload.get("preview")
+    if not isinstance(preview_value, Mapping):
+        preview_value = payload.get("execution_preview")
+    if not isinstance(preview_value, Mapping):
+        return ("", "", "", "")
+    preview = preview_value
+    order_intent_hash = str(
+        preview.get("order_intent_hash") or payload.get("order_intent_hash") or ""
+    )
+    return (
+        str(state.get("cycle_id") or preview.get("cycle_id") or ""),
+        str(state.get("ticker") or preview.get("ticker") or "").upper(),
+        str(preview.get("as_of") or payload.get("as_of") or ""),
+        order_intent_hash,
+    )
 
 async def order_approval_keys_for_reports(
     *,
@@ -474,7 +569,6 @@ async def _record_submitted_order(
             session,
             cycle_id=str(preview_row["cycle_id"]),
             order=order,
-            reason="Alpaca paper order submitted from execution preview",
             payload_extra=payload_extra,
         )
         await session.commit()
@@ -519,11 +613,13 @@ def execution_preview_rows(
     review_states: Mapping[tuple[str, str, str], Mapping[str, object]] | None = None,
     execution_gate: Mapping[str, object] | None = None,
     promotion_evaluations: Mapping[tuple[str, str, str], Mapping[str, object]] | None = None,
+    execution_states: Mapping[tuple[str, str, str, str], Mapping[str, object]] | None = None,
 ) -> list[dict[str, object]]:
     research_approved = set() if approval_keys is None else approval_keys
     order_approved = set() if order_approval_keys is None else order_approval_keys
     review_lookup = {} if review_states is None else review_states
     promotion_lookup = {} if promotion_evaluations is None else promotion_evaluations
+    execution_lookup = {} if execution_states is None else execution_states
     gate = {} if execution_gate is None else execution_gate
     submit_gate_ready = not gate or gate.get("ready") is True
     gate_detail = (
@@ -540,6 +636,7 @@ def execution_preview_rows(
             submit_gate_ready=submit_gate_ready,
             submit_gate_detail=gate_detail,
             promotion_evaluation=promotion_lookup.get(_runtime_payload_key(preview)),
+            execution_state=execution_lookup.get(_order_approval_key_from_preview(preview)),
         )
         for preview in previews
     ]
@@ -692,13 +789,21 @@ def _execution_preview_row(
     submit_gate_ready: bool = True,
     submit_gate_detail: str | None = None,
     promotion_evaluation: Mapping[str, object] | None = None,
+    execution_state: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     reasons = _string_list(preview, "reasons")
     raw_reason = reasons[0] if reasons else "preview recorded"
     caution = _execution_preview_caution(preview, raw_reason)
     preview_submit_enabled = preview["submit_enabled"] is True and submit_gate_ready
     effective_order_approved = order_approved and human_approved
-    submit_enabled = preview_submit_enabled and effective_order_approved
+    execution_summary = _execution_state_summary(execution_state)
+    execution_state_name = str(execution_summary["state"])
+    execution_blocks_submit = execution_state_name in RECORDED_ORDER_STATES
+    submit_enabled = (
+        preview_submit_enabled
+        and effective_order_approved
+        and not execution_blocks_submit
+    )
     order_approval_available = (
         str(preview["preview_state"]) == "READY"
         and str(preview["side"]) in {"BUY", "SELL", "SHORT", "COVER"}
@@ -708,13 +813,18 @@ def _execution_preview_row(
         )
         and preview_submit_enabled
         and human_approved
+        and not execution_blocks_submit
     )
-    submit_blocker = _submit_blocker(
-        preview=preview,
-        preview_submit_enabled=preview_submit_enabled,
-        human_approved=human_approved,
-        order_approved=effective_order_approved,
-        submit_gate_detail=submit_gate_detail,
+    submit_blocker = (
+        str(execution_summary["submit_blocker"])
+        if execution_blocks_submit
+        else _submit_blocker(
+            preview=preview,
+            preview_submit_enabled=preview_submit_enabled,
+            human_approved=human_approved,
+            order_approved=effective_order_approved,
+            submit_gate_detail=submit_gate_detail,
+        )
     )
     human_review = _human_review_summary(review_event)
     ticker = str(preview["ticker"])
@@ -724,6 +834,16 @@ def _execution_preview_row(
     llm_action = str(preview.get("llm_action") or "LLM review unavailable - rules-only")
     deterministic_score_label = _execution_deterministic_score_label(preview)
     review_decision = str(human_review["decision"])
+    display_preview_state = (
+        execution_state_name
+        if execution_blocks_submit
+        else str(preview["preview_state"])
+    )
+    research_approval_available = (
+        submit_blocker == "review-only action"
+        and not human_approved
+        and _can_promote_after_approval(promotion_evaluation)
+    )
     return {
         "preview": dict(preview),
         "cycle_id": cycle_id,
@@ -732,14 +852,16 @@ def _execution_preview_row(
         "order_intent_version": str(preview["order_intent_version"]),
         "order_intent_hash": order_intent_hash,
         "order_intent_hash_label": order_intent_hash[:12],
-        "preview_state": str(preview["preview_state"]),
-        "state_class": _preview_state_class(str(preview["preview_state"])),
+        "preview_state": display_preview_state,
+        "state_class": _preview_state_class(display_preview_state),
         "side": str(preview["side"]),
         "risk_decision": str(preview["risk_decision"]),
         "submit_enabled": submit_enabled,
         "order_approval_available": order_approval_available,
         "submit_label": (
-            "Submit paper order"
+            str(execution_summary["status_label"])
+            if execution_blocks_submit
+            else "Submit paper order"
             if submit_enabled
             else _submit_label(
                 submit_blocker,
@@ -762,6 +884,12 @@ def _execution_preview_row(
             order_intent_hash=order_intent_hash,
         ),
         "operator_manual_advance_action": _execution_operator_advance_url(
+            cycle_id=cycle_id,
+            ticker=ticker,
+            as_of=as_of,
+        ),
+        "research_approval_available": research_approval_available,
+        "approve_research_action": _execution_approve_research_url(
             cycle_id=cycle_id,
             ticker=ticker,
             as_of=as_of,
@@ -812,7 +940,18 @@ def _execution_preview_row(
             else "LLM review available"
         ),
         "deterministic_score_label": deterministic_score_label,
-        "submission_confirmation_label": "Submitted paper order appears here after Alpaca accepts it.",
+        "execution_state": execution_state_name or "NONE",
+        "execution_status_label": str(execution_summary["status_label"]),
+        "execution_status_class": str(execution_summary["status_class"]),
+        "execution_reason": str(execution_summary["reason"]),
+        "execution_event_time": str(execution_summary["event_time"]),
+        "execution_event_time_label": _format_timestamp_label(
+            execution_summary["event_time"],
+        ),
+        "client_order_id": str(execution_summary["client_order_id"]),
+        "filled_qty": execution_summary["filled_qty"],
+        "filled_avg_price": execution_summary["filled_avg_price"],
+        "submission_confirmation_label": str(execution_summary["confirmation_label"]),
         "paper_promotion_state": _promotion_text(promotion_evaluation, "state", "not_evaluated"),
         "paper_promotion_status_label": _promotion_status_label_for_card(
             promotion_evaluation,
@@ -968,10 +1107,98 @@ def _execution_workflow_guidance(
         return "No transaction is available; all previews are blocked before sizing."
     return "Execution previews will appear after final selection and risk run."
 
-def _preview_state_class(state: str) -> str:
-    if state == "READY":
+
+def _execution_state_summary(
+    execution_state: Mapping[str, object] | None,
+) -> dict[str, object]:
+    if not execution_state:
+        return {
+            "state": "",
+            "status_label": "No broker order recorded",
+            "status_class": "neutral",
+            "reason": "No submitted paper order has been recorded for this intent.",
+            "event_time": "",
+            "submit_blocker": "",
+            "client_order_id": "",
+            "filled_qty": None,
+            "filled_avg_price": None,
+            "confirmation_label": "Submitted paper order appears here after Alpaca accepts it.",
+        }
+    state = str(execution_state.get("state") or "").upper()
+    payload = _mapping_field(execution_state, "payload")
+    order = _mapping_field(payload, "order")
+    filled_qty = _optional_float_field(order, "filled_qty")
+    filled_avg_price = _optional_float_field(order, "filled_avg_price")
+    return {
+        "state": state,
+        "status_label": _execution_state_status_label(state),
+        "status_class": _execution_state_status_class(state),
+        "reason": str(execution_state.get("reason") or _execution_state_status_label(state)),
+        "event_time": str(execution_state.get("event_time") or ""),
+        "submit_blocker": _execution_state_submit_blocker(state),
+        "client_order_id": str(order.get("client_order_id") or payload.get("client_order_id") or ""),
+        "filled_qty": filled_qty,
+        "filled_avg_price": filled_avg_price,
+        "confirmation_label": _execution_confirmation_label(
+            state,
+            filled_qty=filled_qty,
+            filled_avg_price=filled_avg_price,
+        ),
+    }
+
+
+def _execution_state_status_label(state: str) -> str:
+    labels = {
+        "ACCEPTED": "Paper order accepted",
+        "SUBMITTED": "Paper order submitted",
+        "PENDING_CANCEL": "Paper order cancel pending",
+        "FILLED": "Paper order filled",
+        "CANCELED": "Paper order canceled",
+        "REJECTED": "Paper order rejected",
+        "EXPIRED": "Paper order expired",
+    }
+    return labels.get(state, "Broker order state recorded")
+
+
+def _execution_state_status_class(state: str) -> str:
+    if state == "FILLED":
         return "pass"
-    if state == "DISABLED":
+    if state in {"ACCEPTED", "SUBMITTED", "PENDING_CANCEL"}:
+        return "warn"
+    if state in {"CANCELED", "REJECTED", "EXPIRED"}:
+        return "block"
+    return "neutral"
+
+
+def _execution_state_submit_blocker(state: str) -> str:
+    if state == "FILLED":
+        return "paper order already filled"
+    if state in {"ACCEPTED", "SUBMITTED", "PENDING_CANCEL"}:
+        return "paper order already submitted"
+    if state in {"CANCELED", "REJECTED", "EXPIRED"}:
+        return "broker terminal state recorded"
+    return ""
+
+
+def _execution_confirmation_label(
+    state: str,
+    *,
+    filled_qty: float | None,
+    filled_avg_price: float | None,
+) -> str:
+    if state == "FILLED":
+        if filled_qty is not None and filled_avg_price is not None:
+            return f"Filled {filled_qty} @ {filled_avg_price}"
+        return "Paper order filled at broker"
+    if state:
+        return _execution_state_status_label(state)
+    return "Submitted paper order appears here after Alpaca accepts it."
+
+
+def _preview_state_class(state: str) -> str:
+    if state in {"READY", "FILLED"}:
+        return "pass"
+    if state in {"DISABLED", "ACCEPTED", "SUBMITTED", "PENDING_CANCEL"}:
         return "neutral"
     return "block"
 
@@ -1008,6 +1235,22 @@ def _execution_approve_order_url(
         }
     )
     return f"/execution-preview/orders/approve?{query}"
+
+
+def _execution_approve_research_url(
+    *,
+    cycle_id: str,
+    ticker: str,
+    as_of: str,
+) -> str:
+    query = urlencode(
+        {
+            "cycle_id": cycle_id,
+            "as_of": as_of,
+            "decision": "APPROVE",
+        }
+    )
+    return f"/candidates/{ticker}/reviews?{query}"
 
 
 def _execution_operator_advance_url(
@@ -1066,10 +1309,10 @@ def _submit_label(
     order_approved: bool = False,
     promotion_evaluation: Mapping[str, object] | None = None,
 ) -> str:
-    if blocker == "review-only action" and _can_promote_after_approval(promotion_evaluation):
-        return "Approve research first"
     if human_approved and blocker == "review-only action":
         return "Research approved"
+    if blocker == "review-only action" and _can_promote_after_approval(promotion_evaluation):
+        return "Approve research first"
     if order_approved and blocker == "broker submit gate closed":
         return "Order approved"
     if _is_freshness_blocker(blocker):

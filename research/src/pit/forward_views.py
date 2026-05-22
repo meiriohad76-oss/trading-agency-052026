@@ -49,7 +49,7 @@ def news_from_loader(
     loader._ensure_not_future(as_of)
     loader._ensure_positive_lookback(lookback_days)
     dataset = DatasetName.NEWS_RSS
-    frame = loader._read(dataset, as_of)
+    frame = _with_news_resolution_defaults(loader._read(dataset, as_of))
     frame = loader._with_datetime(
         frame,
         "timestamp_as_of",
@@ -63,12 +63,30 @@ def news_from_loader(
     ]
     if tickers is not None:
         filters.append(pl.col("ticker").is_in([ticker.upper() for ticker in tickers]))
+        filters.append(
+            pl.col("ticker_match_status")
+            .is_null()
+            .or_(pl.col("ticker_match_status").is_in(["resolved", "feed_ticker"]))
+        )
     filtered = frame.filter(*filters).sort("__timestamp_as_of").drop(
         ["__as_of", "__timestamp_as_of"]
     )
     if filtered.is_empty():
         raise DataNotAvailableAt(dataset.value, as_of, "no news rows matched")
     return [row_to_provenanced(row, exclude=set()) for row in rows(filtered)]
+
+
+def _with_news_resolution_defaults(frame: pl.DataFrame) -> pl.DataFrame:
+    defaults: dict[str, object] = {
+        "ticker_match_status": None,
+        "ticker_match_confidence": 1.0,
+    }
+    expressions = [
+        pl.lit(value).alias(column)
+        for column, value in defaults.items()
+        if column not in frame.columns
+    ]
+    return frame.with_columns(expressions) if expressions else frame
 
 
 def option_chains_from_loader(

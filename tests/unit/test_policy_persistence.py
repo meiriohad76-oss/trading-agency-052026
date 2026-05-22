@@ -1,8 +1,8 @@
 """Tests for DB-backed policy persistence (T128 / STRUCT-5)."""
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -14,7 +14,6 @@ from agency.services.risk import (
     load_policy_from_db,
     save_policy_to_db,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fake session helpers

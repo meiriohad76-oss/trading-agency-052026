@@ -1,15 +1,15 @@
 from __future__ import annotations
 
+import math
 import os
 import re
-import math
 from base64 import urlsafe_b64decode
 from binascii import Error as BinasciiError
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
-from urllib.parse import parse_qs, parse_qsl, urlencode, unquote, urlsplit, urlunsplit
+from urllib.parse import parse_qs, parse_qsl, unquote, urlencode, urlsplit, urlunsplit
 
 import httpx
 from news.scrapling_adapter import fetch_page

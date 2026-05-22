@@ -577,7 +577,6 @@ def inject_lazy_imports(fn_text: str, imports_by_mod: dict[str, set[str]]) -> st
             break
     insert_at = header_end + 1
     # skip a docstring if present
-    body_first = lines[insert_at].lstrip() if insert_at < len(lines) else ""
     import_lines = []
     for mod in sorted(imports_by_mod):
         names = ", ".join(sorted(imports_by_mod[mod]))
@@ -651,7 +650,7 @@ def build_module(
         for r in refs:
             if r in lookup:
                 owner = lookup[r]
-                if owner != mod and owner != "_shared":
+                if owner not in {mod, "_shared"}:
                     lazy.setdefault(owner, set()).add(r)
         text = inject_lazy_imports(text, lazy)
         parts.append("\n")

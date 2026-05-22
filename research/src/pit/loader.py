@@ -58,7 +58,7 @@ class PITLoader:
         )
         self._read_cache: dict[tuple[DatasetName, date, str, str, str], pl.DataFrame] = {}
         self._stock_trade_activity_cache: dict[
-            tuple[date, int, tuple[str, ...], str, str, str, str],
+            tuple[object, ...],
             tuple[pl.DataFrame, pl.DataFrame],
         ] = {}
 
@@ -252,6 +252,47 @@ class PITLoader:
         self._stock_trade_activity_cache[cache_key] = frames
         return frames
 
+    def stock_trade_activity_frames_for_trade_window(
+        self,
+        tickers: list[str],
+        *,
+        trade_end: date,
+        knowledge_as_of: date,
+        lookback_days: int,
+        allow_partial_coverage: bool = False,
+    ) -> tuple[pl.DataFrame, pl.DataFrame]:
+        """Trade summaries for a closed trade-date window using a later knowledge cutoff."""
+        self._ensure_not_future(knowledge_as_of)
+        self._ensure_positive_lookback(lookback_days)
+        if trade_end > knowledge_as_of:
+            raise LookaheadRequested(trade_end, knowledge_as_of)
+        normalized_tickers = tuple(sorted({ticker.upper() for ticker in tickers}))
+        if not normalized_tickers:
+            raise DataNotAvailableAt(DatasetName.STOCK_TRADES.value, trade_end, "no tickers requested")
+        manifest = self._manifests.require(DatasetName.STOCK_TRADES, as_of=knowledge_as_of)
+        cache_key = (
+            trade_end,
+            lookback_days,
+            normalized_tickers,
+            str(allow_partial_coverage),
+            manifest.checksum,
+            manifest.fetched_at.isoformat(),
+            str(manifest.path),
+            knowledge_as_of.isoformat(),
+        )
+        cached = self._stock_trade_activity_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        frames = self._read_stock_trade_activity_partitions(
+            tickers=list(normalized_tickers),
+            as_of=trade_end,
+            lookback_days=lookback_days,
+            allow_partial_coverage=allow_partial_coverage,
+            knowledge_as_of=knowledge_as_of,
+        )
+        self._stock_trade_activity_cache[cache_key] = frames
+        return frames
+
     def complete_stock_trade_tickers(
         self,
         tickers: list[str],
@@ -419,13 +460,14 @@ class PITLoader:
         as_of: date,
         lookback_days: int,
         allow_partial_coverage: bool = False,
+        knowledge_as_of: date | None = None,
     ) -> tuple[pl.DataFrame, pl.DataFrame]:
         dataset = DatasetName.STOCK_TRADES
-        manifest = self._manifests.require(dataset, as_of=as_of)
+        manifest = self._manifests.require(dataset, as_of=knowledge_as_of or as_of)
         if not manifest.path.is_dir():
             raise DataNotAvailableAt(dataset.value, as_of, "stock trades are not partitioned")
         start = as_of - timedelta(days=lookback_days - 1)
-        cutoff = self._as_of_cutoff(as_of)
+        cutoff = self._as_of_cutoff(knowledge_as_of or as_of)
         self._ensure_complete_stock_trade_coverage(
             manifest.path,
             tickers=tickers,
@@ -608,9 +650,7 @@ class PITLoader:
                 if row is None:
                     if not allow_partial_coverage or current == end:
                         incomplete.append(f"{ticker}|{current}:missing")
-                elif str(row.get("coverage_status")) == "complete":
-                    usable_days += 1
-                elif allow_partial_coverage and PITLoader._stock_trade_partial_row_usable(row):
+                elif str(row.get("coverage_status")) == "complete" or allow_partial_coverage and PITLoader._stock_trade_partial_row_usable(row):
                     usable_days += 1
                 else:
                     incomplete.append(f"{ticker}|{current}:{row.get('coverage_status')}")

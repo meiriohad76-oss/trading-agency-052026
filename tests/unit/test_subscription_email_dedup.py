@@ -7,16 +7,12 @@ storage._dedupe_key remain stable for events arriving near midnight UTC
 """
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pandas as pd
-import pytest
-
 from subscription_email.classifiers import _dedupe_activity, _dedupe_events, _dedupe_news
 from subscription_email.storage import _dedupe_key, write_event_frame
-from subscription_email.types import EmailRecord
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -53,7 +49,7 @@ def _activity_row(
         "source": "tradevision-email",
         "source_tier": "PAID_SUB_EMAIL",
         "source_id": source_id,
-        "source_url": f"email://abc123hash",
+        "source_url": "email://abc123hash",
         "timestamp_observed": event_time,
         "timestamp_as_of": event_time,
         "freshness": "FRESH",
@@ -78,7 +74,7 @@ def _event_row_for_url(
         "event_type": "sa_quant_rating_change",
         "event_types": ["sa_quant_rating_change"],
         "direction": "BULLISH",
-        "title": f"Seeking Alpha Email: sa quant rating change - AAPL quant rating upgraded",
+        "title": "Seeking Alpha Email: sa quant rating change - AAPL quant rating upgraded",
         "source_refs": [{"service": "seeking_alpha", "source_id": source_id, "source_url": source_url, "message_id_hash": message_id_hash}],
         "source": "seeking_alpha-email",
         "source_tier": "PAID_SUB_EMAIL",

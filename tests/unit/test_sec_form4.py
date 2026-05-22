@@ -6,7 +6,6 @@ from typing import Any
 
 import httpx
 import pandas as pd
-
 from sec.form4 import pull_form4
 from sec.storage import write_partitioned_frame
 

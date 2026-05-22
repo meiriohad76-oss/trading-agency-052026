@@ -60,6 +60,10 @@ class RefreshBatchConfig:
     sec_13f_max_age_days: int = 45
     news_rss_max_age_minutes: int = 30
     subscription_email_max_age_minutes: int = 10
+    news_ticker_aliases_path: Path | None = None
+    news_resolve_generic_tickers: bool = False
+    news_resolution_min_confidence: float = 0.70
+    news_keep_unresolved_generic: bool = True
 
 
 @dataclass(frozen=True)

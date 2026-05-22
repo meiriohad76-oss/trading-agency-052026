@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 from dataclasses import dataclass
 from importlib import import_module
-import math
 from typing import Any, cast
 
 import pandas as pd

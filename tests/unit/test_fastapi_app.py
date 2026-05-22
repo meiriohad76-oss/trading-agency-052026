@@ -16,7 +16,6 @@ from pytest import MonkeyPatch
 
 import agency.api.health as health_module
 import agency.dashboard as dashboard_module
-import agency.runtime.artifact_fallbacks as artifact_fallbacks
 import agency.services.leveraged_alternatives as leveraged_module
 import agency.views._shared as shared_module
 import agency.views.command as command_module
@@ -33,6 +32,7 @@ from agency.dashboard import (
     candidate_detail_summary,
     candidate_email_evidence,
     candidate_email_evidence_with_judgement,
+    candidate_news_evidence,
     candidate_review_summary,
     candidate_rows,
     command_status_overview,
@@ -61,7 +61,9 @@ from agency.dashboard import (
     source_status_rows,
     timeline_rows,
 )
+from agency.runtime import artifact_fallbacks
 from agency.services import (
+    LlmReviewResult,
     PortfolioPolicy,
     build_evidence_pack,
     build_execution_preview,
@@ -73,6 +75,7 @@ from agency.services import (
     build_signal_result,
     selection_report_hash,
 )
+from agency.services.selection_events import build_llm_lifecycle_event
 
 HTTP_OK = 200
 HTTP_ACCEPTED = 202
@@ -1058,6 +1061,36 @@ async def test_execution_preview_recovers_from_delayed_cached_broker_read(
     assert context["broker"]["status_label"] == "Broker Connected"
 
 
+async def test_execution_preview_refreshes_stale_connected_broker_cache() -> None:
+    broker_calls: list[object] = []
+    current_time = datetime.now(UTC)
+    stale_checked_at = (current_time - timedelta(seconds=75)).isoformat()
+    fresh_checked_at = current_time.isoformat()
+
+    async def fake_broker_status_context(**kwargs: object) -> dict[str, object]:
+        broker_calls.append(kwargs.get("use_cache"))
+        checked_at = stale_checked_at if kwargs.get("use_cache") is True else fresh_checked_at
+        return {
+            "connected": True,
+            "mode": "paper",
+            "checked_at": checked_at,
+            "account": {"status": "ACTIVE", "equity": 100000.0, "buying_power": 100000.0},
+            "positions": [],
+            "orders": [],
+            "gross_exposure_pct": 0.0,
+            "status_label": "Broker Connected",
+            "status_class": "pass",
+            "detail": "connected",
+        }
+
+    context = await execution_module._execution_preview_broker_status_context(
+        fake_broker_status_context
+    )
+
+    assert broker_calls == [True, False]
+    assert context["checked_at"] == fresh_checked_at
+
+
 async def test_execution_preview_passes_market_phase_to_freshness_gate(
     monkeypatch: MonkeyPatch,
 ) -> None:
@@ -1414,6 +1447,144 @@ async def test_operational_readiness_context_reuses_source_health_load_status(
     assert context["live_config"] == {"runtime_signals": [], "checks": []}
 
 
+async def test_operational_readiness_context_reports_runtime_fetch_failure(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    checked_at = datetime.now(UTC).isoformat()
+
+    async def failing_reports(*, limit: int = EXPECTED_FINAL_SELECTION_REPORT_LIMIT) -> list[dict[str, object]]:
+        del limit
+        raise RuntimeError("selection repository timed out")
+
+    async def failing_risks(*, limit: int = EXPECTED_FINAL_SELECTION_REPORT_LIMIT) -> list[dict[str, object]]:
+        del limit
+        raise RuntimeError("risk repository timed out")
+
+    async def source_status_with_load_status() -> dict[str, object]:
+        return {
+            "data_sources": [
+                {
+                    **_source_health(source),
+                    "source_tier": "MARKET_DATA",
+                    "checked_at": checked_at,
+                    "last_success_at": checked_at,
+                }
+                for source in ("daily-market-bars", "massive-stock-trades")
+            ],
+            "data_load_status": {
+                "ready": True,
+                "state": "ready",
+                "status_label": "Ready",
+                "blocker_count": 0,
+                "warning_count": 0,
+                "overall_percent": 100,
+                "core_dataset_percent": 100,
+                "critical_lane_percent": 100,
+                "live_config": {"runtime_signals": [], "checks": []},
+            },
+        }
+
+    monkeypatch.setattr(command_module, "_dashboard_selection_reports", failing_reports)
+    monkeypatch.setattr(command_module, "_dashboard_risk_decisions", failing_risks)
+    monkeypatch.setattr(
+        command_module,
+        "_runtime_data_source_status_with_load_status_live",
+        source_status_with_load_status,
+    )
+    monkeypatch.setattr(
+        command_module,
+        "load_data_refresh_progress",
+        lambda: {"state": "complete", "status_label": "Complete"},
+    )
+
+    context = await command_module.operational_readiness_context()
+
+    live_readiness = context["live_readiness"]
+    assert live_readiness["verdict"] == "runtime_reader_unavailable"
+    assert "runtime repository is unavailable" in str(live_readiness["detail"]).lower()
+    assert "No runtime cycle found" not in str(context)
+
+
+async def test_operational_readiness_context_filters_to_active_cycle(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    older = _selection_report_for_cycle(
+        "live-pit-older",
+        "MSFT",
+        "2026-05-06T09:31:00Z",
+    )
+    current = _selection_report_for_cycle(
+        "live-pit-current",
+        "AAPL",
+        "2026-05-07T09:31:00Z",
+    )
+    current_risk = build_risk_decision(
+        current,
+        {"source_count": 2, "degraded_source_count": 0},
+        generated_at="2026-05-07T09:32:00Z",
+    ).risk_decision
+    older_risk = build_risk_decision(
+        older,
+        {"source_count": 2, "degraded_source_count": 0},
+        generated_at="2026-05-06T09:32:00Z",
+    ).risk_decision
+    checked_at = datetime.now(UTC).isoformat()
+
+    async def reports(*, limit: int = EXPECTED_FINAL_SELECTION_REPORT_LIMIT) -> list[dict[str, object]]:
+        del limit
+        return [older, current]
+
+    async def risks(*, limit: int = EXPECTED_FINAL_SELECTION_REPORT_LIMIT) -> list[dict[str, object]]:
+        del limit
+        return [older_risk, current_risk]
+
+    async def source_status_with_load_status() -> dict[str, object]:
+        return {
+            "data_sources": [
+                {
+                    **_source_health(source),
+                    "source_tier": "MARKET_DATA",
+                    "checked_at": checked_at,
+                    "last_success_at": checked_at,
+                }
+                for source in ("daily-market-bars", "massive-stock-trades")
+            ],
+            "data_load_status": {
+                "ready": True,
+                "state": "ready",
+                "status_label": "Ready",
+                "blocker_count": 0,
+                "warning_count": 0,
+                "overall_percent": 100,
+                "core_dataset_percent": 100,
+                "critical_lane_percent": 100,
+                "live_config": {"runtime_signals": [], "checks": []},
+            },
+        }
+
+    async def fake_review_events(*_args: object, **_kwargs: object) -> list[dict[str, object]]:
+        return []
+
+    monkeypatch.setattr(command_module, "_dashboard_selection_reports", reports)
+    monkeypatch.setattr(command_module, "_dashboard_risk_decisions", risks)
+    monkeypatch.setattr(
+        command_module,
+        "_runtime_data_source_status_with_load_status_live",
+        source_status_with_load_status,
+    )
+    monkeypatch.setattr(command_module, "human_review_events_for_reports", fake_review_events)
+    monkeypatch.setattr(
+        command_module,
+        "load_data_refresh_progress",
+        lambda: {"state": "complete", "status_label": "Complete"},
+    )
+
+    context = await command_module.operational_readiness_context()
+
+    assert context["live_readiness"]["cycle_id"] == "live-pit-current"
+    assert context["paper_review"]["cycle_id"] == "live-pit-current"
+
+
 def test_paper_review_status_endpoint_renders_empty_state(monkeypatch: MonkeyPatch) -> None:
     async def fake_reports(*, limit: int = 50) -> list[dict[str, object]]:
         del limit
@@ -1690,6 +1861,85 @@ def test_candidate_review_post_accepts_form_caution_acknowledgement(
 
     assert response.status_code == HTTP_SEE_OTHER
     assert writes[0]["caution_acknowledged"] is True
+
+
+def test_candidate_manual_llm_review_runs_for_selected_ticker(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    report = build_final_selection(_evidence_pack()).selection_report
+    writes: dict[str, object] = {}
+    session = _FakeSession()
+
+    @asynccontextmanager
+    async def fake_session_provider() -> AsyncIterator[_FakeSession]:
+        yield session
+
+    async def fake_reports(**kwargs: object) -> list[dict[str, object]]:
+        assert kwargs["ticker"] == "AAPL"
+        return [report]
+
+    class FakeProvider:
+        async def review(
+            self,
+            evidence_pack: Mapping[str, object],
+            deterministic_decision: Mapping[str, object],
+        ) -> LlmReviewResult:
+            review = {
+                "action": "AGREE",
+                "confidence": 0.81,
+                "rationale": "Manual review agrees with the ranked evidence.",
+                "supporting_factors": ["two confirmed signals"],
+                "concerns": [],
+            }
+            return LlmReviewResult(
+                review=review,
+                lifecycle_event=build_llm_lifecycle_event(
+                    evidence_pack,
+                    deterministic_decision,
+                    review,
+                    event_time=str(evidence_pack["generated_at"]),
+                ),
+                prompt_audit=None,
+            )
+
+    async def fake_upsert(_session_arg: object, payload: Mapping[str, object]) -> None:
+        writes["report"] = dict(payload)
+
+    async def fake_record(_session_arg: object, payload: Mapping[str, object]) -> None:
+        writes["event"] = dict(payload)
+
+    def fake_provider_from_env(*, enabled: bool) -> FakeProvider:
+        return FakeProvider()
+
+    monkeypatch.setattr(dashboard_module, "_dashboard_selection_reports", fake_reports)
+    monkeypatch.setattr(dashboard_module, "get_session", fake_session_provider)
+    monkeypatch.setattr(dashboard_module, "upsert_selection_report", fake_upsert)
+    monkeypatch.setattr(dashboard_module, "record_candidate_lifecycle_event", fake_record)
+    monkeypatch.setattr(
+        dashboard_module.OpenAILlmReviewProvider,
+        "from_env",
+        fake_provider_from_env,
+    )
+
+    response = TestClient(create_app()).post(
+        "/candidates/aapl/llm-review",
+        data={
+            "cycle_id": "cycle-1",
+            "as_of": "2026-05-07T09:30:00Z",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == HTTP_SEE_OTHER
+    assert response.headers["location"] == "/candidates/AAPL?llm_review=completed"
+    assert session.committed is True
+    persisted_report = writes["report"]
+    assert isinstance(persisted_report, dict)
+    assert persisted_report["llm_review"]["action"] == "AGREE"  # type: ignore[index]
+    persisted_event = writes["event"]
+    assert isinstance(persisted_event, dict)
+    assert persisted_event["event_type"] == "LLM_ACTION"
+    assert persisted_event["payload"]["manual_trigger"] is True  # type: ignore[index]
 
 
 def test_operator_manual_advance_post_records_hash_bound_event(
@@ -2271,6 +2521,7 @@ def test_scheduler_work_queue_view_translates_massive_lanes_for_users() -> None:
     assert daily["show_live_ticker_progress"] is False
     assert daily["impact_label"] == "Execution-critical"
     assert daily["refresh_enabled"] is False
+    assert daily["refresh_button_label"] == "Refresh Daily Bars"
     assert "policy" in daily["refresh_tooltip"].lower()
 
     assert premarket["display_status_label"] == "Refresh Due"
@@ -2283,13 +2534,14 @@ def test_scheduler_work_queue_view_translates_massive_lanes_for_users() -> None:
         premarket["refresh_action_url"]
         == "/scheduler/massive-lanes/massive_premarket_trade_slices/refresh"
     )
-    assert premarket["refresh_button_label"] == "Refresh lane"
+    assert premarket["refresh_button_label"] == "Refresh Premarket Trade Slices"
     assert "23 ticker" in premarket["refresh_scope_label"]
 
     assert options["display_status_label"] == "Disabled / Entitlement Not Verified"
     assert options["impact_label"] == "Optional / entitlement"
     assert options["bucket_label"] == "Research / Disabled / Not Entitled"
     assert options["refresh_enabled"] is False
+    assert options["refresh_button_label"] == "Refresh Options Flow"
 
     signal = view["massive_signal_rows"][0]
     assert signal["impact_label"] == "Execution-critical signal"
@@ -2300,15 +2552,12 @@ def test_manual_massive_lane_refresh_endpoint_schedules_background_task(
     monkeypatch: MonkeyPatch,
 ) -> None:
     calls: list[tuple[str, dict[str, object]]] = []
-    queue_context = {"massive_orchestrator": {"lanes": []}, "jobs": []}
 
     async def fake_queue_context() -> dict[str, object]:
-        return queue_context
+        raise AssertionError("refresh route should not block on scheduler queue rendering")
 
     def fake_refresh(lane_id: str, **kwargs: object) -> dict[str, object]:
-        queue_provider = kwargs.get("queue_provider")
-        assert callable(queue_provider)
-        calls.append((lane_id, queue_provider()))
+        calls.append((lane_id, kwargs))
         return {"state": "completed", "lane_id": lane_id}
 
     monkeypatch.setattr(dashboard_module, "run_manual_massive_lane_refresh", fake_refresh)
@@ -2325,7 +2574,64 @@ def test_manual_massive_lane_refresh_endpoint_schedules_background_task(
 
     assert response.status_code == HTTP_SEE_OTHER
     assert response.headers["location"] == "/#scheduler-heading"
-    assert calls == [("massive_live_trade_slices", queue_context)]
+    assert calls == [("massive_live_trade_slices", {})]
+
+
+def test_execution_preview_page_exposes_daily_bars_refresh_when_gate_blocks(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    execution_gate = {
+        "ready": False,
+        "status_label": "Blocked",
+        "status_class": "block",
+        "detail": "daily-market-bars source-health row is old; refresh critical evidence.",
+        "checks": [],
+    }
+    broker = {
+        "connected": True,
+        "mode": "paper",
+        "checked_at": datetime.now(UTC).isoformat(),
+        "account": {"status": "ACTIVE", "equity": 100000.0, "buying_power": 100000.0},
+        "positions": [],
+        "orders": [],
+        "gross_exposure_pct": 0.0,
+        "status_class": "pass",
+        "detail": "paper broker connected",
+    }
+
+    async def fake_execution_preview_context() -> dict[str, object]:
+        return {
+            "summary": execution_module.execution_preview_summary(
+                [],
+                broker=broker,
+                policy=PortfolioPolicy(broker_submit_enabled=True),
+                execution_gate=execution_gate,
+            ),
+            "broker": broker,
+            "preview_rows": [],
+            "orderable_rows": [],
+            "review_only_rows": [],
+            "approved_review_only_rows": [],
+            "blocked_rows": [],
+            "data_health": None,
+            "execution_freshness_gate": execution_gate,
+            "leveraged_alternatives": execution_module.leveraged_alternative_panel([]),
+        }
+
+    monkeypatch.setattr(
+        dashboard_module,
+        "execution_preview_context",
+        fake_execution_preview_context,
+    )
+
+    response = TestClient(create_app()).get("/execution-preview")
+
+    assert response.status_code == HTTP_OK
+    assert (
+        'method="post" action="/scheduler/massive-lanes/massive_daily_bars/refresh"'
+        in response.text
+    )
+    assert ">Refresh Daily Bars</button>" in response.text
 
 
 def test_full_live_readiness_view_uses_plain_readiness_and_tooltip_labels() -> None:
@@ -2472,6 +2778,35 @@ def test_source_status_rows_do_not_pass_old_health_snapshots() -> None:
     rows = source_status_rows([old_source])
 
     assert rows[0]["status_class"] == "block"
+
+
+def test_source_health_kpi_distinguishes_unavailable_from_health_proof_refresh() -> None:
+    view = command_module.data_load_status_view(
+        {
+            "overall_percent": 100,
+            "expected_ticker_count": 1,
+            "signal_count": 0,
+            "datasets": [],
+            "lanes": [],
+            "blockers": [],
+            "warnings": [],
+            "freshness_rows": [
+                {
+                    "source": "massive-stock-trades",
+                    "label": "Massive Stock Trades",
+                    "status": "UNAVAILABLE",
+                    "freshness": "UNAVAILABLE",
+                    "status_class": "block",
+                    "detail": "massive_live_trade_slices lane manifest is missing.",
+                    "critical": True,
+                    "checked_at": "not checked",
+                }
+            ]
+        }
+    )
+
+    assert view["source_health_kpi"]["short_detail"] == "data source unavailable"
+    assert "health proof needs refresh" not in str(view["source_health_kpi"]).lower()
 
 
 def test_readiness_view_adds_status_classes() -> None:
@@ -3515,6 +3850,54 @@ def test_execution_preview_rows_require_current_human_approval_for_submit() -> N
     assert row["submit_blocker"] == "current human approval required"
 
 
+def test_execution_preview_rows_show_filled_audit_state_and_disable_resubmit() -> None:
+    preview = build_execution_preview(
+        _risk_decision(),
+        generated_at="2026-05-07T09:33:00Z",
+        policy=PortfolioPolicy(broker_submit_enabled=True),
+        account={"status": "ACTIVE", "equity": 100000.0, "buying_power": 100000.0},
+    ).preview
+    order_key = (
+        str(preview["cycle_id"]),
+        str(preview["ticker"]),
+        str(preview["as_of"]),
+        str(preview["order_intent_hash"]),
+    )
+    execution_state = {
+        "state": "FILLED",
+        "event_time": "2026-05-07T09:35:00Z",
+        "reason": "Alpaca paper order filled",
+        "payload": {
+            "order": {
+                "client_order_id": "ta-AAPL-BUY-abc",
+                "filled_qty": 3.0,
+                "filled_avg_price": 177.25,
+                "status": "FILLED",
+            },
+            "preview": dict(preview),
+            "raw_status": "FILLED",
+        },
+    }
+
+    rows = execution_preview_rows(
+        [preview],
+        approval_keys={shared_module._runtime_payload_key(preview)},
+        order_approval_keys={order_key},
+        execution_states={order_key: execution_state},
+    )
+
+    row = rows[0]
+    assert row["preview_state"] == "FILLED"
+    assert row["state_class"] == "pass"
+    assert row["submit_enabled"] is False
+    assert row["order_approval_available"] is False
+    assert row["submit_label"] == "Paper order filled"
+    assert row["submission_confirmation_label"] == "Filled 3.0 @ 177.25"
+    assert row["client_order_id"] == "ta-AAPL-BUY-abc"
+    assert row["filled_qty"] == 3.0
+    assert row["filled_avg_price"] == 177.25
+
+
 def test_execution_preview_rows_explain_watch_promotion_path() -> None:
     preview = build_execution_preview(
         build_risk_decision(
@@ -3550,7 +3933,179 @@ def test_execution_preview_rows_explain_watch_promotion_path() -> None:
     assert row["paper_promotion_status_label"] == "Approval Needed"
     assert row["submit_label"] == "Approve research first"
     assert row["order_intent"] == "Eligible paper BUY after research approval"
+    assert row["research_approval_available"] is True
+    assert str(row["approve_research_action"]).startswith("/candidates/AAPL/reviews?")
+    assert "decision=APPROVE" in str(row["approve_research_action"])
     assert "portfolio manager will recalculate" in str(row["next_step"])
+
+
+def test_execution_preview_page_renders_clickable_research_approval(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    preview = build_execution_preview(
+        build_risk_decision(
+            build_final_selection(_evidence_pack()).selection_report,
+            {"source_count": 1, "degraded_source_count": 0},
+            generated_at="2026-05-07T09:32:00Z",
+        ).risk_decision
+    ).preview
+    key = (
+        str(preview["cycle_id"]),
+        str(preview["ticker"]),
+        str(preview["as_of"]),
+    )
+    rows = execution_preview_rows(
+        [preview],
+        promotion_evaluations={
+            key: {
+                "state": "awaiting_research_approval",
+                "status_label": "Approval Needed",
+                "status_class": "warn",
+                "detail": "This WATCH can become a paper BUY preview after approval.",
+                "next_step": "Approve the current research report.",
+                "can_promote_after_approval": True,
+            }
+        },
+    )
+    broker = {
+        "connected": True,
+        "mode": "paper",
+        "checked_at": datetime.now(UTC).isoformat(),
+        "account": {"status": "ACTIVE", "equity": 100000.0, "buying_power": 100000.0},
+        "positions": [],
+        "orders": [],
+        "gross_exposure_pct": 0.0,
+        "status_class": "pass",
+        "detail": "paper broker connected",
+    }
+    execution_gate = {
+        "ready": True,
+        "status_label": "Ready",
+        "status_class": "pass",
+        "detail": "Broker and critical source freshness passed.",
+        "checks": [],
+    }
+
+    async def fake_execution_preview_context() -> dict[str, object]:
+        return {
+            "summary": execution_module.execution_preview_summary(
+                rows,
+                broker=broker,
+                policy=PortfolioPolicy(broker_submit_enabled=True),
+                execution_gate=execution_gate,
+            ),
+            "broker": broker,
+            "preview_rows": rows,
+            "orderable_rows": [row for row in rows if row["preview_state"] == "READY"],
+            "review_only_rows": [row for row in rows if row["preview_state"] == "DISABLED"],
+            "approved_review_only_rows": [
+                row
+                for row in rows
+                if row["preview_state"] == "DISABLED" and row["human_approved"] is True
+            ],
+            "blocked_rows": [row for row in rows if row["preview_state"] == "BLOCKED"],
+            "data_health": None,
+            "execution_freshness_gate": execution_gate,
+            "leveraged_alternatives": execution_module.leveraged_alternative_panel([]),
+        }
+
+    monkeypatch.setattr(
+        dashboard_module,
+        "execution_preview_context",
+        fake_execution_preview_context,
+    )
+    response = TestClient(create_app()).get("/execution-preview")
+
+    assert response.status_code == HTTP_OK
+    assert 'method="post" action="/candidates/AAPL/reviews?' in response.text
+    assert "decision=APPROVE" in response.text
+    assert ">Approve research first</button>" in response.text
+
+
+def test_execution_preview_page_renders_operator_notice(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    async def fake_execution_preview_context() -> dict[str, object]:
+        return {
+            "summary": {
+                "broker_mode": "paper",
+                "submit_gate_label": "Closed",
+                "submit_gate_open": False,
+                "headline": "No order can be submitted yet",
+                "detail": "Broker submit is closed.",
+                "no_order_explanation": "",
+                "preview_count": 0,
+                "ready_count": 0,
+                "blocked_count": 0,
+                "disabled_count": 0,
+                "submit_ready_count": 0,
+            },
+            "broker": {
+                "connected": False,
+                "mode": "paper",
+                "checked_at": datetime.now(UTC).isoformat(),
+                "status_class": "warn",
+                "status_label": "Broker Offline",
+                "detail": "Broker submit is closed.",
+            },
+            "preview_rows": [],
+            "orderable_rows": [],
+            "review_only_rows": [],
+            "approved_review_only_rows": [],
+            "blocked_rows": [],
+            "data_health": None,
+            "execution_freshness_gate": {"ready": False, "detail": "Broker offline"},
+            "leveraged_alternatives": execution_module.leveraged_alternative_panel([]),
+        }
+
+    monkeypatch.setattr(
+        dashboard_module,
+        "execution_preview_context",
+        fake_execution_preview_context,
+    )
+
+    response = TestClient(create_app()).get(
+        "/execution-preview"
+        "?execution_notice=Broker%20is%20not%20connected%3B%20refresh%20Broker"
+        "&execution_notice_class=warn"
+    )
+
+    assert response.status_code == HTTP_OK
+    assert "Execution action needs attention" in response.text
+    assert "Broker is not connected; refresh Broker" in response.text
+
+
+def test_approve_execution_order_redirects_broker_failure_to_preview(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    async def fake_broker() -> dict[str, object]:
+        return {
+            "connected": False,
+            "mode": "paper",
+            "checked_at": datetime.now(UTC).isoformat(),
+            "account": None,
+            "positions": [],
+            "orders": [],
+            "detail": "Broker is not connected.",
+        }
+
+    async def fake_sources() -> list[dict[str, object]]:
+        return _fresh_critical_execution_sources()
+
+    monkeypatch.setattr(dashboard_module, "_fresh_broker_status_context", fake_broker)
+    monkeypatch.setattr(dashboard_module, "runtime_data_source_status", fake_sources)
+
+    response = TestClient(create_app()).post(
+        "/execution-preview/orders/approve"
+        "?cycle_id=cycle-1&ticker=AAPL&as_of=2026-05-07T09%3A30%3A00Z"
+        f"&order_intent_hash={'a' * 64}",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == HTTP_SEE_OTHER
+    assert response.headers["location"].startswith("/execution-preview?execution_notice=")
+    assert "Broker+is+not+connected" in response.headers["location"]
+    assert response.headers["location"].endswith("#orderable-heading")
 
 
 def test_execution_preview_rows_do_not_label_pending_watch_as_research_approved() -> None:
@@ -3676,6 +4231,41 @@ def test_execution_preview_rows_explain_approved_watch_blockers() -> None:
     assert row["submit_label"] == "Research approved"
     assert "confirmed signal count 1 is below required 2" in str(row["reason"])
     assert "No paper order can be submitted" in str(row["next_step"])
+
+
+def test_execution_preview_rows_label_approved_promotable_watch_as_research_approved() -> None:
+    preview = build_execution_preview(
+        build_risk_decision(
+            build_final_selection(_evidence_pack()).selection_report,
+            {"source_count": 1, "degraded_source_count": 0},
+            generated_at="2026-05-07T09:32:00Z",
+        ).risk_decision
+    ).preview
+    key = (
+        str(preview["cycle_id"]),
+        str(preview["ticker"]),
+        str(preview["as_of"]),
+    )
+
+    rows = execution_preview_rows(
+        [preview],
+        approval_keys={key},
+        promotion_evaluations={
+            key: {
+                "state": "awaiting_research_approval",
+                "status_label": "Approval Needed",
+                "status_class": "warn",
+                "detail": "This WATCH can become a paper BUY preview after approval.",
+                "next_step": "Approve the current research report.",
+                "can_promote_after_approval": True,
+            }
+        },
+    )
+
+    row = rows[0]
+    assert row["human_approved"] is True
+    assert row["research_approval_available"] is False
+    assert row["submit_label"] == "Research approved"
 
 
 async def test_order_approval_lookup_requires_current_preview_version(
@@ -4063,7 +4653,7 @@ def test_submit_execution_order_records_intent_before_broker_submit(
                 "order_id": "order-1",
                 "client_order_id": self.client_order_id,
                 "ticker": "AAPL",
-                "status": "ACCEPTED",
+                "status": "FILLED",
             }
 
         async def order_by_client_order_id(self, client_order_id: str) -> dict[str, object]:
@@ -4100,6 +4690,106 @@ def test_submit_execution_order_records_intent_before_broker_submit(
     assert calls == ["intent", "broker", "reconcile", "submitted"]
     assert submitted_audit["order"]["status"] == "FILLED"  # type: ignore[index]
     assert submitted_audit["reconciliation"]["state"] == "client_order_id_confirmed"  # type: ignore[index]
+
+
+def test_record_submitted_order_uses_state_specific_reason(monkeypatch: MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeSession:
+        async def commit(self) -> None:
+            captured["committed"] = True
+
+    @asynccontextmanager
+    async def fake_session() -> AsyncIterator[FakeSession]:
+        yield FakeSession()
+
+    async def fake_persist(
+        session: object,
+        **kwargs: object,
+    ) -> dict[str, object]:
+        del session
+        captured.update(kwargs)
+        return {}
+
+    monkeypatch.setattr(execution_module, "get_session", fake_session)
+    monkeypatch.setattr(execution_module, "persist_order_execution_state", fake_persist)
+
+    asyncio.run(
+        execution_module._record_submitted_order(
+            {
+                "cycle_id": "cycle-1",
+                "ticker": "AAPL",
+                "as_of": "2026-05-07T09:30:00Z",
+                "order_intent_hash": "a" * 64,
+            },
+            {
+                "order_id": "order-1",
+                "client_order_id": "client-1",
+                "ticker": "AAPL",
+                "status": "FILLED",
+            },
+        )
+    )
+
+    assert captured["committed"] is True
+    assert "reason" not in captured
+
+
+@pytest.mark.asyncio
+async def test_reconcile_submitted_order_polls_until_terminal_status(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    async def fake_sleep(_seconds: float) -> None:
+        calls.append("sleep")
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.responses = [
+                {
+                    "order_id": "order-1",
+                    "client_order_id": "client-1",
+                    "ticker": "AAPL",
+                    "status": "NEW",
+                    "submitted_at": "2026-05-21T15:08:13Z",
+                    "filled_at": "",
+                },
+                {
+                    "order_id": "order-1",
+                    "client_order_id": "client-1",
+                    "ticker": "AAPL",
+                    "status": "FILLED",
+                    "submitted_at": "2026-05-21T15:08:13Z",
+                    "filled_at": "2026-05-21T15:08:14Z",
+                    "filled_qty": 3.0,
+                    "filled_avg_price": 177.25,
+                },
+            ]
+
+        async def order_by_client_order_id(self, client_order_id: str) -> dict[str, object]:
+            calls.append("reconcile")
+            assert client_order_id == "client-1"
+            return self.responses.pop(0)
+
+    monkeypatch.setattr(dashboard_module.asyncio, "sleep", fake_sleep)
+
+    order, reconciliation = await dashboard_module._reconcile_submitted_order(
+        FakeClient(),  # type: ignore[arg-type]
+        order_payload={"client_order_id": "client-1"},
+        submitted_order={
+            "order_id": "order-1",
+            "client_order_id": "client-1",
+            "ticker": "AAPL",
+            "status": "NEW",
+        },
+    )
+
+    assert calls == ["reconcile", "sleep", "reconcile"]
+    assert order["status"] == "FILLED"
+    assert reconciliation["state"] == "client_order_id_confirmed"
+    assert reconciliation["terminal"] is True
+    assert reconciliation["attempt_count"] == 2
 
 
 def test_submit_execution_order_allows_closed_market_latest_session_sources(
@@ -4188,7 +4878,7 @@ def test_submit_execution_order_allows_closed_market_latest_session_sources(
                 "order_id": "order-1",
                 "client_order_id": self.client_order_id,
                 "ticker": "AAPL",
-                "status": "ACCEPTED",
+                "status": "FILLED",
             }
 
         async def order_by_client_order_id(self, client_order_id: str) -> dict[str, object]:
@@ -4198,7 +4888,7 @@ def test_submit_execution_order_allows_closed_market_latest_session_sources(
                 "order_id": "order-1",
                 "client_order_id": self.client_order_id,
                 "ticker": "AAPL",
-                "status": "ACCEPTED",
+                "status": "FILLED",
             }
 
     monkeypatch.setenv("AGENCY_ALPACA_BROKER_ENABLED", "true")
@@ -4552,7 +5242,7 @@ def test_submit_execution_order_reports_post_submit_audit_failure_without_retry_
                 "order_id": "order-1",
                 "client_order_id": client_order_id,
                 "ticker": "AAPL",
-                "status": "ACCEPTED",
+                "status": "FILLED",
             }
 
     monkeypatch.setenv("AGENCY_ALPACA_BROKER_ENABLED", "true")
@@ -4827,6 +5517,66 @@ def test_candidate_email_evidence_summarizes_email_and_feed_rows(tmp_path: Path)
     )
     assert "does not change the judgment yet" in str(
         judged["insight_cards"][1]["judgement_contribution"]
+    )
+
+
+def test_candidate_news_evidence_shows_match_reason_and_confidence(tmp_path: Path) -> None:
+    news_path = tmp_path / "news_rss.parquet"
+    pd.DataFrame(
+        [
+            {
+                "ticker": "AAPL",
+                "feed_name": "PR Newswire",
+                "title": "Apple Inc. announces AI launch",
+                "summary": "The company raised its outlook.",
+                "timestamp_as_of": "2026-05-08T12:00:00+00:00",
+                "source_tier": "RSS_HEADLINE",
+                "ticker_match_status": "resolved",
+                "ticker_match_method": "legal_name",
+                "ticker_match_confidence": 0.88,
+                "ticker_match_reason": "Legal-name alias 'Apple Inc.' matched AAPL.",
+                "matched_text": "Apple Inc.",
+            }
+        ]
+    ).to_parquet(news_path)
+
+    evidence = candidate_news_evidence("aapl", news_path=news_path)
+
+    assert evidence["resolved_count"] == 1
+    assert evidence["rows"][0]["match_explanation"] == (
+        'PR Newswire matched AAPL by legal name "Apple Inc."; confidence 0.88.'
+    )
+    assert evidence["rows"][0]["signal_use"] == "Ticker news signal"
+
+
+def test_unresolved_generic_news_is_reported_as_context_not_signal(tmp_path: Path) -> None:
+    news_path = tmp_path / "news_rss.parquet"
+    pd.DataFrame(
+        [
+            {
+                "ticker": None,
+                "feed_name": "PR Newswire",
+                "title": "Global market futures rise",
+                "summary": "No company-specific ticker was detected.",
+                "timestamp_as_of": "2026-05-08T12:00:00+00:00",
+                "source_tier": "RSS_HEADLINE",
+                "ticker_match_status": "unresolved",
+                "ticker_match_method": None,
+                "ticker_match_confidence": 0.0,
+                "ticker_match_reason": "No high-confidence ticker match was found.",
+                "matched_text": None,
+            }
+        ]
+    ).to_parquet(news_path)
+
+    evidence = candidate_news_evidence("AAPL", news_path=news_path)
+
+    assert evidence["resolved_count"] == 0
+    assert evidence["unresolved_context_count"] == 1
+    assert evidence["context_rows"][0]["signal_use"] == "Context only"
+    assert evidence["context_rows"][0]["match_explanation"] == (
+        "Generic PR Newswire headline collected but not attached to AAPL because "
+        "no high-confidence ticker match was found."
     )
 
 
@@ -5126,6 +5876,15 @@ def test_candidate_detail_caution_requires_real_checkbox_acknowledgement() -> No
     assert 'href="#paper-review-heading">Review Caution' in template
     assert 'name="caution_acknowledged"' in template
     assert 'value="true"' in template
+
+
+def test_candidate_detail_exposes_manual_llm_review_button() -> None:
+    template = Path("src/agency/templates/candidate_detail.html").read_text()
+
+    assert 'action="/candidates/{{ ticker }}/llm-review"' in template
+    assert "Run LLM review for this stock" in template
+    assert 'name="cycle_id"' in template
+    assert 'name="as_of"' in template
 
 
 def test_execution_preview_banner_uses_submit_gate_state() -> None:

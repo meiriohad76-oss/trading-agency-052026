@@ -18,12 +18,13 @@ if str(RESEARCH_SRC) not in sys.path:
     sys.path.insert(0, str(RESEARCH_SRC))
 
 from data_refresh.live_config import RefreshConfigOverrides, load_refresh_config  # noqa: E402
+from data_refresh.market_batching import build_market_aware_batch_plan  # noqa: E402
 from data_refresh.massive_lane_manifest import (  # noqa: E402
     manifest_path_for_lane,
     read_lane_manifest,
 )
-from data_refresh.market_batching import build_market_aware_batch_plan  # noqa: E402
 from data_refresh.types import DATASETS, RefreshBatchConfig  # noqa: E402
+
 from agency.runtime.scheduler_status import load_scheduler_runtime_status  # noqa: E402
 
 DEFAULT_CONFIG_PATH = REPO_ROOT / "research" / "config" / "live-refresh.local.json"
@@ -953,6 +954,11 @@ def _source_freshness_check(
         and market_phase in OFF_HOURS_PHASES
         and _closed_market_source_current(source, checked_at=checked_at, now=now)
     )
+    latest_completed_daily_bar_current = (
+        checked_at is not None
+        and source == "daily-market-bars"
+        and _closed_market_source_current(source, checked_at=checked_at, now=now)
+    )
     blocked = freshness in {"STALE", "UNAVAILABLE"} or status in {
         "STALE",
         "UNAVAILABLE",
@@ -973,12 +979,20 @@ def _source_freshness_check(
         age_seconds is not None
         and age_seconds > max_source_age_seconds
         and not closed_market_current
+        and not latest_completed_daily_bar_current
     ):
         blocked = True
         warned = False
         detail = (
             f"{source} source-health row is {age_seconds}s old; refresh critical "
             "evidence before submitting."
+        )
+    elif latest_completed_daily_bar_current and age_seconds is not None:
+        detail = (
+            f"{source} freshness is {freshness}; source status is {status}; "
+            f"checked {age_seconds}s ago. Daily bars are current through the "
+            "latest completed session; intraday daily bars do not update "
+            "until the market closes."
         )
     elif closed_market_current and age_seconds is not None:
         detail = (
@@ -2087,7 +2101,8 @@ def _massive_manifest_health(
             ),
         }
     if status == "COMPLETE" and (
-        required_seconds is None or age_seconds <= required_seconds
+        required_seconds is None
+        or (age_seconds is not None and age_seconds <= required_seconds)
     ):
         freshness = "FRESH" if required_seconds is not None else "CURRENT"
         return {
@@ -2701,14 +2716,27 @@ def _stale_dataset_rows(
     for row in source_health:
         source = str(row.get("source", ""))
         freshness = str(row.get("freshness", ""))
+        status = str(row.get("status", ""))
         dataset = _source_to_dataset(source)
-        if dataset and dataset not in known and freshness in {"STALE", "UNAVAILABLE"}:
+        blocked_state = next(
+            (
+                token
+                for token in (freshness, status)
+                if token in {"STALE", "UNAVAILABLE", "RATE_LIMITED"}
+            ),
+            "",
+        )
+        if dataset and dataset not in known and blocked_state:
+            status_class = "warn" if blocked_state == "STALE" else "block"
             rows.append(
                 {
                     "dataset": dataset,
-                    "status": freshness,
-                    "status_class": "warn" if freshness == "STALE" else "block",
-                    "reason": f"{source} reports {freshness} freshness.",
+                    "status": blocked_state,
+                    "status_class": status_class,
+                    "reason": (
+                        f"{source} reports freshness {freshness or 'UNKNOWN'} "
+                        f"and status {status or 'UNKNOWN'}."
+                    ),
                 }
             )
     return rows

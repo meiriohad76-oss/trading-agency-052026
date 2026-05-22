@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from typing import cast
 
 import pytest
+from service_fixtures import selection_report
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agency.contracts import ContractValidationError, validate_contract
@@ -14,7 +15,6 @@ from agency.services import (
     persist_human_review_event,
     selection_report_hash,
 )
-from service_fixtures import selection_report
 
 
 def test_build_human_review_event_is_contract_valid() -> None:

@@ -19,7 +19,6 @@ from data_refresh.massive_lane_manifest import (  # noqa: E402
     write_lane_manifest,
 )
 
-
 DEFAULT_TRADE_ROOT = ROOT / "research" / "data" / "parquet" / "stock_trades"
 DEFAULT_OUTPUT_ROOT = ROOT / "research" / "data" / "parquet" / "massive_block_trade_feed"
 DEFAULT_SOURCE_LANE_MANIFEST = manifest_path_for_lane(ROOT, "massive_live_trade_slices")
@@ -274,7 +273,7 @@ def _read_trade_frame(
     combined = pd.concat(frames, ignore_index=True)
     combined["ticker"] = combined["ticker"].astype(str).str.upper()
     combined["trade_date"] = pd.to_datetime(combined["trade_date"], errors="coerce").dt.date
-    selected = set(ticker.upper() for ticker in tickers)
+    selected = {ticker.upper() for ticker in tickers}
     return combined[
         combined["ticker"].isin(selected)
         & (combined["trade_date"] >= start)

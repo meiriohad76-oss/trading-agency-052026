@@ -259,7 +259,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--replay-freshness", action="store_true")
     parser.add_argument("--max-tickers", type=int)
     parser.add_argument("--enable-llm-review", action=argparse.BooleanOptionalAction, default=None)
-    parser.add_argument("--llm-review-max-candidates", type=int, default=5)
+    parser.add_argument("--llm-review-max-candidates", type=int, default=10)
     parser.add_argument("--llm-review-include-no-trade", action="store_true")
     parser.add_argument("--persist", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument(

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping
 from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, urlencode
 
 from data_refresh.market_calendar import classify_market_session
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
@@ -20,18 +21,26 @@ from agency.broker import (
     build_market_order_payload,
 )
 from agency.db import MissingDatabaseConfigurationError, get_session
-from agency.runtime import record_candidate_lifecycle_event
+from agency.runtime import (
+    make_lifecycle_event_id,
+    record_candidate_lifecycle_event,
+    record_prompt_audit,
+    upsert_selection_report,
+)
 from agency.runtime.artifact_fallbacks import append_runtime_lifecycle_event_artifact
 from agency.runtime.lane_promotion import load_lane_promotion_status
 from agency.runtime.live_config_readiness import load_live_config_readiness
 from agency.runtime.scheduler_runner import run_manual_massive_lane_refresh
 from agency.runtime.scheduler_work_queue import execution_freshness_gate
 from agency.services import (
+    OpenAILlmReviewProvider,
     PortfolioPolicy,
     build_and_persist_human_review_event,
+    build_final_selection,
     build_human_review_event,
     build_operator_manual_advance_event,
     build_order_approval_event,
+    evaluate_deterministic_rules,
     load_active_portfolio_policy,
     persist_portfolio_snapshot,
     selection_report_hash,
@@ -61,6 +70,7 @@ from agency.views.candidates import (  # noqa: F401
     candidate_detail_summary,
     candidate_email_evidence,
     candidate_email_evidence_with_judgement,
+    candidate_news_evidence,
     candidate_review_summary,
     candidate_rows,
     timeline_rows,
@@ -124,6 +134,15 @@ from agency.views.signals import (  # noqa: F401
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent / "templates"))
+BROKER_RECONCILIATION_TERMINAL_STATUSES = {
+    "FILLED",
+    "CANCELED",
+    "CANCELLED",
+    "REJECTED",
+    "EXPIRED",
+}
+BROKER_RECONCILIATION_MAX_ATTEMPTS = 5
+BROKER_RECONCILIATION_POLL_SECONDS = 0.25
 
 
 @router.get("/")
@@ -168,11 +187,9 @@ async def refresh_massive_lane(
     lane_id: str,
     background_tasks: BackgroundTasks,
 ) -> Response:
-    queue_context = await scheduler_work_queue_raw_context()
     background_tasks.add_task(
         run_manual_massive_lane_refresh,
         lane_id,
-        queue_provider=lambda: queue_context,
     )
     return RedirectResponse(url="/#scheduler-heading", status_code=303)
 
@@ -232,35 +249,55 @@ async def record_candidate_review(
         )
     try:
         async with get_session() as session:
-            review_kwargs: dict[str, object] = {
-                "cycle_id": cycle_id,
-                "ticker": ticker,
-                "as_of": as_of,
-                "decision": decision,
-                "review_reason": review_reason,
-                "notes": notes,
-                "selection_report_hash": report_hash,
-            }
             if caution_acknowledged:
-                review_kwargs["caution_acknowledged"] = True
-            await build_and_persist_human_review_event(session, **review_kwargs)
+                await build_and_persist_human_review_event(
+                    session,
+                    cycle_id=cycle_id,
+                    ticker=ticker,
+                    as_of=as_of,
+                    decision=decision,
+                    review_reason=review_reason,
+                    notes=notes,
+                    selection_report_hash=report_hash,
+                    caution_acknowledged=True,
+                )
+            else:
+                await build_and_persist_human_review_event(
+                    session,
+                    cycle_id=cycle_id,
+                    ticker=ticker,
+                    as_of=as_of,
+                    decision=decision,
+                    review_reason=review_reason,
+                    notes=notes,
+                    selection_report_hash=report_hash,
+                )
             await session.commit()
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except (MissingDatabaseConfigurationError, OSError, SQLAlchemyError) as exc:
+    except (MissingDatabaseConfigurationError, OSError, SQLAlchemyError):
         try:
-            event_kwargs: dict[str, object] = {
-                "cycle_id": cycle_id,
-                "ticker": ticker,
-                "as_of": as_of,
-                "decision": decision,
-                "review_reason": review_reason,
-                "notes": notes,
-                "selection_report_hash": report_hash,
-            }
             if caution_acknowledged:
-                event_kwargs["caution_acknowledged"] = True
-            event = build_human_review_event(**event_kwargs)
+                event = build_human_review_event(
+                    cycle_id=cycle_id,
+                    ticker=ticker,
+                    as_of=as_of,
+                    decision=decision,
+                    review_reason=review_reason,
+                    notes=notes,
+                    selection_report_hash=report_hash,
+                    caution_acknowledged=True,
+                )
+            else:
+                event = build_human_review_event(
+                    cycle_id=cycle_id,
+                    ticker=ticker,
+                    as_of=as_of,
+                    decision=decision,
+                    review_reason=review_reason,
+                    notes=notes,
+                    selection_report_hash=report_hash,
+                )
             append_runtime_lifecycle_event_artifact(event)
         except ValueError as review_error:
             raise HTTPException(status_code=400, detail=str(review_error)) from review_error
@@ -271,6 +308,70 @@ async def record_candidate_review(
             ) from write_error
     return RedirectResponse(
         url=_candidate_review_redirect_url(ticker=ticker, decision=decision),
+        status_code=303,
+    )
+
+
+@router.post("/candidates/{ticker}/llm-review")
+async def run_candidate_llm_review(request: Request, ticker: str) -> Response:
+    normalized_ticker = ticker.upper()
+    cycle_id = await _request_value(request, "cycle_id")
+    as_of = await _request_value(request, "as_of")
+    if not cycle_id or not as_of:
+        raise HTTPException(
+            status_code=400,
+            detail="cycle_id and as_of are required to run a hashable candidate LLM review",
+        )
+    report = await _selection_report_for_manual_llm_review(
+        ticker=normalized_ticker,
+        cycle_id=cycle_id,
+        as_of=as_of,
+    )
+    if report is None:
+        raise HTTPException(
+            status_code=404,
+            detail="selection report not found; refresh the candidate page before rerunning LLM review",
+        )
+    evidence_pack = _mapping_field(report, "evidence_pack")
+    deterministic = evaluate_deterministic_rules(evidence_pack).decision
+    provider = OpenAILlmReviewProvider.from_env(enabled=True)
+    llm_event: dict[str, object] | None = None
+    try:
+        result = await provider.review(evidence_pack, deterministic)
+        event_time = datetime.now(UTC).isoformat()
+        llm_event = _manual_llm_lifecycle_event(
+            result.lifecycle_event,
+            event_time=event_time,
+        )
+        updated_report = build_final_selection(
+            evidence_pack,
+            generated_at=str(report["generated_at"]),
+            llm_review=result.review,
+            llm_lifecycle_event=llm_event,
+        ).selection_report
+        prompt_audit = (
+            _manual_prompt_audit(result.prompt_audit, event_time=event_time)
+            if result.prompt_audit is not None
+            else None
+        )
+        async with get_session() as session:
+            await upsert_selection_report(session, updated_report)
+            await record_candidate_lifecycle_event(session, llm_event)
+            if prompt_audit is not None:
+                await record_prompt_audit(session, prompt_audit)
+            await session.commit()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (MissingDatabaseConfigurationError, OSError, SQLAlchemyError) as exc:
+        if llm_event is not None:
+            with suppress(OSError):
+                append_runtime_lifecycle_event_artifact(llm_event)
+        raise HTTPException(
+            status_code=503,
+            detail="LLM review completed but report persistence is unavailable",
+        ) from exc
+    return RedirectResponse(
+        url=f"/candidates/{normalized_ticker}?llm_review=completed",
         status_code=303,
     )
 
@@ -325,7 +426,7 @@ async def record_operator_manual_advance(
             await session.commit()
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except (MissingDatabaseConfigurationError, OSError, SQLAlchemyError) as exc:
+    except (MissingDatabaseConfigurationError, OSError, SQLAlchemyError):
         try:
             append_runtime_lifecycle_event_artifact(event)
         except OSError as write_error:
@@ -350,10 +451,14 @@ async def risk(request: Request) -> Response:
 
 @router.get("/execution-preview")
 async def execution_preview(request: Request) -> Response:
+    context = await execution_preview_context()
+    notice = _execution_notice_from_request(request)
+    if notice is not None:
+        context["execution_notice"] = notice
     return templates.TemplateResponse(
         request,
         "execution_preview.html",
-        await execution_preview_context(),
+        context,
     )
 
 
@@ -361,9 +466,11 @@ def _execution_preview_status_payload(
     context: dict[str, object],
 ) -> dict[str, object]:
     summary = _mapping_field(context, "summary")
+    preview_rows_value = context.get("preview_rows")
+    preview_rows = preview_rows_value if isinstance(preview_rows_value, list) else []
     rows = [
         _execution_preview_status_row(row)
-        for row in context.get("preview_rows", [])
+        for row in preview_rows
         if isinstance(row, dict)
     ]
     blockers = [
@@ -414,6 +521,8 @@ def _execution_preview_status_payload(
 
 
 def _execution_preview_status_row(row: dict[str, object]) -> dict[str, object]:
+    reasons = row.get("paper_promotion_reasons")
+    paper_promotion_reasons = reasons if isinstance(reasons, list) else []
     return {
         "cycle_id": str(row.get("cycle_id") or ""),
         "ticker": str(row.get("ticker") or "").upper(),
@@ -429,12 +538,24 @@ def _execution_preview_status_row(row: dict[str, object]) -> dict[str, object]:
         ),
         "paper_promotion_reasons": [
             str(reason)
-            for reason in row.get("paper_promotion_reasons", [])
+            for reason in paper_promotion_reasons
             if reason is not None
         ],
         "order_intent_hash_label": str(row.get("order_intent_hash_label") or ""),
         "order_value_label": str(row.get("order_value_label") or ""),
         "approval_label": str(row.get("approval_label") or ""),
+        "execution_state": str(row.get("execution_state") or "NONE"),
+        "execution_status_label": str(row.get("execution_status_label") or ""),
+        "execution_status_class": str(row.get("execution_status_class") or "neutral"),
+        "execution_reason": str(row.get("execution_reason") or ""),
+        "execution_event_time": str(row.get("execution_event_time") or ""),
+        "execution_event_time_label": str(row.get("execution_event_time_label") or ""),
+        "client_order_id": str(row.get("client_order_id") or ""),
+        "filled_qty": row.get("filled_qty"),
+        "filled_avg_price": row.get("filled_avg_price"),
+        "submission_confirmation_label": str(
+            row.get("submission_confirmation_label") or ""
+        ),
         "next_step": str(row.get("next_step") or ""),
     }
 
@@ -472,56 +593,94 @@ def _execution_preview_status_verdict(
     return "no_execution_previews"
 
 
-def _status_int(payload: dict[str, object], key: str) -> int:
+def _status_int(payload: Mapping[str, object], key: str) -> int:
     value = payload.get(key, 0)
     return value if isinstance(value, int) else 0
 
 
+def _execution_notice_from_request(request: Request) -> dict[str, object] | None:
+    detail = str(request.query_params.get("execution_notice") or "").strip()
+    if not detail:
+        return None
+    status_class = str(request.query_params.get("execution_notice_class") or "warn")
+    if status_class not in {"pass", "warn", "block", "neutral"}:
+        status_class = "warn"
+    return {
+        "headline": "Execution action needs attention",
+        "detail": detail[:500],
+        "status_class": status_class,
+    }
+
+
+def _execution_preview_notice_redirect(
+    detail: str,
+    *,
+    status_class: str = "warn",
+    anchor: str = "orderable-heading",
+) -> RedirectResponse:
+    message = detail.strip() or "Execution action could not be completed."
+    query = urlencode(
+        {
+            "execution_notice": message[:500],
+            "execution_notice_class": status_class,
+        }
+    )
+    return RedirectResponse(
+        url=f"/execution-preview?{query}#{anchor}",
+        status_code=303,
+    )
+
+
 @router.post("/execution-preview/orders/approve")
 async def approve_execution_order(
+    request: Request,
     cycle_id: str,
     ticker: str,
     as_of: str,
     order_intent_hash: str,
 ) -> Response:
-    broker, data_sources = await asyncio.gather(
-        _fresh_broker_status_context(),
-        runtime_data_source_status(),
-    )
-    _require_immediate_execution_freshness(broker, data_sources)
-    context = await execution_preview_context(
-        broker=broker,
-        data_sources=data_sources,
-        validate_contracts=True,
-    )
-    gate = _mapping_field(context, "execution_freshness_gate")
-    if gate["ready"] is not True:
-        raise HTTPException(status_code=409, detail=str(gate["detail"]))
-    row = row_from_execution_context(
-        context,
-        cycle_id=cycle_id,
-        ticker=ticker,
-        as_of=as_of,
-    )
-    if row is None:
-        raise HTTPException(status_code=404, detail="execution preview not found")
-    if row.get("order_approval_available") is not True:
-        raise HTTPException(status_code=400, detail="only READY paper orders can be approved")
-    if str(row["order_intent_hash"]) != order_intent_hash:
-        raise HTTPException(
-            status_code=409,
-            detail="order intent changed; refresh and approve again",
-        )
+    del request
     try:
-        event = build_order_approval_event(_mapping_field(row, "preview"))
-        async with get_session() as session:
-            await record_candidate_lifecycle_event(session, event)
-            await session.commit()
-    except (MissingDatabaseConfigurationError, OSError, SQLAlchemyError) as exc:
-        raise HTTPException(
-            status_code=503,
-            detail="order approval could not be persisted",
-        ) from exc
+        broker, data_sources = await asyncio.gather(
+            _fresh_broker_status_context(),
+            runtime_data_source_status(),
+        )
+        _require_immediate_execution_freshness(broker, data_sources)
+        context = await execution_preview_context(
+            broker=broker,
+            data_sources=data_sources,
+            validate_contracts=True,
+        )
+        gate = _mapping_field(context, "execution_freshness_gate")
+        if gate["ready"] is not True:
+            raise HTTPException(status_code=409, detail=str(gate["detail"]))
+        row = row_from_execution_context(
+            context,
+            cycle_id=cycle_id,
+            ticker=ticker,
+            as_of=as_of,
+        )
+        if row is None:
+            raise HTTPException(status_code=404, detail="execution preview not found")
+        if row.get("order_approval_available") is not True:
+            raise HTTPException(status_code=400, detail="only READY paper orders can be approved")
+        if str(row["order_intent_hash"]) != order_intent_hash:
+            raise HTTPException(
+                status_code=409,
+                detail="order intent changed; refresh and approve again",
+            )
+        try:
+            event = build_order_approval_event(_mapping_field(row, "preview"))
+            async with get_session() as session:
+                await record_candidate_lifecycle_event(session, event)
+                await session.commit()
+        except (MissingDatabaseConfigurationError, OSError, SQLAlchemyError) as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="order approval could not be persisted",
+            ) from exc
+    except HTTPException as exc:
+        return _execution_preview_notice_redirect(str(exc.detail))
     return RedirectResponse(url="/execution-preview#orderable-heading", status_code=303)
 
 
@@ -668,24 +827,43 @@ async def _reconcile_submitted_order(
         raise AlpacaBrokerError(
             "Alpaca paper order response client_order_id did not match the approved intent"
         )
-    try:
-        reconciled_order = await client.order_by_client_order_id(client_order_id)
-    except AlpacaBrokerError as exc:
-        return submitted_order, {
-            "state": "client_order_id_lookup_failed",
-            "client_order_id": client_order_id,
-            "error": str(exc),
-        }
-    reconciled_client_order_id = str(reconciled_order.get("client_order_id") or "").strip()
-    if reconciled_client_order_id != client_order_id:
-        raise AlpacaBrokerError(
-            "Alpaca paper order reconciliation returned a different client_order_id"
-        )
+    reconciled_order = submitted_order
+    for attempt in range(1, BROKER_RECONCILIATION_MAX_ATTEMPTS + 1):
+        try:
+            reconciled_order = await client.order_by_client_order_id(client_order_id)
+        except AlpacaBrokerError as exc:
+            return submitted_order, {
+                "state": "client_order_id_lookup_failed",
+                "client_order_id": client_order_id,
+                "attempt_count": attempt,
+                "error": str(exc),
+            }
+        reconciled_client_order_id = str(
+            reconciled_order.get("client_order_id") or ""
+        ).strip()
+        if reconciled_client_order_id != client_order_id:
+            raise AlpacaBrokerError(
+                "Alpaca paper order reconciliation returned a different client_order_id"
+            )
+        status = str(reconciled_order.get("status", "")).upper()
+        terminal = status in BROKER_RECONCILIATION_TERMINAL_STATUSES
+        if terminal or attempt == BROKER_RECONCILIATION_MAX_ATTEMPTS:
+            return reconciled_order, {
+                "state": "client_order_id_confirmed",
+                "client_order_id": client_order_id,
+                "attempt_count": attempt,
+                "terminal": terminal,
+                "order_id_present": bool(str(reconciled_order.get("order_id", "")).strip()),
+                "status": status,
+            }
+        await asyncio.sleep(BROKER_RECONCILIATION_POLL_SECONDS)
     return reconciled_order, {
         "state": "client_order_id_confirmed",
         "client_order_id": client_order_id,
+        "attempt_count": BROKER_RECONCILIATION_MAX_ATTEMPTS,
+        "terminal": False,
         "order_id_present": bool(str(reconciled_order.get("order_id", "")).strip()),
-        "status": str(reconciled_order.get("status", "")),
+        "status": str(reconciled_order.get("status", "")).upper(),
     }
 
 
@@ -701,6 +879,69 @@ async def _selection_report_hash_for_review(
         if _runtime_payload_key(report) == key:
             return selection_report_hash(report)
     return None
+
+
+async def _selection_report_for_manual_llm_review(
+    *,
+    ticker: str,
+    cycle_id: str,
+    as_of: str,
+) -> dict[str, object] | None:
+    reports = await _dashboard_selection_reports(ticker=ticker, limit=50)
+    key = (cycle_id, ticker.upper(), as_of)
+    for report in reports:
+        if _runtime_payload_key(report) == key:
+            return dict(report)
+    return None
+
+
+def _manual_llm_lifecycle_event(
+    event: Mapping[str, object],
+    *,
+    event_time: str,
+) -> dict[str, object]:
+    output = dict(event)
+    cycle_id = str(output["cycle_id"])
+    ticker = str(output["ticker"]).upper()
+    event_type = str(output["event_type"])
+    output["ticker"] = ticker
+    output["event_time"] = event_time
+    output["event_id"] = make_lifecycle_event_id(
+        cycle_id=cycle_id,
+        ticker=ticker,
+        event_type=event_type,
+        event_time=event_time,
+    )
+    payload = output.get("payload")
+    output["payload"] = {
+        **(dict(payload) if isinstance(payload, Mapping) else {}),
+        "manual_trigger": True,
+        "triggered_by": "candidate_detail",
+    }
+    return output
+
+
+def _manual_prompt_audit(
+    prompt_audit: Mapping[str, object],
+    *,
+    event_time: str,
+) -> dict[str, object]:
+    output = dict(prompt_audit)
+    output["created_at"] = event_time
+    payload = output.get("payload")
+    output["payload"] = {
+        **(dict(payload) if isinstance(payload, Mapping) else {}),
+        "manual_trigger": True,
+        "triggered_by": "candidate_detail",
+    }
+    return output
+
+
+async def _request_value(request: Request, field_name: str) -> str | None:
+    value = request.query_params.get(field_name)
+    if value is not None and value.strip():
+        return " ".join(value.split())
+    return await _request_form_text(request, field_name)
 
 
 async def _caution_acknowledgement_required_for_review(

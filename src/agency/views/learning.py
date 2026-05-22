@@ -1,13 +1,13 @@
 """View-model constructors for the learning page."""
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-import asyncio
+
 import pandas as pd
 
 from agency.services import build_learning_outcome
-
 from agency.views._shared import (
     FINAL_SELECTION_REPORT_LIMIT,
     PRICES_DAILY_ROOT,

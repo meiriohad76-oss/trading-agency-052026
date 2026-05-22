@@ -21,6 +21,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "research" / "src"))
 sys.path.insert(0, str(ROOT / "src"))
 
+from sqlalchemy.exc import SQLAlchemyError  # noqa: E402
+
 from agency.api.reports import runtime_selection_reports  # noqa: E402
 from agency.api.risk import runtime_risk_decisions  # noqa: E402
 from agency.broker import (  # noqa: E402
@@ -37,7 +39,6 @@ from agency.services import (  # noqa: E402
     persist_order_execution_state,
     persist_portfolio_snapshot,
 )
-from sqlalchemy.exc import SQLAlchemyError  # noqa: E402
 
 DECISIONS = ("APPROVE", "DEFER", "REJECT")
 TERMINAL_ORDER_STATUSES = {"FILLED", "CANCELED", "EXPIRED", "REJECTED"}

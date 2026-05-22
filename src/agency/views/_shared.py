@@ -1,16 +1,17 @@
 """Shared constants and utility helpers for dashboard view modules."""
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Mapping, Sequence
-from datetime import UTC, datetime
-from dotenv import load_dotenv
-from pathlib import Path
-from sqlalchemy.exc import SQLAlchemyError
-from typing import cast
 import asyncio
 import os
-import pandas as pd
 import re
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import cast
+
+import pandas as pd
+from dotenv import load_dotenv
+from sqlalchemy.exc import SQLAlchemyError
 
 from agency.api.candidates import RuntimeCandidateTimelineUnavailable, runtime_candidate_timeline
 from agency.api.reports import RuntimeSelectionReportsUnavailable, runtime_selection_reports
@@ -109,6 +110,7 @@ async def _dashboard_selection_reports(
     *,
     ticker: str | None = None,
     limit: int = FINAL_SELECTION_REPORT_LIMIT,
+    raise_on_unavailable: bool = False,
 ) -> list[dict[str, object]]:
     try:
         try:
@@ -129,12 +131,15 @@ async def _dashboard_selection_reports(
                 return await runtime_selection_reports(limit=limit)
             return await runtime_selection_reports(ticker=ticker, limit=limit)
     except RuntimeSelectionReportsUnavailable:
+        if raise_on_unavailable:
+            raise
         return []
 
 async def _dashboard_risk_decisions(
     *,
     ticker: str | None = None,
     limit: int = FINAL_SELECTION_REPORT_LIMIT,
+    raise_on_unavailable: bool = False,
 ) -> list[dict[str, object]]:
     try:
         try:
@@ -155,6 +160,8 @@ async def _dashboard_risk_decisions(
                 return await runtime_risk_decisions(limit=limit)
             return await runtime_risk_decisions(ticker=ticker, limit=limit)
     except RuntimeRiskDecisionsUnavailable:
+        if raise_on_unavailable:
+            raise
         return []
 
 async def _dashboard_candidate_timeline(
@@ -204,15 +211,7 @@ async def _lifecycle_events_for_reports(
                 ),
                 timeout=DASHBOARD_LIFECYCLE_QUERY_TIMEOUT_SECONDS,
             )
-    except (
-        MissingDatabaseConfigurationError,
-        asyncio.TimeoutError,
-        SQLAlchemyError,
-        RuntimeError,
-        TimeoutError,
-        TypeError,
-        OSError,
-    ):
+    except (MissingDatabaseConfigurationError, SQLAlchemyError, RuntimeError, TimeoutError, TypeError, OSError):
         events = runtime_lifecycle_event_artifacts(cycle_id=cycle_id, limit=limit)
         if not events:
             try:
@@ -224,14 +223,7 @@ async def _lifecycle_events_for_reports(
                     ),
                     timeout=DASHBOARD_LIFECYCLE_QUERY_TIMEOUT_SECONDS,
                 )
-            except (
-                asyncio.TimeoutError,
-                RuntimeError,
-                TimeoutError,
-                TypeError,
-                OSError,
-                SQLAlchemyError,
-            ):
+            except (RuntimeError, TimeoutError, TypeError, OSError, SQLAlchemyError):
                 events = []
     ticker_set = set(tickers)
     return [
@@ -261,15 +253,54 @@ async def _timeline_lifecycle_events_for_reports(
 def _latest_selection_cycle_id(
     reports: Sequence[Mapping[str, object]],
 ) -> str | None:
-    for report in reports:
-        cycle_id = _clean_text(report.get("cycle_id"))
-        if cycle_id is not None and cycle_id.startswith(LIVE_SELECTION_CYCLE_PREFIXES):
-            return cycle_id
-    for report in reports:
-        cycle_id = _clean_text(report.get("cycle_id"))
-        if cycle_id is not None:
-            return cycle_id
+    live_cycle_id = _latest_cycle_id_by_timestamp(
+        [
+            report
+            for report in reports
+            if (_clean_text(report.get("cycle_id")) or "").startswith(
+                LIVE_SELECTION_CYCLE_PREFIXES
+            )
+        ]
+    )
+    if live_cycle_id is not None:
+        return live_cycle_id
+    fallback_cycle_id = _latest_cycle_id_by_timestamp(reports)
+    if fallback_cycle_id is not None:
+        return fallback_cycle_id
     return None
+
+
+def _latest_cycle_id_by_timestamp(
+    reports: Sequence[Mapping[str, object]],
+) -> str | None:
+    best_report: Mapping[str, object] | None = None
+    best_key: tuple[datetime, int] | None = None
+    for index, report in enumerate(reports):
+        cycle_id = _clean_text(report.get("cycle_id"))
+        if cycle_id is None:
+            continue
+        key = (_cycle_timestamp(report), -index)
+        if best_key is None or key > best_key:
+            best_report = report
+            best_key = key
+    if best_report is None:
+        return None
+    return _clean_text(best_report.get("cycle_id"))
+
+
+def _cycle_timestamp(report: Mapping[str, object]) -> datetime:
+    for key in ("generated_at", "as_of", "timestamp_as_of", "created_at"):
+        value = report.get(key)
+        if not isinstance(value, str) or not value.strip():
+            continue
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=UTC)
+        return parsed.astimezone(UTC)
+    return datetime.min.replace(tzinfo=UTC)
 
 def _selection_reports_for_cycle(
     reports: Sequence[Mapping[str, object]],
@@ -857,14 +888,20 @@ async def live_runtime_source_health_rows(
         )
         resolved = list(rows)
         if not resolved:
-            return unavailable_data_source_status(
-                "live source-health reader returned no monitored provider rows"
-            )
+            return [
+                cast(Mapping[str, object], row)
+                for row in unavailable_data_source_status(
+                    "live source-health reader returned no monitored provider rows"
+                )
+            ]
         return resolved
     except Exception:  # noqa: BLE001
-        return unavailable_data_source_status(
-            "live source-health reader timed out or failed"
-        )
+        return [
+            cast(Mapping[str, object], row)
+            for row in unavailable_data_source_status(
+                "live source-health reader timed out or failed"
+            )
+        ]
 
 def _source_health_origin_label(source_health: Sequence[Mapping[str, object]]) -> str:
     if any(str(row.get("source") or "") == "source-health-monitor" for row in source_health):
@@ -1093,7 +1130,7 @@ def _dashboard_dataset_health_rows(
             detail=detail,
         )
         freshness_label = _dataset_freshness_label(row)
-        health_row = {
+        health_row: dict[str, object] = {
             "kind": "Dataset",
             "name": name,
             "status_label": _operator_row_status_label(
@@ -1146,7 +1183,7 @@ def _dashboard_lane_health_rows(
             status_class=status_class,
             detail=detail,
         )
-        health_row = {
+        health_row: dict[str, object] = {
             "kind": "Agent lane",
             "name": name,
             "status_label": _operator_row_status_label(

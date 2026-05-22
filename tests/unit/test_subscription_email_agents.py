@@ -12,7 +12,6 @@ from types import SimpleNamespace
 
 import pandas as pd
 import pytest
-from research.scripts import import_subscription_emails as import_subscription_script
 from subscription_email import article_session, linked_content
 from subscription_email.article_analysis import analyze_article
 from subscription_email.article_llm_analysis import (
@@ -30,6 +29,8 @@ from subscription_email.monitor import monitor_subscription_emails_once
 from subscription_email.parser import parse_email_file, parse_email_message, read_local_emails
 from subscription_email.storage import write_event_frame
 from subscription_email.types import EmailRecord
+
+from research.scripts import import_subscription_emails as import_subscription_script
 
 FETCHED_AT = datetime(2026, 5, 9, 12, 0, tzinfo=UTC)
 EXPECTED_NEWS_ROWS = 2

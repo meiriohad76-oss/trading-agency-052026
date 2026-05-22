@@ -13,7 +13,8 @@ from agency.api.audit import router as audit_api_router
 from agency.api.candidates import router as candidates_router
 from agency.api.health import router as health_router
 from agency.api.reports import router as reports_router
-from agency.api.risk import policy_router, router as risk_router
+from agency.api.risk import policy_router
+from agency.api.risk import router as risk_router
 from agency.audit_dashboard import router as audit_dashboard_router
 from agency.dashboard import router as dashboard_router
 

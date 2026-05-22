@@ -101,6 +101,77 @@ def test_data_load_status_is_ready_with_full_core_and_sparse_context(
     assert _dataset(status, "sec_form4")["status"] == "ready"
 
 
+def test_data_load_status_reports_news_resolution_coverage(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    paths = _fixtures(tmp_path, monkeypatch)
+    _write_manifest(
+        paths["manifest_root"],
+        "news_rss",
+        row_count=10,
+        fetched_at="2026-05-11T14:55:00+00:00",
+        stale_after="2026-05-11T15:25:00+00:00",
+        resolved_row_count=6,
+        unresolved_row_count=2,
+        ambiguous_row_count=1,
+        ticker_count=4,
+        resolution_min_confidence=0.7,
+    )
+
+    status = load_data_load_status(
+        config_path=paths["config"],
+        universe_path=paths["universe"],
+        manifest_root=paths["manifest_root"],
+        parquet_root=paths["parquet_root"],
+        runtime_summary_path=paths["runtime_summary"],
+        source_health_path=paths["source_health"],
+        now=datetime(2026, 5, 11, 15, 2, tzinfo=UTC),
+    )
+
+    news = _dataset(status, "news_rss")
+    assert news["resolved_row_count"] == 6
+    assert news["unresolved_row_count"] == 2
+    assert news["ambiguous_row_count"] == 1
+    assert news["resolved_ticker_count"] == 4
+    assert "6 ticker-resolved RSS row(s)" in str(news["detail"])
+    assert status["news_resolution"]["coverage_label"] == "6 resolved / 2 unresolved / 1 ambiguous"
+
+
+def test_news_health_copy_names_resolution_gap(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    paths = _fixtures(tmp_path, monkeypatch)
+    _write_manifest(
+        paths["manifest_root"],
+        "news_rss",
+        row_count=5,
+        fetched_at="2026-05-11T14:55:00+00:00",
+        stale_after="2026-05-11T15:25:00+00:00",
+        resolved_row_count=0,
+        unresolved_row_count=5,
+        ambiguous_row_count=0,
+        ticker_count=0,
+        resolution_min_confidence=0.7,
+    )
+
+    status = load_data_load_status(
+        config_path=paths["config"],
+        universe_path=paths["universe"],
+        manifest_root=paths["manifest_root"],
+        parquet_root=paths["parquet_root"],
+        runtime_summary_path=paths["runtime_summary"],
+        source_health_path=paths["source_health"],
+        now=datetime(2026, 5, 11, 15, 2, tzinfo=UTC),
+    )
+
+    news = _dataset(status, "news_rss")
+    assert news["status"] == "warning"
+    assert "No ticker-resolved RSS rows are ready" in str(news["detail"])
+    assert "refresh news with ticker aliases" in str(news["detail"])
+
+
 def test_data_load_status_warns_when_support_source_health_is_missing(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
@@ -193,6 +264,7 @@ def test_data_load_status_blocks_partial_core_market_data(
         parquet_root=paths["parquet_root"],
         runtime_summary_path=paths["runtime_summary"],
         source_health_path=paths["source_health"],
+        now=datetime(2026, 5, 11, 15, 2, tzinfo=UTC),
     )
 
     assert status["state"] == "blocked"
@@ -252,6 +324,7 @@ def test_data_load_status_uses_stock_trade_complete_coverage_metadata(
         parquet_root=paths["parquet_root"],
         runtime_summary_path=paths["runtime_summary"],
         source_health_path=paths["source_health"],
+        now=datetime(2026, 5, 11, 15, 2, tzinfo=UTC),
     )
 
     row = _dataset(status, "stock_trades")
@@ -332,6 +405,168 @@ def test_data_load_status_counts_desc_partial_stock_trade_slice_as_live_usable(
     assert row["usable_coverage_pct"] == 100
     assert status["market_flow_summary"]["usable_ticker_count"] == 2
     assert status["review_operational_ready"] is True
+
+
+def test_data_load_status_marks_market_flow_partial_when_signals_miss_ticker(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    paths = _fixtures(tmp_path, monkeypatch)
+    _write_manifest(
+        paths["manifest_root"],
+        "prices_daily",
+        row_count=20,
+        tickers=["AAPL", "MSFT"],
+    )
+    _write_manifest(
+        paths["manifest_root"],
+        "stock_trades",
+        row_count=200,
+        tickers=["AAPL", "MSFT"],
+    )
+    _write_stock_trade_coverage(
+        paths["parquet_root"],
+        {
+            "AAPL|2026-05-11": "complete",
+            "MSFT|2026-05-11": {
+                "coverage_status": "partial",
+                "downloaded_row_count": 1000,
+                "pages_downloaded": 1,
+                "order": "desc",
+            },
+        },
+    )
+    _write_runtime_summary(
+        paths["runtime_summary"],
+        {
+            "abnormal_volume": 2,
+            "technical_analysis": 2,
+            "buy_sell_pressure": 1,
+            "block_trade_pressure": 1,
+            "unusual_trade_activity": 1,
+            "pre_market_unusual_activity": 1,
+            "market_flow_trend": 1,
+        },
+    )
+    _write_source_health(
+        paths["source_health"],
+        [
+            _source("daily-market-bars", freshness="FRESH", status="HEALTHY"),
+            _source("massive-stock-trades", freshness="FRESH", status="HEALTHY"),
+        ],
+    )
+
+    status = load_data_load_status(
+        config_path=paths["config"],
+        universe_path=paths["universe"],
+        manifest_root=paths["manifest_root"],
+        parquet_root=paths["parquet_root"],
+        runtime_summary_path=paths["runtime_summary"],
+        source_health_path=paths["source_health"],
+    )
+
+    market_flow = status["market_flow_summary"]
+    assert market_flow["status"] == "partial"
+    assert market_flow["status_label"] == "Partial Market Flow"
+    assert market_flow["usable_ticker_count"] == 1
+    assert market_flow["source_usable_ticker_count"] == 2
+    assert market_flow["missing_or_failed_ticker_count"] == 1
+    assert market_flow["coverage_pct"] == 50
+    assert "1 ticker" in str(market_flow["detail"])
+    assert status["tradable_ready"] is False
+    assert status["mode"] == "review_subset"
+
+
+def test_data_load_status_does_not_count_zero_row_live_trade_slice_as_usable(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    paths = _fixtures(tmp_path, monkeypatch)
+    _write_manifest(
+        paths["manifest_root"],
+        "prices_daily",
+        row_count=20,
+        tickers=["AAPL", "MSFT"],
+    )
+    _write_manifest(
+        paths["manifest_root"],
+        "stock_trades",
+        row_count=100,
+        tickers=["AAPL", "MSFT"],
+    )
+    _write_massive_lane_manifest(
+        paths["manifest_root"],
+        lane_id="massive_daily_bars",
+        dataset="prices_daily",
+        source_manifest="prices_daily.json",
+        tickers=["AAPL", "MSFT"],
+        fetched_at="2026-05-11T15:00:00+00:00",
+        coverage=[
+            {"ticker": "AAPL", "coverage_status": "complete", "complete": True},
+            {"ticker": "MSFT", "coverage_status": "complete", "complete": True},
+        ],
+    )
+    _write_massive_lane_manifest(
+        paths["manifest_root"],
+        lane_id="massive_live_trade_slices",
+        tickers=["AAPL", "MSFT"],
+        fetched_at="2026-05-11T15:00:00+00:00",
+        coverage=[
+            {
+                "ticker": "AAPL",
+                "coverage_status": "complete",
+                "complete": True,
+                "downloaded_row_count": 100,
+                "rows_written": 100,
+                "pages_downloaded": 1,
+                "order": "desc",
+            },
+            {
+                "ticker": "MSFT",
+                "coverage_status": "complete",
+                "complete": True,
+                "downloaded_row_count": 0,
+                "rows_written": 0,
+                "pages_downloaded": 1,
+                "order": "desc",
+            },
+        ],
+    )
+    _write_runtime_summary(
+        paths["runtime_summary"],
+        {
+            "abnormal_volume": 2,
+            "technical_analysis": 2,
+            "buy_sell_pressure": 1,
+            "block_trade_pressure": 1,
+            "unusual_trade_activity": 1,
+            "pre_market_unusual_activity": 1,
+            "market_flow_trend": 1,
+        },
+    )
+    _write_source_health(
+        paths["source_health"],
+        [
+            _source("daily-market-bars", freshness="FRESH", status="HEALTHY"),
+            _source("massive-stock-trades", freshness="FRESH", status="HEALTHY"),
+        ],
+    )
+
+    status = load_data_load_status(
+        config_path=paths["config"],
+        universe_path=paths["universe"],
+        manifest_root=paths["manifest_root"],
+        parquet_root=paths["parquet_root"],
+        runtime_summary_path=paths["runtime_summary"],
+        source_health_path=paths["source_health"],
+        now=datetime(2026, 5, 11, 15, 2, tzinfo=UTC),
+    )
+
+    stock_trades = _dataset(status, "stock_trades")
+    assert stock_trades["usable_ticker_count"] == 1
+    assert stock_trades["partial_ticker_count"] == 1
+    assert status["market_flow_summary"]["source_usable_ticker_count"] == 1
+    assert status["market_flow_summary"]["missing_or_failed_ticker_count"] == 1
 
 
 def test_data_load_status_prefers_massive_live_slice_lane_for_stock_trade_readiness(
@@ -977,6 +1212,43 @@ def test_data_load_status_blocks_stale_critical_source_health(
     source_summary = status["source_summary"]
     assert isinstance(source_summary, dict)
     assert source_summary["critical_blocker_count"] == 1
+
+
+def test_data_load_status_labels_missing_critical_source_as_unavailable(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    paths = _fixtures(tmp_path, monkeypatch)
+    _write_manifest(
+        paths["manifest_root"],
+        "prices_daily",
+        row_count=20,
+        tickers=["AAPL", "MSFT"],
+    )
+    _write_manifest(
+        paths["manifest_root"],
+        "stock_trades",
+        row_count=200,
+        tickers=["AAPL", "MSFT"],
+    )
+    _write_source_health(
+        paths["source_health"],
+        [_source("daily-market-bars", freshness="FRESH", status="HEALTHY")],
+    )
+
+    status = load_data_load_status(
+        config_path=paths["config"],
+        universe_path=paths["universe"],
+        manifest_root=paths["manifest_root"],
+        parquet_root=paths["parquet_root"],
+        runtime_summary_path=paths["runtime_summary"],
+        source_health_path=paths["source_health"],
+    )
+
+    source_summary = status["source_summary"]
+    assert isinstance(source_summary, dict)
+    assert "unavailable" in str(source_summary["headline"]).lower()
+    assert "stale" not in str(source_summary["headline"]).lower()
 
 
 def test_data_load_status_blocks_old_critical_source_health_row(
@@ -2300,6 +2572,14 @@ def test_premarket_lane_blocks_during_premarket_when_raw_lane_is_stale(
         blocker["item"] == "pre_market_unusual_activity"
         for blocker in status["blockers"]
     )
+    massive_source = next(
+        row for row in status["freshness_rows"] if row["source"] == "massive-stock-trades"
+    )
+    assert massive_source["status"] == "STALE"
+    assert "massive_premarket_trade_slices" in str(massive_source["detail"])
+    source_summary = status["source_summary"]
+    assert isinstance(source_summary, dict)
+    assert source_summary["critical_blocker_count"] == 1
 
 
 def _fixtures(tmp_path: Path, monkeypatch: MonkeyPatch) -> dict[str, Path]:
@@ -2394,6 +2674,7 @@ def _write_manifest(
     fetched_at: str | None = None,
     stale_after: str | None = None,
     issues: list[dict[str, object]] | None = None,
+    **extra: object,
 ) -> None:
     payload: dict[str, object] = {
         "dataset": dataset,
@@ -2408,6 +2689,7 @@ def _write_manifest(
         payload["stale_after"] = stale_after
     if tickers is not None:
         payload["tickers"] = tickers
+    payload.update(extra)
     (manifest_root / f"{dataset}.json").write_text(json.dumps(payload), encoding="utf-8")
 
 

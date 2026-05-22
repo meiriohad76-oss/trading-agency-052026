@@ -4,13 +4,13 @@ from service_fixtures import selection_report, source_health
 
 from agency.contracts import validate_contract
 from agency.services import (
-    PortfolioPolicy,
     PaperTradePromotionConfig,
+    PortfolioPolicy,
     build_execution_preview,
     build_human_review_event,
+    build_order_approval_event,
     build_risk_decision,
     build_risk_decisions,
-    build_order_approval_event,
     paper_trade_promotion_evaluations,
     selection_report_hash,
 )

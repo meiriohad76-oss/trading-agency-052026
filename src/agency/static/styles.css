@@ -183,6 +183,18 @@ h2 {
   margin: 0;
 }
 
+.section-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.section-actions form {
+  margin: 0;
+}
+
 .inline-form {
   margin: 0 0 14px;
 }
@@ -5310,6 +5322,31 @@ table.signal-table {
 }
 
 .execution-preview-card .card-next-step {
+  color: var(--text);
+}
+
+.execution-card-action {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.review-card-head .execution-card-action {
+  justify-items: end;
+}
+
+.execution-caution-approval {
+  padding: 10px 12px;
+  border: 1px solid rgba(19, 121, 91, 0.24);
+  border-radius: 8px;
+  background: rgba(19, 121, 91, 0.06);
+}
+
+.execution-caution-approval .checkbox-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+  align-items: start;
   color: var(--text);
 }
 

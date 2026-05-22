@@ -4,10 +4,9 @@ import warnings
 from datetime import UTC, datetime
 
 import pandas as pd
-
+from pit.cusip_utils import cusip_map_coverage_check
 from sec.form13f import parse_13f_xml
 from sec.submissions import FilingSummary
-from pit.cusip_utils import cusip_map_coverage_check
 
 FETCHED_AT = datetime(2026, 5, 14, tzinfo=UTC)
 AAPL_CUSIP = "037833100"

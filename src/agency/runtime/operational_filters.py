@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
 import re
+from collections.abc import Mapping
 
 NON_OPERATIONAL_TOKENS = ("demo", "mock", "fake", "fixture", "manual-smoke")
 _NON_OPERATIONAL_PATTERNS = tuple(

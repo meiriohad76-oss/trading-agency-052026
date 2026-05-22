@@ -5,16 +5,16 @@ from collections.abc import Mapping, Sequence
 
 from agency.views._shared import (
     FINAL_SELECTION_REPORT_LIMIT,
-    dashboard_data_health,
     _dashboard_selection_reports,
     _format_timestamp_label,
+    _human_list,
     _human_review_index,
     _human_review_summary,
-    _human_list,
     _int_field,
     _is_actionable_candidate,
     _label_text,
     _latest_selection_cycle_id,
+    _lifecycle_events_for_reports,
     _mapping_field,
     _percent,
     _plural,
@@ -23,7 +23,7 @@ from agency.views._shared import (
     _selection_reports_for_cycle,
     _short_cycle_label,
     _string_list,
-    _lifecycle_events_for_reports,
+    dashboard_data_health,
     live_dashboard_data_load_status,
 )
 
@@ -133,7 +133,12 @@ def _final_selection_row(
 ) -> dict[str, object]:
     from agency.views.candidates import _candidate_row
     from agency.views.risk import _gate_rows, _selection_gate_summary
-    from agency.views.signals import _context_signal_rows, _decision_explanation, _signal_group_summary, _signal_rows
+    from agency.views.signals import (
+        _context_signal_rows,
+        _decision_explanation,
+        _signal_group_summary,
+        _signal_rows,
+    )
     base = _candidate_row(report)
     deterministic = _mapping_field(report, "deterministic")
     llm_review = _mapping_field(report, "llm_review")

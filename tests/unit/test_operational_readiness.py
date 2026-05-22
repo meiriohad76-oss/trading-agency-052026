@@ -406,6 +406,12 @@ def test_operational_readiness_endpoint_returns_combined_status(
     async def fake_sources() -> list[dict[str, object]]:
         return [_source()]
 
+    async def fake_source_load_status() -> dict[str, object]:
+        return {
+            "data_sources": [_source()],
+            "data_load_status": {**_data_load(), "live_config": _live_config()},
+        }
+
     async def fake_risks(*, limit: int = 50, ticker: str | None = None) -> list[dict[str, object]]:
         del limit, ticker
         return [_risk()]
@@ -416,6 +422,10 @@ def test_operational_readiness_endpoint_returns_combined_status(
 
     monkeypatch.setattr("agency.views._shared.runtime_selection_reports", fake_reports)
     monkeypatch.setattr("agency.views.command.runtime_data_source_status", fake_sources)
+    monkeypatch.setattr(
+        "agency.views.command.runtime_data_source_status_with_load_status",
+        fake_source_load_status,
+    )
     monkeypatch.setattr("agency.views._shared.runtime_risk_decisions", fake_risks)
     monkeypatch.setattr(
         "agency.views.command.human_review_events_for_reports", fake_review_events

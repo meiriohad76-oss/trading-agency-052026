@@ -155,8 +155,7 @@ async def runtime_data_source_status(
         reader=reader,
         artifact_root=artifact_root,
     )
-    data_sources = payload.get("data_sources", [])
-    return [dict(row) for row in data_sources if isinstance(row, Mapping)]
+    return [dict(row) for row in _mapping_rows(payload.get("data_sources"))]
 
 
 async def runtime_data_source_status_with_load_status(
@@ -250,9 +249,11 @@ def _with_unified_readiness_overlay(
             merged["last_success_at"] = last_success_at
         detail = str(readiness.get("detail") or "").strip()
         if detail:
+            notes_value = merged.get("notes")
+            note_values = notes_value if isinstance(notes_value, list) else []
             notes = [
                 str(note)
-                for note in (merged.get("notes") if isinstance(merged.get("notes"), list) else [])
+                for note in note_values
                 if str(note).strip()
             ]
             note = f"unified_readiness_override: {detail}"

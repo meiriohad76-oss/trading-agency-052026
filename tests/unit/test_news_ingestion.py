@@ -9,18 +9,51 @@ import polars as pl
 from news.puller import pull_rss_feeds
 from news.rss import FeedSpec, parse_rss
 from news.scrapling_adapter import ScraplingUnavailableError, parse_html, scrapling_available
+from news.ticker_resolution import TickerAlias, TickerResolutionRegistry
 from pit.manifest import DatasetName
 from pit_fixtures import loader_with, provenance
 
 from agency.provenance import SourceTier
 
 FETCHED_AT = datetime(2026, 5, 7, 8, 0, tzinfo=UTC)
+LEGAL_NAME_CONFIDENCE = 0.88
+EXPECTED_MULTI_TICKER_ROWS = 2
 RSS_XML = """\
 <rss><channel>
   <item>
     <title>AAPL beats estimates</title>
     <link>https://example.test/aapl</link>
     <description>Apple raises guidance</description>
+    <pubDate>Thu, 07 May 2026 07:00:00 GMT</pubDate>
+  </item>
+</channel></rss>
+"""
+GENERIC_APPLE_RSS_XML = """\
+<rss><channel>
+  <item>
+    <title>Apple Inc. announces new AI features</title>
+    <link>https://example.test/apple-ai</link>
+    <description>New AI features will ship this fall</description>
+    <pubDate>Thu, 07 May 2026 07:00:00 GMT</pubDate>
+  </item>
+</channel></rss>
+"""
+GENERIC_UNRESOLVED_RSS_XML = """\
+<rss><channel>
+  <item>
+    <title>Global futures rise before central bank remarks</title>
+    <link>https://example.test/global-futures</link>
+    <description>Broad market context without a listed company</description>
+    <pubDate>Thu, 07 May 2026 07:00:00 GMT</pubDate>
+  </item>
+</channel></rss>
+"""
+GENERIC_MULTI_TICKER_RSS_XML = """\
+<rss><channel>
+  <item>
+    <title>Apple Inc. and Microsoft Corporation expand AI partnership</title>
+    <link>https://example.test/apple-msft-ai</link>
+    <description>Both companies announced a new integration</description>
     <pubDate>Thu, 07 May 2026 07:00:00 GMT</pubDate>
   </item>
 </channel></rss>
@@ -84,6 +117,104 @@ async def test_pull_rss_feeds_writes_parquet_and_manifest(tmp_path: Path) -> Non
     assert manifest["row_count"] == 1
 
 
+async def test_pull_rss_feeds_resolves_generic_feed_with_alias_registry(tmp_path: Path) -> None:
+    parquet_path = tmp_path / "news_rss.parquet"
+    manifest_path = tmp_path / "news_rss.json"
+
+    async def fetcher(_url: str) -> str:
+        return GENERIC_APPLE_RSS_XML
+
+    summary = await pull_rss_feeds(
+        feeds=[FeedSpec("https://example.test/generic", "PRN")],
+        parquet_path=parquet_path,
+        manifest_path=manifest_path,
+        fetcher=fetcher,
+        clock=lambda: FETCHED_AT,
+        ticker_registry=_ticker_registry(),
+        resolve_generic_tickers=True,
+    )
+
+    frame = pd.read_parquet(parquet_path)
+    assert summary.rows_written == 1
+    assert frame.iloc[0]["ticker"] == "AAPL"
+    assert frame.iloc[0]["ticker_match_status"] == "resolved"
+    assert frame.iloc[0]["ticker_match_method"] == "legal_name"
+    assert frame.iloc[0]["ticker_match_confidence"] == LEGAL_NAME_CONFIDENCE
+    assert "Apple Inc." in frame.iloc[0]["ticker_match_reason"]
+    assert pd.isna(frame.iloc[0]["raw_feed_ticker"])
+
+
+async def test_pull_rss_feeds_keeps_unresolved_generic_row_for_audit(tmp_path: Path) -> None:
+    parquet_path = tmp_path / "news_rss.parquet"
+    manifest_path = tmp_path / "news_rss.json"
+
+    async def fetcher(_url: str) -> str:
+        return GENERIC_UNRESOLVED_RSS_XML
+
+    summary = await pull_rss_feeds(
+        feeds=[FeedSpec("https://example.test/generic", "PRN")],
+        parquet_path=parquet_path,
+        manifest_path=manifest_path,
+        fetcher=fetcher,
+        clock=lambda: FETCHED_AT,
+        ticker_registry=_ticker_registry(),
+        resolve_generic_tickers=True,
+        keep_unresolved=True,
+    )
+
+    frame = pd.read_parquet(parquet_path)
+    assert summary.rows_written == 1
+    assert pd.isna(frame.iloc[0]["ticker"])
+    assert frame.iloc[0]["ticker_match_status"] == "unresolved"
+    assert frame.iloc[0]["ticker_match_confidence"] == 0.0
+    assert "No high-confidence ticker match" in frame.iloc[0]["ticker_match_reason"]
+
+
+async def test_source_id_is_unique_per_raw_item_and_ticker_match(tmp_path: Path) -> None:
+    parquet_path = tmp_path / "news_rss.parquet"
+    manifest_path = tmp_path / "news_rss.json"
+
+    async def fetcher(_url: str) -> str:
+        return GENERIC_MULTI_TICKER_RSS_XML
+
+    await pull_rss_feeds(
+        feeds=[FeedSpec("https://example.test/generic", "PRN")],
+        parquet_path=parquet_path,
+        manifest_path=manifest_path,
+        fetcher=fetcher,
+        clock=lambda: FETCHED_AT,
+        ticker_registry=_ticker_registry(),
+        resolve_generic_tickers=True,
+    )
+
+    frame = pd.read_parquet(parquet_path).sort_values("ticker").reset_index(drop=True)
+    assert frame["ticker"].tolist() == ["AAPL", "MSFT"]
+    assert frame["source_id"].nunique() == EXPECTED_MULTI_TICKER_ROWS
+    assert frame["source_id"].str.startswith("rss:").all()
+
+
+async def test_raw_source_id_is_shared_across_multi_ticker_expansion(tmp_path: Path) -> None:
+    parquet_path = tmp_path / "news_rss.parquet"
+    manifest_path = tmp_path / "news_rss.json"
+
+    async def fetcher(_url: str) -> str:
+        return GENERIC_MULTI_TICKER_RSS_XML
+
+    await pull_rss_feeds(
+        feeds=[FeedSpec("https://example.test/generic", "PRN")],
+        parquet_path=parquet_path,
+        manifest_path=manifest_path,
+        fetcher=fetcher,
+        clock=lambda: FETCHED_AT,
+        ticker_registry=_ticker_registry(),
+        resolve_generic_tickers=True,
+    )
+
+    frame = pd.read_parquet(parquet_path)
+    assert frame["raw_source_id"].nunique() == 1
+    assert set(frame["related_tickers"]) == {"AAPL,MSFT"}
+
+
 def test_pit_loader_filters_news_by_timestamp_and_ticker(tmp_path: Path) -> None:
     frame = pl.DataFrame(
         [
@@ -100,8 +231,47 @@ def test_pit_loader_filters_news_by_timestamp_and_ticker(tmp_path: Path) -> None
     assert result[0].provenance.source_id == "inside"
 
 
-def _news(ticker: str, title: str, as_of: date) -> dict[str, object]:
-    return {
+def test_pit_loader_excludes_unresolved_news_when_ticker_filter_is_used(tmp_path: Path) -> None:
+    frame = pl.DataFrame(
+        [
+            _news(
+                "AAPL",
+                "unresolved",
+                date(2026, 5, 5),
+                ticker_match_status="unresolved",
+                ticker_match_confidence=0.0,
+            ),
+            _news(
+                "AAPL",
+                "ambiguous",
+                date(2026, 5, 5),
+                ticker_match_status="ambiguous",
+                ticker_match_confidence=0.5,
+            ),
+            _news(
+                "AAPL",
+                "resolved",
+                date(2026, 5, 5),
+                ticker_match_status="resolved",
+                ticker_match_confidence=0.88,
+            ),
+            _news("AAPL", "legacy", date(2026, 5, 5)),
+        ]
+    )
+    loader = loader_with(tmp_path, {DatasetName.NEWS_RSS: frame})
+
+    result = loader.news(date(2026, 5, 6), lookback_days=2, tickers=["AAPL"])
+
+    assert [item.value["title"] for item in result] == ["resolved", "legacy"]
+
+
+def _news(
+    ticker: str,
+    title: str,
+    as_of: date,
+    **extra: object,
+) -> dict[str, object]:
+    row = {
         "ticker": ticker,
         "feed_url": "https://example.test/rss",
         "feed_name": "Example",
@@ -111,3 +281,27 @@ def _news(ticker: str, title: str, as_of: date) -> dict[str, object]:
         "published_at": as_of,
         **provenance(SourceTier.RSS_HEADLINE, as_of, source_id=title),
     }
+    row.update(extra)
+    return row
+
+
+def _ticker_registry() -> TickerResolutionRegistry:
+    return TickerResolutionRegistry(
+        aliases=[
+            TickerAlias(
+                ticker="AAPL",
+                cik="0000320193",
+                legal_names=("Apple Inc.",),
+                brand_aliases=("Apple",),
+                allow_plain_brand=True,
+            ),
+            TickerAlias(
+                ticker="MSFT",
+                cik="0000789019",
+                legal_names=("Microsoft Corporation",),
+                brand_aliases=("Microsoft",),
+                allow_plain_brand=True,
+            ),
+        ],
+        active_tickers=("AAPL", "MSFT"),
+    )

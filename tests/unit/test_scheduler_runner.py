@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from subprocess import CompletedProcess
-from datetime import UTC, datetime, timedelta
 
-import agency.runtime.scheduler_runner as scheduler_runner
-import agency.runtime.scheduler_status as scheduler_status
+from agency.runtime import scheduler_runner, scheduler_status
 from agency.runtime.scheduler_runner import jobs_for_phase
 
 
@@ -118,8 +117,8 @@ def test_work_queue_tick_prefers_massive_lanes_and_refreshes_runtime(monkeypatch
         commands.append(command)
         return CompletedProcess(command, 0, stdout="ok", stderr="")
 
-    monkeypatch.setattr("agency.runtime.data_load_status.load_data_load_status", lambda: {})
-    monkeypatch.setattr("agency.runtime.data_refresh_progress.load_data_refresh_progress", lambda: {})
+    monkeypatch.setattr("agency.runtime.data_load_status.load_data_load_status", dict)
+    monkeypatch.setattr("agency.runtime.data_refresh_progress.load_data_refresh_progress", dict)
     monkeypatch.setattr(
         "agency.runtime.scheduler_work_queue.scheduler_work_queue_context",
         fake_context,
@@ -305,8 +304,8 @@ def test_work_queue_tick_marks_timed_out_dataset_refresh_status_failed(
         )
 
     monkeypatch.setattr(scheduler_runner, "REPO_ROOT", tmp_path)
-    monkeypatch.setattr("agency.runtime.data_load_status.load_data_load_status", lambda: {})
-    monkeypatch.setattr("agency.runtime.data_refresh_progress.load_data_refresh_progress", lambda: {})
+    monkeypatch.setattr("agency.runtime.data_load_status.load_data_load_status", dict)
+    monkeypatch.setattr("agency.runtime.data_refresh_progress.load_data_refresh_progress", dict)
     monkeypatch.setattr(
         "agency.runtime.scheduler_work_queue.scheduler_work_queue_context",
         fake_context,
@@ -349,8 +348,8 @@ def test_work_queue_tick_records_job_success_cadence_memory(monkeypatch) -> None
             ],
         }
 
-    monkeypatch.setattr("agency.runtime.data_load_status.load_data_load_status", lambda: {})
-    monkeypatch.setattr("agency.runtime.data_refresh_progress.load_data_refresh_progress", lambda: {})
+    monkeypatch.setattr("agency.runtime.data_load_status.load_data_load_status", dict)
+    monkeypatch.setattr("agency.runtime.data_refresh_progress.load_data_refresh_progress", dict)
     monkeypatch.setattr(
         "agency.runtime.scheduler_work_queue.scheduler_work_queue_context",
         fake_context,

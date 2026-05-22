@@ -8,7 +8,6 @@ from data_refresh.extraction_plan import ExtractionDecision
 from data_refresh.market_calendar import MarketSession, previous_trading_day
 from data_refresh.types import RefreshBatchConfig
 
-
 ACTIVE_TRADE_PHASES = ("pre_market", "regular_market", "after_hours")
 PREMARKET_PHASES = ("pre_market",)
 REGULAR_MARKET_PHASES = ("regular_market",)

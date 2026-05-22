@@ -10,6 +10,8 @@ from pit.exceptions import DataNotAvailableAt
 from signals._common import payload_dict, score_dict, zscore
 
 DEFAULT_LOOKBACK_DAYS = 3
+MIN_TICKER_MATCH_CONFIDENCE = 0.70
+SCORABLE_MATCH_STATUSES = frozenset({"resolved", "feed_ticker"})
 POSITIVE_TERMS = frozenset(
     {"upgrade", "beats", "beat", "raises", "raised", "buy", "outperform", "surges", "approval"}
 )
@@ -67,6 +69,8 @@ def _rows(tickers: list[str], items: Sequence[object]) -> list[dict[str, object]
     grouped: dict[str, list[dict[str, object]]] = {ticker: [] for ticker in tickers}
     for item in items:
         payload = payload_dict(item, "news")
+        if not _scorable_news_row(payload):
+            continue
         ticker = str(payload.get("ticker", "")).upper()
         if ticker in grouped:
             grouped[ticker].append(payload)
@@ -75,15 +79,26 @@ def _rows(tickers: list[str], items: Sequence[object]) -> list[dict[str, object]
 
 def _factor_row(ticker: str, items: list[dict[str, object]]) -> dict[str, object]:
     sentiments = [_headline_sentiment(item) for item in items]
+    confidences = [_ticker_match_confidence(item) for item in items]
     sources = {
         str(item.get("feed_name") or item.get("url"))
         for item in items
         if item.get("feed_name") or item.get("url")
     }
-    sentiment_score = float(sum(sentiments) / len(sentiments))
+    weighted_headline_count = float(sum(confidences))
+    sentiment_score = (
+        float(
+            sum(sentiment * confidence for sentiment, confidence in zip(sentiments, confidences, strict=True))
+            / weighted_headline_count
+        )
+        if weighted_headline_count > 0
+        else 0.0
+    )
     return {
         "ticker": ticker,
         "headline_count": len(items),
+        "weighted_headline_count": weighted_headline_count,
+        "match_confidence_avg": float(sum(confidences) / len(confidences)),
         "source_count": len(sources),
         "positive_count": sum(1 for value in sentiments if value > 0),
         "negative_count": sum(1 for value in sentiments if value < 0),
@@ -106,11 +121,40 @@ def _term_count(text: str, term: str) -> int:
     return len(re.findall(rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])", text))
 
 
+def _scorable_news_row(item: dict[str, object]) -> bool:
+    status = _match_status(item)
+    return status in SCORABLE_MATCH_STATUSES and (
+        _ticker_match_confidence(item) >= MIN_TICKER_MATCH_CONFIDENCE
+    )
+
+
+def _match_status(item: dict[str, object]) -> str:
+    value = item.get("ticker_match_status")
+    if value is None or str(value).strip() == "":
+        return "feed_ticker"
+    return str(value).strip()
+
+
+def _ticker_match_confidence(item: dict[str, object]) -> float:
+    value = item.get("ticker_match_confidence")
+    if value is None or str(value).strip() == "":
+        return 1.0
+    if isinstance(value, bool) or not isinstance(value, int | float | str):
+        return 0.0
+    try:
+        confidence = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return max(0.0, min(1.0, confidence))
+
+
 def _empty_frame() -> pd.DataFrame:
     return pd.DataFrame(
         columns=[
             "ticker",
             "headline_count",
+            "weighted_headline_count",
+            "match_confidence_avg",
             "source_count",
             "positive_count",
             "negative_count",

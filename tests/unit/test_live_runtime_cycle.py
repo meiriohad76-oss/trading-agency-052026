@@ -9,7 +9,11 @@ from unittest.mock import patch
 import polars as pl
 import pytest
 from live_runtime.config import DEFAULT_RUNTIME_SIGNALS
-from live_runtime.cycle import LlmEnhancedCycleResult, build_live_pit_runtime_cycle, required_runtime_datasets
+from live_runtime.cycle import (
+    LlmEnhancedCycleResult,
+    build_live_pit_runtime_cycle,
+    required_runtime_datasets,
+)
 from live_runtime.summary import build_live_runtime_summary, summary_to_markdown
 from pit.manifest import DatasetName
 from pit_fixtures import loader_with, price, write_manifest

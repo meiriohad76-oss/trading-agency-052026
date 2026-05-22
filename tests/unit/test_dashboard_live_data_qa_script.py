@@ -73,7 +73,7 @@ def test_dashboard_live_data_qa_json_get_accepts_endpoint_lists(monkeypatch) -> 
 
 def test_dashboard_live_data_qa_allows_context_only_data_load_warnings(monkeypatch) -> None:
     def fake_json_get(url: str):
-        if url.endswith("/reports/selection") or url.endswith("/risk/decisions"):
+        if url.endswith(("/reports/selection", "/risk/decisions")):
             return _ready_payload_for(url)
         if url.endswith("/status/full-live-readiness"):
             return {
@@ -102,7 +102,7 @@ def test_dashboard_live_data_qa_allows_context_only_data_load_warnings(monkeypat
 
 def test_dashboard_live_data_qa_allows_nonblocking_trade_progress_warning(monkeypatch) -> None:
     def fake_json_get(url: str):
-        if url.endswith("/reports/selection") or url.endswith("/risk/decisions"):
+        if url.endswith(("/reports/selection", "/risk/decisions")):
             return _ready_payload_for(url)
         if url.endswith("/status/full-live-readiness"):
             return {

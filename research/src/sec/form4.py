@@ -76,15 +76,15 @@ async def pull_form4(
         filings_seen += len(filings)
         rate_limited = False
         for filing in filings:
-            frame, issue = await _parse_filing(
+            frame, filing_issue = await _parse_filing(
                 ticker=ticker,
                 client=client,
                 filing=filing,
                 clock=get_now,
             )
-            if issue is not None:
-                issues.append(issue)
-                if issue.get("reason") == "SEC request rate limited":
+            if filing_issue is not None:
+                issues.append(filing_issue)
+                if filing_issue.get("reason") == "SEC request rate limited":
                     rate_limited = True
                     break
                 continue

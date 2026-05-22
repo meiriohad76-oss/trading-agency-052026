@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import imaplib
-import re
 import os
+import re
 from collections.abc import Callable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass

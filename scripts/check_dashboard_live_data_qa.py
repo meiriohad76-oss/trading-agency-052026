@@ -2,15 +2,14 @@ from __future__ import annotations
 
 import json
 import re
-from urllib.error import URLError
-from urllib.request import urlopen
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
+from urllib.error import URLError
+from urllib.request import urlopen
 
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
-
 
 PAGES = (
     "/",

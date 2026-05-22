@@ -10,12 +10,12 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from agency.contracts import validate_contract
 from agency.db import MissingDatabaseConfigurationError, get_session
+from agency.runtime import list_recent_selection_reports
 from agency.runtime.artifact_fallbacks import (
     artifact_fallback_enabled,
     runtime_selection_report_artifacts,
 )
 from agency.runtime.operational_filters import is_non_operational_payload
-from agency.runtime import list_recent_selection_reports
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 SelectionReportReader = Callable[[Any, str | None, int], Awaitable[list[dict[str, object]]]]

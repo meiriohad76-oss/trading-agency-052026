@@ -290,6 +290,9 @@ def load_data_load_status(
         "warning_count": len(warnings),
         "blockers": blockers,
         "warnings": warnings,
+        "news_resolution": _news_resolution_summary(
+            _read_json_object(manifest_dir / "news_rss.json")
+        ),
         "source_summary": _source_summary(monitored_source_health, now=current),
         "health_monitor": health_monitor,
         "dataset_summary": _dataset_summary(dataset_rows),
@@ -450,6 +453,7 @@ def _dataset_rows(
                 "coverage_as_of": dataset_as_of.isoformat(),
                 "partial_ticker_count": partial_ticker_count,
                 "row_count": _int_value(manifest_for_status.get("row_count")),
+                **_dataset_news_resolution_fields(dataset, manifest_for_status),
                 "max_as_of": str(manifest.get("max_timestamp_as_of") or "not loaded"),
                 "issue_count": len(issues),
                 "source_status": str(health.get("status") or "UNKNOWN"),
@@ -786,9 +790,7 @@ def _refresh_dataset_blocks(dataset: str) -> bool:
     normalized = dataset.strip().lower()
     if normalized in CORE_REFRESH_DATASETS:
         return True
-    if normalized in NON_BLOCKING_REFRESH_DATASETS:
-        return False
-    return True
+    return normalized not in NON_BLOCKING_REFRESH_DATASETS
 
 
 def _market_flow_summary(
@@ -809,7 +811,7 @@ def _market_flow_summary(
     complete_tickers = _int_value(stock_trades.get("loaded_ticker_count"))
     usable_trade_tickers = _int_value(stock_trades.get("usable_ticker_count")) or complete_tickers
     partial_tickers = _int_value(stock_trades.get("partial_ticker_count"))
-    missing_or_failed = max(0, expected - complete_tickers - partial_tickers)
+    source_missing_or_failed = max(0, expected - complete_tickers - partial_tickers)
     if not rows:
         return {
             "status": "not_configured",
@@ -820,25 +822,30 @@ def _market_flow_summary(
             "warning_lane_count": 0,
             "blocked_lane_count": 0,
             "usable_ticker_count": complete_tickers,
+            "source_usable_ticker_count": complete_tickers,
             "partial_ticker_count": partial_tickers,
-            "missing_or_failed_ticker_count": missing_or_failed,
+            "missing_or_failed_ticker_count": max(0, expected - complete_tickers),
+            "source_missing_or_failed_ticker_count": source_missing_or_failed,
             "expected_ticker_count": expected,
             "coverage_pct": 0,
+            "source_coverage_pct": round(_coverage(complete_tickers, expected) * PERCENT_SCALE),
             "detail": "No market-flow lanes are configured for this cycle.",
         }
     counts = [_int_value(row.get("produced_count")) for row in rows]
     produced = max(counts) if counts else 0
     source_usable = usable_trade_tickers if stock_trades else produced
     signal_usable = min(source_usable, produced) if stock_trades else produced
-    coverage_pct = round(_coverage(source_usable, expected) * PERCENT_SCALE)
+    signal_missing_or_failed = max(0, expected - signal_usable)
+    coverage_pct = round(_coverage(signal_usable, expected) * PERCENT_SCALE)
+    source_coverage_pct = round(_coverage(source_usable, expected) * PERCENT_SCALE)
     ready_count = _count_rows(rows, "status", "ready")
     warning_count = _count_rows(rows, "status", "warning")
     blocked_count = _count_rows(rows, "status", "blocked")
     if blocked_count and source_usable <= 0:
         status = "blocked"
-    elif source_usable >= expected and missing_or_failed == 0 and produced > 0:
+    elif signal_usable >= expected and source_missing_or_failed == 0:
         status = "ready"
-    elif source_usable > 0 and produced > 0:
+    elif signal_usable > 0:
         status = "partial"
     else:
         status = "blocked"
@@ -855,22 +862,25 @@ def _market_flow_summary(
         "ready_lane_count": ready_count,
         "warning_lane_count": warning_count,
         "blocked_lane_count": blocked_count,
-        "usable_ticker_count": source_usable,
+        "usable_ticker_count": signal_usable,
+        "source_usable_ticker_count": source_usable,
         "signal_ticker_count": signal_usable,
         "complete_ticker_count": complete_tickers,
         "partial_ticker_count": partial_tickers,
-        "missing_or_failed_ticker_count": missing_or_failed,
+        "missing_or_failed_ticker_count": signal_missing_or_failed,
+        "source_missing_or_failed_ticker_count": source_missing_or_failed,
         "expected_ticker_count": expected,
         "coverage_pct": coverage_pct,
+        "source_coverage_pct": source_coverage_pct,
         "detail": _market_flow_detail(
             status,
-            source_usable,
+            signal_usable,
             expected,
             rows,
             signal_ticker_count=signal_usable,
             complete_ticker_count=complete_tickers,
             partial_ticker_count=partial_tickers,
-            missing_or_failed_ticker_count=missing_or_failed,
+            missing_or_failed_ticker_count=signal_missing_or_failed,
         ),
     }
 
@@ -944,6 +954,97 @@ def _mode_label(mode: str) -> str:
     }.get(mode, mode.replace("_", " ").title())
 
 
+def _news_resolution_summary(manifest: Mapping[str, object]) -> dict[str, object]:
+    resolved = _int_value(manifest.get("resolved_row_count"))
+    unresolved = _int_value(manifest.get("unresolved_row_count"))
+    ambiguous = _int_value(manifest.get("ambiguous_row_count"))
+    ticker_count = _int_value(manifest.get("ticker_count"))
+    row_count = _int_value(manifest.get("row_count"))
+    min_confidence = _number_value(manifest.get("resolution_min_confidence"))
+    has_metadata = _has_news_resolution_metadata(manifest)
+    return {
+        "row_count": row_count,
+        "resolved_row_count": resolved,
+        "unresolved_row_count": unresolved,
+        "ambiguous_row_count": ambiguous,
+        "resolved_ticker_count": ticker_count,
+        "resolution_min_confidence": min_confidence,
+        "fetched_at": str(manifest.get("fetched_at") or "not recorded"),
+        "has_resolution_metadata": has_metadata,
+        "coverage_label": (
+            f"{resolved} resolved / {unresolved} unresolved / {ambiguous} ambiguous"
+            if has_metadata
+            else "resolution coverage not recorded"
+        ),
+    }
+
+
+def _dataset_news_resolution_fields(
+    dataset: str,
+    manifest: Mapping[str, object],
+) -> dict[str, object]:
+    if dataset != "news_rss":
+        return {}
+    summary = _news_resolution_summary(manifest)
+    return {
+        "resolved_row_count": summary["resolved_row_count"],
+        "unresolved_row_count": summary["unresolved_row_count"],
+        "ambiguous_row_count": summary["ambiguous_row_count"],
+        "resolved_ticker_count": summary["resolved_ticker_count"],
+        "news_resolution_coverage_label": summary["coverage_label"],
+    }
+
+
+def _news_resolution_gap(dataset: str, manifest: Mapping[str, object]) -> bool:
+    return (
+        dataset == "news_rss"
+        and _has_news_resolution_metadata(manifest)
+        and _int_value(manifest.get("row_count")) > 0
+        and _int_value(manifest.get("resolved_row_count")) == 0
+    )
+
+
+def _has_news_resolution_metadata(manifest: Mapping[str, object]) -> bool:
+    return any(
+        key in manifest
+        for key in (
+            "resolved_row_count",
+            "unresolved_row_count",
+            "ambiguous_row_count",
+            "ticker_count",
+        )
+    )
+
+
+def _news_resolution_detail(manifest: Mapping[str, object]) -> str:
+    summary = _news_resolution_summary(manifest)
+    row_count = _int_value(summary["row_count"])
+    resolved = _int_value(summary["resolved_row_count"])
+    unresolved = _int_value(summary["unresolved_row_count"])
+    ambiguous = _int_value(summary["ambiguous_row_count"])
+    ticker_count = _int_value(summary["resolved_ticker_count"])
+    confidence = _number_value(summary["resolution_min_confidence"])
+    fetched_at = str(summary["fetched_at"])
+    if not summary["has_resolution_metadata"]:
+        return (
+            f"RSS/news has {row_count} row(s). Ticker-resolution coverage is not "
+            "recorded in this manifest yet; refresh news with the current RSS "
+            "resolver to show resolved, unresolved, and ambiguous counts."
+        )
+    if row_count > 0 and resolved == 0:
+        return (
+            "No ticker-resolved RSS rows are ready. Generic RSS headlines were "
+            "fetched, but none passed ticker resolution; refresh news with ticker "
+            "aliases or review the alias registry."
+        )
+    return (
+        f"RSS/news has {resolved} ticker-resolved RSS row(s), {unresolved} "
+        f"unresolved generic row(s), and {ambiguous} ambiguous row(s) across "
+        f"{ticker_count} ticker(s). Last RSS fetch: {fetched_at}. Minimum "
+        f"match confidence is {confidence:.2f}."
+    )
+
+
 def _dataset_status(
     *,
     dataset: str,
@@ -975,26 +1076,22 @@ def _dataset_status(
         or bool(blocking_issues)
     )
     context_warning = group == "context" and (
-        issues or _int_value(manifest.get("row_count")) == 0
+        issues
+        or _int_value(manifest.get("row_count")) == 0
+        or _news_resolution_gap(dataset, manifest)
     )
     status = "ready"
     if source_state == "blocked":
         status = "blocked" if dataset in CORE_DATASETS else "warning"
-    elif group == "core" and _manifest_stale_for_as_of(manifest, as_of):
+    elif group == "core" and _manifest_stale_for_as_of(manifest, as_of) or group == "core" and dataset != "stock_trades" and coverage < 1.0:
         status = "blocked"
-    elif group == "core" and dataset != "stock_trades" and coverage < 1.0:
-        status = "blocked"
-    elif source_state == "warning":
-        status = "warning"
-    elif dataset == "stock_trades" and 0.0 < effective_coverage < 1.0:
+    elif source_state == "warning" or dataset == "stock_trades" and 0.0 < effective_coverage < 1.0:
         status = "warning"
     elif group == "core" and (
         effective_coverage if dataset == "stock_trades" else coverage
     ) < 1.0:
         status = "blocked"
-    elif dataset == "stock_trades" and partial_ticker_count > 0:
-        status = "warning"
-    elif support_warning or context_warning:
+    elif dataset == "stock_trades" and partial_ticker_count > 0 or support_warning or context_warning:
         status = "warning"
     return status
 
@@ -1009,9 +1106,7 @@ def _lane_status(
 ) -> str:
     status = "ready"
     if lane in MARKET_FLOW_LANES:
-        if dataset_status == "blocked":
-            status = "blocked"
-        elif count <= 0:
+        if dataset_status == "blocked" or count <= 0:
             status = "blocked"
         elif dataset_status == "warning" or coverage < 1.0:
             status = "warning"
@@ -1204,6 +1299,8 @@ def _dataset_detail(
             f"{DATASET_LABELS[dataset]} source needs attention: "
             f"{_source_detail(health, now=now)}"
         )
+    if dataset == "news_rss":
+        return _news_resolution_detail(manifest)
     if group == "core":
         percent = round(coverage * PERCENT_SCALE)
         usable_percent = round((coverage if usable_coverage is None else usable_coverage) * PERCENT_SCALE)
@@ -1429,7 +1526,13 @@ def _health_monitor_summary(
         for parsed in (_parse_datetime(row.get("checked_at")) for row in source_health)
         if parsed is not None
     ]
-    missing_checked_count = len(source_health) - len(checked_values)
+    missing_checked_count = sum(
+        1
+        for row in source_health
+        if _parse_datetime(row.get("checked_at")) is None
+        and str(row.get("status") or "").upper() != "UNAVAILABLE"
+        and str(row.get("freshness") or "").upper() != "UNAVAILABLE"
+    )
     latest_checked = max(checked_values) if checked_values else None
     oldest_checked = min(checked_values) if checked_values else None
     max_age_seconds = (
@@ -1774,6 +1877,8 @@ def _source_summary_headline(rows: Sequence[Mapping[str, object]]) -> str:
         status = str(row.get("status") or "").upper()
         freshness = str(row.get("freshness") or "").upper()
         label = str(row.get("label") or "source")
+        if status == "UNAVAILABLE" or freshness == "UNAVAILABLE":
+            return f"Critical source unavailable: {label}"
         if status in {"HEALTHY", "FRESH"} and freshness == "FRESH":
             return f"Critical health proof stale: {label}"
         return f"Critical stale source: {label}"
@@ -1974,17 +2079,31 @@ def _source_health_with_massive_lanes(
             now=now,
             note=f"source-health overridden by latest {dataset} manifest",
         )
-    live_snapshot = _stock_trade_live_lane_snapshot(
-        data_refresh,
-        manifest_root=manifest_root,
-        as_of=as_of,
-        now=now,
-    )
+    market_session = _current_market_session(now)
+    if _premarket_lane_required_now(market_session):
+        trade_lane_id = MASSIVE_PREMARKET_TRADE_LANE_ID
+        live_snapshot = _stock_trade_raw_lane_snapshot(
+            trade_lane_id,
+            label="Massive Pre-Market Trade Slices",
+            data_refresh=data_refresh,
+            manifest_root=manifest_root,
+            as_of=_market_session_date(market_session),
+            now=now,
+            missing_is_snapshot=True,
+        )
+    else:
+        trade_lane_id = MASSIVE_LIVE_TRADE_LANE_ID
+        live_snapshot = _stock_trade_live_lane_snapshot(
+            data_refresh,
+            manifest_root=manifest_root,
+            as_of=as_of,
+            now=now,
+        )
     return _merge_lane_source_health(
         source_rows,
         _stock_trade_lane_source_health(live_snapshot, now=now),
         now=now,
-        note=f"source-health overridden by {MASSIVE_LIVE_TRADE_LANE_ID} lane manifest",
+        note=f"source-health overridden by {trade_lane_id} lane manifest",
     )
 
 
@@ -2398,7 +2517,7 @@ def _daily_bar_lane_source_health(
             "checked_at": "not checked",
             "last_success_at": "not recorded",
             "max_age_seconds": MASSIVE_DAILY_BARS_SLA_SECONDS,
-            "detail": "; ".join(_list_field(daily_bar_lane, "issues"))
+            "detail": "; ".join(str(item) for item in _list_field(daily_bar_lane, "issues"))
             or f"{MASSIVE_DAILY_BARS_LANE_ID} lane manifest is not usable.",
         }
     checked_at = _parse_datetime(daily_bar_lane.get("fetched_at"))
@@ -2474,7 +2593,7 @@ def _stock_trade_lane_source_health(
             "checked_at": "not checked",
             "last_success_at": "not recorded",
             "max_age_seconds": MASSIVE_LIVE_TRADE_SLA_SECONDS,
-            "detail": "; ".join(_list_field(live_trade_lane, "issues"))
+            "detail": "; ".join(str(item) for item in _list_field(live_trade_lane, "issues"))
             or f"{lane_id} lane manifest is not usable.",
         }
     checked_at = _parse_datetime(live_trade_lane.get("fetched_at"))
@@ -2647,7 +2766,19 @@ def _stock_trade_live_coverage_row_complete(row: Mapping[str, object]) -> bool:
     status = str(row.get("coverage_status") or row.get("status") or "").lower()
     return (
         row.get("complete") is True or status == "complete"
-    ) and row.get("row_count_verified") is not False
+    ) and row.get("row_count_verified") is not False and _stock_trade_live_row_has_prints(row)
+
+
+def _stock_trade_live_row_has_prints(row: Mapping[str, object]) -> bool:
+    count_fields = (
+        "downloaded_row_count",
+        "rows_written",
+        "last_page_results_count",
+        "row_count",
+    )
+    if not any(field in row for field in count_fields):
+        return True
+    return max(_int_value(row.get(field)) for field in count_fields) > 0
 
 
 def _stock_trade_live_coverage_row_fresh(
@@ -2682,7 +2813,7 @@ def _stock_trade_live_coverage_row_fresh(
 def _closed_market_live_trade_lane_current(checked_at: datetime, now: datetime) -> bool:
     """Treat the last completed session as current when no tape updates are expected."""
     session = _current_market_session(_ensure_utc(now))
-    if session.is_open_for_extended:
+    if bool(getattr(session, "is_open_for_extended", False)):
         return False
     return checked_at.date() >= _latest_completed_market_date(_ensure_utc(now))
 
@@ -3038,3 +3169,14 @@ def _int_value(value: object) -> int:
     if isinstance(value, float):
         return round(value)
     return 0
+
+
+def _number_value(value: object) -> float:
+    if isinstance(value, bool) or value is None:
+        return 0.0
+    if isinstance(value, int | float):
+        return float(value)
+    try:
+        return float(str(value))
+    except ValueError:
+        return 0.0

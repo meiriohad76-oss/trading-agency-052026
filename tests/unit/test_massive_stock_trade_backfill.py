@@ -12,7 +12,11 @@ from market_flow.backfill import (
     stock_trade_coverage,
     write_stock_trade_backfill_plan,
 )
-from market_flow.storage import load_stock_trade_coverage_metadata, update_stock_trade_coverage_metadata
+from market_flow.storage import (
+    load_stock_trade_coverage_metadata,
+    update_stock_trade_coverage_metadata,
+)
+
 from research.scripts.backfill_massive_stock_trades import (
     _coverage_issues,
     _validate_lane_invocation,

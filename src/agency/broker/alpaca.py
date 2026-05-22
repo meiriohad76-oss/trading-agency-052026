@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import hashlib
 import asyncio
+import hashlib
 import math
 import os
 import ssl
@@ -47,7 +47,7 @@ class AlpacaTradingConfig:
         secret_key = values.get("ALPACA_SECRET_KEY", "").strip()
         if not api_key or not secret_key:
             raise AlpacaBrokerError("ALPACA_API_KEY and ALPACA_SECRET_KEY must be set")
-        config = cls(
+        return cls(
             api_key=api_key,
             secret_key=secret_key,
             base_url=values.get("ALPACA_TRADING_BASE_URL", DEFAULT_TRADING_BASE_URL).strip()
@@ -58,7 +58,6 @@ class AlpacaTradingConfig:
             ),
             allow_live_trading=_env_bool(values.get("ALPACA_ALLOW_LIVE_TRADING")),
         )
-        return config
 
     @property
     def is_paper(self) -> bool:
