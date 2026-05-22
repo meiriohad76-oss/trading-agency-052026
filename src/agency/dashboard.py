@@ -154,6 +154,15 @@ BROKER_RECONCILIATION_POLL_SECONDS = 0.25
 
 @router.get("/")
 async def dashboard(request: Request) -> Response:
+    return await _command_dashboard_response(request)
+
+
+@router.get("/command")
+async def command_dashboard(request: Request) -> Response:
+    return await _command_dashboard_response(request)
+
+
+async def _command_dashboard_response(request: Request) -> Response:
     return templates.TemplateResponse(
         request,
         "dashboard.html",

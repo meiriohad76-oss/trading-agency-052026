@@ -70,6 +70,25 @@ def test_cockpit_route_renders(monkeypatch: MonkeyPatch) -> None:
     assert "ROUT" in response.text
 
 
+def test_cockpit_is_primary_operating_entrypoint(monkeypatch: MonkeyPatch) -> None:
+    client = _client(monkeypatch)
+
+    response = client.get("/cockpit")
+
+    assert response.status_code == 200
+    assert '<a class="brand" href="/cockpit">' in response.text
+    nav = response.text.split('<nav class="nav-list">', 1)[1].split("</nav>", 1)[0]
+    assert nav.index('href="/cockpit"') < nav.index('href="/command"')
+
+
+def test_command_dashboard_has_explicit_parallel_route() -> None:
+    paths = {getattr(route, "path", "") for route in create_app().routes}
+
+    assert "/" in paths
+    assert "/command" in paths
+    assert "/cockpit" in paths
+
+
 def test_api_cockpit_returns_contract(monkeypatch: MonkeyPatch) -> None:
     client = _client(monkeypatch)
 

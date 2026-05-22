@@ -9,7 +9,7 @@
   <body>
     <div class="app-shell">
       <aside class="sidebar" aria-label="Main navigation">
-        <a class="brand" href="/">
+        <a class="brand" href="/cockpit">
           <span class="brand-mark" aria-hidden="true">TA</span>
           <span class="brand-text">
             <strong class="brand-name">Trading Agency v2</strong>
@@ -18,58 +18,58 @@
         </a>
         <nav class="nav-list">
           <span class="nav-section">Operate</span>
-          <a class="nav-link {% if active_nav == 'command' %}active{% endif %}" href="/">
-            <span class="nav-icon status-icon status-icon-data" aria-hidden="true">01</span>
-            <span>Command</span>
-          </a>
           <a class="nav-link {% if active_nav == 'cockpit' %}active{% endif %}" href="/cockpit">
-            <span class="nav-icon status-icon status-icon-pass" aria-hidden="true">CX</span>
+            <span class="nav-icon status-icon status-icon-pass" aria-hidden="true">01</span>
             <span>Cockpit</span>
+          </a>
+          <a class="nav-link {% if active_nav == 'command' %}active{% endif %}" href="/command">
+            <span class="nav-icon status-icon status-icon-data" aria-hidden="true">02</span>
+            <span>Command</span>
           </a>
 
           <span class="nav-section">Core workflow</span>
           <div class="workflow-nav" aria-label="Core workflow: Candidates, Portfolio, Execute">
             <a class="nav-link {% if active_nav == 'final' %}active{% endif %}" href="/final-selection">
-              <span class="nav-icon status-icon status-icon-pending" aria-hidden="true">02</span>
+              <span class="nav-icon status-icon status-icon-pending" aria-hidden="true">03</span>
               <span>Candidates</span>
             </a>
             <a class="nav-link {% if active_nav == 'portfolio' %}active{% endif %}" href="/portfolio-monitor">
-              <span class="nav-icon status-icon status-icon-warn" aria-hidden="true">03</span>
+              <span class="nav-icon status-icon status-icon-warn" aria-hidden="true">04</span>
               <span>Portfolio</span>
             </a>
             <a class="nav-link {% if active_nav == 'execution' %}active{% endif %}" href="/execution-preview">
-              <span class="nav-icon status-icon status-icon-pass" aria-hidden="true">04</span>
+              <span class="nav-icon status-icon status-icon-pass" aria-hidden="true">05</span>
               <span>Execute</span>
             </a>
           </div>
 
           <span class="nav-section">Research</span>
           <a class="nav-link nav-secondary {% if active_nav == 'market' %}active{% endif %}" href="/market-regime">
-            <span class="nav-icon" aria-hidden="true">05</span>
+            <span class="nav-icon" aria-hidden="true">06</span>
             <span>Universe &amp; market</span>
           </a>
           <a class="nav-link nav-secondary {% if active_nav == 'signals' %}active{% endif %}" href="/signals">
-            <span class="nav-icon" aria-hidden="true">06</span>
+            <span class="nav-icon" aria-hidden="true">07</span>
             <span>Signals</span>
           </a>
 
           <span class="nav-section">Controls</span>
           <a class="nav-link nav-secondary {% if active_nav == 'risk' %}active{% endif %}" href="/risk">
-            <span class="nav-icon" aria-hidden="true">07</span>
+            <span class="nav-icon" aria-hidden="true">08</span>
             <span>Risk</span>
           </a>
           <a class="nav-link nav-secondary {% if active_nav == 'policy' %}active{% endif %}" href="/policy">
-            <span class="nav-icon" aria-hidden="true">08</span>
+            <span class="nav-icon" aria-hidden="true">09</span>
             <span>Policy</span>
           </a>
 
           <span class="nav-section">Trust</span>
           <a class="nav-link nav-secondary {% if active_nav == 'learning' %}active{% endif %}" href="/learning">
-            <span class="nav-icon" aria-hidden="true">09</span>
+            <span class="nav-icon" aria-hidden="true">10</span>
             <span>Learning</span>
           </a>
           <a class="nav-link nav-secondary {% if active_nav == 'audit' %}active{% endif %}" href="/audit">
-            <span class="nav-icon" aria-hidden="true">10</span>
+            <span class="nav-icon" aria-hidden="true">11</span>
             <span>Audit</span>
           </a>
         </nav>
