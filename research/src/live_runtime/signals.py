@@ -4,13 +4,17 @@ import logging
 import math
 from datetime import UTC, date, datetime, time, timedelta
 from inspect import signature
+from pathlib import Path
 from typing import Any, cast
 
 from evaluation.signal_registry import SIGNALS
 from live_runtime.config import LANE_CONFIGS, RuntimeLaneConfig
 from live_runtime.freshness import effective_freshness_timestamp
+from news.consumption import load_consumed_news_ids
 from pit.exceptions import DataNotAvailableAt
 from pit.manifest import DataManifest, DatasetName, ManifestRegistry
+from signals._common import payload_dict
+from signals.news import news_factor_frame
 from signals.options_anomaly import options_anomaly_frame
 from signals.options_flow import options_flow_frame
 from signals.subscription_thesis import subscription_thesis_contexts
@@ -33,10 +37,28 @@ def build_runtime_signals(
     lanes: tuple[str, ...],
     loader: Any,
     registry: ManifestRegistry,
+    news_consumption_ledger_path: Path | None = None,
+    news_consumption_items: list[dict[str, object]] | None = None,
 ) -> list[dict[str, object]]:
     results: list[dict[str, object]] = []
     for lane in lanes:
         config = LANE_CONFIGS[lane]
+        if lane == "news":
+            results.extend(
+                _news_signals(
+                    cycle_id=cycle_id,
+                    as_of=as_of,
+                    as_of_text=as_of_text,
+                    generated_at=generated_at,
+                    tickers=tickers,
+                    loader=loader,
+                    registry=registry,
+                    config=config,
+                    consumption_ledger_path=news_consumption_ledger_path,
+                    consumption_items=news_consumption_items,
+                )
+            )
+            continue
         if lane in {"options_anomaly", "options_flow"}:
             results.extend(
                 _options_frame_signals(
@@ -114,6 +136,32 @@ def _live_signal_loader(config: RuntimeLaneConfig, loader: Any) -> Any:
     if config.dataset != DatasetName.STOCK_TRADES:
         return loader
     return _LiveStockTradeLoader(loader)
+
+
+class _LiveNewsConsumptionLoader:
+    """PIT loader wrapper that removes RSS/news rows already used by live cycles."""
+
+    def __init__(self, loader: Any, ledger_path: Path | None) -> None:
+        self._loader = loader
+        self._consumed_ids = load_consumed_news_ids(ledger_path) if ledger_path else set()
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._loader, name)
+
+    def news(
+        self,
+        as_of: date,
+        lookback_days: int,
+        tickers: list[str] | None = None,
+    ) -> list[object]:
+        items = list(self._loader.news(as_of, lookback_days, tickers))
+        if not self._consumed_ids:
+            return items
+        return [
+            item
+            for item in items
+            if _news_item_source_id(item) not in self._consumed_ids
+        ]
 
 
 class _LiveStockTradeLoader:
@@ -344,6 +392,66 @@ def _technical_analysis_signals(
     ]
 
 
+def _news_signals(
+    *,
+    cycle_id: str,
+    as_of: date,
+    as_of_text: str,
+    generated_at: datetime,
+    tickers: set[str],
+    loader: Any,
+    registry: ManifestRegistry,
+    config: RuntimeLaneConfig,
+    consumption_ledger_path: Path | None,
+    consumption_items: list[dict[str, object]] | None,
+) -> list[dict[str, object]]:
+    try:
+        frame = news_factor_frame(
+            as_of,
+            tickers,
+            _LiveNewsConsumptionLoader(loader, consumption_ledger_path),
+        )
+        manifest = registry.require(config.dataset, as_of=as_of)
+    except DataNotAvailableAt as exc:
+        _log_unavailable_lane(config.lane, exc, tickers=tickers, as_of=as_of)
+        return []
+    if frame.empty:
+        return []
+    provenance = _provenance(config, manifest, generated_at=generated_at)
+    results: list[dict[str, object]] = []
+    for raw_row in frame.to_dict("records"):
+        row = {str(key): value for key, value in raw_row.items()}
+        ticker = str(row.get("ticker", "")).upper()
+        if ticker not in tickers:
+            continue
+        score = _float_or_none(row.get("news_score"))
+        if score is None:
+            continue
+        source_ids = _list_field(row.get("source_ids"))
+        raw_source_ids = _list_field(row.get("raw_source_ids"))
+        if consumption_items is not None and source_ids:
+            consumption_items.append(
+                {
+                    "ticker": ticker,
+                    "source_ids": source_ids,
+                    "raw_source_ids": raw_source_ids,
+                }
+            )
+        results.append(
+            build_signal_result(
+                cycle_id=cycle_id,
+                ticker=ticker,
+                as_of=as_of_text,
+                lane=config.lane,
+                score=score,
+                provenance=provenance,
+                confidence=config.confidence,
+                summary=_news_summary(row),
+            )
+        )
+    return results
+
+
 def _options_frame_signals(
     *,
     cycle_id: str,
@@ -456,6 +564,37 @@ def _float_or_none(value: object) -> float | None:
     except (TypeError, ValueError):
         return None
     return parsed if math.isfinite(parsed) else None
+
+
+def _list_field(value: object) -> list[str]:
+    if isinstance(value, str):
+        return [value] if value.strip() else []
+    if not isinstance(value, list | tuple | set):
+        return []
+    return [str(item) for item in value if str(item).strip()]
+
+
+def _news_item_source_id(item: object) -> str:
+    payload = payload_dict(item, "news")
+    source_id = str(payload.get("source_id") or "").strip()
+    if source_id:
+        return source_id
+    provenance = getattr(item, "provenance", None)
+    return str(getattr(provenance, "source_id", "") or "").strip()
+
+
+def _news_summary(row: dict[str, object]) -> str:
+    headline_count = int(float(str(row.get("headline_count") or 0)))
+    positive_count = int(float(str(row.get("positive_count") or 0)))
+    negative_count = int(float(str(row.get("negative_count") or 0)))
+    source_count = int(float(str(row.get("source_count") or 0)))
+    sentiment = _float_or_none(row.get("sentiment_score"))
+    sentiment_text = f"{sentiment:+.2f}" if sentiment is not None else "unknown"
+    return (
+        f"RSS/news evidence: {headline_count} new scorable headline(s) from "
+        f"{source_count} feed/source(s); {positive_count} bullish, "
+        f"{negative_count} bearish; weighted sentiment {sentiment_text}."
+    )
 
 
 def _timestamp_from_row(value: object, manifest: DataManifest) -> datetime:

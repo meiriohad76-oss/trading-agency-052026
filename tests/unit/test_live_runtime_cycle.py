@@ -883,6 +883,66 @@ def test_live_pit_runtime_cycle_reads_stale_subscription_manifest_as_context(
     assert "relevant analyzed article" in str(pack["context_signals"][0]["summary"])
 
 
+def test_live_pit_runtime_cycle_filters_already_consumed_news_rows(tmp_path: Path) -> None:
+    ledger_path = tmp_path / "state" / "news_rss_consumed.json"
+    ledger_path.parent.mkdir()
+    ledger_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "items": {
+                    "news:aapl:old": {
+                        "source_id": "news:aapl:old",
+                        "cycle_id": "older-cycle",
+                        "ticker": "AAPL",
+                        "as_of": "2026-05-05T00:00:00+00:00",
+                        "used_at": "2026-05-05T13:30:00+00:00",
+                        "lane": "news",
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    loader = loader_with(
+        tmp_path,
+        {
+            DatasetName.NEWS_RSS: pl.DataFrame(
+                [
+                    news_row("AAPL", "AAPL upgrade", "news:aapl:old"),
+                    news_row("AAPL", "AAPL downgrade after probe", "news:aapl:new"),
+                    news_row("MSFT", "MSFT upgrade", "news:msft:new"),
+                ]
+            )
+        },
+    )
+
+    cycle = build_live_pit_runtime_cycle(
+        cycle_id="cycle-news-consumption",
+        as_of=date(2026, 5, 6),
+        tickers={"AAPL", "MSFT"},
+        manifest_root=loader.manifest_root,
+        parquet_root=loader.parquet_root,
+        lanes=("news",),
+        generated_at=GENERATED_AT,
+        news_consumption_ledger_path=ledger_path,
+    )
+
+    by_ticker = {str(item["ticker"]): item for item in cycle.news_consumption_items}
+    assert by_ticker == {
+        "AAPL": {
+            "ticker": "AAPL",
+            "source_ids": ["news:aapl:new"],
+            "raw_source_ids": ["raw:news:aapl:new"],
+        },
+        "MSFT": {
+            "ticker": "MSFT",
+            "source_ids": ["news:msft:new"],
+            "raw_source_ids": ["raw:news:msft:new"],
+        },
+    }
+
+
 def test_replay_freshness_caps_future_manifest_timestamps(tmp_path: Path) -> None:
     loader = loader_with(
         tmp_path,
@@ -1038,6 +1098,30 @@ def subscription_email(ticker: str, direction: str, summary: str) -> dict[str, o
         "linked_content_url": "https://seekingalpha.com/article/fixture",
         "linked_content_title_hash": "titlehash",
         "linked_content_summary": summary,
+        "timestamp_observed": GENERATED_AT,
+        "timestamp_as_of": date(2026, 5, 6),
+        "freshness": "FRESH",
+        "confidence": 1.0,
+        "verification_level": "CONFIRMED",
+    }
+
+
+def news_row(ticker: str, title: str, source_id: str) -> dict[str, object]:
+    return {
+        "ticker": ticker,
+        "title": title,
+        "summary": "",
+        "feed_name": "Fixture RSS",
+        "url": f"https://news.example.test/{source_id}",
+        "raw_source_id": f"raw:{source_id}",
+        "ticker_match_status": "resolved",
+        "ticker_match_method": "fixture",
+        "ticker_match_confidence": 0.95,
+        "ticker_match_reason": "fixture row",
+        "source": "fixture-rss",
+        "source_tier": "RSS_HEADLINE",
+        "source_id": source_id,
+        "source_url": f"https://news.example.test/{source_id}",
         "timestamp_observed": GENERATED_AT,
         "timestamp_as_of": date(2026, 5, 6),
         "freshness": "FRESH",

@@ -154,6 +154,27 @@ def test_news_sentiment_uses_word_boundaries() -> None:
     assert frame.iloc[0]["sentiment_score"] == 0.0
 
 
+def test_news_factor_frame_carries_scorable_source_ids_for_single_use_consumption() -> None:
+    loader = _FakeNewsLoader(
+        [
+            _item("AAPL", "AAPL upgrade", "PRN", source_id="rss:aapl:1"),
+            _item(
+                "AAPL",
+                "AAPL launches product",
+                "PRN",
+                source_id="rss:aapl:ambiguous",
+                ticker_match_status="ambiguous",
+                ticker_match_confidence=HIGH_RESOLUTION_CONFIDENCE,
+            ),
+            _item("AAPL", "AAPL raises guidance", "Yahoo", source_id="rss:aapl:2"),
+        ]
+    )
+
+    frame = news_factor_frame(AS_OF, {"AAPL"}, loader)
+
+    assert frame.iloc[0]["source_ids"] == ["rss:aapl:1", "rss:aapl:2"]
+
+
 def test_news_score_is_deterministic_uppercases_and_forwards_lookback() -> None:
     loader = _FakeNewsLoader(
         [
@@ -210,6 +231,7 @@ def _item(
     feed_name: str,
     *,
     url: str | None = None,
+    source_id: str | None = None,
     ticker_match_status: str | None = None,
     ticker_match_confidence: float | None = None,
 ) -> dict[str, object]:
@@ -219,6 +241,7 @@ def _item(
         "summary": "",
         "feed_name": feed_name,
         "url": url or f"https://example.test/{ticker}",
+        **({"source_id": source_id} if source_id is not None else {}),
         **(
             {"ticker_match_status": ticker_match_status}
             if ticker_match_status is not None

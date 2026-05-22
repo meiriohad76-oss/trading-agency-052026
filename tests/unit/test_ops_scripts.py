@@ -11,12 +11,13 @@ import polars as pl
 import pytest
 from data_refresh.live_config import RefreshConfigOverrides
 from data_refresh.types import RefreshBatchConfig
+from live_runtime.summary import build_live_runtime_summary
 from pit.manifest import DatasetName
 from pit_fixtures import member, write_manifest
 
 import scripts.check_local_runtime as local_runtime
 import scripts.run_live_runtime_cycle as live_runtime_cycle_script
-from agency.services import build_human_review_event
+from agency.services import RuntimeCycleResult, build_human_review_event
 from research.scripts import plan_market_aware_refresh
 from research.scripts.run_data_refresh_batch import _market_aware_config
 from scripts.backup_postgres import default_backup_path, pg_dump_command
@@ -62,6 +63,48 @@ def test_live_runtime_cycle_default_output_root_is_canonical_latest(
     args = live_runtime_cycle_script._parse_args()
 
     assert args.output_root == live_runtime_cycle_script.CANONICAL_RUNTIME_OUTPUT_ROOT
+
+
+def test_live_runtime_cycle_success_finalization_marks_consumed_news_once(
+    tmp_path: Path,
+) -> None:
+    cycle = RuntimeCycleResult(
+        cycle_id="cycle-news",
+        as_of="2026-05-06T00:00:00+00:00",
+        generated_at="2026-05-06T13:31:00+00:00",
+        source_health=[],
+        evidence_packs=[],
+        selection_reports=[],
+        selection_lifecycle_events=[],
+        risk_decisions=[],
+        risk_lifecycle_events=[],
+        execution_previews=[],
+        execution_lifecycle_events=[],
+        news_consumption_items=[
+            {"ticker": "AAPL", "source_ids": ["news:aapl:1", "news:aapl:2"]},
+            {"ticker": "MSFT", "source_ids": ["news:msft:1"]},
+        ],
+    )
+    summary = build_live_runtime_summary(cycle, persisted=True)
+    ledger_path = tmp_path / "state" / "news_rss_consumed.json"
+
+    live_runtime_cycle_script._finalize_successful_cycle_outputs(
+        cycle=cycle,
+        summary=summary,
+        output_root=tmp_path / "runtime",
+        news_consumption_ledger_path=ledger_path,
+    )
+    live_runtime_cycle_script._finalize_successful_cycle_outputs(
+        cycle=cycle,
+        summary=summary,
+        output_root=tmp_path / "runtime",
+        news_consumption_ledger_path=ledger_path,
+    )
+
+    ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+    assert sorted(ledger["items"]) == ["news:aapl:1", "news:aapl:2", "news:msft:1"]
+    assert ledger["items"]["news:aapl:1"]["cycle_id"] == "cycle-news"
+    assert ledger["items"]["news:aapl:1"]["ticker"] == "AAPL"
 
 
 def test_default_backup_path_uses_timestamped_postgres_directory() -> None:

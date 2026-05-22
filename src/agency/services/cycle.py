@@ -45,6 +45,7 @@ class RuntimeCycleResult:
     execution_previews: list[dict[str, object]]
     execution_lifecycle_events: list[dict[str, object]]
     prompt_audits: list[dict[str, object]] = field(default_factory=list)
+    news_consumption_items: list[dict[str, object]] = field(default_factory=list)
 
     @property
     def all_lifecycle_events(self) -> list[dict[str, object]]:

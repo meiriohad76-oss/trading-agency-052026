@@ -68,7 +68,7 @@ def news_factor_frame(
 def _rows(tickers: list[str], items: Sequence[object]) -> list[dict[str, object]]:
     grouped: dict[str, list[dict[str, object]]] = {ticker: [] for ticker in tickers}
     for item in items:
-        payload = payload_dict(item, "news")
+        payload = _news_payload(item)
         if not _scorable_news_row(payload):
             continue
         ticker = str(payload.get("ticker", "")).upper()
@@ -103,6 +103,8 @@ def _factor_row(ticker: str, items: list[dict[str, object]]) -> dict[str, object
         "positive_count": sum(1 for value in sentiments if value > 0),
         "negative_count": sum(1 for value in sentiments if value < 0),
         "sentiment_score": sentiment_score,
+        "source_ids": _source_ids(items, "source_id"),
+        "raw_source_ids": _source_ids(items, "raw_source_id"),
     }
 
 
@@ -148,6 +150,28 @@ def _ticker_match_confidence(item: dict[str, object]) -> float:
     return max(0.0, min(1.0, confidence))
 
 
+def _source_ids(items: list[dict[str, object]], key: str) -> list[str]:
+    return sorted(
+        {
+            str(item.get(key)).strip()
+            for item in items
+            if item.get(key) is not None and str(item.get(key)).strip()
+        }
+    )
+
+
+def _news_payload(item: object) -> dict[str, object]:
+    payload = dict(payload_dict(item, "news"))
+    provenance = getattr(item, "provenance", None)
+    source_id = getattr(provenance, "source_id", None)
+    source_url = getattr(provenance, "source_url", None)
+    if payload.get("source_id") is None and source_id:
+        payload["source_id"] = str(source_id)
+    if payload.get("source_url") is None and source_url:
+        payload["source_url"] = str(source_url)
+    return payload
+
+
 def _empty_frame() -> pd.DataFrame:
     return pd.DataFrame(
         columns=[
@@ -159,6 +183,8 @@ def _empty_frame() -> pd.DataFrame:
             "positive_count",
             "negative_count",
             "sentiment_score",
+            "source_ids",
+            "raw_source_ids",
             "news_score",
         ]
     )

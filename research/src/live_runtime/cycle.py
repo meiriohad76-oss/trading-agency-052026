@@ -5,7 +5,7 @@ import json
 import os
 import threading
 from collections.abc import Coroutine, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, time
 from pathlib import Path
 from typing import cast
@@ -48,6 +48,7 @@ def build_live_pit_runtime_cycle(
     generated_at: datetime | None = None,
     freshness_checked_at: datetime | None = None,
     enable_llm_review: bool | None = None,
+    news_consumption_ledger_path: Path | None = None,
 ) -> RuntimeCycleResult | LlmEnhancedCycleResult:
     """Build a paper runtime cycle from local PIT research data.
 
@@ -94,6 +95,7 @@ def build_live_pit_runtime_cycle(
     )
     source_health = _with_lane_source_health(source_health, lanes)
     as_of_text = datetime.combine(as_of, time.min, tzinfo=UTC).isoformat()
+    news_consumption_items: list[dict[str, object]] = []
     signals = build_runtime_signals(
         cycle_id=cycle_id,
         as_of=as_of,
@@ -103,6 +105,8 @@ def build_live_pit_runtime_cycle(
         lanes=lanes,
         loader=loader,
         registry=registry,
+        news_consumption_ledger_path=news_consumption_ledger_path,
+        news_consumption_items=news_consumption_items,
     )
     cycle = build_runtime_cycle(
         cycle_id=cycle_id,
@@ -112,6 +116,7 @@ def build_live_pit_runtime_cycle(
         signals=signals,
         tickers=sorted(normalized_tickers),
     )
+    cycle = replace(cycle, news_consumption_items=news_consumption_items)
 
     _log_cycle_complete(cycle_id, as_of, normalized_tickers, cycle, checked_at)
 
@@ -137,6 +142,7 @@ def build_live_pit_runtime_cycle(
         llm_lifecycle_events=llm_batch.lifecycle_events,
         llm_prompt_audits=llm_batch.prompt_audits,
     )
+    reviewed_cycle = replace(reviewed_cycle, news_consumption_items=news_consumption_items)
     return LlmEnhancedCycleResult(cycle=reviewed_cycle, llm_batch=llm_batch)
 
 

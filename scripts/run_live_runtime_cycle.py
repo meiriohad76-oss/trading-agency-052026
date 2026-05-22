@@ -24,6 +24,7 @@ from live_runtime.summary import (  # noqa: E402
     build_live_runtime_summary,
     write_live_runtime_summary,
 )
+from news.consumption import mark_news_consumed  # noqa: E402
 from pit.exceptions import DataNotAvailableAt  # noqa: E402
 from pit.loader import PITLoader  # noqa: E402
 from pit.manifest import ManifestRegistry  # noqa: E402
@@ -43,6 +44,7 @@ from agency.services import (  # noqa: E402
 )
 
 CANONICAL_RUNTIME_OUTPUT_ROOT = ROOT / "research" / "results" / "latest-live-runtime-cycle"
+DEFAULT_NEWS_CONSUMPTION_LEDGER_PATH = ROOT / "research" / "data" / "state" / "news_rss_consumed.json"
 
 
 async def main() -> int:
@@ -78,6 +80,9 @@ async def main() -> int:
             generated_at=generated_at,
             freshness_checked_at=freshness_checked_at,
             enable_llm_review=False,
+            news_consumption_ledger_path=(
+                args.news_consumption_ledger if args.news_consumption else None
+            ),
         ),
     )
     llm_reviewed = 0
@@ -139,8 +144,16 @@ async def main() -> int:
         summary = build_live_runtime_summary(cycle, persisted=True)
     else:
         summary = build_live_runtime_summary(cycle, persisted=False)
-    write_live_runtime_summary(summary, args.output_root)
-    write_runtime_cycle_artifacts(cycle, args.output_root)
+    _finalize_successful_cycle_outputs(
+        cycle=cycle,
+        summary=summary,
+        output_root=args.output_root,
+        news_consumption_ledger_path=(
+            args.news_consumption_ledger
+            if args.persist and args.news_consumption
+            else None
+        ),
+    )
     print(
         f"Live runtime cycle {summary['verdict']}; "
         f"llm_reviewed={llm_reviewed}; wrote {args.output_root}"
@@ -164,6 +177,26 @@ def write_runtime_cycle_artifacts(cycle: RuntimeCycleResult, output_root: Path) 
             json.dumps(payload, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
+
+
+def _finalize_successful_cycle_outputs(
+    *,
+    cycle: RuntimeCycleResult,
+    summary: Mapping[str, object],
+    output_root: Path,
+    news_consumption_ledger_path: Path | None,
+) -> None:
+    write_live_runtime_summary(dict(summary), output_root)
+    write_runtime_cycle_artifacts(cycle, output_root)
+    if news_consumption_ledger_path is None:
+        return
+    mark_news_consumed(
+        news_consumption_ledger_path,
+        cycle_id=cycle.cycle_id,
+        as_of=cycle.as_of,
+        used_at=cycle.generated_at,
+        items=cycle.news_consumption_items,
+    )
 
 
 def _parse_args() -> argparse.Namespace:
@@ -214,6 +247,20 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--llm-review-include-no-trade", action="store_true")
     parser.add_argument("--persist", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument(
+        "--news-consumption",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Filter RSS/news rows already used by previous live cycles and mark "
+            "newly used rows after a persisted cycle succeeds."
+        ),
+    )
+    parser.add_argument(
+        "--news-consumption-ledger",
+        type=Path,
+        default=DEFAULT_NEWS_CONSUMPTION_LEDGER_PATH,
+    )
     parser.add_argument(
         "--manifest-root",
         type=Path,
