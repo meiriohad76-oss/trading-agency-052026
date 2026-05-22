@@ -75,6 +75,13 @@ from agency.views.candidates import (  # noqa: F401
     candidate_rows,
     timeline_rows,
 )
+from agency.views.cockpit import (  # noqa: F401
+    cockpit_audit_payload,
+    cockpit_context,
+    cockpit_cycle_payload,
+    normalize_ticker,
+    safe_cockpit_api_payload,
+)
 from agency.views.command import (  # noqa: F401
     broker_status_view,
     command_status_overview,
@@ -152,6 +159,33 @@ async def dashboard(request: Request) -> Response:
         "dashboard.html",
         await dashboard_context(),
     )
+
+
+@router.get("/cockpit")
+async def cockpit(request: Request) -> Response:
+    return templates.TemplateResponse(
+        request,
+        "cockpit.html",
+        await cockpit_context(),
+    )
+
+
+@router.get("/api/cockpit")
+async def cockpit_api() -> dict[str, object]:
+    return safe_cockpit_api_payload(await cockpit_context())
+
+
+@router.get("/api/cycle")
+async def cockpit_cycle_api() -> dict[str, object]:
+    return cockpit_cycle_payload(await cockpit_context())
+
+
+@router.get("/api/audit/{ticker}")
+async def cockpit_audit_api(ticker: str) -> dict[str, object]:
+    try:
+        return cockpit_audit_payload(await cockpit_context(), ticker)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/status/paper-review")

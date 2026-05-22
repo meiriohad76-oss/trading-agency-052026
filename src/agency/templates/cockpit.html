@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+
+{% block title %}Pre-Flight Cockpit · Trading Agency{% endblock %}
+{% block eyebrow %}Trading Agency v3{% endblock %}
+{% block page_title %}Pre-Flight Cockpit{% endblock %}
+{% block topbar_meta %}{{ cycle.mode }} mode · {{ cycle.id }}{% endblock %}
+
+{% block content %}
+<section class="cockpit-shell" data-cockpit-scenario="{{ scenario.state }}">
+  <header class="cockpit-topline">
+    <div>
+      <p class="eyebrow">Pre-flight briefing</p>
+      <h2 class="cockpit-bluf">{{ scenario.headline }}</h2>
+      <p class="muted">{{ scenario.detail }}</p>
+    </div>
+    <div class="cockpit-cycle-card" aria-label="Current cycle">
+      <span class="status-pill status-pill-paper">{{ cycle.mode }}</span>
+      <strong class="cockpit-mono">{{ cycle.id }}</strong>
+      <span>{{ cycle.as_of }}</span>
+      <small>Next: {{ cycle.next_in }}</small>
+    </div>
+  </header>
+
+  <section class="cockpit-instrument-cluster" aria-label="Cockpit instruments">
+    <article class="cockpit-arc-gauge">
+      <span class="cockpit-whymark info-tip" title="Market regime summarizes the current environment from the production market-regime view.">?</span>
+      <div class="cockpit-arc">
+        <span class="cockpit-arc-needle" style="--needle: 52deg"></span>
+      </div>
+      <p>Market Regime</p>
+      <strong>{{ market.status_label }}</strong>
+      <small>{{ market.regime }}</small>
+    </article>
+    <article class="cockpit-arc-gauge">
+      <span class="cockpit-whymark info-tip" title="Gross exposure compares current exposure plus staged orders to the policy cap.">?</span>
+      <div class="cockpit-arc">
+        <span class="cockpit-arc-needle" style="--needle: 36deg"></span>
+      </div>
+      <p>Gross Exposure</p>
+      <strong class="cockpit-mono">{{ "%.1f"|format(account.gross_exposure|default(0, true)) }}%</strong>
+      <small>Cap {{ "%.0f"|format(account.gross_cap|default(0, true)) }}%</small>
+    </article>
+    <article class="cockpit-arc-gauge">
+      <span class="cockpit-whymark info-tip" title="Cash reserve shows how much cash remains against the policy floor.">?</span>
+      <div class="cockpit-arc">
+        <span class="cockpit-arc-needle" style="--needle: 44deg"></span>
+      </div>
+      <p>Cash Reserve</p>
+      <strong class="cockpit-mono">{{ "%.1f"|format(account.cash_available|default(0, true)) }}%</strong>
+      <small>Floor {{ "%.0f"|format(account.cash_cap|default(0, true)) }}%</small>
+    </article>
+    <article class="cockpit-arc-gauge">
+      <span class="cockpit-whymark info-tip" title="Concentration compares the largest single-name exposure to the policy cap.">?</span>
+      <div class="cockpit-arc">
+        <span class="cockpit-arc-needle" style="--needle: 18deg"></span>
+      </div>
+      <p>Concentration</p>
+      <strong class="cockpit-mono">{{ "%.1f"|format(account.largest_name|default(0, true)) }}%</strong>
+      <small>Cap {{ "%.0f"|format(account.largest_name_cap|default(0, true)) }}%</small>
+    </article>
+    <div class="cockpit-readout-stack">
+      <div class="cockpit-segment-readout">
+        <span>Buying Power</span>
+        <strong class="cockpit-mono">${{ "%.0f"|format(account.buying_power|default(0, true)) }}</strong>
+      </div>
+      <div class="cockpit-segment-readout">
+        <span>Ready to Trade</span>
+        <strong class="cockpit-mono">{{ account.ready_to_trade|default("0/0", true) }}</strong>
+      </div>
+      <div class="cockpit-segment-readout">
+        <span>P/L Week</span>
+        <strong class="cockpit-mono">{{ "%.1f"|format(account.week_pnl|default(0, true)) }}%</strong>
+      </div>
+    </div>
+  </section>
+
+  <section class="cockpit-engine-strip" aria-label="Main engines">
+    <strong>Engines</strong>
+    {% for engine in engines %}
+      <span class="cockpit-engine cockpit-engine-{{ engine.state }}" data-cockpit-engine="{{ engine.name }}">
+        <span class="status-dot status-dot-{% if engine.state == 'live' %}pass{% elif engine.state == 'down' %}block{% else %}warn{% endif %}" aria-hidden="true"></span>
+        {{ engine.name }} · {{ engine.age }}
+      </span>
+    {% endfor %}
+  </section>
+
+  <nav class="cockpit-instrument-nav" aria-label="Cockpit instruments">
+    <button type="button">Universe <span class="cockpit-mono">{{ sources|length }}</span></button>
+    <button type="button">Signals <span class="cockpit-mono">{{ signals|length }}</span></button>
+    <button type="button">Audit <span class="cockpit-mono">{{ audit_lifecycle.traces|length }}</span></button>
+    <button type="button">Policy <span class="cockpit-mono">{{ policy.mode|default("paper") }}</span></button>
+    <button type="button">Monitor <span class="cockpit-mono">{{ monitor_events|length }}</span></button>
+  </nav>
+
+  <section class="cockpit-phase-rail" aria-label="Workflow phases">
+    <div class="cockpit-phase-cell active"><span class="cockpit-mono">01</span><strong>Candidates</strong><small>Active</small></div>
+    <div class="cockpit-phase-cell"><span class="cockpit-mono">02</span><strong>Portfolio</strong><small>Review next</small></div>
+    <div class="cockpit-phase-cell"><span class="cockpit-mono">03</span><strong>Clearance</strong><small>Locked</small></div>
+    <div class="cockpit-phase-cell"><span class="cockpit-mono">04</span><strong>Cleared</strong><small>Locked</small></div>
+  </section>
+
+  <section class="cockpit-phase" aria-labelledby="cockpit-candidates-heading">
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">Phase 1 · Candidates</p>
+        <h2 id="cockpit-candidates-heading">{{ scenario.headline }}</h2>
+        <p class="muted">Cycle {{ cycle.id }} has {{ funnel.final }} visible candidates; {{ funnel.actionable }} can be reviewed now.</p>
+      </div>
+      <a class="button button-secondary" href="/final-selection">Open classic candidates</a>
+    </div>
+
+    <div class="cockpit-candidate-table">
+      {% for candidate in candidates %}
+        <article class="cockpit-candidate-row cockpit-candidate-{{ candidate.status }}">
+          <div class="cockpit-rank cockpit-mono">{{ "%02d"|format(loop.index) }}</div>
+          <div>
+            <a class="cockpit-ticker" href="{{ candidate.detail_url }}">{{ candidate.ticker }}</a>
+            <p>{{ candidate.name }} · {{ candidate.sector }}</p>
+          </div>
+          <div class="cockpit-conviction">
+            <span class="cockpit-mini-dial"><span class="cockpit-arc-needle" style="--needle: {{ (candidate.final_conviction * 120 - 60)|round|int }}deg"></span></span>
+            <strong class="cockpit-mono">{{ candidate.final_conviction_label }}</strong>
+          </div>
+          <div>
+            <span class="evidence-tier evidence-tier-{{ candidate.evidence[0].tier }}">{{ candidate.evidence[0].tier }}</span>
+            <p>{{ candidate.evidence_line }}</p>
+          </div>
+          <div>
+            <strong>{{ candidate.risk_status_label }}</strong>
+            <p>{{ candidate.risk_line }}</p>
+          </div>
+          <div>
+            <span class="status-pill status-pill-{% if candidate.actionable %}pass{% else %}warn{% endif %}">{{ candidate.status_label }}</span>
+            <p>{{ candidate.llm_label }}</p>
+          </div>
+          <div class="cockpit-decision-cell">
+            {% if candidate.actionable %}
+              <a class="button button-primary" href="{{ candidate.detail_url }}">Review</a>
+            {% else %}
+              <a class="button button-secondary" href="{{ candidate.audit_url }}">Open audit</a>
+            {% endif %}
+          </div>
+        </article>
+      {% else %}
+        <div class="empty-state">
+          <h3>Nothing actionable today.</h3>
+          <p>The agent has no reviewable candidates in the current cycle. Open the monitor to check data lanes and next scheduled refresh.</p>
+        </div>
+      {% endfor %}
+    </div>
+  </section>
+</section>
+{% endblock %}

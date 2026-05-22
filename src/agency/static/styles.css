@@ -5472,3 +5472,438 @@ table.signal-table {
   gap: 0.75rem;
   flex-wrap: wrap;
 }
+
+/* V3 pre-flight cockpit */
+.cockpit-shell {
+  --cockpit-panel: var(--surface);
+  --cockpit-panel-2: var(--surface-2);
+  --cockpit-line: var(--border);
+  --cockpit-amber: var(--accent);
+  display: grid;
+  gap: 16px;
+  max-width: 1480px;
+  width: 100%;
+}
+
+.page-frame:has(.cockpit-shell) .topbar {
+  display: none;
+}
+
+.cockpit-topline,
+.cockpit-instrument-cluster,
+.cockpit-engine-strip,
+.cockpit-instrument-nav,
+.cockpit-phase-rail,
+.cockpit-phase {
+  border: 1px solid var(--cockpit-line);
+  border-radius: 4px;
+  background: var(--cockpit-panel);
+}
+
+.cockpit-topline {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: start;
+  padding: 18px;
+}
+
+.cockpit-bluf {
+  margin: 0 0 6px;
+  color: var(--text);
+  font-size: clamp(1.4rem, 2.1vw, 2.15rem);
+  line-height: 1.08;
+}
+
+.cockpit-cycle-card {
+  display: grid;
+  gap: 5px;
+  min-width: 220px;
+  padding: 12px;
+  border: 1px solid rgba(204, 143, 44, 0.32);
+  border-radius: 4px;
+  background: rgba(204, 143, 44, 0.08);
+  color: var(--text);
+}
+
+.cockpit-instrument-cluster {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(130px, 1fr)) minmax(180px, 0.8fr);
+  gap: 12px;
+  padding: 14px;
+}
+
+.cockpit-arc-gauge {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 5px;
+  min-height: 154px;
+  padding: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 4px;
+  background: var(--cockpit-panel-2);
+  text-align: center;
+}
+
+.cockpit-arc-gauge p,
+.cockpit-arc-gauge small {
+  margin: 0;
+}
+
+.cockpit-arc-gauge strong {
+  color: var(--text);
+}
+
+.cockpit-arc {
+  position: relative;
+  width: 110px;
+  height: 56px;
+  overflow: hidden;
+  border: 10px solid rgba(204, 143, 44, 0.18);
+  border-bottom: 0;
+  border-radius: 110px 110px 0 0;
+}
+
+.cockpit-arc::before {
+  content: "";
+  position: absolute;
+  inset: -10px;
+  border: 10px solid transparent;
+  border-top-color: var(--pass);
+  border-left-color: var(--warn);
+  border-right-color: var(--block);
+  border-radius: 110px 110px 0 0;
+  opacity: 0.45;
+}
+
+.cockpit-arc-needle {
+  --needle: 0deg;
+  position: absolute;
+  bottom: -2px;
+  left: 50%;
+  width: 2px;
+  height: 50px;
+  background: var(--cockpit-amber);
+  transform: translateX(-50%) rotate(var(--needle));
+  transform-origin: bottom center;
+  box-shadow: 0 0 8px rgba(204, 143, 44, 0.6);
+}
+
+.cockpit-whymark {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid rgba(204, 143, 44, 0.55);
+  border-radius: 999px;
+  color: var(--cockpit-amber);
+  font-weight: 800;
+  cursor: help;
+}
+
+.cockpit-readout-stack {
+  display: grid;
+  gap: 10px;
+}
+
+.cockpit-segment-readout {
+  display: grid;
+  gap: 2px;
+  min-height: 48px;
+  padding: 10px;
+  border: 1px solid rgba(34, 211, 238, 0.22);
+  border-radius: 4px;
+  background: #07111f;
+}
+
+.cockpit-segment-readout span {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+}
+
+.cockpit-segment-readout strong {
+  color: var(--info);
+  font-size: 1.2rem;
+  letter-spacing: 0;
+}
+
+.cockpit-mono {
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.cockpit-engine-strip,
+.cockpit-instrument-nav {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+}
+
+.cockpit-engine-strip {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.cockpit-engine-strip > strong,
+.cockpit-engine-strip .cockpit-engine {
+  flex: 0 0 auto;
+}
+
+.cockpit-engine {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 999px;
+  color: var(--text);
+}
+
+.cockpit-engine-needs_refresh {
+  border-color: rgba(204, 143, 44, 0.4);
+  color: var(--warn);
+}
+
+.cockpit-engine-down {
+  border-color: rgba(201, 80, 80, 0.5);
+  color: var(--block);
+}
+
+.cockpit-instrument-nav button {
+  min-height: 38px;
+  padding: 8px 12px;
+  border: 1px solid rgba(204, 143, 44, 0.35);
+  border-radius: 4px;
+  background: rgba(204, 143, 44, 0.08);
+  color: var(--text);
+  font: inherit;
+}
+
+.cockpit-phase-rail {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  overflow: hidden;
+}
+
+.cockpit-phase-cell {
+  display: grid;
+  gap: 3px;
+  min-height: 72px;
+  padding: 12px;
+  border-right: 1px solid var(--cockpit-line);
+  opacity: 0.66;
+}
+
+.cockpit-phase-cell:last-child {
+  border-right: 0;
+}
+
+.cockpit-phase-cell.active {
+  border-bottom: 2px solid var(--cockpit-amber);
+  background: rgba(204, 143, 44, 0.09);
+  opacity: 1;
+}
+
+.cockpit-phase {
+  padding: 16px;
+}
+
+.cockpit-candidate-table {
+  display: grid;
+  gap: 10px;
+}
+
+.cockpit-candidate-row {
+  display: grid;
+  grid-template-columns: 44px minmax(130px, 1fr) minmax(95px, 0.55fr) minmax(220px, 1.6fr) minmax(180px, 1.1fr) minmax(150px, 0.9fr) minmax(110px, auto);
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 4px;
+  background: var(--cockpit-panel-2);
+}
+
+.cockpit-candidate-row p {
+  margin: 2px 0 0;
+  color: var(--text-muted);
+}
+
+.cockpit-rank {
+  color: var(--cockpit-amber);
+  font-weight: 900;
+}
+
+.cockpit-ticker {
+  color: var(--text);
+  font-weight: 900;
+  text-decoration: none;
+}
+
+.cockpit-conviction {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cockpit-mini-dial {
+  position: relative;
+  display: inline-block;
+  width: 42px;
+  height: 24px;
+  overflow: hidden;
+  border: 5px solid rgba(204, 143, 44, 0.18);
+  border-bottom: 0;
+  border-radius: 42px 42px 0 0;
+}
+
+.cockpit-mini-dial .cockpit-arc-needle {
+  height: 24px;
+}
+
+.evidence-tier {
+  display: inline-block;
+  margin-bottom: 3px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.evidence-tier-confirmed {
+  color: var(--pass);
+  background: rgba(19, 121, 91, 0.13);
+}
+
+.evidence-tier-inferred {
+  color: var(--info);
+  background: rgba(34, 211, 238, 0.11);
+}
+
+.evidence-tier-suppressed {
+  color: var(--text-muted);
+  background: rgba(148, 163, 184, 0.14);
+}
+
+.cockpit-decision-cell {
+  display: flex;
+  justify-content: flex-end;
+}
+
+@media (max-width: 1200px) {
+  .cockpit-instrument-cluster {
+    grid-template-columns: repeat(2, minmax(180px, 1fr));
+  }
+
+  .cockpit-readout-stack {
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .cockpit-candidate-row {
+    grid-template-columns: 44px minmax(160px, 1fr);
+  }
+
+  .cockpit-candidate-row > * {
+    min-width: 0;
+  }
+}
+
+@media (max-width: 760px) {
+  .cockpit-topline,
+  .cockpit-phase-rail,
+  .cockpit-readout-stack {
+    grid-template-columns: 1fr;
+  }
+
+  .cockpit-instrument-cluster {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-height: 850px) and (min-width: 1000px) {
+  .cockpit-shell {
+    gap: 10px;
+  }
+
+  .cockpit-topline {
+    padding: 12px 14px;
+  }
+
+  .cockpit-bluf {
+    font-size: 1.45rem;
+    line-height: 1.12;
+  }
+
+  .cockpit-cycle-card {
+    padding: 9px 12px;
+  }
+
+  .cockpit-instrument-cluster {
+    gap: 8px;
+    padding: 10px;
+  }
+
+  .cockpit-arc-gauge {
+    min-height: 118px;
+    padding: 7px;
+  }
+
+  .cockpit-arc {
+    width: 82px;
+    height: 42px;
+    border-width: 8px;
+    border-bottom: 0;
+  }
+
+  .cockpit-arc::before {
+    inset: -8px;
+    border-width: 8px;
+  }
+
+  .cockpit-arc-needle {
+    height: 38px;
+  }
+
+  .cockpit-arc-gauge small {
+    display: none;
+  }
+
+  .cockpit-segment-readout {
+    min-height: 0;
+    padding: 6px 8px;
+    gap: 0;
+  }
+
+  .cockpit-segment-readout span {
+    font-size: 0.66rem;
+  }
+
+  .cockpit-segment-readout strong {
+    font-size: 1rem;
+  }
+
+  .cockpit-engine-strip,
+  .cockpit-instrument-nav {
+    padding: 8px 12px;
+  }
+
+  .cockpit-phase-cell {
+    min-height: 56px;
+    padding: 9px 12px;
+  }
+
+  .cockpit-phase {
+    padding: 12px;
+  }
+}
