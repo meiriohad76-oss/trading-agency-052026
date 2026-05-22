@@ -205,7 +205,7 @@ def test_base_audit_and_styles_expose_shared_design_system_markers() -> None:
     assert "workflow-nav" in base_html
     assert "status-icon" in base_html
     assert "nav-secondary" in base_html
-    assert "ux-health-disabled-actions-20260521" in base_html
+    assert "ux-v3-review-readable-2-20260522" in base_html
     assert "paper-mode-card" in audit_html
     assert "Show details: LLM rationale" in audit_html
     assert ".paper-mode-card" in css
@@ -213,6 +213,26 @@ def test_base_audit_and_styles_expose_shared_design_system_markers() -> None:
     assert ".tag-urgent" in css
     assert ".shared-disclosure" in css
     assert ".action-approve" in css
+
+
+def test_review_queue_ready_badge_has_readable_contrast() -> None:
+    css = STYLE_PATH.read_text(encoding="utf-8")
+
+    assert ".tag-urgent" in css
+    urgent_block = css.split(".tag-urgent {", 1)[1].split("}", 1)[0]
+    assert "color: var(--text)" in urgent_block
+    assert "#7a2500" not in urgent_block
+    assert "font-weight: 800" in urgent_block
+    assert ".review-state-icon" in css
+
+
+def test_review_queue_metric_values_do_not_break_words() -> None:
+    css = STYLE_PATH.read_text(encoding="utf-8")
+
+    assert ".review-card .review-card-metrics strong" in css
+    metric_block = css.split(".review-card .review-card-metrics strong {", 1)[1].split("}", 1)[0]
+    assert "word-break: normal" in metric_block
+    assert "hyphens: none" in metric_block
 
 
 def test_disabled_mini_buttons_are_visually_muted() -> None:

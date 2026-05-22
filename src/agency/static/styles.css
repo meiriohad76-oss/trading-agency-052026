@@ -591,7 +591,9 @@ h2 {
 
 .review-card-metrics strong {
   display: block;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
+  word-break: normal;
+  hyphens: none;
 }
 
 .card-reason,
@@ -5145,9 +5147,21 @@ table.signal-table {
 }
 
 .tag-urgent {
-  color: #7a2500;
-  border-color: rgba(122, 37, 0, 0.32);
-  background: rgba(255, 193, 7, 0.2);
+  color: var(--text);
+  border-color: rgba(255, 188, 66, 0.58);
+  background: rgba(255, 188, 66, 0.18);
+  font-weight: 800;
+}
+
+.tag-urgent .review-state-icon {
+  color: var(--warn);
+  margin-right: 4px;
+}
+
+.review-card .review-card-metrics strong {
+  overflow-wrap: break-word;
+  word-break: normal;
+  hyphens: none;
 }
 
 .shared-disclosure {
