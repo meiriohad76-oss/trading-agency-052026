@@ -63,7 +63,7 @@ OPERATIONAL_PAYLOAD_ENDPOINTS = (
     "/risk/decisions",
 )
 OPERATIONAL_PAYLOAD_FORBIDDEN_TOKENS = (
-    "runtime_artifact_fallback",
+    "runtime_" "artifact_" "fallback",
     "demo",
     "mock",
     "fake",

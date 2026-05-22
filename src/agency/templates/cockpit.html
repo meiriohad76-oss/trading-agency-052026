@@ -6,20 +6,72 @@
 {% block topbar_meta %}{{ cycle.mode }} mode - {{ cycle.id }}{% endblock %}
 
 {% block content %}
-<section class="cockpit-shell" data-cockpit-scenario="{{ scenario.state }}" data-cockpit-cycle="{{ cycle.id }}">
+<section
+  class="cockpit-shell"
+  data-cockpit-scenario="{{ scenario.state }}"
+  data-cockpit-cycle="{{ cycle.id }}"
+  data-cockpit-color-preset="{{ preferences.color_preset }}"
+  data-cockpit-theme="{{ preferences.theme }}"
+  data-cockpit-density="{{ preferences.density }}"
+>
   <header class="cockpit-topline">
     <div>
       <p class="eyebrow">Pre-flight briefing</p>
       <h2 class="cockpit-bluf">{{ scenario.headline }}</h2>
       <p class="muted">{{ scenario.detail }}</p>
+      {% if scenario.qa_override %}
+        <p class="cockpit-qa-banner" role="status">QA scenario only - not operational evidence and not readiness proof.</p>
+      {% endif %}
     </div>
     <div class="cockpit-cycle-card" aria-label="Current cycle">
       <span class="status-pill status-pill-paper">{{ cycle.mode }}</span>
       <strong class="cockpit-mono">{{ cycle.id }}</strong>
       <span>{{ cycle.as_of }}</span>
       <small>Next: {{ cycle.next_in }}</small>
+      <span
+        class="status-pill status-pill-{% if monitor.live %}pass{% else %}warn{% endif %}"
+        data-cockpit-monitor-live="{{ 'true' if monitor.live else 'false' }}"
+        data-cockpit-monitor-live-label="Receiving current monitor updates"
+      >{{ monitor.label }}</span>
+      <small>Monitor proof: {{ monitor.last_update }}</small>
+      <button type="button" class="button button-secondary" data-cockpit-preferences-open>Preferences</button>
     </div>
   </header>
+
+  <aside class="cockpit-preferences" data-cockpit-preferences hidden aria-label="Cockpit preferences">
+    <div class="cockpit-panel-backdrop" data-cockpit-preferences-close></div>
+    <form class="cockpit-preferences-card" data-cockpit-preferences-form>
+      <button type="button" class="cockpit-panel-close" data-cockpit-preferences-close>Close preferences</button>
+      <h2>Preferences</h2>
+      <p class="muted">These controls change display only. They never arm submit, broker state, or live trading.</p>
+      <fieldset>
+        <legend>Color preset</legend>
+        <label><input type="radio" name="cockpit-color-preset" value="amber" checked> Amber</label>
+        <label><input type="radio" name="cockpit-color-preset" value="duotone"> Duotone</label>
+        <label><input type="radio" name="cockpit-color-preset" value="saturated"> Saturated</label>
+      </fieldset>
+      <fieldset>
+        <legend>Theme</legend>
+        <label><input type="radio" name="cockpit-theme" value="dark"> Dark</label>
+        <label><input type="radio" name="cockpit-theme" value="accent" checked> Accent</label>
+        <label><input type="radio" name="cockpit-theme" value="light"> Light</label>
+      </fieldset>
+      <fieldset>
+        <legend>Density</legend>
+        <label><input type="radio" name="cockpit-density" value="full" checked> Full</label>
+        <label><input type="radio" name="cockpit-density" value="calm"> Calm</label>
+      </fieldset>
+      {% if qa_scenarios_enabled %}
+        <fieldset data-cockpit-qa-scenario>
+          <legend>QA scenario</legend>
+          <p class="muted">QA scenario only - not operational evidence.</p>
+          {% for item in qa_scenarios %}
+            <a class="button button-secondary" href="/cockpit?scenario={{ item }}">{{ item }}</a>
+          {% endfor %}
+        </fieldset>
+      {% endif %}
+    </form>
+  </aside>
 
   <section class="cockpit-instrument-cluster" aria-label="Cockpit instruments">
     <article class="cockpit-arc-gauge">

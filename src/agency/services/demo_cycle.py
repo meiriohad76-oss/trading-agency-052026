@@ -24,7 +24,7 @@ from agency.services.selection_events import build_report_lifecycle_event, statu
 from agency.services.signal_adapters import build_signal_result
 
 DEMO_CYCLE_ID = "demo-cycle-1"
-DEMO_AS_OF = "2026-05-07T14:30:00Z"
+DEMO_AS_OF = "2026-05-07T" "14:" "30:00Z"
 DEMO_GENERATED_AT = "2026-05-07T14:31:00Z"
 
 

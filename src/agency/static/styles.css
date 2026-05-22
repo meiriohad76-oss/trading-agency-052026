@@ -6033,6 +6033,109 @@ table.signal-table {
   font-weight: 800;
 }
 
+.cockpit-qa-banner {
+  display: inline-block;
+  margin: 8px 0 0;
+  padding: 6px 10px;
+  border: 1px solid var(--warn);
+  border-radius: 4px;
+  color: var(--warn);
+  background: rgba(204, 143, 44, 0.1);
+  font-weight: 800;
+}
+
+.cockpit-preferences {
+  position: fixed;
+  inset: 0;
+  z-index: 1001;
+}
+
+.cockpit-preferences[hidden] {
+  display: none !important;
+}
+
+.cockpit-preferences-card {
+  position: relative;
+  display: grid;
+  gap: 12px;
+  width: min(720px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  margin: 24px auto;
+  overflow: auto;
+  padding: 18px;
+  border: 1px solid rgba(204, 143, 44, 0.34);
+  border-radius: 4px;
+  background: var(--cockpit-panel);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+}
+
+.cockpit-preferences-card fieldset,
+.cockpit-policy-editor {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 4px;
+}
+
+.cockpit-preferences-card label,
+.cockpit-policy-grid label {
+  display: grid;
+  gap: 5px;
+}
+
+.cockpit-policy-grid input {
+  min-height: 38px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 4px;
+  background: #07111f;
+  color: var(--text);
+  padding: 8px 10px;
+}
+
+.cockpit-policy-diff {
+  padding: 10px 12px;
+  border: 1px solid rgba(34, 211, 238, 0.2);
+  border-radius: 4px;
+  background: rgba(34, 211, 238, 0.08);
+}
+
+.cockpit-shell[data-cockpit-color-preset="duotone"] {
+  --cockpit-amber: var(--info);
+}
+
+.cockpit-shell[data-cockpit-color-preset="saturated"] {
+  --cockpit-amber: #ffb020;
+}
+
+.cockpit-shell[data-cockpit-theme="dark"] {
+  --cockpit-panel: #07111f;
+  --cockpit-panel-2: #0d1a2b;
+}
+
+.cockpit-shell[data-cockpit-theme="light"] {
+  --cockpit-panel: #ffffff;
+  --cockpit-panel-2: #f5f7fb;
+  --cockpit-line: #d9e0e8;
+}
+
+.cockpit-shell[data-cockpit-theme="light"] .cockpit-segment-readout,
+.cockpit-shell[data-cockpit-theme="light"] .cockpit-submit-phrase input,
+.cockpit-shell[data-cockpit-theme="light"] .cockpit-policy-grid input {
+  background: #ffffff;
+  color: #18212b;
+}
+
+[data-cockpit-density="calm"] .cockpit-instrument-cluster,
+[data-cockpit-density="calm"] .cockpit-engine-strip {
+  display: none;
+}
+
+[data-cockpit-density="calm"] .cockpit-topline,
+[data-cockpit-density="calm"] .cockpit-phase {
+  padding: 12px;
+}
+
 @media (max-width: 1400px) {
   .cockpit-candidate-row {
     grid-template-columns: 1fr;

@@ -3,15 +3,27 @@ from __future__ import annotations
 
 import asyncio
 import math
+import os
 import re
 from collections.abc import Mapping, Sequence
 from typing import cast
 
+from agency.runtime.cockpit_monitor import (
+    monitor_events_from_scheduler,
+    monitor_status_from_scheduler,
+    source_health_rows,
+)
+
 TRADE_ACTIONS = {"BUY", "SELL", "SHORT", "COVER"}
 MAX_COCKPIT_CANDIDATES = 25
+QA_SCENARIOS = {"normal", "no-actionable", "outage", "submitted"}
 
 
-async def cockpit_context() -> dict[str, object]:
+async def cockpit_context(
+    *,
+    qa_scenario: str | None = None,
+    qa_scenarios_enabled: bool | None = None,
+) -> dict[str, object]:
     """Build the cockpit aggregate from existing production page contexts."""
 
     from agency.views.command import dashboard_context
@@ -30,11 +42,18 @@ async def cockpit_context() -> dict[str, object]:
             "portfolio": portfolio,
             "market": {},
             "signals": {},
-        }
+        },
+        qa_scenario=qa_scenario,
+        qa_scenarios_enabled=qa_scenarios_enabled,
     )
 
 
-def cockpit_context_from_sources(sources: Mapping[str, object]) -> dict[str, object]:
+def cockpit_context_from_sources(
+    sources: Mapping[str, object],
+    *,
+    qa_scenario: str | None = None,
+    qa_scenarios_enabled: bool | None = None,
+) -> dict[str, object]:
     """Map production view contexts to the cockpit contract.
 
     This function is intentionally pure so tests can prove the contract without
@@ -53,6 +72,13 @@ def cockpit_context_from_sources(sources: Mapping[str, object]) -> dict[str, obj
     portfolio_phase = _portfolio_phase_section(positions)
     clearance = _clearance_section(positions, candidates, execution)
     cycle = _cycle_section(dashboard, engines)
+    qa_enabled = _qa_scenarios_enabled(qa_scenarios_enabled)
+    scheduler = _mapping(dashboard.get("scheduler"))
+    proof_timestamp = _first_text(
+        _mapping(dashboard.get("data_load_status")).get("latest_checked_at"),
+        _mapping(dashboard.get("data_load_status")).get("updated_at"),
+        _mapping(dashboard.get("data_load_status")).get("as_of"),
+    )
     context: dict[str, object] = {
         "active_nav": "cockpit",
         "cycle": cycle,
@@ -65,14 +91,20 @@ def cockpit_context_from_sources(sources: Mapping[str, object]) -> dict[str, obj
         "portfolio_phase": portfolio_phase,
         "clearance": clearance,
         "sectors": _sector_rows(market),
-        "sources": _source_rows(dashboard),
+        "sources": _source_rows(dashboard, proof_timestamp=proof_timestamp),
         "universe_blocked": _universe_blocked_rows(dashboard),
         "signals": _signal_rows(signals_context),
         "audit_lifecycle": _audit_lifecycle(candidates, _first_text(cycle.get("id"))),
         "policy": _policy_section(dashboard),
         "monitor_events": _monitor_events(dashboard),
+        "monitor": monitor_status_from_scheduler(scheduler),
+        "preferences": _preferences_section(),
+        "qa_scenarios_enabled": qa_enabled,
+        "qa_scenarios": sorted(QA_SCENARIOS),
     }
     context["scenario"] = _scenario_from_context(context, execution)
+    if qa_enabled and qa_scenario in QA_SCENARIOS:
+        context["scenario"] = _qa_scenario(qa_scenario, context)
     return context
 
 
@@ -428,21 +460,12 @@ def _account_section(
     }
 
 
-def _source_rows(dashboard: Mapping[str, object]) -> list[dict[str, object]]:
-    rows: list[dict[str, object]] = []
-    for raw in _list(dashboard.get("data_sources")):
-        item = _mapping(raw)
-        rows.append(
-            {
-                "name": _first_text(item.get("name"), item.get("source"), default="Data source"),
-                "tier": _source_tier(item),
-                "state": _status_to_source_state(item.get("status_class"), item.get("status_label")),
-                "last_pull": _first_text(item.get("last_update"), default="not reported"),
-                "coverage": _first_text(item.get("coverage_label"), default="coverage not reported"),
-                "note": _first_text(item.get("detail"), default="No source note reported."),
-            }
-        )
-    return rows
+def _source_rows(
+    dashboard: Mapping[str, object],
+    *,
+    proof_timestamp: str = "",
+) -> list[dict[str, object]]:
+    return source_health_rows(_list(dashboard.get("data_sources")), proof_timestamp=proof_timestamp)
 
 
 def _signal_rows(signals_context: Mapping[str, object]) -> list[dict[str, object]]:
@@ -498,10 +521,51 @@ def _scenario_from_context(
 
 
 def _policy_section(dashboard: Mapping[str, object]) -> dict[str, object]:
-    policy = dict(_mapping(dashboard.get("policy_summary")))
-    policy.setdefault("live_trading", "locked off")
-    policy.setdefault("mode", "paper")
-    return policy
+    raw_policy = dict(_mapping(dashboard.get("policy_summary")))
+    deployed = {
+        key: value
+        for key, value in raw_policy.items()
+        if key
+        in {
+            "min_final_conviction",
+            "max_new_positions_per_cycle",
+            "max_gross_exposure_pct",
+            "default_position_pct",
+            "take_profit_pct",
+            "stop_loss_pct",
+            "trailing_stop_pct",
+            "hourly_loss_alert_pct",
+        }
+    }
+    if not deployed:
+        deployed = {
+            "min_final_conviction": _float(raw_policy.get("min_conviction"), fallback=0.62),
+            "default_position_pct": _float(raw_policy.get("default_position_pct"), fallback=5.0),
+            "max_gross_exposure_pct": _float(raw_policy.get("max_gross_exposure_pct"), fallback=100.0),
+        }
+    return {
+        **raw_policy,
+        "mode": "paper",
+        "write_route": "/api/policy",
+        "apply_label": "Apply next cycle",
+        "deployed_values": deployed,
+        "staged_values": dict(deployed),
+        "diff": [],
+        "submit_revalidation_required": True,
+        "dangerous_flags": {
+            "live_trading": {
+                "value": "locked off",
+                "locked": True,
+                "risk": "Live trading cannot be enabled from the cockpit.",
+            },
+            "broker_submit": {
+                "value": "enabled" if raw_policy.get("broker_submit_enabled") else "disabled",
+                "locked": False,
+                "risk": "Paper broker submit still requires the execution-preview safety gate.",
+            },
+        },
+        "live_trading": "locked off",
+    }
 
 
 def _sector_rows(market: Mapping[str, object]) -> list[dict[str, object]]:
@@ -514,27 +578,47 @@ def _universe_blocked_rows(dashboard: Mapping[str, object]) -> list[dict[str, ob
 
 
 def _monitor_events(dashboard: Mapping[str, object]) -> list[dict[str, object]]:
-    scheduler = _mapping(dashboard.get("scheduler"))
-    events: list[dict[str, object]] = []
-    for raw in _list(scheduler.get("running_jobs")):
-        item = _mapping(raw)
-        events.append(
-            {
-                "kind": "running",
-                "message": _first_text(item.get("label"), item.get("lane"), default="Job running"),
-                "timestamp": _first_text(item.get("started_at"), item.get("eta_label"), default="now"),
-            }
-        )
-    for raw in _list(scheduler.get("next_jobs")):
-        item = _mapping(raw)
-        events.append(
-            {
-                "kind": "next",
-                "message": _first_text(item.get("label"), item.get("lane"), default="Next job"),
-                "timestamp": _first_text(item.get("eta_label"), default="scheduled"),
-            }
-        )
-    return events
+    return monitor_events_from_scheduler(_mapping(dashboard.get("scheduler")))
+
+
+def _preferences_section() -> dict[str, str]:
+    return {"color_preset": "amber", "theme": "accent", "density": "full"}
+
+
+def _qa_scenarios_enabled(value: bool | None) -> bool:
+    if value is not None:
+        return value
+    return os.getenv("AGENCY_COCKPIT_QA_SCENARIOS", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _qa_scenario(state: str, context: Mapping[str, object]) -> dict[str, object]:
+    if state == "outage":
+        scenario = {
+            "state": "outage",
+            "headline": "Selection is paused because critical data is unavailable.",
+            "detail": "QA scenario only. Refresh actions are disabled as readiness proof.",
+        }
+    elif state == "submitted":
+        scenario = {
+            "state": "submitted",
+            "headline": "1 paper orders were transmitted for this cycle.",
+            "detail": "QA scenario only. Broker evidence is simulated by the scenario shell.",
+        }
+    elif state == "no-actionable":
+        scenario = {
+            "state": "no-actionable",
+            "headline": "Nothing actionable today. The agent already filtered the universe.",
+            "detail": "QA scenario only. Review calm empty-state behavior.",
+        }
+    else:
+        actionable = _int(_mapping(context.get("funnel")).get("actionable"), fallback=0)
+        scenario = {
+            "state": "normal",
+            "headline": f"{actionable} trades ready. Approve what you want to ship today.",
+            "detail": "QA scenario only. This page is not operational evidence.",
+        }
+    scenario["qa_override"] = True
+    return scenario
 
 
 def _portfolio_phase_section(positions: Sequence[Mapping[str, object]]) -> dict[str, object]:
@@ -700,22 +784,7 @@ def _status_to_source_state(status_class: object, status_label: object) -> str:
         return "unavailable"
     if state == "needs_refresh":
         return "partial"
-    return "fresh"
-
-
-def _source_tier(source: Mapping[str, object]) -> str:
-    name = _first_text(source.get("name"), source.get("source")).lower()
-    if "alpaca" in name or "broker" in name:
-        return "broker"
-    if "massive" in name or "price" in name or "trade" in name:
-        return "market"
-    if "sec" in name or "edgar" in name:
-        return "official"
-    if "email" in name or "subscription" in name or "seeking alpha" in name:
-        return "paid-sub"
-    if "llm" in name:
-        return "llm"
-    return "operational"
+    return "ready"
 
 
 def _scrub_secrets(value: object) -> object:

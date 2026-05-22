@@ -9,9 +9,13 @@
         {% for source in sources %}
           <article>
             <strong>{{ source.name }}</strong>
-            <span class="status-pill status-pill-{% if source.state == 'fresh' %}pass{% elif source.state == 'partial' %}warn{% else %}block{% endif %}">{{ source.state }}</span>
+            <span class="status-pill status-pill-{% if source.state == 'ready' %}pass{% elif source.state == 'needs_refresh' or source.state == 'not_analyzed' %}warn{% else %}block{% endif %}">{{ source.state_label }}</span>
             <p>{{ source.coverage }} - {{ source.note }}</p>
-            <small>Last pull {{ source.last_pull }} / tier {{ source.tier }}</small>
+            <small>Proof timestamp {{ source.proof_timestamp }} / source timestamp {{ source.source_timestamp }} / analysis timestamp {{ source.analysis_timestamp }} / tier {{ source.tier }}</small>
+            <p>{{ source.next_action }}</p>
+            {% if source.refresh_action.url %}
+              <a class="button button-secondary" href="{{ source.refresh_action.url }}">{{ source.refresh_action.label }}</a>
+            {% endif %}
           </article>
         {% else %}
           <p class="empty-state">No source-health rows are available for this cycle.</p>
@@ -30,7 +34,7 @@
         {% for signal in signals %}
           <article>
             <strong>{{ signal.name }}</strong>
-            <span class="status-pill status-pill-{% if signal.state == 'fresh' %}pass{% elif signal.state == 'partial' %}warn{% else %}block{% endif %}">{{ signal.status }}</span>
+            <span class="status-pill status-pill-{% if signal.state == 'ready' %}pass{% elif signal.state == 'partial' %}warn{% else %}block{% endif %}">{{ signal.status }}</span>
             <p>{{ signal.detail }}</p>
           </article>
         {% else %}
@@ -68,14 +72,39 @@
       <button type="button" class="cockpit-panel-close" data-cockpit-panel-close>Close panel</button>
       <h2 id="cockpit-panel-policy-heading">Policy</h2>
       <p class="muted">Live trading is locked off. Policy changes apply to the next cycle; this page only clears paper orders that pass the current deployed rules.</p>
-      <dl class="cockpit-policy-grid">
-        {% for key, value in policy.items() %}
-          <div>
-            <dt>{{ key|replace("_", " ")|title }}</dt>
-            <dd>{{ value }}</dd>
-          </div>
-        {% endfor %}
-      </dl>
+      <form class="cockpit-policy-editor" data-policy-change-invalidates-submit data-policy-form>
+        <div class="cockpit-policy-grid">
+          {% for key, value in policy.deployed_values.items() %}
+            <label>
+              <span>{{ key|replace("_", " ")|title }}</span>
+              <input
+                type="number"
+                step="0.01"
+                name="{{ key }}"
+                value="{{ value }}"
+                data-policy-field="{{ key }}"
+                data-policy-deployed="{{ value }}"
+                data-policy-staged
+              >
+              <small>Deployed value: <span class="cockpit-mono">{{ value }}</span></small>
+            </label>
+          {% endfor %}
+        </div>
+        <section class="cockpit-policy-diff" data-policy-diff>
+          <h3>Policy diff</h3>
+          <p>No staged changes.</p>
+        </section>
+        <div class="callout callout-warn">
+          <strong>LIVE_TRADING locked off</strong>
+          <p>{{ policy.dangerous_flags.live_trading.risk }}</p>
+        </div>
+        <label class="cockpit-submit-ack">
+          <input type="checkbox" data-policy-confirm-apply>
+          <span>I understand this policy edit applies to the next cycle and requires a fresh cockpit revalidation.</span>
+        </label>
+        <button type="submit" class="button button-primary" data-policy-apply-button aria-label="Apply next cycle" disabled>{{ policy.apply_label }}</button>
+        <output data-policy-apply-state></output>
+      </form>
     </article>
   </section>
 
@@ -84,13 +113,16 @@
     <article class="cockpit-panel-card">
       <button type="button" class="cockpit-panel-close" data-cockpit-panel-close>Close panel</button>
       <h2 id="cockpit-panel-monitor-heading">Monitor Events</h2>
-      <p class="muted">This is the latest persisted scheduler and runtime event list. Live streaming can be added later without changing the cockpit contract.</p>
+      <p class="muted">{{ monitor.label }}. Last monitor proof: {{ monitor.last_update }}.</p>
       <div class="cockpit-panel-list">
         {% for event in monitor_events %}
           <article>
             <strong>{{ event.message }}</strong>
-            <p>{{ event.kind }}</p>
+            <p>{{ event.kind }} / {{ event.topic }} / {{ event.action }}</p>
             <small>{{ event.timestamp }}</small>
+            {% if event.action_url %}
+              <a class="button button-secondary" href="{{ event.action_url }}">{{ event.action }}</a>
+            {% endif %}
           </article>
         {% else %}
           <p class="empty-state">No monitor events are available yet.</p>

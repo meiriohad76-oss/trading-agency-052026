@@ -29,14 +29,30 @@ def _context() -> dict[str, object]:
         "universe_blocked": [],
         "signals": [],
         "audit_lifecycle": {"traces": {}},
-        "policy": {},
+        "policy": {
+            "mode": "paper",
+            "apply_label": "Apply next cycle",
+            "deployed_values": {"min_final_conviction": 0.62},
+            "staged_values": {"min_final_conviction": 0.62},
+            "dangerous_flags": {
+                "live_trading": {
+                    "locked": True,
+                    "value": "locked off",
+                    "risk": "Live trading cannot be enabled from the cockpit.",
+                }
+            },
+        },
         "monitor_events": [],
+        "monitor": {"live": False, "label": "Monitor updates not observed", "last_update": "not reported"},
+        "preferences": {"color_preset": "amber", "theme": "accent", "density": "full"},
+        "qa_scenarios_enabled": False,
+        "qa_scenarios": [],
         "scenario": {"state": "normal", "headline": "1 trade ready."},
     }
 
 
 def _client(monkeypatch: MonkeyPatch) -> TestClient:
-    async def fake_cockpit_context() -> dict[str, object]:
+    async def fake_cockpit_context(**_kwargs: object) -> dict[str, object]:
         return _context()
 
     monkeypatch.setattr(dashboard_module, "cockpit_context", fake_cockpit_context)
