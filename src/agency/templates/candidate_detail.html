@@ -486,6 +486,10 @@
         <strong>{{ news_evidence.unresolved_context_count }}</strong>
       </div>
       <div>
+        <span class="metric-label">Already Used</span>
+        <strong>{{ news_evidence.used_count }}</strong>
+      </div>
+      <div>
         <span class="metric-label">Latest RSS</span>
         <strong>{{ news_evidence.latest_at }}</strong>
       </div>
@@ -495,6 +499,10 @@
       <article class="readout-card readout-card-{{ news_evidence.status_class }}">
         <span class="metric-label">Signal Use</span>
         <strong>{{ news_evidence.coverage_summary }}</strong>
+      </article>
+      <article class="readout-card">
+        <span class="metric-label">Single-Use Status</span>
+        <strong>{{ news_evidence.consumption_summary }}</strong>
       </article>
       <article class="readout-card">
         <span class="metric-label">Unresolved Context</span>
@@ -519,6 +527,7 @@
           </div>
           <p class="article-focus">{{ row.match_explanation }}</p>
           <p class="article-thesis">{{ row.summary }}</p>
+          <p class="article-use">{{ row.consumption_note }}</p>
         </article>
         {% else %}
         <p class="empty-block">No ticker-resolved RSS headline currently matches {{ ticker }}.</p>

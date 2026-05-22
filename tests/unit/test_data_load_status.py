@@ -138,6 +138,94 @@ def test_data_load_status_reports_news_resolution_coverage(
     assert status["news_resolution"]["coverage_label"] == "6 resolved / 2 unresolved / 1 ambiguous"
 
 
+def test_data_load_status_reports_news_consumption_ledger(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    paths = _fixtures(tmp_path, monkeypatch)
+    ledger_path = tmp_path / "state" / "news_rss_consumed.json"
+    ledger_path.parent.mkdir()
+    ledger_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "items": {
+                    "rss:aapl:1": {
+                        "source_id": "rss:aapl:1",
+                        "cycle_id": "cycle-1",
+                        "ticker": "AAPL",
+                        "as_of": "2026-05-11T00:00:00+00:00",
+                        "used_at": "2026-05-11T14:58:00+00:00",
+                        "lane": "news",
+                    },
+                    "rss:msft:1": {
+                        "source_id": "rss:msft:1",
+                        "cycle_id": "cycle-2",
+                        "ticker": "MSFT",
+                        "as_of": "2026-05-11T00:00:00+00:00",
+                        "used_at": "2026-05-11T14:59:00+00:00",
+                        "lane": "news",
+                    },
+                    "rss:older:1": {
+                        "source_id": "rss:older:1",
+                        "cycle_id": "older-cycle",
+                        "ticker": "AAPL",
+                        "as_of": "2026-05-10T00:00:00+00:00",
+                        "used_at": "2026-05-10T14:59:00+00:00",
+                        "lane": "news",
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    pd.DataFrame(
+        [
+            {
+                "source_id": "rss:aapl:1",
+                "ticker_match_status": "resolved",
+            },
+            {
+                "source_id": "rss:msft:1",
+                "ticker_match_status": "feed_ticker",
+            },
+            {
+                "source_id": "rss:unresolved:1",
+                "ticker_match_status": "unresolved",
+            },
+        ]
+    ).to_parquet(paths["parquet_root"] / "news_rss")
+    _write_manifest(
+        paths["manifest_root"],
+        "news_rss",
+        row_count=10,
+        fetched_at="2026-05-11T14:55:00+00:00",
+        stale_after="2026-05-11T15:25:00+00:00",
+        resolved_row_count=6,
+        unresolved_row_count=2,
+        ambiguous_row_count=1,
+        ticker_count=4,
+        resolution_min_confidence=0.7,
+    )
+
+    status = load_data_load_status(
+        config_path=paths["config"],
+        universe_path=paths["universe"],
+        manifest_root=paths["manifest_root"],
+        parquet_root=paths["parquet_root"],
+        runtime_summary_path=paths["runtime_summary"],
+        source_health_path=paths["source_health"],
+        news_consumption_ledger_path=ledger_path,
+        now=datetime(2026, 5, 11, 15, 2, tzinfo=UTC),
+    )
+
+    news = _dataset(status, "news_rss")
+    assert status["news_resolution"]["consumed_row_count"] == 2
+    assert status["news_resolution"]["unused_resolved_row_count"] == 4
+    assert "2 already used by prior live cycle(s)" in str(news["detail"])
+    assert news["news_consumption_label"] == "4 unused resolved / 2 already used"
+
+
 def test_news_health_copy_names_resolution_gap(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,

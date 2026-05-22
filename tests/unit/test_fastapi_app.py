@@ -5580,6 +5580,76 @@ def test_unresolved_generic_news_is_reported_as_context_not_signal(tmp_path: Pat
     )
 
 
+def test_candidate_news_evidence_labels_already_used_rss_rows(tmp_path: Path) -> None:
+    news_path = tmp_path / "news_rss.parquet"
+    ledger_path = tmp_path / "news_rss_consumed.json"
+    pd.DataFrame(
+        [
+            {
+                "ticker": "AAPL",
+                "feed_name": "PR Newswire",
+                "title": "Apple Inc. announces AI launch",
+                "summary": "The company raised its outlook.",
+                "timestamp_as_of": "2026-05-08T12:00:00+00:00",
+                "source_tier": "RSS_HEADLINE",
+                "source_id": "rss:aapl:1",
+                "ticker_match_status": "resolved",
+                "ticker_match_method": "legal_name",
+                "ticker_match_confidence": 0.88,
+                "matched_text": "Apple Inc.",
+            },
+            {
+                "ticker": "AAPL",
+                "feed_name": "PR Newswire",
+                "title": "Apple supplier signs expansion deal",
+                "summary": "The supplier announced capacity expansion.",
+                "timestamp_as_of": "2026-05-08T11:00:00+00:00",
+                "source_tier": "RSS_HEADLINE",
+                "source_id": "rss:aapl:2",
+                "ticker_match_status": "resolved",
+                "ticker_match_method": "alias",
+                "ticker_match_confidence": 0.74,
+                "matched_text": "Apple",
+            },
+        ]
+    ).to_parquet(news_path)
+    ledger_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "items": {
+                    "rss:aapl:1": {
+                        "source_id": "rss:aapl:1",
+                        "cycle_id": "cycle-1",
+                        "ticker": "AAPL",
+                        "as_of": "2026-05-08T00:00:00+00:00",
+                        "used_at": "2026-05-08T13:00:00+00:00",
+                        "lane": "news",
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    evidence = candidate_news_evidence(
+        "AAPL",
+        news_path=news_path,
+        news_consumption_ledger_path=ledger_path,
+    )
+
+    used_row = next(row for row in evidence["rows"] if row["source_id"] == "rss:aapl:1")
+    unused_row = next(row for row in evidence["rows"] if row["source_id"] == "rss:aapl:2")
+    assert evidence["used_count"] == 1
+    assert evidence["unused_resolved_count"] == 1
+    assert used_row["signal_use"] == "Already used in prior live decision"
+    assert used_row["consumption_note"] == (
+        "Already used by cycle cycle-1 at 2026-05-08 13:00 UTC; "
+        "the live news lane will not reuse this headline automatically."
+    )
+    assert unused_row["signal_use"] == "Ticker news signal"
+
+
 def test_candidate_email_empty_state_uses_operator_friendly_copy(tmp_path: Path) -> None:
     evidence = candidate_email_evidence(
         "NVDA",

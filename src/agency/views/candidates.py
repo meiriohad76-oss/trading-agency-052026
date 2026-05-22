@@ -9,6 +9,7 @@ from typing import Any, cast
 from urllib.parse import urlencode, urlsplit
 
 import pandas as pd
+from news.consumption import load_news_consumption_entries
 
 from agency.runtime.signal_evidence import enrich_signal_rows_with_evidence
 from agency.services import build_leveraged_alternative_review
@@ -54,6 +55,11 @@ from agency.views._shared import (
     _timestamp_sort_value,
     dashboard_data_health,
     live_dashboard_data_load_status,
+)
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+NEWS_CONSUMPTION_LEDGER_PATH = (
+    REPO_ROOT / "research" / "data" / "state" / "news_rss_consumed.json"
 )
 
 
@@ -325,19 +331,24 @@ def candidate_news_evidence(
     ticker: str,
     *,
     news_path: Path = NEWS_RSS_PATH,
+    news_consumption_ledger_path: Path = NEWS_CONSUMPTION_LEDGER_PATH,
     limit: int = 5,
 ) -> dict[str, object]:
     normalized = ticker.upper()
     frame = _read_candidate_news_frame(news_path)
+    consumption_entries = load_news_consumption_entries(news_consumption_ledger_path)
     if frame.empty:
         return {
             "ticker": normalized,
             "resolved_count": 0,
+            "used_count": 0,
+            "unused_resolved_count": 0,
             "unresolved_context_count": 0,
             "latest_at": "None",
             "status_label": "No RSS Evidence",
             "status_class": "neutral",
             "coverage_summary": "No RSS/news rows are available for this ticker.",
+            "consumption_summary": "No RSS/news headline has been used for this ticker yet.",
             "context_summary": "No unresolved generic RSS rows are available for context.",
             "rows": [],
             "context_rows": [],
@@ -371,19 +382,33 @@ def candidate_news_evidence(
         resolved_frame = resolved_frame.sort_values("timestamp_as_of", ascending=False)
     if "timestamp_as_of" in context_frame.columns:
         context_frame = context_frame.sort_values("timestamp_as_of", ascending=False)
+    used_count = _candidate_news_used_count(resolved_frame, consumption_entries)
+    unused_resolved_count = max(0, len(resolved_frame) - used_count)
 
     rows = [
-        _candidate_news_row(row, normalized, signal_use="Ticker news signal")
+        _candidate_news_row(
+            row,
+            normalized,
+            signal_use="Ticker news signal",
+            consumption_entries=consumption_entries,
+        )
         for row in _records(resolved_frame.head(limit))
     ]
     context_rows = [
-        _candidate_news_row(row, normalized, signal_use="Context only")
+        _candidate_news_row(
+            row,
+            normalized,
+            signal_use="Context only",
+            consumption_entries=consumption_entries,
+        )
         for row in _records(context_frame.head(limit))
     ]
     latest_at = _latest_text([*rows, *context_rows])
     return {
         "ticker": normalized,
         "resolved_count": len(resolved_frame),
+        "used_count": used_count,
+        "unused_resolved_count": unused_resolved_count,
         "unresolved_context_count": len(context_frame),
         "latest_at": latest_at or "None",
         "status_label": "RSS Resolved" if len(resolved_frame) else "Context Only",
@@ -392,6 +417,11 @@ def candidate_news_evidence(
             normalized,
             resolved_count=len(resolved_frame),
             context_count=len(context_frame),
+        ),
+        "consumption_summary": _candidate_news_consumption_summary(
+            normalized,
+            used_count=used_count,
+            unused_resolved_count=unused_resolved_count,
         ),
         "context_summary": _candidate_news_context_summary(normalized, len(context_frame)),
         "rows": rows,
@@ -824,9 +854,13 @@ def _candidate_news_row(
     ticker: str,
     *,
     signal_use: str,
+    consumption_entries: Mapping[str, Mapping[str, object]],
 ) -> dict[str, object]:
     timestamp = _clean_text(row.get("timestamp_as_of")) or "unknown"
     status = _candidate_news_match_status(row.get("ticker_match_status"))
+    source_id = _clean_text(row.get("source_id")) or ""
+    consumption_entry = consumption_entries.get(source_id, {})
+    already_used = bool(consumption_entry)
     return {
         "ticker": _row_text(row, "ticker", ticker).upper(),
         "feed_name": _candidate_news_feed_label(row.get("feed_name")),
@@ -834,8 +868,8 @@ def _candidate_news_row(
         "summary": _clip_text(_clean_text(row.get("summary")) or "No summary recorded", 220),
         "timestamp": timestamp,
         "timestamp_label": _format_timestamp_label(timestamp),
-        "source_id": _clean_text(row.get("source_id")) or "",
-        "source_id_core": _source_id_core(row.get("source_id")) or "",
+        "source_id": source_id,
+        "source_id_core": _source_id_core(source_id) or "",
         "source_url": _clean_text(row.get("source_url")) or _clean_text(row.get("url")) or "",
         "match_status_label": _candidate_news_status_label(status),
         "match_method_label": _candidate_news_method_label(row.get("ticker_match_method")),
@@ -843,7 +877,13 @@ def _candidate_news_row(
         "matched_text": _clean_text(row.get("matched_text")) or "",
         "match_reason": _clip_text(_clean_text(row.get("ticker_match_reason")) or "", 180),
         "match_explanation": _candidate_news_match_explanation(row, ticker),
-        "signal_use": signal_use,
+        "signal_use": (
+            "Already used in prior live decision"
+            if already_used and signal_use == "Ticker news signal"
+            else signal_use
+        ),
+        "already_used": already_used,
+        "consumption_note": _candidate_news_consumption_note(consumption_entry),
     }
 
 def _candidate_news_match_explanation(
@@ -937,6 +977,51 @@ def _candidate_news_coverage_summary(
             "shown as context only until a high-confidence ticker match exists."
         )
     return f"No RSS/news headline currently matches {ticker}."
+
+def _candidate_news_used_count(
+    frame: pd.DataFrame,
+    consumption_entries: Mapping[str, Mapping[str, object]],
+) -> int:
+    if frame.empty or "source_id" not in frame.columns:
+        return 0
+    source_ids = {
+        str(value).strip()
+        for value in frame["source_id"].to_list()
+        if str(value).strip()
+    }
+    return len(source_ids.intersection(consumption_entries))
+
+
+def _candidate_news_consumption_summary(
+    ticker: str,
+    *,
+    used_count: int,
+    unused_resolved_count: int,
+) -> str:
+    if used_count:
+        return (
+            f"{used_count} resolved RSS/news headline(s) for {ticker} were already "
+            f"used by prior live cycle(s). {unused_resolved_count} resolved headline(s) "
+            "remain available for automatic news scoring."
+        )
+    if unused_resolved_count:
+        return (
+            f"{unused_resolved_count} resolved RSS/news headline(s) for {ticker} "
+            "remain available for automatic news scoring."
+        )
+    return f"No resolved RSS/news headline for {ticker} has been consumed yet."
+
+
+def _candidate_news_consumption_note(entry: Mapping[str, object]) -> str:
+    if not entry:
+        return "Not used by a prior live decision cycle."
+    cycle_id = _clean_text(entry.get("cycle_id")) or "unknown cycle"
+    used_at = _format_timestamp_label(entry.get("used_at"))
+    return (
+        f"Already used by cycle {cycle_id} at {used_at}; "
+        "the live news lane will not reuse this headline automatically."
+    )
+
 
 def _candidate_news_context_summary(ticker: str, context_count: int) -> str:
     if context_count:

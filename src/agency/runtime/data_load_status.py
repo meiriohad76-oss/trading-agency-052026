@@ -8,6 +8,7 @@ from typing import cast
 from zoneinfo import ZoneInfo
 
 import pandas as pd
+from news.consumption import load_news_consumption_entries
 
 from agency.runtime.data_refresh_progress import load_data_refresh_progress
 from agency.runtime.live_config_readiness import load_live_config_readiness
@@ -27,6 +28,9 @@ DEFAULT_RUNTIME_SUMMARY_PATH = (
 )
 DEFAULT_SOURCE_HEALTH_PATH = (
     REPO_ROOT / "research" / "results" / "latest-live-runtime-cycle" / "source-health.json"
+)
+DEFAULT_NEWS_CONSUMPTION_LEDGER_PATH = (
+    REPO_ROOT / "research" / "data" / "state" / "news_rss_consumed.json"
 )
 
 CORE_DATASETS = ("prices_daily", "stock_trades")
@@ -145,6 +149,7 @@ def load_data_load_status(
     source_health_path: Path | None = None,
     source_health_rows: Sequence[Mapping[str, object]] | None = None,
     source_health_origin: str | None = None,
+    news_consumption_ledger_path: Path | None = None,
     now: datetime | None = None,
 ) -> dict[str, object]:
     config_file = config_path or DEFAULT_CONFIG_PATH
@@ -153,6 +158,7 @@ def load_data_load_status(
     parquet_dir = parquet_root or DEFAULT_PARQUET_ROOT
     runtime_file = runtime_summary_path or DEFAULT_RUNTIME_SUMMARY_PATH
     source_file = source_health_path or DEFAULT_SOURCE_HEALTH_PATH
+    news_ledger_file = news_consumption_ledger_path or DEFAULT_NEWS_CONSUMPTION_LEDGER_PATH
     config = _read_json_object(config_file)
     config_as_of_verified = _config_date_valid(config, "end")
     configured_as_of = _config_date(config, "end", fallback=date.today())
@@ -169,6 +175,8 @@ def load_data_load_status(
     live_config = load_live_config_readiness(config_file if config_file.is_file() else None)
     runtime_summary = _read_json_object(runtime_file)
     current = now or datetime.now(UTC)
+    news_manifest = _read_json_object(manifest_dir / "news_rss.json")
+    news_resolved_source_ids = _news_resolved_source_ids(news_manifest, parquet_dir)
     if source_health_rows is None:
         source_health = _read_json_list(source_file)
         source_origin = (
@@ -221,6 +229,8 @@ def load_data_load_status(
         as_of=as_of,
         now=current,
         dynamic_as_of=config_path is None,
+        news_consumption_ledger_path=news_ledger_file,
+        news_resolved_source_ids=news_resolved_source_ids,
     )
     lane_rows = _lane_rows(
         runtime_summary=runtime_summary,
@@ -291,7 +301,9 @@ def load_data_load_status(
         "blockers": blockers,
         "warnings": warnings,
         "news_resolution": _news_resolution_summary(
-            _read_json_object(manifest_dir / "news_rss.json")
+            news_manifest,
+            news_consumption_ledger_path=news_ledger_file,
+            current_source_ids=news_resolved_source_ids,
         ),
         "source_summary": _source_summary(monitored_source_health, now=current),
         "health_monitor": health_monitor,
@@ -323,6 +335,8 @@ def _dataset_rows(
     as_of: date,
     now: datetime,
     dynamic_as_of: bool,
+    news_consumption_ledger_path: Path,
+    news_resolved_source_ids: set[str] | None,
 ) -> list[dict[str, object]]:
     configured = set(_strings(config, "datasets"))
     datasets = [
@@ -453,7 +467,12 @@ def _dataset_rows(
                 "coverage_as_of": dataset_as_of.isoformat(),
                 "partial_ticker_count": partial_ticker_count,
                 "row_count": _int_value(manifest_for_status.get("row_count")),
-                **_dataset_news_resolution_fields(dataset, manifest_for_status),
+                **_dataset_news_resolution_fields(
+                    dataset,
+                    manifest_for_status,
+                    news_consumption_ledger_path=news_consumption_ledger_path,
+                    current_source_ids=news_resolved_source_ids,
+                ),
                 "max_as_of": str(manifest.get("max_timestamp_as_of") or "not loaded"),
                 "issue_count": len(issues),
                 "source_status": str(health.get("status") or "UNKNOWN"),
@@ -492,6 +511,8 @@ def _dataset_rows(
                     known_ticker_coverage=bool(tickers),
                     live_trade_lane=live_trade_lane,
                     daily_bar_lane=daily_bar_lane,
+                    news_consumption_ledger_path=news_consumption_ledger_path,
+                    news_resolved_source_ids=news_resolved_source_ids,
                 ),
             }
         )
@@ -954,7 +975,12 @@ def _mode_label(mode: str) -> str:
     }.get(mode, mode.replace("_", " ").title())
 
 
-def _news_resolution_summary(manifest: Mapping[str, object]) -> dict[str, object]:
+def _news_resolution_summary(
+    manifest: Mapping[str, object],
+    *,
+    news_consumption_ledger_path: Path | None = None,
+    current_source_ids: set[str] | None = None,
+) -> dict[str, object]:
     resolved = _int_value(manifest.get("resolved_row_count"))
     unresolved = _int_value(manifest.get("unresolved_row_count"))
     ambiguous = _int_value(manifest.get("ambiguous_row_count"))
@@ -962,11 +988,21 @@ def _news_resolution_summary(manifest: Mapping[str, object]) -> dict[str, object
     row_count = _int_value(manifest.get("row_count"))
     min_confidence = _number_value(manifest.get("resolution_min_confidence"))
     has_metadata = _has_news_resolution_metadata(manifest)
+    consumed = _news_consumed_count(
+        news_consumption_ledger_path,
+        current_source_ids=current_source_ids,
+    )
+    consumed_for_current_manifest = (
+        consumed if current_source_ids is not None else min(consumed, resolved)
+    )
+    unused_resolved = max(0, resolved - consumed_for_current_manifest)
     return {
         "row_count": row_count,
         "resolved_row_count": resolved,
         "unresolved_row_count": unresolved,
         "ambiguous_row_count": ambiguous,
+        "consumed_row_count": consumed_for_current_manifest,
+        "unused_resolved_row_count": unused_resolved,
         "resolved_ticker_count": ticker_count,
         "resolution_min_confidence": min_confidence,
         "fetched_at": str(manifest.get("fetched_at") or "not recorded"),
@@ -976,22 +1012,37 @@ def _news_resolution_summary(manifest: Mapping[str, object]) -> dict[str, object
             if has_metadata
             else "resolution coverage not recorded"
         ),
+        "consumption_label": (
+            f"{unused_resolved} unused resolved / {consumed_for_current_manifest} already used"
+            if has_metadata
+            else "RSS/news consumption not available"
+        ),
     }
 
 
 def _dataset_news_resolution_fields(
     dataset: str,
     manifest: Mapping[str, object],
+    *,
+    news_consumption_ledger_path: Path,
+    current_source_ids: set[str] | None,
 ) -> dict[str, object]:
     if dataset != "news_rss":
         return {}
-    summary = _news_resolution_summary(manifest)
+    summary = _news_resolution_summary(
+        manifest,
+        news_consumption_ledger_path=news_consumption_ledger_path,
+        current_source_ids=current_source_ids,
+    )
     return {
         "resolved_row_count": summary["resolved_row_count"],
         "unresolved_row_count": summary["unresolved_row_count"],
         "ambiguous_row_count": summary["ambiguous_row_count"],
+        "consumed_row_count": summary["consumed_row_count"],
+        "unused_resolved_row_count": summary["unused_resolved_row_count"],
         "resolved_ticker_count": summary["resolved_ticker_count"],
         "news_resolution_coverage_label": summary["coverage_label"],
+        "news_consumption_label": summary["consumption_label"],
     }
 
 
@@ -1016,13 +1067,24 @@ def _has_news_resolution_metadata(manifest: Mapping[str, object]) -> bool:
     )
 
 
-def _news_resolution_detail(manifest: Mapping[str, object]) -> str:
-    summary = _news_resolution_summary(manifest)
+def _news_resolution_detail(
+    manifest: Mapping[str, object],
+    *,
+    news_consumption_ledger_path: Path | None = None,
+    current_source_ids: set[str] | None = None,
+) -> str:
+    summary = _news_resolution_summary(
+        manifest,
+        news_consumption_ledger_path=news_consumption_ledger_path,
+        current_source_ids=current_source_ids,
+    )
     row_count = _int_value(summary["row_count"])
     resolved = _int_value(summary["resolved_row_count"])
     unresolved = _int_value(summary["unresolved_row_count"])
     ambiguous = _int_value(summary["ambiguous_row_count"])
     ticker_count = _int_value(summary["resolved_ticker_count"])
+    consumed = _int_value(summary["consumed_row_count"])
+    unused = _int_value(summary["unused_resolved_row_count"])
     confidence = _number_value(summary["resolution_min_confidence"])
     fetched_at = str(summary["fetched_at"])
     if not summary["has_resolution_metadata"]:
@@ -1041,8 +1103,46 @@ def _news_resolution_detail(manifest: Mapping[str, object]) -> str:
         f"RSS/news has {resolved} ticker-resolved RSS row(s), {unresolved} "
         f"unresolved generic row(s), and {ambiguous} ambiguous row(s) across "
         f"{ticker_count} ticker(s). Last RSS fetch: {fetched_at}. Minimum "
-        f"match confidence is {confidence:.2f}."
+        f"match confidence is {confidence:.2f}. Single-use ledger: {unused} "
+        f"resolved row(s) remain unused; {consumed} already used by prior live cycle(s)."
     )
+
+
+def _news_consumed_count(
+    path: Path | None,
+    *,
+    current_source_ids: set[str] | None = None,
+) -> int:
+    if path is None:
+        return 0
+    consumed_ids = set(load_news_consumption_entries(path))
+    if current_source_ids is not None:
+        return len(consumed_ids.intersection(current_source_ids))
+    return len(consumed_ids)
+
+
+def _news_resolved_source_ids(
+    manifest: Mapping[str, object],
+    parquet_root: Path,
+) -> set[str] | None:
+    path_value = manifest.get("path")
+    path = parquet_root / (path_value if isinstance(path_value, str) and path_value else "news_rss")
+    if not path.exists():
+        return None
+    try:
+        frame = pd.read_parquet(path)
+    except (FileNotFoundError, OSError, ValueError):
+        return None
+    if "source_id" not in frame.columns:
+        return None
+    if "ticker_match_status" in frame.columns:
+        statuses = frame["ticker_match_status"].fillna("").astype(str).str.lower()
+        frame = frame[statuses.isin({"resolved", "feed_ticker"})]
+    return {
+        str(source_id).strip()
+        for source_id in frame["source_id"].to_list()
+        if str(source_id).strip()
+    }
 
 
 def _dataset_status(
@@ -1287,6 +1387,8 @@ def _dataset_detail(
     known_ticker_coverage: bool,
     live_trade_lane: Mapping[str, object],
     daily_bar_lane: Mapping[str, object],
+    news_consumption_ledger_path: Path | None = None,
+    news_resolved_source_ids: set[str] | None = None,
 ) -> str:
     if not health:
         return (
@@ -1300,7 +1402,11 @@ def _dataset_detail(
             f"{_source_detail(health, now=now)}"
         )
     if dataset == "news_rss":
-        return _news_resolution_detail(manifest)
+        return _news_resolution_detail(
+            manifest,
+            news_consumption_ledger_path=news_consumption_ledger_path,
+            current_source_ids=news_resolved_source_ids,
+        )
     if group == "core":
         percent = round(coverage * PERCENT_SCALE)
         usable_percent = round((coverage if usable_coverage is None else usable_coverage) * PERCENT_SCALE)

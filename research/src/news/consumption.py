@@ -11,13 +11,22 @@ SCHEMA_VERSION = 1
 
 def load_consumed_news_ids(path: Path) -> set[str]:
     """Return RSS/news source IDs already used by a live decision cycle."""
+    return set(load_news_consumption_entries(path))
+
+
+def load_news_consumption_entries(path: Path) -> dict[str, dict[str, object]]:
+    """Return RSS/news consumption entries keyed by source ID."""
     if not path.is_file():
-        return set()
+        return {}
     payload = _read_ledger(path)
     items = payload.get("items")
     if not isinstance(items, Mapping):
-        return set()
-    return {str(source_id) for source_id in items if str(source_id).strip()}
+        return {}
+    return {
+        str(source_id): dict(entry)
+        for source_id, entry in items.items()
+        if str(source_id).strip() and isinstance(entry, Mapping)
+    }
 
 
 def mark_news_consumed(
