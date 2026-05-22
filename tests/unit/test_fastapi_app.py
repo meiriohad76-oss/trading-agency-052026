@@ -430,6 +430,85 @@ def test_shared_dashboard_data_health_identifies_unavailable_data_plainly() -> N
     assert "stale" not in str(health).lower()
 
 
+def test_shared_human_review_index_ignores_order_approval_events() -> None:
+    research_review = {
+        "cycle_id": "cycle-live",
+        "ticker": "AMZN",
+        "event_type": "HUMAN_REVIEW",
+        "status": "PASSED",
+        "reason": "paper review approved",
+        "event_time": "2026-05-22T16:13:22Z",
+        "payload": {
+            "as_of": "2026-05-22T00:00:00+00:00",
+            "review_decision": "APPROVE",
+        },
+    }
+    order_approval = {
+        "cycle_id": "cycle-live",
+        "ticker": "AMZN",
+        "event_type": "ORDER_APPROVAL",
+        "status": "PASSED",
+        "reason": "paper order intent approved",
+        "event_time": "2026-05-22T16:15:00Z",
+        "payload": {
+            "as_of": "2026-05-22T00:00:00+00:00",
+            "approval_type": "ORDER_APPROVAL",
+            "order_intent_hash": "a" * 64,
+        },
+    }
+
+    indexed = shared_module._human_review_index([order_approval, research_review])
+    summary = shared_module._human_review_summary(
+        indexed[("cycle-live", "AMZN", "2026-05-22T00:00:00+00:00")]
+    )
+
+    assert summary["decision"] == "Approve"
+    assert summary["reason"] == "paper review approved"
+
+
+def test_shared_dashboard_data_health_treats_partial_live_trades_as_usable() -> None:
+    health = shared_module.dashboard_data_health(
+        "AMZN candidate brief",
+        data_load_status={
+            "overall_percent": 65,
+            "cycle_id": "live-pit-current",
+            "health_monitor": {
+                "status_label": "Live Health Monitor",
+                "status_class": "pass",
+                "live": True,
+                "reliable": True,
+                "row_count": 7,
+                "latest_checked_at": "2026-05-22T16:06:00+00:00",
+            },
+            "datasets": [
+                {
+                    "dataset": "stock_trades",
+                    "label": "Massive trade prints",
+                    "status_label": "Attention",
+                    "status_class": "warn",
+                    "source_freshness": "PARTIAL",
+                    "coverage_pct": 18,
+                    "usable_ticker_count": 28,
+                    "expected_ticker_count": 168,
+                    "row_count": 224245,
+                    "detail": (
+                        "massive_live_trade_slices lane is DEGRADED / PARTIAL; "
+                        "manifest checked 3m 58s ago; 28/30 ticker(s) usable, "
+                        "2 missing/partial, 28 partial slices, 0 failed."
+                    ),
+                }
+            ],
+            "lanes": [],
+        },
+        datasets=("stock_trades",),
+    )
+
+    assert health["status_label"] == "Usable With Gaps"
+    assert health["primary_blocker"] == "Massive trade prints - Attention"
+    assert "problem reaching or loading" not in str(health["meaning"]).lower()
+    assert "Data unavailable" not in str(health)
+
+
 def test_shared_dashboard_data_health_offers_refresh_queue_for_warning_issue() -> None:
     health = shared_module.dashboard_data_health(
         "Candidate brief",

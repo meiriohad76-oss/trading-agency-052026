@@ -34,7 +34,10 @@ def source_health_rows(
         )
         source_timestamp = _first_text(
             item.get("last_update"),
+            item.get("checked_at"),
+            item.get("latest_checked_at"),
             item.get("source_timestamp"),
+            item.get("source_last_success_at"),
             item.get("updated_at"),
         )
         analysis_timestamp = _first_text(
@@ -62,6 +65,29 @@ def source_health_rows(
 
 
 def source_state(source: Mapping[str, object]) -> dict[str, str]:
+    status_class = _first_text(source.get("status_class")).lower()
+    status_label = _first_text(source.get("status"), source.get("status_label")).lower()
+    freshness = _first_text(source.get("freshness"), source.get("freshness_label")).lower()
+    has_proof_timestamp = bool(
+        _first_text(
+            source.get("last_update"),
+            source.get("checked_at"),
+            source.get("latest_checked_at"),
+            source.get("source_timestamp"),
+            source.get("source_last_success_at"),
+            source.get("updated_at"),
+        )
+    )
+    if (
+        status_class == "pass"
+        or status_label in {"healthy", "ok", "loaded", "pass"}
+        or freshness == "fresh"
+    ) and has_proof_timestamp:
+        return {
+            "state": "ready",
+            "label": "Usable with proof timestamp",
+            "next_action": "No action needed unless the policy window expires.",
+        }
     status_text = " ".join(
         _first_text(source.get(key))
         for key in ("status_class", "status_label", "freshness_label", "detail")

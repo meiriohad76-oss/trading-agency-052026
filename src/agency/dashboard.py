@@ -79,6 +79,7 @@ from agency.views.cockpit import (  # noqa: F401
     cockpit_audit_payload,
     cockpit_context,
     cockpit_cycle_payload,
+    cockpit_ticker_detail_payload,
     normalize_ticker,
     safe_cockpit_api_payload,
 )
@@ -198,6 +199,14 @@ async def cockpit_cycle_api() -> dict[str, object]:
 async def cockpit_audit_api(ticker: str) -> dict[str, object]:
     try:
         return cockpit_audit_payload(await cockpit_context(), ticker)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/api/cockpit/ticker/{ticker}")
+async def cockpit_ticker_detail_api(ticker: str) -> dict[str, object]:
+    try:
+        return await cockpit_ticker_detail_payload(normalize_ticker(ticker))
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

@@ -441,10 +441,17 @@ def _human_review_index(
 ) -> dict[tuple[str, str, str], Mapping[str, object]]:
     indexed: dict[tuple[str, str, str], Mapping[str, object]] = {}
     for event in review_events:
+        if not _is_human_review_event(event):
+            continue
         key = _human_review_key(event)
         if all(key) and key not in indexed:
             indexed[key] = event
     return indexed
+
+def _is_human_review_event(event: Mapping[str, object]) -> bool:
+    payload = _mapping_field(event, "payload")
+    event_type = str(event.get("event_type") or "").upper()
+    return event_type == "HUMAN_REVIEW" or "review_decision" in payload
 
 def _runtime_payload_key(payload: Mapping[str, object]) -> tuple[str, str, str]:
     return (
@@ -989,6 +996,11 @@ def _operator_issue_state(
     row_count = _safe_int(row.get("row_count"))
     produced_count = _safe_int(row.get("produced_count"))
     expected_count = _safe_int(row.get("expected_count") or row.get("expected_ticker_count"))
+    usable_count = _safe_int(
+        row.get("usable_ticker_count")
+        or row.get("active_usable_ticker_count")
+        or row.get("source_usable_ticker_count")
+    )
 
     if kind == "Health monitor":
         if "stale" in status_label or "older than" in detail_lc or status == "STALE":
@@ -998,6 +1010,16 @@ def _operator_issue_state(
         ):
             return "health_proof_unavailable"
         return "verified_current" if status_class == "pass" else "unverified"
+
+    if status_class in {"warn", "warning"} and (
+        usable_count > 0
+        or row_count > 0
+        or "partial_usable" in detail_lc
+        or "ticker(s) usable" in detail_lc
+    ):
+        if freshness == "STALE" or status == "STALE" or "older than" in detail_lc:
+            return "refresh_recommended"
+        return "usable_with_gaps"
 
     unavailable_tokens = (
         "unavailable",

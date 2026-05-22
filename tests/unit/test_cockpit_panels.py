@@ -67,6 +67,26 @@ def test_ticker_panel_shows_llm_rationale_or_not_run_reason() -> None:
     assert "data-ticker-llm-rationale" in _panels()
 
 
+def test_ticker_panel_has_rich_evidence_targets() -> None:
+    html = _panels()
+    script = Path("src/agency/static/cockpit.js").read_text(encoding="utf-8")
+    template = _template()
+
+    for target in (
+        "data-ticker-headline",
+        "data-ticker-next-step",
+        "data-ticker-data-health",
+        "data-ticker-support",
+        "data-ticker-caution",
+        "data-ticker-signals",
+        "data-ticker-detail-link",
+    ):
+        assert target in html
+    assert "/api/cockpit/ticker/" in script
+    assert "#cockpit-panel-ticker-detail" in script
+    assert "ux-v3-rich-ticker-detail-20260522" in template
+
+
 def test_audit_panel_shows_cycle_and_evidence_hash_when_available() -> None:
     sources = _sample_sources()
     sources["dashboard"]["review_queue"][0]["evidence_hash"] = "hash-bbb"  # type: ignore[index]

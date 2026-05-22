@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agency.views.cockpit import cockpit_context_from_sources
+from agency.views.cockpit import (
+    cockpit_context_from_sources,
+    cockpit_ticker_detail_payload_from_context,
+)
 from tests.unit.test_cockpit_contract import _sample_sources
 
 TEMPLATE = Path("src/agency/templates/cockpit.html")
@@ -106,6 +109,55 @@ def test_watch_candidate_with_pending_review_has_research_approval_controls() ->
     assert row["evidence_line"] == "5 independent source(s); 2 confirmed signal(s)."
 
 
+def test_approved_watch_candidate_uses_ready_execution_preview_as_orderable() -> None:
+    sources = _sample_sources()
+    sources["dashboard"]["review_queue"] = [  # type: ignore[index]
+        {
+            "ticker": "AMZN",
+            "action": "WATCH",
+            "conviction_pct": 69,
+            "gate_status": "PASS",
+            "risk_decision": "WARN",
+            "review_state": "Ready",
+            "human_review_decision": "Approve",
+            "source_count": 5,
+            "confirmed_signal_count": 2,
+            "cycle_id": "cycle-live-20260522-1530",
+            "as_of": "2026-05-22T00:00:00+00:00",
+        }
+    ]
+    sources["execution"]["preview_rows"] = [  # type: ignore[index]
+        {
+            "ticker": "AMZN",
+            "preview_state": "READY",
+            "side": "BUY",
+            "submit_enabled": True,
+            "order_value_label": "$1000.00",
+            "notional": 1000.0,
+            "order_intent_hash": "a" * 64,
+            "order_intent_hash_label": "aaaaaaaaaaaa",
+            "llm_status_label": "LLM review available",
+            "llm_rationale": "LLM agrees with the promoted paper BUY preview.",
+        }
+    ]
+    sources["execution"]["orderable_rows"] = sources["execution"]["preview_rows"]  # type: ignore[index]
+
+    context = cockpit_context_from_sources(sources)
+    row = context["candidates"][0]
+    manifest = context["clearance"]["manifest"]
+
+    assert row["ticker"] == "AMZN"
+    assert row["actionable"] is True
+    assert row["status"] == "approved"
+    assert row["status_label"] == "Ready for paper order"
+    assert row["action_label"] == "Review paper order"
+    assert row["order_preview"] == "$1000.00"
+    assert row["order_notional"] == 1000.0
+    assert row["llm_label"] == "LLM review available"
+    assert manifest[0]["ticker"] == "AMZN"
+    assert manifest[0]["kind"] == "buy"
+
+
 def test_llm_not_run_copy_is_explicit_for_non_top_ten() -> None:
     sources = _sample_sources()
     queue = sources["dashboard"]["review_queue"]  # type: ignore[index]
@@ -135,5 +187,98 @@ def test_candidate_status_copy_is_operator_facing() -> None:
     context = cockpit_context_from_sources(_sample_sources())
     rows = {row["ticker"]: row for row in context["candidates"]}
 
-    assert rows["AAA"]["status_label"] == "Ready for your decision"
+    assert rows["AAA"]["status_label"] == "Ready for paper order"
     assert rows["CCC"]["status_label"] == "Audit only - policy gate blocks order"
+
+
+def test_cockpit_ticker_detail_payload_surfaces_rich_candidate_brief() -> None:
+    payload = cockpit_ticker_detail_payload_from_context(
+        {
+            "ticker": "AMZN",
+            "decision_brief": {
+                "ticker": "AMZN",
+                "headline": "AMZN is selected for human review.",
+                "detail": "Selected because buy/sell pressure and abnormal volume are constructive.",
+                "next_step": "Human review is recorded as Approve; monitor the next runtime cycle.",
+                "action_label": "Watch",
+                "state_label": "Selected For Review",
+                "conviction_pct": 69,
+                "source_count": 5,
+                "confirmed_signal_count": 2,
+                "support_cards": [
+                    {
+                        "label": "Buy Sell Pressure",
+                        "detail": "Hard evidence: score +0.87 bullish, 55% confidence, source Massive Stock Trades.",
+                        "meta": "Actionable / FRESH / Inferred",
+                        "tone": "pass",
+                    }
+                ],
+                "caution_cards": [
+                    {
+                        "label": "Market Flow Trend",
+                        "detail": "Hard evidence: score -0.59 bearish, 55% confidence.",
+                        "meta": "Context Only / FRESH / Inferred",
+                        "tone": "block",
+                    }
+                ],
+                "decision_points": [
+                    {
+                        "label": "Evidence breadth",
+                        "detail": "5 independent source(s), 2 confirmed signal(s).",
+                        "tone": "pass",
+                    }
+                ],
+                "signal_mix_note": "3 actionable bullish, 0 actionable bearish.",
+            },
+            "latest_report": {
+                "ticker": "AMZN",
+                "cycle_id": "cycle-live",
+                "as_of": "2026-05-22T00:00:00+00:00",
+                "llm_status_label": "Included",
+                "llm_status_detail": "LLM reviewed the top-10 candidate.",
+                "llm_action": "AGREE",
+                "llm_confidence_pct": 70,
+                "llm_rationale": "LLM agrees with WATCH because bullish signals are confirmed but caution remains.",
+                "actionable_signals": [
+                    {
+                        "lane": "Buy Sell Pressure",
+                        "direction": "BULLISH",
+                        "actionability_label": "Actionable",
+                        "freshness": "FRESH",
+                        "verification_label": "Inferred",
+                        "score": "+0.87 bullish",
+                        "confidence_pct": 55,
+                        "source": "Massive Stock Trades",
+                        "timestamp_label": "2026-05-22 13:16 UTC",
+                        "trigger_headline": "AMZN Buy Sell Pressure signal was constructive.",
+                        "trigger_cards": [
+                            {"label": "Score", "value": "+0.87 bullish"},
+                            {"label": "Confidence", "value": "55%"},
+                        ],
+                    }
+                ],
+                "context_signals": [],
+                "suppressed_signals": [],
+            },
+            "data_health": {
+                "status_label": "Usable With Gaps",
+                "status_class": "warn",
+                "headline": "AMZN candidate brief is usable, but Massive trade prints needs attention.",
+                "recommended_action": "Review the caution for Massive trade prints.",
+                "primary_blocker": "Massive trade prints - Attention",
+                "primary_blocker_detail": "28/30 ticker(s) usable.",
+                "overall_percent": 65,
+                "last_verified_label": "2026-05-22 16:06 UTC",
+            },
+            "review": {"decision": "Approve", "reason": "paper review approved"},
+        }
+    )
+
+    assert payload["ticker"] == "AMZN"
+    assert payload["headline"] == "AMZN is selected for human review."
+    assert payload["llm"]["status_label"] == "Included"
+    assert payload["support_cards"][0]["detail"].startswith("Hard evidence: score +0.87")
+    assert payload["signals"][0]["hard_evidence"] == (
+        "Score +0.87 bullish; Confidence 55%"
+    )
+    assert payload["data_health"]["status_label"] == "Usable With Gaps"

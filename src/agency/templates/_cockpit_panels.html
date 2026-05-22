@@ -137,6 +137,7 @@
       <button type="button" class="cockpit-panel-close" data-cockpit-panel-close>Close panel</button>
       <h2 id="cockpit-panel-ticker-heading" data-ticker-title>Ticker Detail</h2>
       <p class="muted" data-ticker-summary>Open from a candidate row to inspect factor evidence, LLM rationale, order preview, and gates.</p>
+      <p class="panel-note" data-ticker-headline>Decision headline appears after a ticker is selected.</p>
       <div class="cockpit-ticker-grid">
         <article>
           <span>Order preview</span>
@@ -150,13 +151,34 @@
           <span>Status</span>
           <strong data-ticker-status>--</strong>
         </article>
+        <article>
+          <span>Data health</span>
+          <strong data-ticker-data-health>--</strong>
+        </article>
+        <article>
+          <span>Sources</span>
+          <strong data-ticker-sources>--</strong>
+        </article>
+        <article>
+          <span>Human review</span>
+          <strong data-ticker-review>--</strong>
+        </article>
       </div>
+      <h3>Next step</h3>
+      <p data-ticker-next-step>Open a ticker row to see the recommended next operator action.</p>
       <h3>LLM rationale</h3>
       <p data-ticker-llm-rationale>Open a ticker row to see the LLM rationale or the not-run reason.</p>
+      <h3>What supports it</h3>
+      <div class="cockpit-panel-list cockpit-ticker-support" data-ticker-support></div>
+      <h3>What could be wrong</h3>
+      <div class="cockpit-panel-list cockpit-ticker-caution" data-ticker-caution></div>
+      <h3>Primary signal evidence</h3>
+      <div class="cockpit-panel-list cockpit-ticker-signals" data-ticker-signals></div>
       <h3>Evidence pack</h3>
       <ul data-ticker-evidence></ul>
       <h3>Gates</h3>
       <p data-ticker-gates>Gate detail appears after a ticker is selected.</p>
+      <a class="button button-secondary" href="#" data-ticker-detail-link>Open full candidate brief</a>
     </article>
   </section>
 </div>

@@ -198,12 +198,15 @@
               <span>{{ candidate.risk_line|default("No major risk flag in current pack.", true) }}</span>
             </span>
             <span class="cockpit-status-cell">
-              <span class="status-pill status-pill-{% if candidate.reviewable %}pass{% else %}warn{% endif %}">{{ candidate.status_label|default("Ready for review", true) }}</span>
+              <span class="status-pill status-pill-{% if candidate.actionable or candidate.reviewable %}pass{% else %}warn{% endif %}">{{ candidate.status_label|default("Ready for review", true) }}</span>
               <span>{{ candidate.llm_label|default("LLM not run for this ticker", true) }}</span>
             </span>
           </button>
           <div class="cockpit-decision-cell">
-            {% if candidate.reviewable %}
+            {% if candidate.actionable %}
+              <a class="button button-primary" href="{{ candidate.order_action_url|default('/execution-preview#orderable-heading', true) }}">Review paper order</a>
+              <a class="button button-secondary" href="{{ candidate.detail_url }}">Open brief</a>
+            {% elif candidate.reviewable %}
               <form method="post" action="{{ candidate.approve_review_action }}">
                 {% if candidate.caution_acknowledgement_required %}
                   <label class="microcopy">
@@ -351,5 +354,5 @@
 {% endblock %}
 
 {% block extra_scripts %}
-  <script src="/static/cockpit.js?v=ux-v3-review-actions-20260522" defer></script>
+  <script src="/static/cockpit.js?v=ux-v3-rich-ticker-detail-20260522" defer></script>
 {% endblock %}

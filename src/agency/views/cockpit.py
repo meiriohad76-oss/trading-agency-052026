@@ -156,6 +156,103 @@ def cockpit_audit_payload(context: Mapping[str, object], ticker: str) -> dict[st
     return {"ticker": normalized, "events": events}
 
 
+async def cockpit_ticker_detail_payload(ticker: str) -> dict[str, object]:
+    """Return a compact rich-detail payload for the cockpit ticker drawer."""
+
+    from agency.views.candidates import candidate_detail_context
+
+    return cockpit_ticker_detail_payload_from_context(
+        await candidate_detail_context(normalize_ticker(ticker))
+    )
+
+
+def cockpit_ticker_detail_payload_from_context(
+    context: Mapping[str, object],
+) -> dict[str, object]:
+    """Map the classic candidate brief context into a small cockpit API payload."""
+
+    ticker = normalize_ticker(_first_text(context.get("ticker"), default="TICKER"))
+    brief = _mapping(context.get("decision_brief"))
+    latest = _mapping(context.get("latest_report"))
+    review = _mapping(context.get("review"))
+    data_health = _mapping(context.get("data_health"))
+    email_evidence = _mapping(context.get("email_evidence"))
+    news_evidence = _mapping(context.get("news_evidence"))
+    payload = {
+        "ticker": ticker,
+        "title": f"{ticker} Detail",
+        "summary": _first_text(
+            brief.get("detail"),
+            latest.get("decision_takeaway"),
+            default="No current candidate detail is available.",
+        ),
+        "headline": _first_text(
+            brief.get("headline"),
+            latest.get("decision_explanation"),
+            default=f"{ticker} has a recorded candidate report.",
+        ),
+        "next_step": _first_text(
+            brief.get("next_step"),
+            latest.get("review_next_step"),
+            default="Review the latest candidate report before taking action.",
+        ),
+        "action_label": _first_text(brief.get("action_label"), latest.get("action")),
+        "status_label": _first_text(brief.get("state_label"), latest.get("action")),
+        "conviction_pct": _int(brief.get("conviction_pct"), latest.get("conviction_pct")),
+        "source_count": _int(brief.get("source_count"), latest.get("source_count")),
+        "confirmed_signal_count": _int(
+            brief.get("confirmed_signal_count"),
+            latest.get("confirmed_signal_count"),
+        ),
+        "llm": {
+            "status_label": _first_text(latest.get("llm_status_label"), default="Not run"),
+            "status_detail": _first_text(latest.get("llm_status_detail")),
+            "action": _first_text(latest.get("llm_action"), default="None"),
+            "confidence_pct": _int(latest.get("llm_confidence_pct")),
+            "rationale": _first_text(
+                latest.get("llm_rationale"),
+                default="LLM review has not produced a rationale for this ticker yet.",
+            ),
+        },
+        "data_health": {
+            "status_label": _first_text(data_health.get("status_label"), default="Unverified"),
+            "status_class": _first_text(data_health.get("status_class"), default="neutral"),
+            "headline": _first_text(data_health.get("headline")),
+            "recommended_action": _first_text(data_health.get("recommended_action")),
+            "primary_blocker": _first_text(data_health.get("primary_blocker")),
+            "primary_blocker_detail": _first_text(data_health.get("primary_blocker_detail")),
+            "overall_percent": _int(data_health.get("overall_percent")),
+            "last_verified_label": _first_text(data_health.get("last_verified_label")),
+        },
+        "review": {
+            "decision": _first_text(review.get("decision"), default="Pending"),
+            "reason": _first_text(review.get("reason")),
+            "event_time_label": _first_text(review.get("event_time_label")),
+        },
+        "support_cards": _compact_cards(_list(brief.get("support_cards"))),
+        "caution_cards": _compact_cards(_list(brief.get("caution_cards"))),
+        "decision_points": _compact_cards(_list(brief.get("decision_points"))),
+        "signal_mix_note": _first_text(brief.get("signal_mix_note")),
+        "signals": _compact_signals(
+            [
+                *_list(latest.get("actionable_signals")),
+                *_list(latest.get("context_signals")),
+                *_list(latest.get("suppressed_signals")),
+            ]
+        ),
+        "context_cards": [
+            card
+            for card in (
+                _compact_evidence_context("Subscription email", email_evidence),
+                _compact_evidence_context("News/RSS", news_evidence),
+            )
+            if card
+        ],
+        "detail_url": f"/candidates/{ticker}",
+    }
+    return _scrub_secrets(payload)
+
+
 def normalize_ticker(value: str) -> str:
     ticker = value.strip().upper()
     if not re.fullmatch(r"[A-Z][A-Z0-9.\-]{0,9}", ticker):
@@ -336,9 +433,20 @@ def _candidate_rows(
             item.get("conviction_pct"),
         )
         preview = previews.get(ticker, {})
+        preview_state = _first_text(preview.get("preview_state")).upper()
+        preview_side = _first_text(preview.get("side")).upper()
+        preview_ready = preview_state == "READY" and preview_side in TRADE_ACTIONS
         gate_blocked = "BLOCK" in risk_label
-        actionable = action in TRADE_ACTIONS and item.get("is_reviewable") is not False and not gate_blocked
-        reviewable = _candidate_is_reviewable(item, gate_blocked=gate_blocked)
+        actionable = (
+            (action in TRADE_ACTIONS or preview_ready)
+            and item.get("is_reviewable") is not False
+            and not gate_blocked
+        )
+        reviewable = (
+            False
+            if actionable
+            else _candidate_is_reviewable(item, gate_blocked=gate_blocked)
+        )
         status = "approved" if actionable else "blocked" if "BLOCK" in risk_label else "demoted"
         evidence_items = _evidence_items(item)
         evidence_line = evidence_items[0]["text"]
@@ -355,13 +463,23 @@ def _candidate_rows(
                 "ticker": ticker,
                 "name": _first_text(item.get("company"), item.get("name"), default=ticker),
                 "sector": _first_text(item.get("sector"), default="Sector not reported"),
-                "direction": "short" if action in {"SELL", "SHORT", "COVER"} else "long",
+                "direction": "short" if (preview_side or action) in {"SELL", "SHORT", "COVER"} else "long",
                 "det_conviction": _score(item.get("det_conviction"), item.get("deterministic_score_label")),
-                "llm_conviction": _score(item.get("llm_conviction"), item.get("llm_score_label")),
-                "llm_label": _first_text(item.get("llm_status_label"), default=""),
+                "llm_conviction": _score(
+                    item.get("llm_conviction"),
+                    item.get("llm_score_label"),
+                    preview.get("llm_confidence_pct"),
+                ),
+                "llm_label": _first_text(
+                    item.get("llm_status_label"),
+                    preview.get("llm_status_label"),
+                    preview.get("llm_action"),
+                    default="",
+                ),
                 "llm_rationale": _first_text(
                     item.get("llm_rationale"),
                     item.get("llm_summary"),
+                    preview.get("llm_rationale"),
                     item.get("llm_status_label"),
                     default="LLM not run for this ticker",
                 ),
@@ -378,8 +496,21 @@ def _candidate_rows(
                 "blocker": None if actionable else risk_text,
                 "actionable": actionable,
                 "reviewable": reviewable,
-                "action_label": "Approve, defer, or reject" if reviewable else "Open audit",
-                "decision_controls": ["approve", "defer", "reject"] if reviewable else ["audit"],
+                "action_label": (
+                    "Review paper order"
+                    if actionable
+                    else "Approve, defer, or reject"
+                    if reviewable
+                    else "Open audit"
+                ),
+                "decision_controls": (
+                    ["order"]
+                    if actionable
+                    else ["approve", "defer", "reject"]
+                    if reviewable
+                    else ["audit"]
+                ),
+                "order_action_url": "/execution-preview#orderable-heading" if actionable else "",
                 "approve_review_action": _first_text(item.get("approve_review_action")),
                 "defer_review_action": _first_text(item.get("defer_review_action")),
                 "reject_review_action": _first_text(item.get("reject_review_action")),
@@ -396,7 +527,11 @@ def _candidate_rows(
                 "risk_line": risk_text,
                 "risk_hard_value": _first_metric(risk_text),
                 "risk_status_label": _first_text(item.get("risk_status_label"), default="No major risk flag"),
-                "order_preview": _first_text(preview.get("notional_label"), preview.get("order_value_label"), default="No paper order yet"),
+                "order_preview": _first_text(
+                    preview.get("notional_label"),
+                    preview.get("order_value_label"),
+                    default="No paper order yet",
+                ),
                 "order_notional": _money_value(preview.get("notional"), preview.get("notional_label"), preview.get("order_value_label")),
                 "order_intent_hash": _first_text(preview.get("order_intent_hash"), default=""),
                 "order_intent_hash_label": _first_text(preview.get("order_intent_hash_label"), default=""),
@@ -789,6 +924,94 @@ def _evidence_items(item: Mapping[str, object]) -> list[dict[str, str]]:
     ]
 
 
+def _compact_cards(cards: Sequence[object], *, limit: int = 4) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for raw in cards[:limit]:
+        card = _mapping(raw)
+        label = _first_text(card.get("label"), card.get("title"), default="Evidence")
+        detail = _first_text(card.get("detail"), card.get("text"), default="Detail unavailable.")
+        meta = _first_text(card.get("meta"), card.get("tone"))
+        tone = _first_text(card.get("tone"), default="neutral")
+        rows.append({"label": label, "detail": detail, "meta": meta, "tone": tone})
+    return rows
+
+
+def _compact_signals(signals: Sequence[object], *, limit: int = 8) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for raw in signals[:limit]:
+        signal = _mapping(raw)
+        lane = _first_text(signal.get("lane"), default="Signal")
+        score = _first_text(signal.get("score"))
+        confidence = _first_text(signal.get("confidence_pct"))
+        confidence_label = f"{confidence}%" if confidence and not confidence.endswith("%") else confidence
+        source = _first_text(signal.get("source"), signal.get("source_key"), default="source unknown")
+        timestamp = _first_text(signal.get("timestamp_label"), signal.get("timestamp_as_of"))
+        hard_evidence = _signal_hard_evidence(signal, score=score, confidence=confidence_label)
+        summary = _first_text(
+            signal.get("trigger_headline"),
+            signal.get("summary"),
+            default=f"{lane} signal was recorded.",
+        )
+        rows.append(
+            {
+                "lane": lane,
+                "direction": _first_text(signal.get("direction"), default="NEUTRAL"),
+                "actionability": _first_text(signal.get("actionability_label"), default="Context"),
+                "freshness": _first_text(signal.get("freshness"), default="unknown"),
+                "verification": _first_text(signal.get("verification_label"), default="unverified"),
+                "score": score,
+                "confidence": confidence_label,
+                "source": source,
+                "timestamp": timestamp,
+                "summary": summary,
+                "detail": _first_text(signal.get("trigger_detail"), signal.get("reason_text")),
+                "reason": _first_text(signal.get("reason_codes_label"), signal.get("reason_text")),
+                "hard_evidence": hard_evidence,
+            }
+        )
+    return rows
+
+
+def _signal_hard_evidence(
+    signal: Mapping[str, object],
+    *,
+    score: str,
+    confidence: str,
+) -> str:
+    cards = [_mapping(card) for card in _list(signal.get("trigger_cards"))]
+    pieces: list[str] = []
+    for card in cards[:4]:
+        label = _first_text(card.get("label"))
+        value = _first_text(card.get("value"))
+        if label and value:
+            pieces.append(f"{label} {value}")
+    if not pieces and score:
+        pieces.append(f"Score {score}")
+    if not pieces and _first_text(signal.get("source")):
+        pieces.append(f"Source {_first_text(signal.get('source'))}")
+    if confidence and not any(piece.lower().startswith("confidence ") for piece in pieces):
+        pieces.append(f"Confidence {confidence}")
+    return "; ".join(pieces)
+
+
+def _compact_evidence_context(
+    label: str,
+    evidence: Mapping[str, object],
+) -> dict[str, str] | None:
+    if not evidence:
+        return None
+    meaning = _first_text(evidence.get("meaning"), evidence.get("status_label"))
+    detail = _first_text(evidence.get("detail"), evidence.get("reason"))
+    if not meaning and not detail:
+        return None
+    return {
+        "label": label,
+        "detail": detail or meaning,
+        "meta": meaning,
+        "tone": _first_text(evidence.get("status_class"), default="neutral"),
+    }
+
+
 def _candidate_is_reviewable(item: Mapping[str, object], *, gate_blocked: bool) -> bool:
     if gate_blocked:
         return False
@@ -806,7 +1029,7 @@ def _candidate_is_reviewable(item: Mapping[str, object], *, gate_blocked: bool) 
 
 def _candidate_status_label(*, actionable: bool, reviewable: bool, risk_label: str) -> str:
     if actionable:
-        return "Ready for your decision"
+        return "Ready for paper order"
     if reviewable:
         return "Ready for research review"
     if "BLOCK" in risk_label:

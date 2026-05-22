@@ -110,15 +110,18 @@
   });
 
   document.querySelectorAll("[data-cockpit-ticker-detail]").forEach((button) => {
-    button.addEventListener("click", (event) => {
+    button.addEventListener("click", async (event) => {
       event.stopPropagation();
       const raw = button.getAttribute("data-cockpit-ticker-payload") || "{}";
+      let candidate = {};
       try {
-        populateTickerPanel(JSON.parse(raw));
+        candidate = JSON.parse(raw);
       } catch (_error) {
-        populateTickerPanel({});
+        candidate = {};
       }
+      populateTickerPanel(candidate, { loading: true });
       openPanel("ticker-detail", button);
+      await loadTickerPanelDetails(candidate);
     });
   });
 
@@ -364,30 +367,156 @@
     activeTrigger = null;
   }
 
-  function populateTickerPanel(candidate) {
-    const title = document.querySelector("[data-ticker-title]");
-    const summary = document.querySelector("[data-ticker-summary]");
-    const order = document.querySelector("[data-ticker-order-preview]");
-    const conviction = document.querySelector("[data-ticker-conviction]");
-    const status = document.querySelector("[data-ticker-status]");
-    const llm = document.querySelector("[data-ticker-llm-rationale]");
-    const gates = document.querySelector("[data-ticker-gates]");
-    const evidence = document.querySelector("[data-ticker-evidence]");
+  async function loadTickerPanelDetails(candidate) {
+    const ticker = candidate.ticker || "";
+    if (!ticker) {
+      return;
+    }
+    try {
+      const response = await fetch(`/api/cockpit/ticker/${encodeURIComponent(ticker)}`, {
+        headers: { Accept: "application/json" },
+      });
+      if (!response.ok) {
+        throw new Error(`detail API returned HTTP ${response.status}`);
+      }
+      const payload = await response.json();
+      populateTickerPanel({ ...candidate, ...payload }, { loading: false });
+    } catch (error) {
+      populateTickerPanel({
+        ...candidate,
+        detail_load_error: `Could not load full candidate brief: ${error}`,
+      }, { loading: false });
+    }
+  }
+
+  function populateTickerPanel(candidate, options = {}) {
+    const panel = document.querySelector("#cockpit-panel-ticker-detail");
+    if (!panel) {
+      return;
+    }
+    const title = panel.querySelector("[data-ticker-title]");
+    const summary = panel.querySelector("[data-ticker-summary]");
+    const headline = panel.querySelector("[data-ticker-headline]");
+    const order = panel.querySelector("[data-ticker-order-preview]");
+    const conviction = panel.querySelector("[data-ticker-conviction]");
+    const status = panel.querySelector("[data-ticker-status]");
+    const dataHealth = panel.querySelector("[data-ticker-data-health]");
+    const sources = panel.querySelector("[data-ticker-sources]");
+    const review = panel.querySelector("[data-ticker-review]");
+    const nextStep = panel.querySelector("[data-ticker-next-step]");
+    const llm = panel.querySelector("[data-ticker-llm-rationale]");
+    const gates = panel.querySelector("[data-ticker-gates]");
+    const evidence = panel.querySelector("[data-ticker-evidence]");
+    const support = panel.querySelector("[data-ticker-support]");
+    const caution = panel.querySelector("[data-ticker-caution]");
+    const signals = panel.querySelector("[data-ticker-signals]");
+    const detailLink = panel.querySelector("[data-ticker-detail-link]");
+    const richLlm = candidate.llm || {};
+    const health = candidate.data_health || {};
+    const reviewState = candidate.review || {};
     if (title) title.textContent = `${candidate.ticker || "Ticker"} Detail`;
-    if (summary) summary.textContent = `${candidate.name || ""} ${candidate.sector || ""}`.trim();
+    if (summary) summary.textContent = candidate.summary || `${candidate.name || ""} ${candidate.sector || ""}`.trim();
+    if (headline) headline.textContent = candidate.headline || "Candidate brief is loading.";
     if (order) order.textContent = candidate.order_preview || "No paper order yet";
-    if (conviction) conviction.textContent = candidate.score_display || "--";
+    if (conviction) conviction.textContent = candidate.conviction_pct ? `${candidate.conviction_pct}%` : candidate.score_display || "--";
     if (status) status.textContent = candidate.status_label || "--";
-    if (llm) llm.textContent = candidate.llm_rationale || candidate.llm_label || "LLM not run for this ticker";
+    if (dataHealth) dataHealth.textContent = health.status_label || (options.loading ? "Loading..." : "--");
+    if (sources) {
+      const sourceCount = candidate.source_count || 0;
+      const confirmedCount = candidate.confirmed_signal_count || 0;
+      sources.textContent = sourceCount || confirmedCount ? `${sourceCount} sources / ${confirmedCount} confirmed` : "--";
+    }
+    if (review) review.textContent = reviewState.decision || candidate.human_review_decision || "Pending";
+    if (nextStep) nextStep.textContent = candidate.next_step || health.recommended_action || "Review the full candidate brief before acting.";
+    if (llm) {
+      const llmStatus = richLlm.status_label || candidate.llm_label || "LLM not run";
+      const llmAction = richLlm.action ? ` ${richLlm.action}.` : "";
+      const llmConfidence = richLlm.confidence_pct ? ` Confidence ${richLlm.confidence_pct}%.` : "";
+      const rationale = richLlm.rationale || candidate.llm_rationale || candidate.llm_label || "LLM not run for this ticker";
+      llm.textContent = `${llmStatus}.${llmAction}${llmConfidence} ${rationale}`.trim();
+    }
     if (gates) gates.textContent = candidate.risk_line || "No gate detail available.";
+    renderCards(support, candidate.support_cards || [], "No constructive driver is active in the loaded brief.");
+    renderCards(caution, candidate.caution_cards || [], "No caution driver is active in the loaded brief.");
+    renderSignals(signals, candidate.signals || [], options.loading);
+    if (detailLink) {
+      detailLink.href = candidate.detail_url || (candidate.ticker ? `/candidates/${candidate.ticker}` : "#");
+    }
     if (evidence) {
       evidence.innerHTML = "";
-      (candidate.evidence || []).forEach((item) => {
+      if (candidate.detail_load_error) {
         const li = document.createElement("li");
-        li.textContent = `${item.tier || "evidence"}: ${item.text || ""}`;
+        li.textContent = candidate.detail_load_error;
+        evidence.appendChild(li);
+      }
+      (candidate.decision_points || candidate.evidence || []).forEach((item) => {
+        const li = document.createElement("li");
+        li.textContent = `${item.label || item.tier || "evidence"}: ${item.detail || item.text || ""}`;
         evidence.appendChild(li);
       });
     }
+  }
+
+  function renderCards(target, cards, emptyText) {
+    if (!target) {
+      return;
+    }
+    target.innerHTML = "";
+    if (!cards.length) {
+      const item = document.createElement("article");
+      item.textContent = emptyText;
+      target.appendChild(item);
+      return;
+    }
+    cards.forEach((card) => {
+      const item = document.createElement("article");
+      const title = document.createElement("strong");
+      const detail = document.createElement("p");
+      const meta = document.createElement("small");
+      title.textContent = card.label || "Evidence";
+      detail.textContent = card.detail || "Detail unavailable.";
+      meta.textContent = card.meta || "";
+      item.append(title, detail, meta);
+      target.appendChild(item);
+    });
+  }
+
+  function renderSignals(target, signals, loading) {
+    if (!target) {
+      return;
+    }
+    target.innerHTML = "";
+    if (loading) {
+      const item = document.createElement("article");
+      item.textContent = "Loading detailed signal evidence...";
+      target.appendChild(item);
+      return;
+    }
+    if (!signals.length) {
+      const item = document.createElement("article");
+      item.textContent = "No primary signal evidence was returned for this ticker.";
+      target.appendChild(item);
+      return;
+    }
+    signals.forEach((signal) => {
+      const item = document.createElement("article");
+      const title = document.createElement("strong");
+      const summary = document.createElement("p");
+      const hardEvidence = document.createElement("p");
+      const meta = document.createElement("small");
+      title.textContent = `${signal.lane || "Signal"} / ${signal.direction || "NEUTRAL"}`;
+      summary.textContent = signal.summary || "Signal summary unavailable.";
+      hardEvidence.textContent = signal.hard_evidence ? `Hard evidence: ${signal.hard_evidence}` : signal.detail || "";
+      meta.textContent = [
+        signal.actionability,
+        signal.freshness,
+        signal.verification,
+        signal.source,
+        signal.timestamp,
+      ].filter(Boolean).join(" / ");
+      item.append(title, summary, hardEvidence, meta);
+      target.appendChild(item);
+    });
   }
 
   function setupPolicyPanel() {

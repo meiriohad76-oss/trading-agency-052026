@@ -153,3 +153,23 @@ def test_api_audit_returns_trace_for_known_ticker(monkeypatch: MonkeyPatch) -> N
 
     assert response.status_code == 200
     assert response.json()["events"][0]["message"] == "Approved by current cockpit context."
+
+
+def test_api_cockpit_ticker_detail_returns_rich_payload(monkeypatch: MonkeyPatch) -> None:
+    async def fake_ticker_detail(ticker: str) -> dict[str, object]:
+        return {
+            "ticker": ticker,
+            "headline": f"{ticker} rich detail",
+            "llm": {"status_label": "Included"},
+            "support_cards": [{"label": "Buy Sell Pressure", "detail": "Hard evidence."}],
+            "data_health": {"status_label": "Usable With Gaps"},
+        }
+
+    monkeypatch.setattr(dashboard_module, "cockpit_ticker_detail_payload", fake_ticker_detail)
+    client = _client(monkeypatch)
+
+    response = client.get("/api/cockpit/ticker/rout")
+
+    assert response.status_code == 200
+    assert response.json()["ticker"] == "ROUT"
+    assert response.json()["headline"] == "ROUT rich detail"

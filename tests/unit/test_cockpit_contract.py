@@ -210,6 +210,29 @@ def test_cockpit_context_uses_real_dashboard_sources_not_prototype_data() -> Non
     assert "Home Depot" not in payload
 
 
+def test_cockpit_source_rows_use_live_checked_at_as_health_proof() -> None:
+    sources = _sample_sources()
+    sources["dashboard"]["data_sources"] = [  # type: ignore[index]
+        {
+            "name": "daily-market-bars",
+            "status_label": "HEALTHY",
+            "status_class": "pass",
+            "freshness": "FRESH",
+            "checked_at": "2026-05-22T13:19:42+00:00",
+            "coverage_label": "168/168 tickers",
+            "detail": "Daily bars are current through the latest completed market session.",
+        }
+    ]
+
+    context = cockpit_context_from_sources(sources)
+    source = context["sources"][0]
+
+    assert source["state"] == "ready"
+    assert source["state_label"] == "Usable with proof timestamp"
+    assert source["last_pull"] == "2026-05-22T13:19:42+00:00"
+    assert source["coverage"] == "168/168 tickers"
+
+
 def test_cockpit_candidates_are_sorted_by_final_conviction() -> None:
     context = cockpit_context_from_sources(_sample_sources())
 
