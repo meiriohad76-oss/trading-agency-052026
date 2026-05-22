@@ -331,6 +331,33 @@ def test_classifiers_do_not_match_common_word_ticker_mentions_in_lowercase() -> 
     )
 
 
+def test_classifiers_do_not_match_ambiguous_email_words_as_tickers() -> None:
+    config = replace(_config(), tickers=("APP", "NOW", "T"))
+    record = _record(
+        "seeking_alpha",
+        "Daily market notes",
+        "Open the app now to read the full article and latest portfolio notes.",
+    )
+
+    rows = classify_subscription_emails([record], config=config, fetched_at=FETCHED_AT)
+
+    assert rows.news_rows == []
+    assert rows.event_rows == []
+    assert rows.manual_review[0]["reason"] == "no_ticker_match"
+
+
+def test_classifiers_allow_explicit_ambiguous_ticker_syntax() -> None:
+    config = replace(_config(), tickers=("APP", "NOW", "T"))
+    records = [
+        _record("seeking_alpha", "APP: analyst article", "APP: AppLovin coverage update."),
+        _record("seeking_alpha", "Dividend watch", "$T dividend coverage update."),
+    ]
+
+    rows = classify_subscription_emails(records, config=config, fetched_at=FETCHED_AT)
+
+    assert sorted(row["ticker"] for row in rows.news_rows) == ["APP", "T"]
+
+
 def test_classifiers_do_not_promote_peer_comparison_as_ticker_thesis() -> None:
     record = EmailRecord(
         message_id="sa-cbrs-peer-comparison@example.test",

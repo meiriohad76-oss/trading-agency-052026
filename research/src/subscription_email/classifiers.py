@@ -5,6 +5,7 @@ import re
 from datetime import datetime
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+from news.ticker_resolution import DEFAULT_AMBIGUOUS_SYMBOLS
 from subscription_email.config import SubscriptionEmailConfig
 from subscription_email.types import ClassifiedEmailRows, EmailRecord
 
@@ -13,6 +14,14 @@ from agency.provenance import FreshnessDomain, SourceTier, VerificationLevel, co
 URL_RE = re.compile(r"https?://[^\s<>)\"]+")
 MONEY_RE = re.compile(r"\$?\s*(?P<value>\d+(?:\.\d+)?)\s*(?P<unit>[KMB])?", re.IGNORECASE)
 TICKER_TEMPLATE = r"(?<![A-Z0-9])\$?{ticker}(?![A-Z0-9])"
+EXPLICIT_TICKER_TEMPLATE = (
+    r"(?<![A-Z0-9])(?:"
+    r"\${ticker}(?![A-Z0-9])"
+    r"|(?:NASDAQ|NYSE|NYSEARCA|AMEX|ARCA|OTC|CBOE):\s*{ticker}(?![A-Z0-9])"
+    r"|\({ticker}\)"
+    r"|{ticker}(?=:)"
+    r")"
+)
 HEADLINE_FOCUS_RE = re.compile(r"(?: - |Email:\s+)\$?([A-Z]{1,5})(?=\s*:|\s+)")
 BLOCK_TRADE_RE = re.compile(
     r"\bblock(?:s|\s+(?:trade|trades|print|prints|order|orders|activity))?\b"
@@ -741,9 +750,21 @@ def _tickers(record: EmailRecord, configured: tuple[str, ...]) -> list[str]:
     matches = [
         ticker
         for ticker in configured
-        if re.search(TICKER_TEMPLATE.format(ticker=re.escape(ticker.upper())), text)
+        if _email_mentions_ticker(ticker, text)
     ]
     return sorted(set(matches))
+
+
+def _email_mentions_ticker(ticker: str, text: str) -> bool:
+    normalized = ticker.upper()
+    escaped = re.escape(normalized)
+    if _requires_explicit_email_ticker(normalized):
+        return re.search(EXPLICIT_TICKER_TEMPLATE.format(ticker=escaped), text) is not None
+    return re.search(TICKER_TEMPLATE.format(ticker=escaped), text) is not None
+
+
+def _requires_explicit_email_ticker(ticker: str) -> bool:
+    return len(ticker) == 1 or ticker in DEFAULT_AMBIGUOUS_SYMBOLS
 
 
 def _seeking_alpha_kind(record: EmailRecord) -> str:
