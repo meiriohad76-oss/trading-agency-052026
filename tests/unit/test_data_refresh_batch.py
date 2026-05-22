@@ -182,6 +182,22 @@ def test_news_job_passes_alias_registry_and_active_tickers(tmp_path: Path) -> No
     assert "--keep-unresolved-generic-news" in job.display_command
 
 
+def test_news_job_passes_sec_user_agent_for_sec_rss_feeds(tmp_path: Path) -> None:
+    config = _config(
+        tmp_path,
+        datasets=("news_rss",),
+        rss_feeds=("SEC-8K,https://www.sec.gov/cgi-bin/browse-edgar?output=atom",),
+        sec_user_agent="Trading Agency admin@example.com",
+    )
+
+    job = build_refresh_jobs(config)[0]
+
+    assert job.blocked_reasons == ()
+    assert job.display_command[job.display_command.index("--sec-user-agent") + 1] == (
+        "Trading Agency admin@example.com"
+    )
+
+
 def test_news_job_uses_active_universe_when_tickers_are_not_configured(
     tmp_path: Path,
 ) -> None:
@@ -477,7 +493,9 @@ def test_run_refresh_batch_dry_run_writes_status(tmp_path: Path) -> None:
         (config.output_root / "data-refresh-status.json").read_text(encoding="utf-8")
     )
     assert [job.status for job in result.jobs] == ["planned", "planned"]
-    assert result.jobs[1].command[-1] == "Yahoo,AAPL,https://example.test/rss"
+    assert result.jobs[1].command[result.jobs[1].command.index("--feed") + 1] == (
+        "Yahoo,AAPL,https://example.test/rss"
+    )
     assert status["blocked"] is False
     assert status["failed"] is False
     assert (config.output_root / "data-refresh-status.md").is_file()

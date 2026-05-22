@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -71,6 +72,11 @@ def main() -> None:
         default=True,
         help="Keep unresolved generic RSS rows for audit and coverage.",
     )
+    parser.add_argument(
+        "--sec-user-agent",
+        default=None,
+        help="SEC-compliant User-Agent for SEC RSS feeds; defaults to SEC_USER_AGENT.",
+    )
     args = parser.parse_args()
     feeds = [_feed_spec(value) for value in args.feed]
     registry = _ticker_registry(args.ticker_aliases, args.ticker, args.universe_path)
@@ -83,6 +89,7 @@ def main() -> None:
             resolve_generic_tickers=args.resolve_generic_tickers,
             keep_unresolved=args.keep_unresolved_generic_news,
             min_confidence=args.news_resolution_min_confidence,
+            user_agent=args.sec_user_agent or os.environ.get("SEC_USER_AGENT"),
         )
     )
     print(summary)

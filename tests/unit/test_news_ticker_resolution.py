@@ -38,6 +38,18 @@ def test_sec_cik_in_title_maps_to_ticker() -> None:
     assert "CIK" in resolved[0].match.reason
 
 
+def test_sec_archive_url_cik_maps_to_ticker() -> None:
+    registry = _registry()
+    row = _row("10-Q - Quarterly report")
+    row["url"] = "https://www.sec.gov/Archives/edgar/data/320193/000032019326000079/index.htm"
+
+    resolved = resolve_news_row(row, registry)
+
+    assert _matches(resolved) == {"AAPL": "sec_cik"}
+    assert resolved[0].match.confidence == SEC_CIK_CONFIDENCE
+    assert resolved[0].match.matched_text == "0000320193"
+
+
 def test_market_symbol_syntax_maps_to_active_ticker() -> None:
     registry = _registry()
     row = _row("Chip demand lifts NASDAQ:NVDA after the open")

@@ -4,6 +4,7 @@ import json
 from datetime import UTC, date, datetime
 from pathlib import Path
 
+import news.puller as news_puller
 import pandas as pd
 import polars as pl
 from news.puller import pull_rss_feeds
@@ -91,6 +92,36 @@ def test_parse_rss_extracts_ticker_tagged_items() -> None:
             "published_at": datetime(2026, 5, 7, 7, 0, tzinfo=UTC),
         }
     ]
+
+
+def test_news_puller_verify_context_uses_windows_truststore(monkeypatch: object) -> None:
+    class FakeContext:
+        def __init__(self, protocol: object) -> None:
+            self.protocol = protocol
+
+    class FakeTruststore:
+        SSLContext = FakeContext
+
+    def fake_import_module(name: str) -> object:
+        assert name == "truststore"
+        return FakeTruststore
+
+    monkeypatch.setattr(news_puller.sys, "platform", "win32")
+    monkeypatch.setattr(news_puller, "import_module", fake_import_module)
+
+    context = news_puller._verify_context()
+
+    assert isinstance(context, FakeContext)
+
+
+def test_news_puller_builds_sec_user_agent_header() -> None:
+    headers = news_puller._request_headers("Trading Agency admin@example.com")
+
+    assert headers == {"User-Agent": "Trading Agency admin@example.com"}
+
+
+def test_news_puller_omits_blank_user_agent_header() -> None:
+    assert news_puller._request_headers("  ") == {}
 
 
 async def test_pull_rss_feeds_writes_parquet_and_manifest(tmp_path: Path) -> None:

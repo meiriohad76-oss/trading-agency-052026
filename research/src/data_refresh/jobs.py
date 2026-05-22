@@ -138,6 +138,8 @@ def _news_job(config: RefreshBatchConfig) -> RefreshJob:
     command = _base_command(config, "pull_news_rss.py")
     for feed in config.rss_feeds:
         command.extend(["--feed", feed])
+    if config.sec_user_agent is not None and config.sec_user_agent.strip() != "":
+        command.extend(["--sec-user-agent", config.sec_user_agent])
     reasons: list[str] = []
     if not config.rss_feeds:
         reasons.append("missing RSS feed specs")

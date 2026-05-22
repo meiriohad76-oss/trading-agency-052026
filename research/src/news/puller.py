@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import hashlib
+import ssl
+import sys
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from importlib import import_module
 from pathlib import Path
+from typing import cast
 
 import httpx
 import pandas as pd
@@ -35,12 +39,13 @@ async def pull_rss_feeds(
     resolve_generic_tickers: bool = False,
     keep_unresolved: bool = True,
     min_confidence: float = 0.70,
+    user_agent: str | None = None,
 ) -> NewsPullSummary:
     get_now = clock or (lambda: datetime.now(UTC))
     fetched_at = get_now()
     issues: list[dict[str, str]] = []
     frames: list[pd.DataFrame] = []
-    fetch = fetcher or _httpx_fetch
+    fetch = fetcher or (lambda url: _httpx_fetch(url, user_agent=user_agent))
     for feed in feeds:
         try:
             xml = await fetch(feed.url)
@@ -69,11 +74,22 @@ async def pull_rss_feeds(
     return NewsPullSummary(len(feeds), rows_written, issues)
 
 
-async def _httpx_fetch(url: str) -> str:
-    async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
+async def _httpx_fetch(url: str, *, user_agent: str | None = None) -> str:
+    async with httpx.AsyncClient(
+        timeout=20.0,
+        follow_redirects=True,
+        verify=_verify_context(),
+        headers=_request_headers(user_agent),
+    ) as client:
         response = await client.get(url)
         response.raise_for_status()
         return response.text
+
+
+def _request_headers(user_agent: str | None) -> dict[str, str]:
+    if user_agent is None or user_agent.strip() == "":
+        return {}
+    return {"User-Agent": user_agent.strip()}
 
 
 def _normalize(rows: list[dict[str, object]], *, fetched_at: datetime) -> pd.DataFrame:
@@ -158,3 +174,14 @@ def _below_threshold_row(resolved: ResolvedNewsRow, min_confidence: float) -> di
         f"the configured minimum {min_confidence:.2f}."
     )
     return row
+
+
+def _verify_context() -> ssl.SSLContext | bool:
+    if sys.platform != "win32":
+        return True
+    try:
+        truststore = import_module("truststore")
+    except ModuleNotFoundError:
+        return True
+    context_factory = cast(type[ssl.SSLContext], truststore.SSLContext)
+    return context_factory(ssl.PROTOCOL_TLS_CLIENT)

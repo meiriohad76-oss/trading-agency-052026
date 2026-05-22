@@ -26,6 +26,10 @@ DEFAULT_AMBIGUOUS_SYMBOLS = frozenset(
 )
 
 _CIK_PATTERN = re.compile(r"\bCIK\s*[:#-]?\s*0*(\d{1,10})\b", re.IGNORECASE)
+_SEC_ARCHIVE_CIK_PATTERN = re.compile(
+    r"sec\.gov/Archives/edgar/data/0*(\d{1,10})/",
+    re.IGNORECASE,
+)
 _DOLLAR_SYMBOL_PATTERN = re.compile(r"(?<![\w$])\$([A-Z][A-Z0-9.]{0,9})(?![A-Z0-9.])")
 _EXCHANGE_SYMBOL_PATTERN = re.compile(
     r"\b((?:NASDAQ|NYSE|NYSEARCA|AMEX|ARCA|OTC|CBOE):\s*([A-Z][A-Z0-9.]{0,9}))\b"
@@ -195,8 +199,7 @@ def resolve_news_row(
 
 def _cik_matches(text: str, registry: TickerResolutionRegistry) -> list[TickerMatch]:
     matches: list[TickerMatch] = []
-    for raw_match in _CIK_PATTERN.finditer(text):
-        cik = _normalize_cik(raw_match.group(1))
+    for cik in _cik_candidates(text):
         ticker = registry.ticker_by_cik.get(cik or "")
         if ticker is None:
             continue
@@ -211,6 +214,15 @@ def _cik_matches(text: str, registry: TickerResolutionRegistry) -> list[TickerMa
             )
         )
     return matches
+
+
+def _cik_candidates(text: str) -> list[str | None]:
+    candidates: list[str | None] = []
+    candidates.extend(_normalize_cik(raw_match.group(1)) for raw_match in _CIK_PATTERN.finditer(text))
+    candidates.extend(
+        _normalize_cik(raw_match.group(1)) for raw_match in _SEC_ARCHIVE_CIK_PATTERN.finditer(text)
+    )
+    return candidates
 
 
 def _market_symbol_matches(text: str, registry: TickerResolutionRegistry) -> list[TickerMatch]:
@@ -307,6 +319,7 @@ def _row_text(row: Mapping[str, object]) -> str:
         for value in (
             _clean_text(row.get("title")),
             _clean_text(row.get("summary")),
+            _clean_text(row.get("url")),
         )
         if value
     )

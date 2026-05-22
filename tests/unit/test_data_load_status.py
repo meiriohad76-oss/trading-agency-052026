@@ -396,6 +396,7 @@ def test_data_load_status_counts_desc_partial_stock_trade_slice_as_live_usable(
         parquet_root=paths["parquet_root"],
         runtime_summary_path=paths["runtime_summary"],
         source_health_path=paths["source_health"],
+        now=datetime(2026, 5, 11, 15, 2, tzinfo=UTC),
     )
 
     row = _dataset(status, "stock_trades")
@@ -463,6 +464,7 @@ def test_data_load_status_marks_market_flow_partial_when_signals_miss_ticker(
         parquet_root=paths["parquet_root"],
         runtime_summary_path=paths["runtime_summary"],
         source_health_path=paths["source_health"],
+        now=datetime(2026, 5, 11, 15, 2, tzinfo=UTC),
     )
 
     market_flow = status["market_flow_summary"]
@@ -1202,6 +1204,7 @@ def test_data_load_status_blocks_stale_critical_source_health(
         parquet_root=paths["parquet_root"],
         runtime_summary_path=paths["runtime_summary"],
         source_health_path=paths["source_health"],
+        now=datetime(2026, 5, 11, 15, 2, tzinfo=UTC),
     )
 
     assert status["state"] == "blocked"
@@ -1243,6 +1246,7 @@ def test_data_load_status_labels_missing_critical_source_as_unavailable(
         parquet_root=paths["parquet_root"],
         runtime_summary_path=paths["runtime_summary"],
         source_health_path=paths["source_health"],
+        now=datetime(2026, 5, 11, 15, 2, tzinfo=UTC),
     )
 
     source_summary = status["source_summary"]
@@ -1495,6 +1499,7 @@ def test_data_load_status_blocks_missing_critical_source_health(
         parquet_root=paths["parquet_root"],
         runtime_summary_path=paths["runtime_summary"],
         source_health_path=paths["source_health"],
+        now=datetime(2026, 5, 11, 15, 2, tzinfo=UTC),
     )
 
     assert status["state"] == "blocked"
@@ -1564,6 +1569,7 @@ def test_data_load_status_blocks_stale_refresh_progress(
         parquet_root=paths["parquet_root"],
         runtime_summary_path=paths["runtime_summary"],
         source_health_path=paths["source_health"],
+        now=datetime(2026, 5, 11, 15, 2, tzinfo=UTC),
     )
 
     assert status["state"] == "blocked"
@@ -1825,6 +1831,7 @@ def test_data_load_status_keeps_review_subset_when_latest_partial_pull_has_marke
         parquet_root=paths["parquet_root"],
         runtime_summary_path=paths["runtime_summary"],
         source_health_path=paths["source_health"],
+        now=datetime(2026, 5, 11, 15, 2, tzinfo=UTC),
     )
 
     assert status["state"] == "attention"
@@ -1894,6 +1901,7 @@ def test_data_load_status_keeps_review_subset_when_latest_batch_did_not_verify_t
         parquet_root=paths["parquet_root"],
         runtime_summary_path=paths["runtime_summary"],
         source_health_path=paths["source_health"],
+        now=datetime(2026, 5, 11, 15, 2, tzinfo=UTC),
     )
 
     assert status["state"] == "attention"
@@ -1958,6 +1966,7 @@ def test_data_load_status_blocks_partial_stock_trade_pull_without_usable_market_
         parquet_root=paths["parquet_root"],
         runtime_summary_path=paths["runtime_summary"],
         source_health_path=paths["source_health"],
+        now=datetime(2026, 5, 11, 15, 2, tzinfo=UTC),
     )
 
     assert status["state"] == "blocked"
@@ -2014,6 +2023,7 @@ def test_data_load_status_uses_configured_tickers_when_universe_is_missing(
         parquet_root=paths["parquet_root"],
         runtime_summary_path=paths["runtime_summary"],
         source_health_path=paths["source_health"],
+        now=datetime(2026, 5, 11, 15, 2, tzinfo=UTC),
     )
 
     assert status["expected_ticker_count"] == 2
