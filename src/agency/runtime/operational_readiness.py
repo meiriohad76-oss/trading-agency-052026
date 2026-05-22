@@ -196,6 +196,15 @@ def _live_readiness_check(
             WARN,
             "Source-health rows need freshness review, but data-load coverage is complete.",
         )
+    if verdict == "context_only_source_health" and _data_load_review_operational(data_load_status):
+        return _check(
+            "Runtime cycle",
+            WARN,
+            (
+                "Source-health rows need freshness review, but data-load confirms "
+                "review-subset coverage. Review covered tickers only."
+            ),
+        )
     detail = str(live_readiness.get("detail", "Latest cycle is not reviewable."))
     return _check("Runtime cycle", BLOCK, detail)
 

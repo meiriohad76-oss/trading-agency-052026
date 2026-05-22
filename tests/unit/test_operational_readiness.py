@@ -392,6 +392,46 @@ def test_operational_readiness_softens_stale_sources_when_data_load_is_tradable(
     assert "data-load coverage is complete" in str(runtime["detail"])
 
 
+def test_operational_readiness_softens_stale_sources_for_review_subset() -> None:
+    summary = build_operational_readiness(
+        health={"status": "ok"},
+        live_config={"ready": True, "blocker_count": 0, "warning_count": 0},
+        data_refresh={"state": "complete", "status_label": "Complete"},
+        data_load_status={
+            "ready": True,
+            "review_operational_ready": True,
+            "tradable_ready": False,
+            "state": "attention",
+            "status_label": "Loaded With Gaps",
+            "blocker_count": 0,
+            "warning_count": 9,
+            "overall_percent": 61,
+            "core_dataset_percent": 59,
+            "critical_lane_percent": 41,
+        },
+        live_readiness={
+            "ready": False,
+            "verdict": "context_only_source_health",
+            "detail": "checked_at is stale; refresh source-health before review",
+        },
+        paper_review={
+            "progress": {
+                "total_count": 20,
+                "reviewed_count": 0,
+                "pending_count": 20,
+            }
+        },
+        key_statuses=[],
+    )
+
+    assert summary["ready"] is True
+    assert summary["state"] == "attention"
+    checks = cast(Sequence[Mapping[str, object]], summary["checks"])
+    runtime = next(check for check in checks if check["label"] == "Runtime cycle")
+    assert runtime["status"] == "WARN"
+    assert "review-subset coverage" in str(runtime["detail"])
+
+
 def test_operational_readiness_endpoint_returns_combined_status(
     monkeypatch: MonkeyPatch,
 ) -> None:

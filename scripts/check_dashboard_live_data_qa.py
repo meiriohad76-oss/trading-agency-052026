@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import json
 import re
 from collections.abc import Mapping
@@ -44,8 +45,12 @@ VIEWPORTS = (
 PAGE_LOAD_STATE = "domcontentloaded"
 PAGE_LOAD_TIMEOUT_MS = 30_000
 BODY_TIMEOUT_MS = 10_000
+PAGE_LOAD_ATTEMPTS = 2
+PAGE_RETRY_DELAY_MS = 1_000
 BASE_URL = "http://127.0.0.1:8000"
 REQUEST_TIMEOUT_SECONDS = 10
+FULL_READINESS_SCOPE = "full"
+REVIEW_SUBSET_READINESS_SCOPE = "review-subset"
 CONTEXT_DATA_WARNING_ITEMS = {
     "news_rss",
     "subscription_emails",
@@ -76,10 +81,14 @@ _OPERATIONAL_PAYLOAD_PATTERNS = tuple(
 
 
 def main() -> int:
+    args = _parse_args()
     output_dir = Path("research/results/latest-ui-live-data-qa")
     output_dir.mkdir(parents=True, exist_ok=True)
     results: list[dict[str, object]] = []
-    operational_readiness_failures = _operational_readiness_failures(BASE_URL)
+    operational_readiness_failures = _operational_readiness_failures(
+        BASE_URL,
+        readiness_scope=args.readiness_scope,
+    )
 
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
@@ -94,16 +103,7 @@ def main() -> int:
                             operational_readiness_failures
                         )
                         try:
-                            page.goto(
-                                f"{BASE_URL}{route}",
-                                wait_until=PAGE_LOAD_STATE,
-                                timeout=PAGE_LOAD_TIMEOUT_MS,
-                            )
-                            page.locator("body").wait_for(
-                                state="visible",
-                                timeout=BODY_TIMEOUT_MS,
-                            )
-                            body = page.locator("body").inner_text(timeout=BODY_TIMEOUT_MS)
+                            body = _load_page_body(page, f"{BASE_URL}{route}")
                             lower_body = body.lower()
                             result["forbidden_hits"] = [
                                 term
@@ -173,6 +173,22 @@ def main() -> int:
     return 1 if failures else 0
 
 
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Browser QA for live dashboard data and health panels.",
+    )
+    parser.add_argument(
+        "--readiness-scope",
+        choices=(FULL_READINESS_SCOPE, REVIEW_SUBSET_READINESS_SCOPE),
+        default=FULL_READINESS_SCOPE,
+        help=(
+            "full requires full-universe tradable readiness; review-subset accepts "
+            "semi-automatic review mode with zero hard blockers."
+        ),
+    )
+    return parser.parse_args()
+
+
 def _empty_result(viewport: str, route: str) -> dict[str, object]:
     return {
         "viewport": viewport,
@@ -193,6 +209,28 @@ def _error_summary(exc: PlaywrightError) -> str:
     return f"{exc.__class__.__name__}: {str(exc).splitlines()[0]}"
 
 
+def _load_page_body(page: Any, url: str) -> str:
+    last_error: PlaywrightError | None = None
+    for attempt in range(PAGE_LOAD_ATTEMPTS):
+        try:
+            page.goto(
+                url,
+                wait_until=PAGE_LOAD_STATE,
+                timeout=PAGE_LOAD_TIMEOUT_MS,
+            )
+            body = page.locator("body")
+            body.wait_for(state="visible", timeout=BODY_TIMEOUT_MS)
+            return str(body.inner_text(timeout=BODY_TIMEOUT_MS))
+        except PlaywrightError as exc:
+            last_error = exc
+            if attempt < PAGE_LOAD_ATTEMPTS - 1:
+                page.wait_for_timeout(PAGE_RETRY_DELAY_MS)
+                continue
+    if last_error is None:
+        raise RuntimeError("page load failed without Playwright error")
+    raise last_error
+
+
 def result_failed(row: Mapping[str, object]) -> bool:
     return (
         bool(row["page_error"])
@@ -206,13 +244,29 @@ def result_failed(row: Mapping[str, object]) -> bool:
     )
 
 
-def _operational_readiness_failures(base_url: str) -> list[str]:
+def _operational_readiness_failures(
+    base_url: str,
+    *,
+    readiness_scope: str = FULL_READINESS_SCOPE,
+) -> list[str]:
     failures: list[str] = []
     full_live = _json_get(f"{base_url}/status/full-live-readiness")
     data_load = _json_get(f"{base_url}/status/data-load")
     data_sources = _json_get(f"{base_url}/status/data-sources")
     if not full_live:
         failures.append("/status/full-live-readiness unavailable")
+    elif readiness_scope == REVIEW_SUBSET_READINESS_SCOPE:
+        if full_live.get("review_operational_ready") is not True:
+            failures.append(
+                f"full-live review_operational_ready={full_live.get('review_operational_ready')!r}"
+            )
+        if _int_value(full_live.get("blocker_count")) > 0:
+            failures.append(f"full-live blocker_count={full_live.get('blocker_count')!r}")
+        if str(full_live.get("verdict") or "") not in {
+            "ready_for_full_live_cycle",
+            "ready_with_partial_lanes",
+        }:
+            failures.append(f"full-live verdict={full_live.get('verdict')!r}")
     else:
         if full_live.get("ready") is not True:
             failures.append(f"full-live ready={full_live.get('ready')!r}")
@@ -222,12 +276,21 @@ def _operational_readiness_failures(base_url: str) -> list[str]:
             failures.append(f"full-live verdict={full_live.get('verdict')!r}")
     if not data_load:
         failures.append("/status/data-load unavailable")
-    else:
-        if (
-            str(data_load.get("status_class") or "") != "pass"
-            and not _data_load_has_only_context_warnings(data_load)
-        ):
-            failures.append(f"data-load status_class={data_load.get('status_class')!r}")
+    elif readiness_scope == REVIEW_SUBSET_READINESS_SCOPE:
+        if data_load.get("ready") is not True:
+            failures.append(f"data-load ready={data_load.get('ready')!r}")
+        if data_load.get("review_operational_ready") is not True:
+            failures.append(
+                f"data-load review_operational_ready={data_load.get('review_operational_ready')!r}"
+            )
+        if _int_value(data_load.get("blocker_count")) > 0:
+            failures.append(f"data-load blocker_count={data_load.get('blocker_count')!r}")
+    elif (
+        str(data_load.get("status_class") or "") != "pass"
+        and not _data_load_has_only_context_warnings(data_load)
+    ):
+        failures.append(f"data-load status_class={data_load.get('status_class')!r}")
+    if isinstance(data_load, Mapping):
         health = data_load.get("health_monitor")
         if isinstance(health, Mapping):
             health_state = str(health.get("status") or "").lower()

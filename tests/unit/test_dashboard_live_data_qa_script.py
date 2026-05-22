@@ -53,6 +53,40 @@ def test_dashboard_live_data_qa_result_fails_on_operational_readiness_gap() -> N
     assert result_failed(row) is True
 
 
+def test_dashboard_live_data_qa_page_load_retries_transient_timeout(monkeypatch) -> None:
+    class FakeLocator:
+        def wait_for(self, **_kwargs):
+            return None
+
+        def inner_text(self, **_kwargs) -> str:
+            return "Live data health"
+
+    class FakePage:
+        attempts = 0
+        retried = False
+
+        def goto(self, *_args, **_kwargs) -> None:
+            self.attempts += 1
+            if self.attempts == 1:
+                raise RuntimeError("transient timeout")
+
+        def locator(self, selector: str) -> FakeLocator:
+            assert selector == "body"
+            return FakeLocator()
+
+        def wait_for_timeout(self, milliseconds: int) -> None:
+            assert milliseconds == qa.PAGE_RETRY_DELAY_MS
+            self.retried = True
+
+    monkeypatch.setattr(qa, "PlaywrightError", RuntimeError)
+
+    page = FakePage()
+
+    assert qa._load_page_body(page, "http://unit.test/signals") == "Live data health"
+    assert page.attempts == 2
+    assert page.retried is True
+
+
 def test_dashboard_live_data_qa_json_get_accepts_endpoint_lists(monkeypatch) -> None:
     class Response:
         def __enter__(self):
@@ -136,6 +170,75 @@ def test_dashboard_live_data_qa_allows_nonblocking_trade_progress_warning(monkey
     monkeypatch.setattr(qa, "_json_get", fake_json_get)
 
     assert qa._operational_readiness_failures("http://unit.test") == []
+
+
+def test_dashboard_live_data_qa_allows_review_subset_mode(monkeypatch) -> None:
+    def fake_json_get(url: str):
+        if url.endswith(("/reports/selection", "/risk/decisions")):
+            return _ready_payload_for(url)
+        if url.endswith("/status/full-live-readiness"):
+            return {
+                "ready": False,
+                "review_operational_ready": True,
+                "tradable_ready": False,
+                "verdict": "ready_with_partial_lanes",
+                "blocker_count": 0,
+            }
+        if url.endswith("/status/data-load"):
+            return {
+                "ready": True,
+                "review_operational_ready": True,
+                "status_class": "warn",
+                "blocker_count": 0,
+                "warnings": [{"kind": "dataset", "item": "stock_trades"}],
+                "health_monitor": {"status": "healthy", "reliable": True},
+            }
+        if url.endswith("/status/data-sources"):
+            return [{"source": "daily-market-bars", "status": "HEALTHY"}]
+        raise AssertionError(url)
+
+    monkeypatch.setattr(qa, "_json_get", fake_json_get)
+
+    assert (
+        qa._operational_readiness_failures(
+            "http://unit.test",
+            readiness_scope="review-subset",
+        )
+        == []
+    )
+
+
+def test_dashboard_live_data_qa_full_mode_rejects_review_subset(monkeypatch) -> None:
+    def fake_json_get(url: str):
+        if url.endswith(("/reports/selection", "/risk/decisions")):
+            return _ready_payload_for(url)
+        if url.endswith("/status/full-live-readiness"):
+            return {
+                "ready": False,
+                "review_operational_ready": True,
+                "tradable_ready": False,
+                "verdict": "ready_with_partial_lanes",
+                "blocker_count": 0,
+            }
+        if url.endswith("/status/data-load"):
+            return {
+                "ready": True,
+                "review_operational_ready": True,
+                "status_class": "warn",
+                "blocker_count": 0,
+                "warnings": [],
+                "health_monitor": {"status": "healthy", "reliable": True},
+            }
+        if url.endswith("/status/data-sources"):
+            return [{"source": "daily-market-bars", "status": "HEALTHY"}]
+        raise AssertionError(url)
+
+    monkeypatch.setattr(qa, "_json_get", fake_json_get)
+
+    failures = qa._operational_readiness_failures("http://unit.test")
+
+    assert "full-live ready=False" in failures
+    assert "full-live tradable_ready=False" in failures
 
 
 def test_dashboard_live_data_qa_rejects_runtime_api_fallback_payloads(monkeypatch) -> None:
