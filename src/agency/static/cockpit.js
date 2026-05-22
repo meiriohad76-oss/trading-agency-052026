@@ -17,6 +17,7 @@
 
   applyPreferences(preferences);
   restorePreferenceControls(preferences);
+  setupTouchTooltips();
 
   const preferencesOpen = document.querySelector("[data-cockpit-preferences-open]");
   const preferencesPanel = document.querySelector("[data-cockpit-preferences]");
@@ -233,6 +234,39 @@
     setPreferenceControl("cockpit-color-preset", nextPreferences.colorPreset);
     setPreferenceControl("cockpit-theme", nextPreferences.theme);
     setPreferenceControl("cockpit-density", nextPreferences.density);
+  }
+
+  function setupTouchTooltips() {
+    document.querySelectorAll(".info-tip[title]").forEach((tip) => {
+      if (tip.tabIndex < 0) {
+        tip.tabIndex = 0;
+      }
+      tip.setAttribute("role", "button");
+      tip.addEventListener("click", (event) => {
+        event.stopPropagation();
+        const isOpen = tip.getAttribute("data-tooltip-open") === "true";
+        closeTouchTooltips();
+        if (!isOpen) {
+          tip.setAttribute("data-tooltip-open", "true");
+        }
+      });
+      tip.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          tip.click();
+        }
+      });
+      tip.addEventListener("blur", () => {
+        tip.removeAttribute("data-tooltip-open");
+      });
+    });
+    document.addEventListener("click", closeTouchTooltips);
+  }
+
+  function closeTouchTooltips() {
+    document.querySelectorAll('[data-tooltip-open="true"]').forEach((tip) => {
+      tip.removeAttribute("data-tooltip-open");
+    });
   }
 
   function setPreferenceControl(name, value) {

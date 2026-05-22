@@ -18,10 +18,17 @@ PREFLIGHT_ENDPOINTS = (
 )
 PREFLIGHT_REPORT_NAME = "cockpit-preflight.json"
 VIEWPORTS = (
-    ("desktop-1920", {"width": 1920, "height": 1080}),
-    ("desktop-1366", {"width": 1366, "height": 768}),
-    ("kiosk-1280", {"width": 1280, "height": 720}),
-    ("mobile-390", {"width": 390, "height": 844}),
+    ("desktop-1920", {"viewport": {"width": 1920, "height": 1080}}),
+    ("desktop-1366", {"viewport": {"width": 1366, "height": 768}}),
+    ("kiosk-1280", {"viewport": {"width": 1280, "height": 720}}),
+    (
+        "mobile-390",
+        {
+            "viewport": {"width": 390, "height": 844},
+            "has_touch": True,
+            "is_mobile": True,
+        },
+    ),
 )
 PANEL_NAMES = ("universe", "signals", "audit", "policy", "monitor")
 PAGE_GOTO_TIMEOUT_MS = 60_000
@@ -48,10 +55,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
         try:
-            for viewport_name, viewport in VIEWPORTS:
+            for viewport_name, profile in VIEWPORTS:
                 console_errors: list[str] = []
                 page_errors: list[str] = []
-                page = browser.new_page(viewport=viewport)
+                page = browser.new_page(
+                    viewport=profile["viewport"],
+                    has_touch=bool(profile.get("has_touch")),
+                    is_mobile=bool(profile.get("is_mobile")),
+                )
                 page.on("console", _console_error_collector(console_errors))
                 page.on("pageerror", _page_error_collector(page_errors))
                 result = {

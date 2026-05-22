@@ -27,6 +27,18 @@ docker compose -f docker\docker-compose.yml up -d postgres
 
 Then open `http://127.0.0.1:8000/`.
 
+For the V3 cockpit or Raspberry Pi kiosk rehearsal, start the local cockpit
+entrypoint explicitly:
+
+```powershell
+.\scripts\start_dev.ps1 -Kiosk
+```
+
+The dev and kiosk scripts bind uvicorn to `127.0.0.1` unless you intentionally
+change the command. See `docs/raspberry-pi-cockpit.md` for Chromium flags,
+systemd restart, touch checks, local-only logs, and the Pi performance
+measurement checklist.
+
 Smoke-check a seeded runtime:
 
 ```powershell

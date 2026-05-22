@@ -1,6 +1,7 @@
 param(
     [int]$Port = 8000,
-    [switch]$SkipMigrations
+    [switch]$SkipMigrations,
+    [switch]$Kiosk
 )
 
 $ErrorActionPreference = "Stop"
@@ -8,6 +9,10 @@ $RepoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $Python = Join-Path $RepoRoot ".venv\Scripts\python.exe"
 
 Set-Location $RepoRoot
+$StartPath = "/"
+if ($Kiosk) {
+    $StartPath = "/cockpit"
+}
 
 if (-not (Test-Path ".env")) {
     Copy-Item ".env.example" ".env"
@@ -82,13 +87,13 @@ try {
 
 if ($null -ne $health) {
     if ($health.status -eq "ok") {
-        Write-Host "Trading Agency is already running at http://127.0.0.1:$Port/"
+        Write-Host "Trading Agency is already running at http://127.0.0.1:$Port$StartPath"
         exit 0
     }
     throw "Port $Port responded, but the trading-agency health endpoint did not report ok."
 }
 
-Write-Host "Starting Trading Agency dev server at http://127.0.0.1:$Port/"
+Write-Host "Starting Trading Agency dev server at http://127.0.0.1:$Port$StartPath"
 if ($env:DATABASE_URL -and $env:DATABASE_URL.Trim()) {
     Write-Host "DATABASE_URL is configured in the current shell."
 } else {

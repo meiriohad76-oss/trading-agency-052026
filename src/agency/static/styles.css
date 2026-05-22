@@ -5493,10 +5493,17 @@ table.signal-table {
   --cockpit-panel-2: var(--surface-2);
   --cockpit-line: var(--border);
   --cockpit-amber: var(--accent);
+  --cockpit-touch-target: 44px;
   display: grid;
   gap: 16px;
   max-width: 1480px;
   width: 100%;
+}
+
+.cockpit-shell button,
+.cockpit-shell .button,
+.cockpit-panel-close {
+  min-height: var(--cockpit-touch-target);
 }
 
 .page-frame:has(.cockpit-shell) .topbar {
@@ -5617,6 +5624,36 @@ table.signal-table {
   color: var(--cockpit-amber);
   font-weight: 800;
   cursor: help;
+}
+
+.info-tip {
+  position: relative;
+}
+
+.info-tip:focus-visible {
+  outline: 2px solid var(--cockpit-amber);
+  outline-offset: 3px;
+}
+
+.info-tip:focus-visible::after,
+.info-tip[data-tooltip-open="true"]::after {
+  content: attr(title);
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 20;
+  width: min(260px, 80vw);
+  padding: 8px 10px;
+  border: 1px solid var(--cockpit-line);
+  border-radius: 4px;
+  background: var(--cockpit-panel);
+  color: var(--text);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.3);
+  font-size: 0.82rem;
+  font-weight: 600;
+  line-height: 1.35;
+  text-align: left;
+  text-transform: none;
 }
 
 .cockpit-readout-stack {
