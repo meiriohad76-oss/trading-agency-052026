@@ -159,7 +159,7 @@
       <div>
         <p class="eyebrow">Phase 1 - Candidates</p>
         <h2 id="cockpit-candidates-heading">{{ scenario.headline }}</h2>
-        <p class="muted">Cycle {{ cycle.id }} has {{ funnel.final }} visible candidates; {{ funnel.actionable }} can be reviewed now.</p>
+        <p class="muted">Cycle {{ cycle.id }} has {{ funnel.final }} visible candidates; {{ funnel.reviewable|default(funnel.actionable, true) }} can be reviewed now.</p>
       </div>
       <a class="button button-secondary" href="/final-selection">Open classic candidates</a>
     </div>
@@ -198,15 +198,27 @@
               <span>{{ candidate.risk_line|default("No major risk flag in current pack.", true) }}</span>
             </span>
             <span class="cockpit-status-cell">
-              <span class="status-pill status-pill-{% if candidate.actionable %}pass{% else %}warn{% endif %}">{{ candidate.status_label|default("Ready for review", true) }}</span>
+              <span class="status-pill status-pill-{% if candidate.reviewable %}pass{% else %}warn{% endif %}">{{ candidate.status_label|default("Ready for review", true) }}</span>
               <span>{{ candidate.llm_label|default("LLM not run for this ticker", true) }}</span>
             </span>
           </button>
           <div class="cockpit-decision-cell">
-            {% if candidate.actionable %}
-              <button type="button" class="button button-primary" data-cockpit-decision="approve" data-cockpit-ticker="{{ candidate.ticker }}">Approve</button>
-              <button type="button" class="button button-secondary" data-cockpit-decision="defer" data-cockpit-ticker="{{ candidate.ticker }}">Defer</button>
-              <button type="button" class="button button-secondary" data-cockpit-decision="reject" data-cockpit-ticker="{{ candidate.ticker }}">Reject</button>
+            {% if candidate.reviewable %}
+              <form method="post" action="{{ candidate.approve_review_action }}">
+                {% if candidate.caution_acknowledgement_required %}
+                  <label class="microcopy">
+                    <input type="checkbox" name="caution_acknowledged" value="true" required>
+                    {{ candidate.caution_acknowledgement_text }}
+                  </label>
+                {% endif %}
+                <button type="submit" class="button button-primary" data-cockpit-decision="approve" data-cockpit-ticker="{{ candidate.ticker }}">Approve Research</button>
+              </form>
+              <form method="post" action="{{ candidate.defer_review_action }}">
+                <button type="submit" class="button button-secondary" data-cockpit-decision="defer" data-cockpit-ticker="{{ candidate.ticker }}">Defer</button>
+              </form>
+              <form method="post" action="{{ candidate.reject_review_action }}">
+                <button type="submit" class="button button-secondary" data-cockpit-decision="reject" data-cockpit-ticker="{{ candidate.ticker }}">Reject</button>
+              </form>
             {% else %}
               <a class="button button-secondary" href="{{ candidate.audit_url }}">Open audit</a>
             {% endif %}
@@ -339,5 +351,5 @@
 {% endblock %}
 
 {% block extra_scripts %}
-  <script src="/static/cockpit.js?v=ux-v3-tickets-5-8-20260522" defer></script>
+  <script src="/static/cockpit.js?v=ux-v3-review-actions-20260522" defer></script>
 {% endblock %}

@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from agency.views.cockpit import cockpit_context_from_sources
+from tests.unit.test_cockpit_contract import _sample_sources
+
 TEMPLATE = Path("src/agency/templates/cockpit.html")
 STYLES = Path("src/agency/static/styles.css")
 
@@ -96,3 +99,33 @@ def test_base_navigation_links_to_cockpit() -> None:
 
     assert "href=\"/cockpit\"" in base
     assert "Cockpit" in base
+
+
+def test_cockpit_template_posts_research_review_actions() -> None:
+    html = _template()
+
+    assert "candidate.reviewable" in html
+    assert "candidate.approve_review_action" in html
+    assert "method=\"post\"" in html
+    assert "Approve Research" in html
+
+
+def test_cockpit_engine_strip_does_not_call_healthy_fresh_source_down() -> None:
+    sources = _sample_sources()
+    sources["dashboard"]["data_sources"] = [  # type: ignore[index]
+        {
+            "source": "daily-market-bars",
+            "status": "HEALTHY",
+            "freshness": "FRESH",
+            "status_class": "block",
+            "checked_at": "2026-05-22T13:19:42.098031+00:00",
+        }
+    ]
+
+    context = cockpit_context_from_sources(sources)
+    engine = context["engines"][0]
+
+    assert engine["name"] == "daily-market-bars"
+    assert engine["state"] == "needs_refresh"
+    assert engine["age"] == "FRESH"
+    assert "HEALTHY / FRESH" in engine["detail"]

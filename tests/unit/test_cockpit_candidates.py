@@ -68,8 +68,42 @@ def test_blocked_candidate_has_audit_link_not_approve_button() -> None:
     row = {row["ticker"]: row for row in context["candidates"]}["CCC"]
 
     assert row["actionable"] is False
+    assert row["reviewable"] is False
     assert row["decision_controls"] == ["audit"]
     assert row["audit_url"] == "/api/audit/CCC"
+
+
+def test_watch_candidate_with_pending_review_has_research_approval_controls() -> None:
+    sources = _sample_sources()
+    sources["dashboard"]["review_queue"] = [  # type: ignore[index]
+        {
+            "ticker": "AMZN",
+            "action": "WATCH",
+            "conviction_pct": 69,
+            "gate_status": "PASS",
+            "risk_decision": "WARN",
+            "review_state": "Ready",
+            "human_review_decision": "Pending",
+            "source_count": 5,
+            "confirmed_signal_count": 2,
+            "approve_review_action": "/candidates/AMZN/reviews?cycle_id=cycle-live-20260522-1530&as_of=2026-05-22T00%3A00%3A00%2B00%3A00&decision=APPROVE",
+            "defer_review_action": "/candidates/AMZN/reviews?cycle_id=cycle-live-20260522-1530&as_of=2026-05-22T00%3A00%3A00%2B00%3A00&decision=DEFER",
+            "reject_review_action": "/candidates/AMZN/reviews?cycle_id=cycle-live-20260522-1530&as_of=2026-05-22T00%3A00%3A00%2B00%3A00&decision=REJECT",
+            "cycle_id": "cycle-live-20260522-1530",
+            "as_of": "2026-05-22T00:00:00+00:00",
+        }
+    ]
+
+    context = cockpit_context_from_sources(sources)
+    row = context["candidates"][0]
+
+    assert row["ticker"] == "AMZN"
+    assert row["final_conviction"] == 0.69
+    assert row["actionable"] is False
+    assert row["reviewable"] is True
+    assert row["decision_controls"] == ["approve", "defer", "reject"]
+    assert row["approve_review_action"].startswith("/candidates/AMZN/reviews")
+    assert row["evidence_line"] == "5 independent source(s); 2 confirmed signal(s)."
 
 
 def test_llm_not_run_copy_is_explicit_for_non_top_ten() -> None:

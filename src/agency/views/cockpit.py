@@ -26,15 +26,22 @@ async def cockpit_context(
 ) -> dict[str, object]:
     """Build the cockpit aggregate from existing production page contexts."""
 
-    from agency.views.command import dashboard_context
+    from agency.views.command import dashboard_context, paper_review_status_context
     from agency.views.execution import execution_preview_context
     from agency.views.portfolio import portfolio_monitor_context
 
-    dashboard, execution, portfolio = await asyncio.gather(
+    dashboard, execution, portfolio, paper_review = await asyncio.gather(
         dashboard_context(),
         execution_preview_context(),
         portfolio_monitor_context(),
+        paper_review_status_context(),
     )
+    if _list(paper_review.get("queue")):
+        dashboard = {
+            **dashboard,
+            "review_queue": _list(paper_review.get("queue")),
+            "review_progress": _mapping(paper_review.get("progress")),
+        }
     return cockpit_context_from_sources(
         {
             "dashboard": dashboard,
@@ -230,9 +237,20 @@ def _engine_rows(
         rows.append(
             {
                 "name": _first_text(item.get("name"), item.get("source"), default="Data source"),
-                "state": _status_to_engine_state(item.get("status_class"), item.get("status_label")),
-                "age": _first_text(item.get("freshness_label"), item.get("last_update"), default="not checked"),
-                "detail": _first_text(item.get("detail"), item.get("notes"), default="No detail reported."),
+                "state": _source_engine_state(item),
+                "age": _first_text(
+                    item.get("freshness_label"),
+                    item.get("freshness"),
+                    item.get("checked_at"),
+                    item.get("last_update"),
+                    default="not checked",
+                ),
+                "detail": _first_text(
+                    item.get("detail"),
+                    item.get("notes"),
+                    _source_health_detail(item),
+                    default="No detail reported.",
+                ),
             }
         )
     for lane in _list(signals_context.get("lanes")):
@@ -275,6 +293,7 @@ def _funnel_section(
     progress = _mapping(dashboard.get("review_progress"))
     total = _int(progress.get("total_count"), fallback=len(candidates))
     actionable = sum(1 for row in candidates if row.get("actionable") is True)
+    reviewable = sum(1 for row in candidates if row.get("reviewable") is True)
     blocked = sum(1 for row in candidates if row.get("status") == "blocked")
     return {
         "universe": _int(_mapping(dashboard.get("live_config")).get("active_universe_count"), fallback=total),
@@ -286,6 +305,7 @@ def _funnel_section(
         "llm_agree": sum(1 for row in candidates if "not run" not in str(row.get("llm_label", "")).lower()),
         "final": len(candidates),
         "actionable": actionable,
+        "reviewable": reviewable,
         "blocked_by_policy": blocked,
     }
 
@@ -301,15 +321,24 @@ def _candidate_rows(
         item = _mapping(raw)
         ticker = _first_text(item.get("ticker"), default=f"ROW{raw_index}")
         action = _first_text(item.get("final_action"), item.get("action"), default="WATCH").upper()
-        risk_label = _first_text(item.get("risk_status_label"), item.get("risk_status"), default="").upper()
+        risk_label = _first_text(
+            item.get("risk_status_label"),
+            item.get("risk_status"),
+            item.get("risk_decision"),
+            item.get("gate_status"),
+            default="",
+        ).upper()
         final_conviction = _score(
             item.get("final_conviction"),
             item.get("final_score"),
             item.get("score"),
             item.get("conviction"),
+            item.get("conviction_pct"),
         )
         preview = previews.get(ticker, {})
-        actionable = action in TRADE_ACTIONS and item.get("is_reviewable") is not False and "BLOCK" not in risk_label
+        gate_blocked = "BLOCK" in risk_label
+        actionable = action in TRADE_ACTIONS and item.get("is_reviewable") is not False and not gate_blocked
+        reviewable = _candidate_is_reviewable(item, gate_blocked=gate_blocked)
         status = "approved" if actionable else "blocked" if "BLOCK" in risk_label else "demoted"
         evidence_items = _evidence_items(item)
         evidence_line = evidence_items[0]["text"]
@@ -341,11 +370,25 @@ def _candidate_rows(
                 "score_display": score_display,
                 "conviction_dial_degrees": int(round(final_conviction * 120 - 60)),
                 "status": status,
-                "status_label": _candidate_status_label(actionable=actionable, risk_label=risk_label),
+                "status_label": _candidate_status_label(
+                    actionable=actionable,
+                    reviewable=reviewable,
+                    risk_label=risk_label,
+                ),
                 "blocker": None if actionable else risk_text,
                 "actionable": actionable,
-                "action_label": "Approve, defer, or reject" if actionable else "Open audit",
-                "decision_controls": ["approve", "defer", "reject"] if actionable else ["audit"],
+                "reviewable": reviewable,
+                "action_label": "Approve, defer, or reject" if reviewable else "Open audit",
+                "decision_controls": ["approve", "defer", "reject"] if reviewable else ["audit"],
+                "approve_review_action": _first_text(item.get("approve_review_action")),
+                "defer_review_action": _first_text(item.get("defer_review_action")),
+                "reject_review_action": _first_text(item.get("reject_review_action")),
+                "caution_acknowledgement_required": bool(
+                    item.get("caution_acknowledgement_required")
+                ),
+                "caution_acknowledgement_text": _first_text(
+                    item.get("caution_acknowledgement_text")
+                ),
                 "evidence": evidence_items,
                 "evidence_tiers": _candidate_evidence_tiers(evidence_items),
                 "evidence_line": evidence_line,
@@ -488,7 +531,10 @@ def _scenario_from_context(
     execution: Mapping[str, object],
 ) -> dict[str, object]:
     engines = [_mapping(item) for item in _list(context.get("engines"))]
-    if any(engine.get("state") == "down" for engine in engines):
+    candidates = [_mapping(item) for item in _list(context.get("candidates"))]
+    actionable_count = sum(1 for row in candidates if row.get("actionable") is True)
+    reviewable_count = sum(1 for row in candidates if row.get("reviewable") is True)
+    if reviewable_count == 0 and any(engine.get("state") == "down" for engine in engines):
         return {
             "state": "outage",
             "headline": "Selection is paused because critical data is unavailable.",
@@ -505,9 +551,13 @@ def _scenario_from_context(
             "headline": f"{len(submitted_rows)} paper orders were transmitted for this cycle.",
             "detail": "Review broker IDs and wait for the next cycle before staging more orders.",
         }
-    candidates = [_mapping(item) for item in _list(context.get("candidates"))]
-    actionable_count = sum(1 for row in candidates if row.get("actionable") is True)
     if actionable_count == 0:
+        if reviewable_count > 0:
+            return {
+                "state": "review",
+                "headline": f"{reviewable_count} candidates are ready for research review.",
+                "detail": "Approve, defer, or reject the review rows; no paper order is staged until policy and execution gates create an orderable preview.",
+            }
         return {
             "state": "no-actionable",
             "headline": "Nothing actionable today. The agent already filtered the universe.",
@@ -718,7 +768,19 @@ def _evidence_items(item: Mapping[str, object]) -> list[dict[str, str]]:
             source = "Evidence"
         if text:
             rows.append({"tier": tier, "source": source, "text": text})
-    return rows or [
+    if rows:
+        return rows
+    source_count = _int(item.get("source_count"))
+    confirmed_count = _int(item.get("confirmed_signal_count"))
+    if source_count or confirmed_count:
+        return [
+            {
+                "tier": "confirmed" if confirmed_count else "inferred",
+                "source": "Evidence coverage",
+                "text": f"{source_count} independent source(s); {confirmed_count} confirmed signal(s).",
+            }
+        ]
+    return [
         {
             "tier": "suppressed",
             "source": "Evidence",
@@ -727,9 +789,26 @@ def _evidence_items(item: Mapping[str, object]) -> list[dict[str, str]]:
     ]
 
 
-def _candidate_status_label(*, actionable: bool, risk_label: str) -> str:
+def _candidate_is_reviewable(item: Mapping[str, object], *, gate_blocked: bool) -> bool:
+    if gate_blocked:
+        return False
+    if item.get("is_reviewable") is False:
+        return False
+    review_state = _first_text(item.get("review_state")).upper()
+    human_decision = _first_text(item.get("human_review_decision"), default="PENDING").upper()
+    has_review_action = bool(
+        _first_text(item.get("approve_review_action"))
+        and _first_text(item.get("defer_review_action"))
+        and _first_text(item.get("reject_review_action"))
+    )
+    return has_review_action and human_decision == "PENDING" and review_state in {"", "READY", "WAITING"}
+
+
+def _candidate_status_label(*, actionable: bool, reviewable: bool, risk_label: str) -> str:
     if actionable:
         return "Ready for your decision"
+    if reviewable:
+        return "Ready for research review"
     if "BLOCK" in risk_label:
         return "Audit only - policy gate blocks order"
     return "Review context - not orderable now"
@@ -743,6 +822,15 @@ def _candidate_evidence_tiers(items: Sequence[Mapping[str, object]]) -> list[str
 def _first_metric(text: str) -> str:
     match = re.search(r"[-+]?\d+(?:\.\d+)?%?", text)
     return match.group(0) if match else ""
+
+
+def _source_health_detail(item: Mapping[str, object]) -> str:
+    source = _first_text(item.get("source"), item.get("name"), default="Data source")
+    status = _first_text(item.get("status"), item.get("status_label"), default="status not reported")
+    freshness = _first_text(item.get("freshness"), item.get("freshness_label"), default="freshness not reported")
+    checked_at = _first_text(item.get("checked_at"), item.get("last_update"), default="")
+    suffix = f"; checked at {checked_at}" if checked_at else ""
+    return f"{source} reports {status} / {freshness}{suffix}."
 
 
 def _money_value(*values: object) -> float:
@@ -776,6 +864,17 @@ def _status_to_engine_state(status_class: object, status_label: object) -> str:
     if any(token in label for token in ("warn", "degraded", "needs", "partial", "delayed")):
         return "needs_refresh"
     return "live"
+
+
+def _source_engine_state(item: Mapping[str, object]) -> str:
+    status = _first_text(item.get("status"), item.get("status_label")).upper()
+    freshness = _first_text(item.get("freshness"), item.get("freshness_label")).upper()
+    status_class = _first_text(item.get("status_class")).lower()
+    if status in {"HEALTHY", "OK", "PASS"} and freshness == "FRESH":
+        return "needs_refresh" if status_class == "block" else "live"
+    if status in {"STALE", "DEGRADED"} or freshness in {"STALE", "AGING"}:
+        return "needs_refresh"
+    return _status_to_engine_state(item.get("status_class"), item.get("status_label"))
 
 
 def _status_to_source_state(status_class: object, status_label: object) -> str:
