@@ -36,13 +36,8 @@ async def cockpit_context(
         portfolio_monitor_context(),
         paper_review_status_context(),
     )
-    if _list(paper_review.get("queue")):
-        dashboard = {
-            **dashboard,
-            "review_queue": _list(paper_review.get("queue")),
-            "review_progress": _mapping(paper_review.get("progress")),
-        }
-    return cockpit_context_from_sources(
+    dashboard = _dashboard_with_paper_review(dashboard, paper_review)
+    context = cockpit_context_from_sources(
         {
             "dashboard": dashboard,
             "execution": execution,
@@ -53,6 +48,45 @@ async def cockpit_context(
         qa_scenario=qa_scenario,
         qa_scenarios_enabled=qa_scenarios_enabled,
     )
+    candidates = _list(context.get("candidates"))
+    if candidates and _list(paper_review.get("queue")):
+        return context
+
+    # The scheduler can publish reports while a cockpit request is already
+    # assembling its contexts. Re-check paper review once before trusting an
+    # empty or dashboard-only partial cockpit, because the queue is the
+    # operator's primary workflow.
+    paper_review = await paper_review_status_context()
+    dashboard = _dashboard_with_paper_review(dashboard, paper_review)
+    retry_context = cockpit_context_from_sources(
+        {
+            "dashboard": dashboard,
+            "execution": execution,
+            "portfolio": portfolio,
+            "market": {},
+            "signals": {},
+        },
+        qa_scenario=qa_scenario,
+        qa_scenarios_enabled=qa_scenarios_enabled,
+    )
+    retry_candidates = _list(retry_context.get("candidates"))
+    if len(retry_candidates) > len(candidates):
+        return retry_context
+    return context if candidates else retry_context
+
+
+def _dashboard_with_paper_review(
+    dashboard: Mapping[str, object],
+    paper_review: Mapping[str, object],
+) -> dict[str, object]:
+    queue = _list(paper_review.get("queue"))
+    if not queue:
+        return dict(dashboard)
+    return {
+        **dashboard,
+        "review_queue": queue,
+        "review_progress": _mapping(paper_review.get("progress")),
+    }
 
 
 def cockpit_context_from_sources(

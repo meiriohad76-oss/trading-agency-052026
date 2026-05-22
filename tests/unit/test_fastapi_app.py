@@ -1475,6 +1475,132 @@ async def test_dashboard_context_reuses_source_health_load_status(
     assert context["data_load_status"]["status_label"] == "Ready"
 
 
+async def test_dashboard_context_uses_full_cycle_for_review_queue(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    checked_at = datetime.now(UTC).isoformat()
+    cycle_id = "auto-lane-refresh-20260522T173901Z"
+    tickers = [f"N{i:03d}" for i in range(148)] + [f"W{i:02d}" for i in range(20)]
+    reports = [
+        {
+            "cycle_id": cycle_id,
+            "ticker": ticker,
+            "as_of": checked_at,
+            "generated_at": checked_at,
+            "final_action": "WATCH" if ticker.startswith("W") else "NO_TRADE",
+            "final_conviction": 0.7 if ticker.startswith("W") else 0.1,
+            "policy_gates": [
+                {"name": "selection_policy", "status": "PASS", "reason": "within policy"}
+            ],
+            "risk_flags": [],
+            "evidence_pack": {
+                "data_quality": {
+                    "source_count": 5,
+                    "confirmed_signal_count": 2,
+                }
+            },
+        }
+        for ticker in tickers
+    ]
+    risk_decisions = [
+        {
+            "cycle_id": report["cycle_id"],
+            "ticker": report["ticker"],
+            "as_of": report["as_of"],
+            "decision": "WARN" if report["final_action"] == "WATCH" else "ALLOW",
+            "reasons": ["Caution: review-only candidate"]
+            if report["final_action"] == "WATCH"
+            else ["risk decision recorded"],
+            "final_action": report["final_action"],
+            "final_conviction": report["final_conviction"],
+        }
+        for report in reports
+    ]
+    data_load_status = {
+        "state": "ready",
+        "status_label": "Ready",
+        "status_class": "pass",
+        "overall_percent": 100,
+        "core_dataset_percent": 100,
+        "critical_lane_percent": 100,
+        "expected_ticker_count": len(tickers),
+        "market_flow_summary": {
+            "status": "ready",
+            "usable_ticker_count": len(tickers),
+            "expected_ticker_count": len(tickers),
+        },
+        "dataset_summary": {},
+        "agent_summary": {},
+        "freshness_rows": [],
+        "datasets": [],
+        "lanes": [],
+        "blockers": [],
+        "warnings": [],
+        "data_refresh": {},
+        "health_monitor": {},
+        "source_summary": {},
+        "live_config": {"runtime_signals": [], "checks": []},
+    }
+    seen_report_limits: list[int] = []
+
+    async def fake_reports(limit: int) -> list[dict[str, object]]:
+        seen_report_limits.append(limit)
+        return reports[:limit]
+
+    async def fake_risks(limit: int) -> list[dict[str, object]]:
+        return risk_decisions[:limit]
+
+    async def source_status_with_load_status() -> dict[str, object]:
+        return {
+            "data_sources": [],
+            "data_load_status": data_load_status,
+        }
+
+    def fake_scheduler_context(**_: object) -> dict[str, object]:
+        return {"tradability": {"state": "tradable", "status_label": "Tradable"}}
+
+    def fake_scheduler_view(status: dict[str, object]) -> dict[str, object]:
+        return {
+            "headline": "Scheduler ready",
+            "tradability": dict(status.get("tradability", {})),
+            "refresh_workload": {},
+        }
+
+    async def no_review_events(
+        reports: Sequence[Mapping[str, object]],
+        readiness: Mapping[str, object],
+    ) -> list[dict[str, object]]:
+        return []
+
+    monkeypatch.setattr(command_module, "_dashboard_selection_reports_live", fake_reports)
+    monkeypatch.setattr(command_module, "_dashboard_risk_decisions_live", fake_risks)
+    monkeypatch.setattr(
+        command_module,
+        "_runtime_data_source_status_with_load_status_live",
+        source_status_with_load_status,
+        raising=False,
+    )
+    monkeypatch.setattr(command_module, "human_review_events_for_reports", no_review_events)
+    monkeypatch.setattr(
+        command_module,
+        "load_data_refresh_progress",
+        lambda: {
+            "state": "complete",
+            "status_label": "Complete",
+            "percent_complete": 100,
+            "updated_at": checked_at,
+        },
+    )
+    monkeypatch.setattr(command_module, "scheduler_work_queue_context", fake_scheduler_context)
+    monkeypatch.setattr(command_module, "scheduler_work_queue_view", fake_scheduler_view)
+
+    context = await command_module.dashboard_context()
+
+    assert seen_report_limits == [command_module.FINAL_SELECTION_REPORT_LIMIT]
+    assert context["review_progress"]["total_count"] == 20
+    assert len(context["review_queue"]) == 20
+
+
 async def test_operational_readiness_context_reuses_source_health_load_status(
     monkeypatch: MonkeyPatch,
 ) -> None:

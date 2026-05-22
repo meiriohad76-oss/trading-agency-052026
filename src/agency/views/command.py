@@ -81,9 +81,9 @@ async def dashboard_context() -> dict[str, object]:
         data_refresh,
         active_policy,
     ) = await asyncio.gather(
-        _dashboard_selection_reports_live(COMMAND_DASHBOARD_REPORT_LIMIT),
+        _dashboard_selection_reports_live(FINAL_SELECTION_REPORT_LIMIT),
         _runtime_data_source_status_with_load_status_live(),
-        _dashboard_risk_decisions_live(COMMAND_DASHBOARD_REPORT_LIMIT),
+        _dashboard_risk_decisions_live(FINAL_SELECTION_REPORT_LIMIT),
         broker_status_context(allow_live_read=False),
         data_refresh_task,
         active_policy_task,

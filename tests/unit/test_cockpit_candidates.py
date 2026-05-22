@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import agency.views.cockpit as cockpit_module
 from agency.views.cockpit import (
     cockpit_context_from_sources,
     cockpit_ticker_detail_payload_from_context,
@@ -107,6 +108,153 @@ def test_watch_candidate_with_pending_review_has_research_approval_controls() ->
     assert row["decision_controls"] == ["approve", "defer", "reject"]
     assert row["approve_review_action"].startswith("/candidates/AMZN/reviews")
     assert row["evidence_line"] == "5 independent source(s); 2 confirmed signal(s)."
+
+
+async def test_cockpit_context_retries_paper_review_when_first_queue_is_empty(
+    monkeypatch,
+) -> None:
+    sources = _sample_sources()
+    queue = [
+        {
+            "ticker": "AMZN",
+            "action": "WATCH",
+            "conviction_pct": 69,
+            "gate_status": "PASS",
+            "risk_decision": "WARN",
+            "review_state": "Ready",
+            "human_review_decision": "Pending",
+            "source_count": 5,
+            "confirmed_signal_count": 2,
+            "approve_review_action": "/candidates/AMZN/reviews?cycle_id=cycle-live&as_of=2026-05-22T00%3A00%3A00%2B00%3A00&decision=APPROVE",
+            "defer_review_action": "/candidates/AMZN/reviews?cycle_id=cycle-live&as_of=2026-05-22T00%3A00%3A00%2B00%3A00&decision=DEFER",
+            "reject_review_action": "/candidates/AMZN/reviews?cycle_id=cycle-live&as_of=2026-05-22T00%3A00%3A00%2B00%3A00&decision=REJECT",
+            "cycle_id": "cycle-live",
+            "as_of": "2026-05-22T00:00:00+00:00",
+        }
+    ]
+    sources["dashboard"]["review_queue"] = []  # type: ignore[index]
+
+    async def fake_dashboard_context() -> dict[str, object]:
+        return dict(sources["dashboard"])  # type: ignore[arg-type]
+
+    async def fake_execution_preview_context() -> dict[str, object]:
+        return dict(sources["execution"])  # type: ignore[arg-type]
+
+    async def fake_portfolio_monitor_context() -> dict[str, object]:
+        return dict(sources["portfolio"])  # type: ignore[arg-type]
+
+    calls = {"count": 0}
+
+    async def fake_paper_review_status_context() -> dict[str, object]:
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return {
+                "cycle_id": "cycle-live",
+                "progress": {"total_count": 0},
+                "queue": [],
+            }
+        return {
+            "cycle_id": "cycle-live",
+            "progress": {"total_count": 1, "pending_count": 1},
+            "queue": queue,
+        }
+
+    monkeypatch.setattr("agency.views.command.dashboard_context", fake_dashboard_context)
+    monkeypatch.setattr("agency.views.command.paper_review_status_context", fake_paper_review_status_context)
+    monkeypatch.setattr("agency.views.execution.execution_preview_context", fake_execution_preview_context)
+    monkeypatch.setattr("agency.views.portfolio.portfolio_monitor_context", fake_portfolio_monitor_context)
+
+    context = await cockpit_module.cockpit_context()
+
+    assert calls["count"] == 2
+    assert [row["ticker"] for row in context["candidates"]] == ["AMZN"]
+    assert context["scenario"]["headline"] == "1 candidates are ready for research review."
+
+
+async def test_cockpit_context_retries_when_dashboard_queue_is_partial(
+    monkeypatch,
+) -> None:
+    sources = _sample_sources()
+    partial_queue = [
+        {
+            "ticker": "XEL",
+            "action": "WATCH",
+            "conviction_pct": 65,
+            "gate_status": "PASS",
+            "risk_decision": "WARN",
+            "review_state": "Ready",
+            "human_review_decision": "Pending",
+            "source_count": 4,
+            "confirmed_signal_count": 2,
+            "approve_review_action": "/candidates/XEL/reviews?cycle_id=cycle-live&as_of=2026-05-22T00%3A00%3A00%2B00%3A00&decision=APPROVE",
+            "defer_review_action": "/candidates/XEL/reviews?cycle_id=cycle-live&as_of=2026-05-22T00%3A00%3A00%2B00%3A00&decision=DEFER",
+            "reject_review_action": "/candidates/XEL/reviews?cycle_id=cycle-live&as_of=2026-05-22T00%3A00%3A00%2B00%3A00&decision=REJECT",
+            "cycle_id": "cycle-live",
+            "as_of": "2026-05-22T00:00:00+00:00",
+        },
+        {
+            "ticker": "WDC",
+            "action": "WATCH",
+            "conviction_pct": 64,
+            "gate_status": "PASS",
+            "risk_decision": "WARN",
+            "review_state": "Ready",
+            "human_review_decision": "Pending",
+            "source_count": 4,
+            "confirmed_signal_count": 2,
+            "approve_review_action": "/candidates/WDC/reviews?cycle_id=cycle-live&as_of=2026-05-22T00%3A00%3A00%2B00%3A00&decision=APPROVE",
+            "defer_review_action": "/candidates/WDC/reviews?cycle_id=cycle-live&as_of=2026-05-22T00%3A00%3A00%2B00%3A00&decision=DEFER",
+            "reject_review_action": "/candidates/WDC/reviews?cycle_id=cycle-live&as_of=2026-05-22T00%3A00%3A00%2B00%3A00&decision=REJECT",
+            "cycle_id": "cycle-live",
+            "as_of": "2026-05-22T00:00:00+00:00",
+        },
+    ]
+    full_queue = [
+        {
+            **partial_queue[0],
+            "ticker": f"T{index:02d}",
+            "conviction_pct": 80 - index,
+        }
+        for index in range(20)
+    ]
+    sources["dashboard"]["review_queue"] = partial_queue  # type: ignore[index]
+
+    async def fake_dashboard_context() -> dict[str, object]:
+        return dict(sources["dashboard"])  # type: ignore[arg-type]
+
+    async def fake_execution_preview_context() -> dict[str, object]:
+        return dict(sources["execution"])  # type: ignore[arg-type]
+
+    async def fake_portfolio_monitor_context() -> dict[str, object]:
+        return dict(sources["portfolio"])  # type: ignore[arg-type]
+
+    calls = {"count": 0}
+
+    async def fake_paper_review_status_context() -> dict[str, object]:
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return {
+                "cycle_id": "cycle-live",
+                "progress": {"total_count": 0},
+                "queue": [],
+            }
+        return {
+            "cycle_id": "cycle-live",
+            "progress": {"total_count": 20, "pending_count": 20},
+            "queue": full_queue,
+        }
+
+    monkeypatch.setattr("agency.views.command.dashboard_context", fake_dashboard_context)
+    monkeypatch.setattr("agency.views.command.paper_review_status_context", fake_paper_review_status_context)
+    monkeypatch.setattr("agency.views.execution.execution_preview_context", fake_execution_preview_context)
+    monkeypatch.setattr("agency.views.portfolio.portfolio_monitor_context", fake_portfolio_monitor_context)
+
+    context = await cockpit_module.cockpit_context()
+
+    assert calls["count"] == 2
+    assert len(context["candidates"]) == 20
+    assert context["candidates"][0]["ticker"] == "T00"
+    assert context["scenario"]["headline"] == "20 candidates are ready for research review."
 
 
 def test_approved_watch_candidate_uses_ready_execution_preview_as_orderable() -> None:
