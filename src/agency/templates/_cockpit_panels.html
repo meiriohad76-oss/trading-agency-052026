@@ -1,0 +1,130 @@
+<div class="cockpit-panels" data-cockpit-panels>
+  <section id="cockpit-panel-universe" class="cockpit-panel" role="dialog" aria-modal="true" aria-labelledby="cockpit-panel-universe-heading" hidden>
+    <div class="cockpit-panel-backdrop" data-cockpit-panel-close></div>
+    <article class="cockpit-panel-card">
+      <button type="button" class="cockpit-panel-close" data-cockpit-panel-close>Close panel</button>
+      <h2 id="cockpit-panel-universe-heading">Universe and Source Coverage</h2>
+      <p class="muted">Use this panel to see which production sources support the current cockpit data.</p>
+      <div class="cockpit-panel-list">
+        {% for source in sources %}
+          <article>
+            <strong>{{ source.name }}</strong>
+            <span class="status-pill status-pill-{% if source.state == 'fresh' %}pass{% elif source.state == 'partial' %}warn{% else %}block{% endif %}">{{ source.state }}</span>
+            <p>{{ source.coverage }} - {{ source.note }}</p>
+            <small>Last pull {{ source.last_pull }} / tier {{ source.tier }}</small>
+          </article>
+        {% else %}
+          <p class="empty-state">No source-health rows are available for this cycle.</p>
+        {% endfor %}
+      </div>
+    </article>
+  </section>
+
+  <section id="cockpit-panel-signals" class="cockpit-panel" role="dialog" aria-modal="true" aria-labelledby="cockpit-panel-signals-heading" hidden>
+    <div class="cockpit-panel-backdrop" data-cockpit-panel-close></div>
+    <article class="cockpit-panel-card">
+      <button type="button" class="cockpit-panel-close" data-cockpit-panel-close>Close panel</button>
+      <h2 id="cockpit-panel-signals-heading">Signal Evidence</h2>
+      <p class="muted">Confirmed means a direct production source supplied the value. Inferred means the agency derived it from source data. Suppressed means the signal is retained for audit but not allowed to drive the decision.</p>
+      <div class="cockpit-panel-list">
+        {% for signal in signals %}
+          <article>
+            <strong>{{ signal.name }}</strong>
+            <span class="status-pill status-pill-{% if signal.state == 'fresh' %}pass{% elif signal.state == 'partial' %}warn{% else %}block{% endif %}">{{ signal.status }}</span>
+            <p>{{ signal.detail }}</p>
+          </article>
+        {% else %}
+          <p class="empty-state">No signal lane rows are available for this cycle.</p>
+        {% endfor %}
+      </div>
+    </article>
+  </section>
+
+  <section id="cockpit-panel-audit" class="cockpit-panel" role="dialog" aria-modal="true" aria-labelledby="cockpit-panel-audit-heading" hidden>
+    <div class="cockpit-panel-backdrop" data-cockpit-panel-close></div>
+    <article class="cockpit-panel-card">
+      <button type="button" class="cockpit-panel-close" data-cockpit-panel-close>Close panel</button>
+      <h2 id="cockpit-panel-audit-heading">Audit Trace</h2>
+      <p class="muted">Cycle {{ audit_lifecycle.cycle_id }}. Evidence hash values are shown when the runtime persisted them.</p>
+      <div class="cockpit-panel-list">
+        {% for ticker, events in audit_lifecycle.traces.items() %}
+          <article>
+            <strong>{{ ticker }}</strong>
+            {% for event in events %}
+              <p>{{ event.message }}</p>
+              <small>Status {{ event.status }}{% if event.evidence_hash %} / evidence hash {{ event.evidence_hash }}{% endif %}</small>
+            {% endfor %}
+          </article>
+        {% else %}
+          <p class="empty-state">No audit trace is available for this cycle.</p>
+        {% endfor %}
+      </div>
+    </article>
+  </section>
+
+  <section id="cockpit-panel-policy" class="cockpit-panel" role="dialog" aria-modal="true" aria-labelledby="cockpit-panel-policy-heading" hidden>
+    <div class="cockpit-panel-backdrop" data-cockpit-panel-close></div>
+    <article class="cockpit-panel-card">
+      <button type="button" class="cockpit-panel-close" data-cockpit-panel-close>Close panel</button>
+      <h2 id="cockpit-panel-policy-heading">Policy</h2>
+      <p class="muted">Live trading is locked off. Policy changes apply to the next cycle; this page only clears paper orders that pass the current deployed rules.</p>
+      <dl class="cockpit-policy-grid">
+        {% for key, value in policy.items() %}
+          <div>
+            <dt>{{ key|replace("_", " ")|title }}</dt>
+            <dd>{{ value }}</dd>
+          </div>
+        {% endfor %}
+      </dl>
+    </article>
+  </section>
+
+  <section id="cockpit-panel-monitor" class="cockpit-panel" role="dialog" aria-modal="true" aria-labelledby="cockpit-panel-monitor-heading" hidden>
+    <div class="cockpit-panel-backdrop" data-cockpit-panel-close></div>
+    <article class="cockpit-panel-card">
+      <button type="button" class="cockpit-panel-close" data-cockpit-panel-close>Close panel</button>
+      <h2 id="cockpit-panel-monitor-heading">Monitor Events</h2>
+      <p class="muted">This is the latest persisted scheduler and runtime event list. Live streaming can be added later without changing the cockpit contract.</p>
+      <div class="cockpit-panel-list">
+        {% for event in monitor_events %}
+          <article>
+            <strong>{{ event.message }}</strong>
+            <p>{{ event.kind }}</p>
+            <small>{{ event.timestamp }}</small>
+          </article>
+        {% else %}
+          <p class="empty-state">No monitor events are available yet.</p>
+        {% endfor %}
+      </div>
+    </article>
+  </section>
+
+  <section id="cockpit-panel-ticker-detail" class="cockpit-panel" role="dialog" aria-modal="true" aria-labelledby="cockpit-panel-ticker-heading" hidden>
+    <div class="cockpit-panel-backdrop" data-cockpit-panel-close></div>
+    <article class="cockpit-panel-card">
+      <button type="button" class="cockpit-panel-close" data-cockpit-panel-close>Close panel</button>
+      <h2 id="cockpit-panel-ticker-heading" data-ticker-title>Ticker Detail</h2>
+      <p class="muted" data-ticker-summary>Open from a candidate row to inspect factor evidence, LLM rationale, order preview, and gates.</p>
+      <div class="cockpit-ticker-grid">
+        <article>
+          <span>Order preview</span>
+          <strong data-ticker-order-preview>No row selected</strong>
+        </article>
+        <article>
+          <span>Final conviction</span>
+          <strong class="cockpit-mono" data-ticker-conviction>--</strong>
+        </article>
+        <article>
+          <span>Status</span>
+          <strong data-ticker-status>--</strong>
+        </article>
+      </div>
+      <h3>LLM rationale</h3>
+      <p data-ticker-llm-rationale>Open a ticker row to see the LLM rationale or the not-run reason.</p>
+      <h3>Evidence pack</h3>
+      <ul data-ticker-evidence></ul>
+      <h3>Gates</h3>
+      <p data-ticker-gates>Gate detail appears after a ticker is selected.</p>
+    </article>
+  </section>
+</div>

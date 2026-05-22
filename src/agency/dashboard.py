@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
@@ -9,7 +9,7 @@ from urllib.parse import parse_qs, urlencode
 
 from data_refresh.market_calendar import classify_market_session
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
-from fastapi.responses import RedirectResponse, Response
+from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -186,6 +186,187 @@ async def cockpit_audit_api(ticker: str) -> dict[str, object]:
         return cockpit_audit_payload(await cockpit_context(), ticker)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/cockpit/submit")
+async def cockpit_submit(request: Request) -> JSONResponse:
+    """Submit the cockpit paper manifest through the execution-preview safety path."""
+
+    if _env_bool_text("LIVE_TRADING"):
+        raise HTTPException(
+            status_code=403,
+            detail="Cockpit clearance is paper-only; live trading is locked off.",
+        )
+    form = parse_qs((await request.body()).decode("utf-8"), keep_blank_values=True)
+    if _cockpit_form_first(form, "submit_ack") != "on":
+        raise HTTPException(status_code=400, detail="Confirm the paper-only submit checkbox first.")
+    if _cockpit_form_first(form, "submit_phrase").strip() != "submit paper orders":
+        raise HTTPException(status_code=400, detail="Type the exact phrase: submit paper orders.")
+    orders = _cockpit_submit_orders_from_form(form)
+    if not orders:
+        raise HTTPException(status_code=400, detail="No paper order rows were included in the cockpit manifest.")
+
+    broker, data_sources = await asyncio.gather(
+        _fresh_broker_status_context(),
+        runtime_data_source_status(),
+    )
+    _require_immediate_execution_freshness(broker, data_sources)
+    context = await execution_preview_context(
+        broker=broker,
+        data_sources=data_sources,
+        validate_contracts=True,
+    )
+    gate = _mapping_field(context, "execution_freshness_gate")
+    if gate.get("ready") is not True:
+        raise HTTPException(
+            status_code=409,
+            detail=str(gate.get("detail") or "Execution data is not fresh enough."),
+        )
+
+    accepted: list[dict[str, object]] = []
+    rejected: list[dict[str, object]] = []
+    for order in orders:
+        row = row_from_execution_context(
+            context,
+            cycle_id=str(order["cycle_id"]),
+            ticker=str(order["ticker"]),
+            as_of=str(order["as_of"]),
+        )
+        if row is None:
+            raise HTTPException(status_code=404, detail=f"execution preview not found for {order['ticker']}")
+        if str(row.get("order_intent_hash") or "") != str(order["order_intent_hash"]):
+            raise HTTPException(status_code=409, detail="order intent changed; refresh cockpit and approve again")
+        _reject_tampered_cockpit_order_hints(row, order)
+        try:
+            await submit_execution_order(
+                cycle_id=str(row["cycle_id"]),
+                ticker=str(row["ticker"]),
+                as_of=str(row["as_of"]),
+                order_intent_hash=str(row["order_intent_hash"]),
+            )
+        except HTTPException as exc:
+            rejected.append(
+                {
+                    "ticker": str(row.get("ticker") or order["ticker"]),
+                    "detail": str(exc.detail),
+                    "status_code": exc.status_code,
+                }
+            )
+        else:
+            accepted.append(
+                {
+                    "ticker": str(row.get("ticker") or order["ticker"]),
+                    "broker_order_id": str(
+                        row.get("broker_order_id")
+                        or row.get("order_id")
+                        or row.get("submitted_order_id")
+                        or ""
+                    ),
+                    "order_intent_hash": str(row.get("order_intent_hash") or ""),
+                }
+            )
+    if accepted and rejected:
+        return JSONResponse(
+            {
+                "state": "partial",
+                "detail": "Some paper orders were accepted and some require review.",
+                "accepted": accepted,
+                "rejected": rejected,
+            },
+            status_code=207,
+        )
+    if rejected:
+        return JSONResponse(
+            {
+                "state": "rejected",
+                "detail": "No paper orders were submitted. Review the rejected rows below.",
+                "accepted": accepted,
+                "rejected": rejected,
+            },
+            status_code=409,
+        )
+    return JSONResponse(
+        {
+            "state": "accepted",
+            "detail": "Paper manifest accepted by the execution-preview submit path.",
+            "accepted": accepted,
+            "rejected": rejected,
+        }
+    )
+
+
+def _cockpit_submit_orders_from_form(form: object) -> list[dict[str, object]]:
+    cycles = _cockpit_form_values(form, "cycle_id")
+    tickers = _cockpit_form_values(form, "ticker")
+    as_of_values = _cockpit_form_values(form, "as_of")
+    hashes = _cockpit_form_values(form, "order_intent_hash")
+    notional_hints = _cockpit_form_values(form, "notional_hint")
+    side_hints = _cockpit_form_values(form, "side_hint")
+    orders: list[dict[str, object]] = []
+    for index, ticker in enumerate(tickers):
+        orders.append(
+            {
+                "cycle_id": _indexed(cycles, index),
+                "ticker": ticker.upper(),
+                "as_of": _indexed(as_of_values, index),
+                "order_intent_hash": _indexed(hashes, index),
+                "notional_hint": _indexed(notional_hints, index),
+                "side_hint": _indexed(side_hints, index),
+            }
+        )
+    return [
+        order
+        for order in orders
+        if order["cycle_id"] and order["ticker"] and order["as_of"]
+    ]
+
+
+def _cockpit_form_first(form: object, key: str) -> str:
+    values = _cockpit_form_values(form, key)
+    return values[0] if values else ""
+
+
+def _cockpit_form_values(form: object, key: str) -> list[str]:
+    getlist = getattr(form, "getlist", None)
+    if callable(getlist):
+        return [str(value) for value in getlist(key)]
+    value = getattr(form, "get", lambda _key: None)(key)
+    if isinstance(value, list | tuple):
+        return [str(item) for item in value]
+    return [str(value)] if value is not None else []
+
+
+def _indexed(values: Sequence[str], index: int) -> str:
+    return values[index] if index < len(values) else ""
+
+
+def _reject_tampered_cockpit_order_hints(
+    row: Mapping[str, object],
+    order: Mapping[str, object],
+) -> None:
+    side_hint = str(order.get("side_hint") or "").upper()
+    if side_hint and side_hint != str(row.get("side") or "").upper():
+        raise HTTPException(
+            status_code=409,
+            detail="Order side changed since the page loaded; refresh cockpit before submitting.",
+        )
+    notional_hint = _optional_float_text(order.get("notional_hint"))
+    row_notional = _optional_float_field(row, "notional")
+    if notional_hint is not None and row_notional is not None and abs(notional_hint - row_notional) > 0.01:
+        raise HTTPException(
+            status_code=409,
+            detail="Order value changed since the page loaded; refresh cockpit before submitting.",
+        )
+
+
+def _optional_float_text(value: object) -> float | None:
+    text = str(value or "").replace("$", "").replace(",", "").strip()
+    if not text:
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        return None
 
 
 @router.get("/status/paper-review")

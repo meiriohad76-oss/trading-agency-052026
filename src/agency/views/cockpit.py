@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import re
 from collections.abc import Mapping, Sequence
 from typing import cast
@@ -49,20 +50,25 @@ def cockpit_context_from_sources(sources: Mapping[str, object]) -> dict[str, obj
     engines = _engine_rows(dashboard, signals_context, execution)
     positions = _position_rows(portfolio)
     account = _account_section(market, portfolio, dashboard, execution, len(candidates))
+    portfolio_phase = _portfolio_phase_section(positions)
+    clearance = _clearance_section(positions, candidates, execution)
+    cycle = _cycle_section(dashboard, engines)
     context: dict[str, object] = {
         "active_nav": "cockpit",
-        "cycle": _cycle_section(dashboard, engines),
+        "cycle": cycle,
         "market": _market_section(market, dashboard),
         "engines": engines,
         "funnel": _funnel_section(dashboard, candidates),
         "candidates": candidates,
         "positions": positions,
         "account": account,
+        "portfolio_phase": portfolio_phase,
+        "clearance": clearance,
         "sectors": _sector_rows(market),
         "sources": _source_rows(dashboard),
         "universe_blocked": _universe_blocked_rows(dashboard),
         "signals": _signal_rows(signals_context),
-        "audit_lifecycle": _audit_lifecycle(candidates),
+        "audit_lifecycle": _audit_lifecycle(candidates, _first_text(cycle.get("id"))),
         "policy": _policy_section(dashboard),
         "monitor_events": _monitor_events(dashboard),
     }
@@ -259,9 +265,9 @@ def _candidate_rows(
     source_rows = _list(dashboard.get("review_queue")) or _list(dashboard.get("candidates"))
     previews = {_first_text(_mapping(row).get("ticker")): _mapping(row) for row in _list(execution.get("preview_rows"))}
     rows: list[dict[str, object]] = []
-    for index, raw in enumerate(source_rows, start=1):
+    for raw_index, raw in enumerate(source_rows, start=1):
         item = _mapping(raw)
-        ticker = _first_text(item.get("ticker"), default=f"ROW{index}")
+        ticker = _first_text(item.get("ticker"), default=f"ROW{raw_index}")
         action = _first_text(item.get("final_action"), item.get("action"), default="WATCH").upper()
         risk_label = _first_text(item.get("risk_status_label"), item.get("risk_status"), default="").upper()
         final_conviction = _score(
@@ -274,43 +280,70 @@ def _candidate_rows(
         actionable = action in TRADE_ACTIONS and item.get("is_reviewable") is not False and "BLOCK" not in risk_label
         status = "approved" if actionable else "blocked" if "BLOCK" in risk_label else "demoted"
         evidence_items = _evidence_items(item)
+        evidence_line = evidence_items[0]["text"]
         risk_text = _first_text(
             item.get("risk_detail"),
             item.get("risk_reason"),
             item.get("blocker"),
             default="No major risk flag in current pack.",
         )
+        score_display = f"{final_conviction:.2f}"
         rows.append(
             {
-                "rank": index,
+                "rank": raw_index,
                 "ticker": ticker,
                 "name": _first_text(item.get("company"), item.get("name"), default=ticker),
                 "sector": _first_text(item.get("sector"), default="Sector not reported"),
                 "direction": "short" if action in {"SELL", "SHORT", "COVER"} else "long",
                 "det_conviction": _score(item.get("det_conviction"), item.get("deterministic_score_label")),
                 "llm_conviction": _score(item.get("llm_conviction"), item.get("llm_score_label")),
-                "llm_label": _first_text(item.get("llm_status_label"), default="LLM not run for this ticker"),
+                "llm_label": _first_text(item.get("llm_status_label"), default=""),
+                "llm_rationale": _first_text(
+                    item.get("llm_rationale"),
+                    item.get("llm_summary"),
+                    item.get("llm_status_label"),
+                    default="LLM not run for this ticker",
+                ),
                 "final_conviction": final_conviction,
-                "final_conviction_label": f"{final_conviction:.2f}",
+                "final_conviction_label": score_display,
+                "score_display": score_display,
+                "conviction_dial_degrees": int(round(final_conviction * 120 - 60)),
                 "status": status,
-                "status_label": _first_text(item.get("review_status_label"), default="Ready for review" if actionable else "Audit only"),
+                "status_label": _candidate_status_label(actionable=actionable, risk_label=risk_label),
                 "blocker": None if actionable else risk_text,
                 "actionable": actionable,
                 "action_label": "Approve, defer, or reject" if actionable else "Open audit",
+                "decision_controls": ["approve", "defer", "reject"] if actionable else ["audit"],
                 "evidence": evidence_items,
-                "evidence_line": evidence_items[0]["text"],
+                "evidence_tiers": _candidate_evidence_tiers(evidence_items),
+                "evidence_line": evidence_line,
+                "evidence_hard_value": _first_metric(evidence_line),
                 "risk_line": risk_text,
+                "risk_hard_value": _first_metric(risk_text),
                 "risk_status_label": _first_text(item.get("risk_status_label"), default="No major risk flag"),
                 "order_preview": _first_text(preview.get("notional_label"), preview.get("order_value_label"), default="No paper order yet"),
+                "order_notional": _money_value(preview.get("notional"), preview.get("notional_label"), preview.get("order_value_label")),
+                "order_intent_hash": _first_text(preview.get("order_intent_hash"), default=""),
+                "order_intent_hash_label": _first_text(preview.get("order_intent_hash_label"), default=""),
                 "cycle_id": _first_text(item.get("cycle_id"), default=""),
                 "as_of": _first_text(item.get("as_of"), default=""),
+                "evidence_hash": _first_text(item.get("evidence_hash"), default=""),
                 "detail_url": f"/candidates/{ticker}",
                 "audit_url": f"/api/audit/{ticker}",
             }
         )
-    return sorted(rows, key=lambda row: cast(float, row["final_conviction"]), reverse=True)[
+    sorted_rows = sorted(rows, key=lambda row: cast(float, row["final_conviction"]), reverse=True)[
         :MAX_COCKPIT_CANDIDATES
     ]
+    for index, row in enumerate(sorted_rows, start=1):
+        row["rank"] = index
+        if not _first_text(row.get("llm_label")):
+            row["llm_label"] = (
+                "LLM not run because this ticker is outside the top 10 automatic review set."
+                if index > 10
+                else "LLM not run for this ticker"
+            )
+    return sorted_rows
 
 
 def _position_rows(portfolio: Mapping[str, object]) -> list[dict[str, object]]:
@@ -318,14 +351,29 @@ def _position_rows(portfolio: Mapping[str, object]) -> list[dict[str, object]]:
     for raw in _list(portfolio.get("positions")):
         item = _mapping(raw)
         ticker = _first_text(item.get("ticker"), item.get("symbol"), default="Position")
+        current = _float(item.get("current_price"), item.get("current"))
+        entry = _float(item.get("entry_price"), item.get("avg_entry_price"), item.get("average_entry_price"))
+        stop = _float(item.get("stop_price"), item.get("stop"))
+        pl_pct = _float(item.get("unrealized_pl_pct"), item.get("pl_pct"), fallback=float("nan"))
+        if math.isnan(pl_pct) and entry > 0:
+            pl_pct = round((current - entry) / entry * 100, 2)
+        if math.isnan(pl_pct):
+            pl_pct = 0.0
+        stop_distance_pct = round((current - stop) / current * 100, 2) if current > 0 and stop > 0 else 0.0
         rows.append(
             {
                 "ticker": ticker,
                 "qty": _float(item.get("qty"), item.get("quantity")),
-                "current": _float(item.get("current_price"), item.get("current")),
+                "current": current,
+                "entry": entry,
+                "stop": stop,
                 "market_value": _float(item.get("market_value")),
-                "pl_pct": _float(item.get("unrealized_pl_pct"), item.get("pl_pct")),
+                "pl_pct": pl_pct,
+                "stop_distance_pct": stop_distance_pct,
                 "status": _first_text(item.get("status_label"), item.get("status"), default="Hold"),
+                "exit_signal": _first_text(item.get("exit_signal"), default="NONE"),
+                "requires_exit": _position_requires_exit(item, current=current, stop=stop),
+                "decision_controls": ["keep", "close"],
                 "thesis": _first_text(item.get("thesis"), item.get("detail"), default="No position thesis reported."),
             }
         )
@@ -344,18 +392,29 @@ def _account_section(
     policy = _mapping(dashboard.get("policy_summary"))
     portfolio_summary = _mapping(portfolio.get("summary"))
     orderable_count = len(_list(execution.get("orderable_rows")))
+    gross_exposure = _float(
+        broker.get("gross_exposure_pct"),
+        portfolio_summary.get("gross_exposure_pct"),
+    )
+    equity = _float(account.get("equity"), portfolio_summary.get("equity"), fallback=100000.0)
+    staged_notional = _staged_order_notional(execution)
+    staged_exposure_pct = staged_notional / equity * 100 if equity > 0 else 0.0
+    gross_post_trade = round(gross_exposure + staged_exposure_pct, 1)
+    gross_cap = _float(policy.get("max_gross_exposure_pct"), fallback=100.0)
+    capacity_warning = ""
+    if gross_post_trade > gross_cap:
+        capacity_warning = (
+            f"Gross exposure would be {gross_post_trade:.1f}% versus the {gross_cap:.1f}% cap. "
+            "Reduce staged buys or close exposure before clearance."
+        )
     return {
-        "gross_exposure": _float(
-            broker.get("gross_exposure_pct"),
-            portfolio_summary.get("gross_exposure_pct"),
-        ),
-        "gross_post_trade": _float(
-            broker.get("gross_exposure_pct"),
-            portfolio_summary.get("gross_exposure_pct"),
-        ),
-        "gross_cap": _float(policy.get("max_gross_exposure_pct"), fallback=100.0),
+        "gross_exposure": gross_exposure,
+        "gross_post_trade": gross_post_trade,
+        "gross_cap": gross_cap,
         "cash_available": _float(portfolio_summary.get("cash_reserve_pct"), fallback=0.0),
         "cash_cap": _float(policy.get("cash_reserve_pct"), fallback=10.0),
+        "sector_exposure": _float(portfolio_summary.get("sector_exposure_pct"), fallback=0.0),
+        "sector_cap": _float(policy.get("max_sector_exposure_pct"), fallback=35.0),
         "largest_name": _float(portfolio_summary.get("largest_name_pct"), fallback=0.0),
         "largest_name_cap": _float(policy.get("largest_name_cap_pct"), fallback=25.0),
         "open_orders": _int(broker.get("open_order_count"), fallback=len(_list(broker.get("orders")))),
@@ -364,6 +423,8 @@ def _account_section(
         "week_pnl": _float(portfolio_summary.get("week_pnl_pct"), fallback=0.0),
         "week_target": _float(policy.get("weekly_target_pct"), fallback=0.0),
         "ready_to_trade": f"{orderable_count}/{candidate_count}",
+        "staged_notional": staged_notional,
+        "capacity_warning": capacity_warning,
     }
 
 
@@ -476,7 +537,70 @@ def _monitor_events(dashboard: Mapping[str, object]) -> list[dict[str, object]]:
     return events
 
 
-def _audit_lifecycle(candidates: Sequence[Mapping[str, object]]) -> dict[str, object]:
+def _portfolio_phase_section(positions: Sequence[Mapping[str, object]]) -> dict[str, object]:
+    return {
+        "bluf": "Review current positions before clearing today's manifest.",
+        "empty_state": "No open paper positions are reported by the broker for this cycle.",
+        "position_count": len(positions),
+    }
+
+
+def _clearance_section(
+    positions: Sequence[Mapping[str, object]],
+    candidates: Sequence[Mapping[str, object]],
+    execution: Mapping[str, object],
+) -> dict[str, object]:
+    manifest: list[dict[str, object]] = []
+    for position in positions:
+        if position.get("requires_exit") is True:
+            manifest.append(
+                {
+                    "kind": "exit",
+                    "ticker": position.get("ticker"),
+                    "side": "SELL",
+                    "reason": _first_text(position.get("exit_signal"), default="Exit review required"),
+                    "notional": _float(position.get("market_value")),
+                }
+            )
+    orderable = {_first_text(_mapping(row).get("ticker")): _mapping(row) for row in _list(execution.get("orderable_rows"))}
+    for candidate in candidates:
+        if candidate.get("actionable") is not True:
+            continue
+        ticker = _first_text(candidate.get("ticker"))
+        preview = orderable.get(ticker)
+        if not preview and not candidate.get("order_notional"):
+            continue
+        notional = _money_value(
+            candidate.get("order_notional"),
+            preview.get("notional") if preview else None,
+            preview.get("notional_label") if preview else None,
+        )
+        manifest.append(
+            {
+                "kind": "buy" if candidate.get("direction") == "long" else "sell",
+                "ticker": ticker,
+                "side": _first_text(_mapping(preview).get("side"), default="BUY"),
+                "reason": _first_text(candidate.get("evidence_line"), default="Approved candidate"),
+                "notional": notional,
+                "order_intent_hash": _first_text(candidate.get("order_intent_hash")),
+                "cycle_id": _first_text(candidate.get("cycle_id")),
+                "as_of": _first_text(candidate.get("as_of")),
+            }
+        )
+    return {
+        "bluf": "Check the manifest, confirm the paper-only gate, then submit approved paper orders.",
+        "requires_position_decisions": len(positions) > 0,
+        "submit_phrase": "submit paper orders",
+        "manifest": manifest,
+        "exits": [row for row in manifest if row.get("kind") == "exit"],
+        "orders": [row for row in manifest if row.get("kind") != "exit"],
+    }
+
+
+def _audit_lifecycle(
+    candidates: Sequence[Mapping[str, object]],
+    cycle_id: str,
+) -> dict[str, object]:
     traces: dict[str, list[dict[str, object]]] = {}
     for row in candidates:
         ticker = str(row.get("ticker") or "")
@@ -490,9 +614,10 @@ def _audit_lifecycle(candidates: Sequence[Mapping[str, object]]) -> dict[str, ob
                     else str(row.get("blocker") or "Candidate is visible for audit.")
                 ),
                 "status": str(row.get("status") or "unknown"),
+                "evidence_hash": str(row.get("evidence_hash") or ""),
             }
         ]
-    return {"traces": traces}
+    return {"cycle_id": cycle_id, "traces": traces}
 
 
 def _evidence_items(item: Mapping[str, object]) -> list[dict[str, str]]:
@@ -516,6 +641,48 @@ def _evidence_items(item: Mapping[str, object]) -> list[dict[str, str]]:
             "text": "No concrete evidence line is available in the current pack.",
         }
     ]
+
+
+def _candidate_status_label(*, actionable: bool, risk_label: str) -> str:
+    if actionable:
+        return "Ready for your decision"
+    if "BLOCK" in risk_label:
+        return "Audit only - policy gate blocks order"
+    return "Review context - not orderable now"
+
+
+def _candidate_evidence_tiers(items: Sequence[Mapping[str, object]]) -> list[str]:
+    tiers = {_first_text(item.get("tier"), default="confirmed") for item in items}
+    return [tier for tier in ("confirmed", "inferred", "suppressed") if tier in tiers] or ["suppressed"]
+
+
+def _first_metric(text: str) -> str:
+    match = re.search(r"[-+]?\d+(?:\.\d+)?%?", text)
+    return match.group(0) if match else ""
+
+
+def _money_value(*values: object) -> float:
+    return _float(*values, fallback=0.0)
+
+
+def _staged_order_notional(execution: Mapping[str, object]) -> float:
+    rows = _list(execution.get("orderable_rows")) or [
+        row
+        for row in _list(execution.get("preview_rows"))
+        if _mapping(row).get("preview_state") == "READY"
+    ]
+    total = 0.0
+    for raw in rows:
+        row = _mapping(raw)
+        total += _money_value(row.get("notional"), row.get("notional_label"), row.get("order_value_label"))
+    return round(total, 2)
+
+
+def _position_requires_exit(item: Mapping[str, object], *, current: float, stop: float) -> bool:
+    exit_signal = _first_text(item.get("exit_signal"), item.get("exit_priority")).upper()
+    if exit_signal and exit_signal not in {"NONE", "HOLD"}:
+        return True
+    return current > 0 and stop > 0 and current <= stop
 
 
 def _status_to_engine_state(status_class: object, status_label: object) -> str:

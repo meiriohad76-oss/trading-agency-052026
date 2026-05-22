@@ -43,17 +43,19 @@ def main() -> int:
                     "error": "",
                 }
                 try:
-                    response = page.goto(args.url, wait_until="networkidle", timeout=30_000)
+                    response = page.goto(args.url, wait_until="commit", timeout=30_000)
                     result["http_ok"] = response is not None and response.status == 200
                     page.wait_for_selector(".cockpit-bluf", timeout=10_000)
+                    page.wait_for_selector('[data-cockpit-cycle][data-cockpit-ready="true"]', timeout=10_000)
                     result["horizontal_overflow"] = bool(
                         page.evaluate(
                             "document.documentElement.scrollWidth > document.documentElement.clientWidth"
                         )
                     )
                     result["bluf_visible"] = _is_in_first_viewport(page, ".cockpit-bluf")
-                    result["phase_visible"] = _is_in_first_viewport(page, ".cockpit-phase")
+                    result["phase_visible"] = _is_in_first_viewport(page, ".cockpit-phase:not([hidden])")
                     result["candidate_visible"] = page.locator(".cockpit-candidate-row, .empty-state").count() > 0
+                    result["focus_errors"] = _exercise_focus(page, args.focus)
                     result["unreadable_controls"] = page.evaluate(
                         """
                         () => Array.from(document.querySelectorAll('button, a.button, .status-pill'))
@@ -109,7 +111,7 @@ def _console_error_collector(console_errors: list[str]):
 
 def _is_in_first_viewport(page: Any, selector: str) -> bool:
     return bool(
-        page.locator(selector).evaluate(
+        page.locator(selector).first.evaluate(
             """
             (el) => {
               const rect = el.getBoundingClientRect();
@@ -128,9 +130,40 @@ def _failed(result: dict[str, object]) -> bool:
         or result.get("bluf_visible") is not True
         or result.get("phase_visible") is not True
         or result.get("candidate_visible") is not True
+        or bool(result.get("focus_errors"))
         or bool(result.get("unreadable_controls"))
         or bool(result.get("error"))
     )
+
+
+def _exercise_focus(page: Any, focus: str) -> list[str]:
+    errors: list[str] = []
+    if focus == "candidates":
+        row_toggle = page.locator("[data-cockpit-row-toggle]").first
+        if row_toggle.count() > 0:
+            row_toggle.click()
+            if not page.locator(".cockpit-row-detail").first.is_visible():
+                errors.append("candidate row expansion did not open")
+    elif focus == "portfolio":
+        page.locator('[data-cockpit-phase-target="portfolio"]').click()
+        if not page.locator('[data-cockpit-phase="portfolio"]').is_visible():
+            errors.append("portfolio phase did not open")
+    elif focus == "panels":
+        for panel in ("universe", "signals", "audit", "policy", "monitor"):
+            page.locator(f'[data-cockpit-panel-target="{panel}"]').click()
+            panel_locator = page.locator(f"#cockpit-panel-{panel}")
+            if not panel_locator.is_visible():
+                errors.append(f"{panel} panel did not open")
+            panel_locator.locator("button[data-cockpit-panel-close]").first.click()
+        if page.locator("[data-cockpit-row-toggle]").first.count() > 0:
+            page.locator("[data-cockpit-row-toggle]").first.click()
+        detail_button = page.locator("[data-cockpit-ticker-detail]").first
+        if detail_button.count() > 0:
+            detail_button.click()
+            if not page.locator("#cockpit-panel-ticker-detail").is_visible():
+                errors.append("ticker detail panel did not open")
+            page.locator("#cockpit-panel-ticker-detail button[data-cockpit-panel-close]").first.click()
+    return errors
 
 
 if __name__ == "__main__":

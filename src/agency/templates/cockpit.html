@@ -1,12 +1,12 @@
 {% extends "base.html" %}
 
-{% block title %}Pre-Flight Cockpit · Trading Agency{% endblock %}
+{% block title %}Pre-Flight Cockpit - Trading Agency{% endblock %}
 {% block eyebrow %}Trading Agency v3{% endblock %}
 {% block page_title %}Pre-Flight Cockpit{% endblock %}
-{% block topbar_meta %}{{ cycle.mode }} mode · {{ cycle.id }}{% endblock %}
+{% block topbar_meta %}{{ cycle.mode }} mode - {{ cycle.id }}{% endblock %}
 
 {% block content %}
-<section class="cockpit-shell" data-cockpit-scenario="{{ scenario.state }}">
+<section class="cockpit-shell" data-cockpit-scenario="{{ scenario.state }}" data-cockpit-cycle="{{ cycle.id }}">
   <header class="cockpit-topline">
     <div>
       <p class="eyebrow">Pre-flight briefing</p>
@@ -32,31 +32,31 @@
       <small>{{ market.regime }}</small>
     </article>
     <article class="cockpit-arc-gauge">
-      <span class="cockpit-whymark info-tip" title="Gross exposure compares current exposure plus staged orders to the policy cap.">?</span>
+      <span class="cockpit-whymark info-tip" data-cockpit-tip="gross-exposure-threshold" title="Gross exposure compares current exposure plus staged orders to the policy cap.">?</span>
       <div class="cockpit-arc">
         <span class="cockpit-arc-needle" style="--needle: 36deg"></span>
       </div>
       <p>Gross Exposure</p>
-      <strong class="cockpit-mono">{{ "%.1f"|format(account.gross_exposure|default(0, true)) }}%</strong>
-      <small>Cap {{ "%.0f"|format(account.gross_cap|default(0, true)) }}%</small>
+      <strong class="cockpit-mono" data-capacity-gross-post>{{ "%.1f"|format(account.gross_post_trade|default(0, true)) }}%</strong>
+      <small>Now {{ "%.1f"|format(account.gross_exposure|default(0, true)) }}% / cap {{ "%.0f"|format(account.gross_cap|default(0, true)) }}%</small>
     </article>
     <article class="cockpit-arc-gauge">
-      <span class="cockpit-whymark info-tip" title="Cash reserve shows how much cash remains against the policy floor.">?</span>
+      <span class="cockpit-whymark info-tip" data-cockpit-tip="cash-reserve-threshold" title="Cash reserve shows how much cash remains against the policy floor after staged orders.">?</span>
       <div class="cockpit-arc">
         <span class="cockpit-arc-needle" style="--needle: 44deg"></span>
       </div>
       <p>Cash Reserve</p>
-      <strong class="cockpit-mono">{{ "%.1f"|format(account.cash_available|default(0, true)) }}%</strong>
+      <strong class="cockpit-mono" data-capacity-cash>{{ "%.1f"|format(account.cash_available|default(0, true)) }}%</strong>
       <small>Floor {{ "%.0f"|format(account.cash_cap|default(0, true)) }}%</small>
     </article>
     <article class="cockpit-arc-gauge">
-      <span class="cockpit-whymark info-tip" title="Concentration compares the largest single-name exposure to the policy cap.">?</span>
+      <span class="cockpit-whymark info-tip" data-cockpit-tip="sector-exposure-threshold" title="Sector exposure compares the largest sector after staged orders to the policy cap.">?</span>
       <div class="cockpit-arc">
         <span class="cockpit-arc-needle" style="--needle: 18deg"></span>
       </div>
-      <p>Concentration</p>
-      <strong class="cockpit-mono">{{ "%.1f"|format(account.largest_name|default(0, true)) }}%</strong>
-      <small>Cap {{ "%.0f"|format(account.largest_name_cap|default(0, true)) }}%</small>
+      <p>Sector Exposure</p>
+      <strong class="cockpit-mono" data-capacity-sector>{{ "%.1f"|format(account.sector_exposure|default(0, true)) }}%</strong>
+      <small>Cap {{ "%.0f"|format(account.sector_cap|default(0, true)) }}%</small>
     </article>
     <div class="cockpit-readout-stack">
       <div class="cockpit-segment-readout">
@@ -79,66 +79,111 @@
     {% for engine in engines %}
       <span class="cockpit-engine cockpit-engine-{{ engine.state }}" data-cockpit-engine="{{ engine.name }}">
         <span class="status-dot status-dot-{% if engine.state == 'live' %}pass{% elif engine.state == 'down' %}block{% else %}warn{% endif %}" aria-hidden="true"></span>
-        {{ engine.name }} · {{ engine.age }}
+        {{ engine.name }} - {{ engine.age }}
       </span>
     {% endfor %}
   </section>
 
   <nav class="cockpit-instrument-nav" aria-label="Cockpit instruments">
-    <button type="button">Universe <span class="cockpit-mono">{{ sources|length }}</span></button>
-    <button type="button">Signals <span class="cockpit-mono">{{ signals|length }}</span></button>
-    <button type="button">Audit <span class="cockpit-mono">{{ audit_lifecycle.traces|length }}</span></button>
-    <button type="button">Policy <span class="cockpit-mono">{{ policy.mode|default("paper") }}</span></button>
-    <button type="button">Monitor <span class="cockpit-mono">{{ monitor_events|length }}</span></button>
+    <button type="button" data-cockpit-panel-target="universe">Universe <span class="cockpit-mono">{{ sources|length }}</span></button>
+    <button type="button" data-cockpit-panel-target="signals">Signals <span class="cockpit-mono">{{ signals|length }}</span></button>
+    <button type="button" data-cockpit-panel-target="audit">Audit <span class="cockpit-mono">{{ audit_lifecycle.traces|length }}</span></button>
+    <button type="button" data-cockpit-panel-target="policy">Policy <span class="cockpit-mono">{{ policy.mode|default("paper") }}</span></button>
+    <button type="button" data-cockpit-panel-target="monitor">Monitor <span class="cockpit-mono">{{ monitor_events|length }}</span></button>
   </nav>
 
   <section class="cockpit-phase-rail" aria-label="Workflow phases">
-    <div class="cockpit-phase-cell active"><span class="cockpit-mono">01</span><strong>Candidates</strong><small>Active</small></div>
-    <div class="cockpit-phase-cell"><span class="cockpit-mono">02</span><strong>Portfolio</strong><small>Review next</small></div>
-    <div class="cockpit-phase-cell"><span class="cockpit-mono">03</span><strong>Clearance</strong><small>Locked</small></div>
-    <div class="cockpit-phase-cell"><span class="cockpit-mono">04</span><strong>Cleared</strong><small>Locked</small></div>
+    <button type="button" class="cockpit-phase-cell active" data-cockpit-phase-target="candidates"><span class="cockpit-mono">01</span><strong>Candidates</strong><small>Active</small></button>
+    <button type="button" class="cockpit-phase-cell" data-cockpit-phase-target="portfolio"><span class="cockpit-mono">02</span><strong>Portfolio</strong><small>Review next</small></button>
+    <button type="button" class="cockpit-phase-cell" data-cockpit-phase-target="clearance"><span class="cockpit-mono">03</span><strong>Clearance</strong><small>Paper gate</small></button>
+    <button type="button" class="cockpit-phase-cell" data-cockpit-phase-target="cleared"><span class="cockpit-mono">04</span><strong>Cleared</strong><small>After submit</small></button>
   </section>
 
-  <section class="cockpit-phase" aria-labelledby="cockpit-candidates-heading">
+  {% set portfolio_vm = portfolio_phase|default({}, true) %}
+  {% set clearance_vm = clearance|default({}, true) %}
+
+  <section class="cockpit-phase" data-cockpit-phase="candidates" aria-labelledby="cockpit-candidates-heading">
     <div class="section-heading">
       <div>
-        <p class="eyebrow">Phase 1 · Candidates</p>
+        <p class="eyebrow">Phase 1 - Candidates</p>
         <h2 id="cockpit-candidates-heading">{{ scenario.headline }}</h2>
         <p class="muted">Cycle {{ cycle.id }} has {{ funnel.final }} visible candidates; {{ funnel.actionable }} can be reviewed now.</p>
       </div>
       <a class="button button-secondary" href="/final-selection">Open classic candidates</a>
     </div>
 
+    <div class="cockpit-tier-legend">
+      <span class="cockpit-whymark info-tip" data-cockpit-tip="evidence-tier-thresholds" title="Evidence tiers: confirmed uses direct source data, inferred uses model interpretation, suppressed is retained for audit but cannot drive the decision.">?</span>
+      <span><strong>Evidence tiers:</strong> confirmed direct data, inferred interpretation, suppressed audit-only.</span>
+    </div>
+
     <div class="cockpit-candidate-table">
       {% for candidate in candidates %}
-        <article class="cockpit-candidate-row cockpit-candidate-{{ candidate.status }}">
-          <div class="cockpit-rank cockpit-mono">{{ "%02d"|format(loop.index) }}</div>
-          <div>
-            <a class="cockpit-ticker" href="{{ candidate.detail_url }}">{{ candidate.ticker }}</a>
-            <p>{{ candidate.name }} · {{ candidate.sector }}</p>
-          </div>
-          <div class="cockpit-conviction">
-            <span class="cockpit-mini-dial"><span class="cockpit-arc-needle" style="--needle: {{ (candidate.final_conviction * 120 - 60)|round|int }}deg"></span></span>
-            <strong class="cockpit-mono">{{ candidate.final_conviction_label }}</strong>
-          </div>
-          <div>
-            <span class="evidence-tier evidence-tier-{{ candidate.evidence[0].tier }}">{{ candidate.evidence[0].tier }}</span>
-            <p>{{ candidate.evidence_line }}</p>
-          </div>
-          <div>
-            <strong>{{ candidate.risk_status_label }}</strong>
-            <p>{{ candidate.risk_line }}</p>
-          </div>
-          <div>
-            <span class="status-pill status-pill-{% if candidate.actionable %}pass{% else %}warn{% endif %}">{{ candidate.status_label }}</span>
-            <p>{{ candidate.llm_label }}</p>
-          </div>
+        <article
+          class="cockpit-candidate-row cockpit-candidate-{{ candidate.status }}"
+          data-cockpit-candidate
+          data-cockpit-ticker="{{ candidate.ticker }}"
+          data-cockpit-notional="{{ candidate.order_notional|default(0, true) }}"
+        >
+          <button type="button" class="cockpit-row-toggle" data-cockpit-row-toggle aria-expanded="false" aria-controls="candidate-detail-{{ candidate.ticker }}">
+            <span class="cockpit-rank cockpit-mono">{{ "%02d"|format(candidate.rank|default(loop.index, true)) }}</span>
+            <span class="cockpit-identity">
+              <strong>{{ candidate.ticker }}</strong>
+              <small>{{ candidate.name|default(candidate.ticker, true) }} - {{ candidate.sector|default("Sector not reported", true) }}</small>
+            </span>
+            <span class="cockpit-conviction" data-conviction-dial>
+              <span class="cockpit-mini-dial"><span class="cockpit-arc-needle" style="--needle: {{ candidate.conviction_dial_degrees|default(0, true) }}deg"></span></span>
+              <strong class="cockpit-mono">{{ candidate.score_display|default("%.2f"|format(candidate.final_conviction|default(0, true)), true) }}</strong>
+            </span>
+            <span class="cockpit-evidence-cell">
+              {% for tier in candidate.evidence_tiers|default(["confirmed"], true) %}
+                <span class="evidence-tier evidence-tier-{{ tier }}">{{ tier }}</span>
+              {% endfor %}
+              <span>{{ candidate.evidence_line|default(candidate.evidence[0].text|default("Evidence available in audit.", true), true) }}</span>
+            </span>
+            <span class="cockpit-risk-cell">
+              <strong>{{ candidate.risk_status_label|default("Risk check", true) }}</strong>
+              <span>{{ candidate.risk_line|default("No major risk flag in current pack.", true) }}</span>
+            </span>
+            <span class="cockpit-status-cell">
+              <span class="status-pill status-pill-{% if candidate.actionable %}pass{% else %}warn{% endif %}">{{ candidate.status_label|default("Ready for review", true) }}</span>
+              <span>{{ candidate.llm_label|default("LLM not run for this ticker", true) }}</span>
+            </span>
+          </button>
           <div class="cockpit-decision-cell">
             {% if candidate.actionable %}
-              <a class="button button-primary" href="{{ candidate.detail_url }}">Review</a>
+              <button type="button" class="button button-primary" data-cockpit-decision="approve" data-cockpit-ticker="{{ candidate.ticker }}">Approve</button>
+              <button type="button" class="button button-secondary" data-cockpit-decision="defer" data-cockpit-ticker="{{ candidate.ticker }}">Defer</button>
+              <button type="button" class="button button-secondary" data-cockpit-decision="reject" data-cockpit-ticker="{{ candidate.ticker }}">Reject</button>
             {% else %}
               <a class="button button-secondary" href="{{ candidate.audit_url }}">Open audit</a>
             {% endif %}
+          </div>
+          <div class="cockpit-row-detail" id="candidate-detail-{{ candidate.ticker }}" hidden>
+            <div>
+              <h3>{{ candidate.ticker }} evidence pack</h3>
+              <ul class="cockpit-evidence-list">
+                {% for item in candidate.evidence %}
+                  <li><span class="evidence-tier evidence-tier-{{ item.tier|default('confirmed', true) }}">{{ item.tier|default('confirmed', true) }}</span> {{ item.source|default("Evidence", true) }}: {{ item.text|default("Evidence available in audit.", true) }}</li>
+                {% endfor %}
+              </ul>
+            </div>
+            <div>
+              <h3>Risk and LLM</h3>
+              <p>{{ candidate.risk_line|default("No major risk flag in current pack.", true) }}</p>
+              <p data-ticker-llm-rationale>{{ candidate.llm_rationale|default(candidate.llm_label|default("LLM not run for this ticker", true), true) }}</p>
+              <p class="cockpit-mono">Det {{ "%.2f"|format(candidate.det_conviction|default(0, true)) }} / LLM {{ "%.2f"|format(candidate.llm_conviction|default(0, true)) }}</p>
+            </div>
+            <div>
+              <h3>Next action</h3>
+              <button
+                type="button"
+                class="button button-secondary"
+                data-cockpit-ticker-detail
+                data-cockpit-ticker-payload='{{ candidate|tojson }}'
+              >Open ticker detail</button>
+              <a class="button button-secondary" href="{{ candidate.detail_url }}">Classic brief</a>
+            </div>
           </div>
         </article>
       {% else %}
@@ -149,5 +194,98 @@
       {% endfor %}
     </div>
   </section>
+
+  <section class="cockpit-phase" data-cockpit-phase="portfolio" aria-labelledby="cockpit-portfolio-heading" hidden>
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">Phase 2 - Portfolio</p>
+        <h2 id="cockpit-portfolio-heading">{{ portfolio_vm.bluf|default("Review current positions before clearing today's manifest.", true) }}</h2>
+        <p class="muted">Decide keep or close before clearing new buys. Capacity updates locally; the server revalidates on submit.</p>
+      </div>
+    </div>
+    {% if account.capacity_warning %}
+      <div class="callout callout-warn">{{ account.capacity_warning }}</div>
+    {% endif %}
+    <div class="cockpit-capacity-grid">
+      <article><span>Gross after staged orders</span><strong class="cockpit-mono" data-capacity-gross-post>{{ "%.1f"|format(account.gross_post_trade|default(0, true)) }}%</strong><small>Rule cap {{ "%.1f"|format(account.gross_cap|default(0, true)) }}%</small></article>
+      <article><span>Largest sector</span><strong class="cockpit-mono" data-capacity-sector>{{ "%.1f"|format(account.sector_exposure|default(0, true)) }}%</strong><small>Rule cap {{ "%.1f"|format(account.sector_cap|default(0, true)) }}%</small></article>
+      <article><span>Cash reserve</span><strong class="cockpit-mono" data-capacity-cash>{{ "%.1f"|format(account.cash_available|default(0, true)) }}%</strong><small>Rule floor {{ "%.1f"|format(account.cash_cap|default(0, true)) }}%</small></article>
+    </div>
+    <div class="cockpit-position-table">
+      {% for position in positions %}
+        <article class="cockpit-position-row" data-cockpit-position="{{ position.ticker }}">
+          <div><strong>{{ position.ticker }}</strong><p>{{ position.thesis }}</p></div>
+          <div><span>Qty</span><strong class="cockpit-mono">{{ "%.2f"|format(position.qty) }}</strong></div>
+          <div><span>P/L</span><strong class="cockpit-mono">{{ "%.2f"|format(position.pl_pct) }}%</strong></div>
+          <div><span>Stop distance</span><strong class="cockpit-mono">{{ "%.2f"|format(position.stop_distance_pct) }}%</strong></div>
+          <div class="cockpit-decision-cell">
+            <button type="button" class="button button-primary" data-cockpit-exit="keep" data-cockpit-ticker="{{ position.ticker }}">Keep</button>
+            <button type="button" class="button button-secondary" data-cockpit-exit="close" data-cockpit-ticker="{{ position.ticker }}">Close</button>
+          </div>
+        </article>
+      {% else %}
+        <p class="empty-state">{{ portfolio_vm.empty_state|default("No open paper positions are reported by the broker for this cycle.", true) }}</p>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="cockpit-phase" data-cockpit-phase="clearance" aria-labelledby="cockpit-clearance-heading" hidden>
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">Phase 3 - Clearance</p>
+        <h2 id="cockpit-clearance-heading">{{ clearance_vm.bluf|default("Check the manifest, confirm the paper-only gate, then submit approved paper orders.", true) }}</h2>
+        <p class="muted">Exits are listed first. The submit gate resets on every page load and never restores the typed phrase.</p>
+      </div>
+    </div>
+    <form class="cockpit-clearance-form" method="post" action="/cockpit/submit" data-cockpit-clearance-form>
+      <div class="cockpit-manifest-list">
+        {% for row in clearance_vm.manifest|default([], true) %}
+          <article class="cockpit-manifest-row cockpit-manifest-{{ row.kind }}">
+            <span class="status-pill status-pill-{% if row.kind == 'exit' %}warn{% else %}pass{% endif %}">{{ row.kind }}</span>
+            <strong>{{ row.ticker }}</strong>
+            <span>{{ row.reason }}</span>
+            <span class="cockpit-mono">${{ "%.0f"|format(row.notional|default(0, true)) }}</span>
+            {% if row.kind != 'exit' %}
+              <input type="hidden" name="cycle_id" value="{{ row.cycle_id }}">
+              <input type="hidden" name="ticker" value="{{ row.ticker }}">
+              <input type="hidden" name="as_of" value="{{ row.as_of }}">
+              <input type="hidden" name="order_intent_hash" value="{{ row.order_intent_hash }}">
+              <input type="hidden" name="notional_hint" value="{{ row.notional }}">
+              <input type="hidden" name="side_hint" value="{{ row.side }}">
+            {% endif %}
+          </article>
+        {% else %}
+          <p class="empty-state">No paper order manifest is available for this cycle.</p>
+        {% endfor %}
+      </div>
+      <label class="cockpit-submit-ack">
+        <input id="cockpit-submit-ack" type="checkbox" name="submit_ack" data-cockpit-submit-ack>
+        <span>I understand this sends paper orders only after server-side revalidation.</span>
+      </label>
+      <label class="cockpit-submit-phrase">
+        <span>Type submit paper orders</span>
+        <input id="cockpit-submit-phrase" type="text" name="submit_phrase" autocomplete="off" data-cockpit-submit-text>
+      </label>
+      <button type="submit" class="button button-primary" data-cockpit-submit-button disabled>Submit paper orders</button>
+      <output class="cockpit-submit-state" data-cockpit-submit-state></output>
+    </form>
+  </section>
+
+  <section class="cockpit-phase" data-cockpit-phase="cleared" aria-labelledby="cockpit-cleared-heading" hidden>
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">Phase 4 - Cleared</p>
+        <h2 id="cockpit-cleared-heading">Paper broker responses appear here after submit.</h2>
+        <p class="muted">Accepted rows show broker IDs; rejected rows stay in review until the operator resolves them.</p>
+      </div>
+    </div>
+    <div class="cockpit-submit-results" data-cockpit-submit-results></div>
+  </section>
+
+  {% include "_cockpit_panels.html" %}
 </section>
+{% endblock %}
+
+{% block extra_scripts %}
+  <script src="/static/cockpit.js?v=ux-v3-tickets-5-8-20260522" defer></script>
 {% endblock %}
