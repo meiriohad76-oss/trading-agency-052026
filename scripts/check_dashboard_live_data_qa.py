@@ -39,6 +39,13 @@ FORBIDDEN_TERMS = (
     "fixture",
     "monkey",
 )
+_FORBIDDEN_TERM_PATTERNS = tuple(
+    (
+        term,
+        re.compile(rf"(?<![a-z0-9]){re.escape(term.lower())}(?![a-z0-9])"),
+    )
+    for term in FORBIDDEN_TERMS
+)
 VIEWPORTS = (
     ("desktop", {"width": 1440, "height": 1100}),
     ("mobile", {"width": 390, "height": 900}),
@@ -54,6 +61,8 @@ JSON_GET_ATTEMPTS = 3
 JSON_RETRY_DELAY_SECONDS = 1
 FULL_READINESS_SCOPE = "full"
 REVIEW_SUBSET_READINESS_SCOPE = "review-subset"
+EXPECTED_V3_BUILD = "ux-v3-all-dashboards-20260523"
+COCKPIT_ROUTES = {"/", "/cockpit"}
 CONTEXT_DATA_WARNING_ITEMS = {
     "news_rss",
     "subscription_emails",
@@ -111,12 +120,7 @@ def main() -> int:
                         )
                         try:
                             body = _load_page_body(page, f"{BASE_URL}{route}")
-                            lower_body = body.lower()
-                            result["forbidden_hits"] = [
-                                term
-                                for term in FORBIDDEN_TERMS
-                                if term.lower() in lower_body
-                            ]
+                            result["forbidden_hits"] = _forbidden_term_hits(body)
                             result["horizontal_overflow"] = bool(
                                 page.evaluate(
                                     "document.documentElement.scrollWidth > "
@@ -159,6 +163,25 @@ def main() -> int:
                                   .filter(Boolean)
                                   .slice(0, 8)
                                 """
+                            )
+                            result["v3_build_served"] = (
+                                page.locator(
+                                    f'html[data-ux-build="{EXPECTED_V3_BUILD}"]'
+                                ).count()
+                                > 0
+                            )
+                            result["v3_screen_class"] = (
+                                page.locator('body.v3-app[class*="v3-screen-"]').count()
+                                > 0
+                            )
+                            briefing = page.locator("[data-v3-universal-briefing]")
+                            result["v3_universal_briefing"] = briefing.count() > 0
+                            result["v3_briefing_visible"] = (
+                                not _route_requires_v3_briefing(route)
+                                or (
+                                    bool(result["v3_universal_briefing"])
+                                    and briefing.is_visible()
+                                )
                             )
                             page.screenshot(
                                 path=str(output_dir / f"{viewport_name}-{name}.png"),
@@ -209,6 +232,10 @@ def _empty_result(viewport: str, route: str) -> dict[str, object]:
         "health_rows_count": 0,
         "health_rows_missing_fields": [],
         "operational_readiness_failures": [],
+        "v3_build_served": False,
+        "v3_screen_class": False,
+        "v3_universal_briefing": False,
+        "v3_briefing_visible": False,
     }
 
 
@@ -248,7 +275,27 @@ def result_failed(row: Mapping[str, object]) -> bool:
         or int(row["health_rows_count"]) <= 0
         or bool(row["health_rows_missing_fields"])
         or bool(row["operational_readiness_failures"])
+        or not bool(row["v3_build_served"])
+        or not bool(row["v3_screen_class"])
+        or not bool(row["v3_universal_briefing"])
+        or (
+            _route_requires_v3_briefing(str(row["route"]))
+            and not bool(row["v3_briefing_visible"])
+        )
     )
+
+
+def _route_requires_v3_briefing(route: str) -> bool:
+    return route not in COCKPIT_ROUTES
+
+
+def _forbidden_term_hits(text: str) -> list[str]:
+    lower_text = text.lower()
+    return [
+        term
+        for term, pattern in _FORBIDDEN_TERM_PATTERNS
+        if pattern.search(lower_text)
+    ]
 
 
 def _operational_readiness_failures(

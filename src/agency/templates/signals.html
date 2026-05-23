@@ -2,11 +2,15 @@
 {% from "_data_health.html" import data_health_panel %}
 
 {% set active_nav = "signals" %}
+{% set v3_screen = "signals" %}
 
 {% block title %}Signals | Trading Agency v3{% endblock %}
 {% block eyebrow %}Sources{% endblock %}
 {% block page_title %}Signal evidence shows why the agent acted{% endblock %}
 {% block topbar_meta %}{{ summary.topbar_label }}{% endblock %}
+{% block workflow_phase %}Signal evidence{% endblock %}
+{% block operator_focus %}Inspect which lanes supported, contradicted, or were excluded from the latest candidate decisions.{% endblock %}
+{% block evidence_contract %}Signal rows include lane, tier, score, ticker relation, timestamp, and confirmed/inferred treatment.{% endblock %}
 
 {% block content %}
   <section class="next-action hero-info" aria-label="Signals state">

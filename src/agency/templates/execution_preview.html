@@ -2,11 +2,15 @@
 {% from "_data_health.html" import data_health_panel %}
 
 {% set active_nav = "execution" %}
+{% set v3_screen = "clearance" %}
 
 {% block title %}Execution Preview | Trading Agency v3{% endblock %}
 {% block eyebrow %}Action{% endblock %}
 {% block page_title %}Clearance guards the paper submit gate{% endblock %}
 {% block topbar_meta %}{{ summary.broker_mode }} broker &middot; readiness gate {{ summary.submit_gate_label | lower }}{% endblock %}
+{% block workflow_phase %}Phase 3 - Clearance{% endblock %}
+{% block operator_focus %}Submit only after research approval, order-intent approval, and broker/readiness gates are open.{% endblock %}
+{% block evidence_contract %}Order hash, broker state, policy reasons, data freshness, and paper-only mode remain attached to each preview.{% endblock %}
 
 {% macro preview_card(row) %}
   <article class="review-card execution-preview-card paper-mode-card review-card-{{ row.state_class }}">

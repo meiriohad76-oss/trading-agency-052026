@@ -2,11 +2,15 @@
 {% from "_data_health.html" import data_health_panel %}
 
 {% set active_nav = "portfolio" %}
+{% set v3_screen = "portfolio" %}
 
 {% block title %}Portfolio Monitor | Trading Agency v3{% endblock %}
 {% block eyebrow %}Action{% endblock %}
 {% block page_title %}Portfolio tracks exposure before clearance{% endblock %}
 {% block topbar_meta %}{{ summary.position_count }} positions &middot; Alpaca paper{% endblock %}
+{% block workflow_phase %}Phase 2 - Portfolio{% endblock %}
+{% block operator_focus %}Confirm holdings, exposure capacity, exits, and cash before sending approved candidates to clearance.{% endblock %}
+{% block evidence_contract %}Alpaca paper state, positions, exposure caps, exit reasons, and last update proof stay in view.{% endblock %}
 
 {% block content %}
   <section class="next-action hero-info" aria-label="Portfolio monitor state">

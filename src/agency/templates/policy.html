@@ -2,11 +2,15 @@
 {% from "_data_health.html" import data_health_panel %}
 
 {% set active_nav = "policy" %}
+{% set v3_screen = "policy" %}
 
 {% block title %}Policy | Trading Agency v3{% endblock %}
 {% block eyebrow %}Configuration{% endblock %}
 {% block page_title %}Policy guards paper trading only{% endblock %}
 {% block topbar_meta %}local controls &middot; paper safety{% endblock %}
+{% block workflow_phase %}Policy control{% endblock %}
+{% block operator_focus %}Change rules deliberately; policy edits apply to later cycles after acknowledgement.{% endblock %}
+{% block evidence_contract %}Every displayed rule value is tied to its configured source, safety tier, and paper-only constraint.{% endblock %}
 
 {% block content %}
   <section class="next-action hero-disabled" aria-label="Policy state">

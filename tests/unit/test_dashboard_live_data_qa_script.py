@@ -32,6 +32,10 @@ def test_dashboard_live_data_qa_result_passes_with_health_rows() -> None:
     row["health_visible"] = True
     row["health_panel_count"] = 1
     row["health_rows_count"] = 2
+    row["v3_build_served"] = True
+    row["v3_screen_class"] = True
+    row["v3_universal_briefing"] = True
+    row["v3_briefing_visible"] = True
 
     assert result_failed(row) is False
 
@@ -56,6 +60,39 @@ def test_dashboard_live_data_qa_result_fails_on_operational_readiness_gap() -> N
     row["operational_readiness_failures"] = ["full-live tradable_ready=false"]
 
     assert result_failed(row) is True
+
+
+def test_dashboard_live_data_qa_result_fails_when_v3_build_is_not_served() -> None:
+    row = _empty_result("desktop", "/final-selection")
+    row["health_visible"] = True
+    row["health_panel_count"] = 1
+    row["health_rows_count"] = 2
+    row["v3_build_served"] = False
+    row["v3_screen_class"] = True
+    row["v3_universal_briefing"] = True
+    row["v3_briefing_visible"] = True
+
+    assert result_failed(row) is True
+
+
+def test_dashboard_live_data_qa_result_fails_when_non_cockpit_briefing_is_missing() -> None:
+    row = _empty_result("desktop", "/risk")
+    row["health_visible"] = True
+    row["health_panel_count"] = 1
+    row["health_rows_count"] = 2
+    row["v3_build_served"] = True
+    row["v3_screen_class"] = True
+    row["v3_universal_briefing"] = False
+    row["v3_briefing_visible"] = False
+
+    assert result_failed(row) is True
+
+
+def test_dashboard_live_data_qa_forbidden_terms_use_word_boundaries() -> None:
+    text = "LLM demoted this setup, but it did not expose demo data."
+
+    assert qa._forbidden_term_hits("LLM demoted this setup") == []
+    assert qa._forbidden_term_hits(text) == ["demo"]
 
 
 def test_dashboard_live_data_qa_page_load_retries_transient_timeout(monkeypatch) -> None:

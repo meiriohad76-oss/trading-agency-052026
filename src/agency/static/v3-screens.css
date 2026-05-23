@@ -1,23 +1,26 @@
 /* Trading Agency v3 shared operator shell.
-   This file deliberately contains product-wide overrides only. The existing
-   page-specific CSS remains the source for detailed tables and cards. */
+   Product-wide visual contract for every dashboard, not only /cockpit. */
 
 :root[data-ux-version="v3"] {
-  --v3-bg: #080a0f;
-  --v3-surface: #11151d;
-  --v3-surface-2: #171d27;
-  --v3-surface-3: #202838;
-  --v3-border: rgba(148, 163, 184, 0.24);
-  --v3-border-strong: rgba(244, 198, 79, 0.48);
-  --v3-text: #f2f5f9;
-  --v3-muted: #a8b1c0;
-  --v3-dim: #7f8a9a;
-  --v3-amber: #f4c64f;
-  --v3-green: #20c987;
-  --v3-red: #ff5a76;
-  --v3-cyan: #7dd3fc;
+  --v3-bg: #0a1018;
+  --v3-bg-2: #0e1622;
+  --v3-surface: #0c1622;
+  --v3-surface-2: #111c2a;
+  --v3-surface-3: #162438;
+  --v3-border: #1d2c40;
+  --v3-border-strong: #2a3d57;
+  --v3-text: #e6ecf3;
+  --v3-muted: #97a7bc;
+  --v3-dim: #62748d;
+  --v3-amber: #ffb845;
+  --v3-amber-dark: #b87a18;
+  --v3-green: #5fe49d;
+  --v3-red: #ff6868;
+  --v3-cyan: #5ad7f0;
   --v3-blue: #8fb4ff;
-  --v3-shadow: 0 18px 50px rgba(0, 0, 0, 0.28);
+  --v3-shadow: 0 18px 46px rgba(0, 0, 0, 0.36);
+  --v3-mono: ui-monospace, "JetBrains Mono", "SF Mono", "Roboto Mono", Menlo, Consolas, monospace;
+  --v3-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
 }
 
 html[data-ux-version="v3"],
@@ -30,6 +33,7 @@ html[data-ux-version="v3"] body {
 
 .v3-app {
   color: var(--v3-text);
+  font-family: var(--v3-sans);
   font-variant-numeric: tabular-nums;
 }
 
@@ -186,6 +190,73 @@ html[data-ux-version="v3"] body {
 .v3-app .layout {
   width: min(100%, 1560px);
   gap: 18px;
+  padding-top: 18px;
+}
+
+.v3-briefing-strip {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(260px, 0.8fr) minmax(0, 1fr);
+  gap: 12px;
+  width: min(100%, 1560px);
+  margin: 0 auto;
+  padding: 18px clamp(16px, 4vw, 40px) 0;
+}
+
+.v3-briefing-card {
+  min-height: 116px;
+  padding: 16px 18px;
+  border: 1px solid var(--v3-border);
+  border-left: 3px solid var(--v3-amber);
+  border-radius: 4px;
+  background:
+    repeating-linear-gradient(
+      90deg,
+      rgba(255, 184, 69, 0),
+      rgba(255, 184, 69, 0) 7px,
+      rgba(255, 184, 69, 0.035) 7px,
+      rgba(255, 184, 69, 0.035) 14px
+    ),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.026), rgba(255, 255, 255, 0)),
+    var(--v3-surface);
+  box-shadow: var(--v3-shadow);
+}
+
+.v3-briefing-card-bluf {
+  border-left-color: var(--v3-amber);
+}
+
+.v3-briefing-card-evidence {
+  border-left-color: var(--v3-cyan);
+}
+
+.v3-instrument-label {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--v3-dim);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.v3-briefing-card strong {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--v3-text);
+  font-size: clamp(1.12rem, 1.8vw, 1.55rem);
+  font-weight: 650;
+  line-height: 1.12;
+}
+
+.v3-briefing-card small {
+  display: block;
+  color: var(--v3-muted);
+  font-size: 0.86rem;
+  line-height: 1.42;
+}
+
+.page-frame:has(.cockpit-shell) .v3-briefing-strip {
+  display: none;
 }
 
 .v3-bluf-panel,
@@ -217,6 +288,79 @@ html[data-ux-version="v3"] body {
 .v3-app .next-action h2 {
   font-size: clamp(1.25rem, 2vw, 2rem);
   line-height: 1.1;
+}
+
+.v3-app .next-action,
+.v3-app .operator-briefing,
+.v3-app .panel,
+.v3-app .kpi-grid,
+.v3-app .audit-tabs,
+.v3-app .action-ribbon,
+.v3-app .risk-focus-grid,
+.v3-app .driver-layout,
+.v3-app .policy-grid,
+.v3-app .split-panel,
+.v3-app .decision-grid,
+.v3-app .status-grid,
+.v3-app .source-health-grid,
+.v3-app .coverage-grid,
+.v3-app .brief-metrics,
+.v3-app .exposure-grid,
+.v3-app .guidance-grid,
+.v3-app .review-card-list,
+.v3-app .selection-list {
+  min-width: 0;
+}
+
+.v3-app .operator-briefing,
+.v3-app .audit-tabs,
+.v3-app .action-ribbon,
+.v3-app .risk-focus-grid,
+.v3-app .driver-layout,
+.v3-app .policy-grid,
+.v3-app .split-panel,
+.v3-app .decision-grid,
+.v3-app .status-grid,
+.v3-app .source-health-grid,
+.v3-app .coverage-grid,
+.v3-app .brief-metrics,
+.v3-app .exposure-grid,
+.v3-app .guidance-grid {
+  border: 1px solid var(--v3-border);
+  border-radius: 4px;
+  background: rgba(12, 22, 34, 0.78);
+  box-shadow: var(--v3-shadow);
+}
+
+.v3-app .operator-briefing,
+.v3-app .audit-tabs,
+.v3-app .action-ribbon {
+  padding: 16px;
+}
+
+.v3-app .section-heading {
+  gap: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(42, 61, 87, 0.68);
+}
+
+.v3-app .section-heading h2,
+.v3-app .section-heading h3 {
+  font-weight: 650;
+  letter-spacing: 0;
+}
+
+.v3-app .section-subtitle,
+.v3-app .panel-note,
+.v3-app .microcopy,
+.v3-app .card-next-step,
+.v3-app .card-reason {
+  color: var(--v3-muted);
+  line-height: 1.45;
+}
+
+.v3-app .kpi-grid {
+  gap: 12px;
 }
 
 .v3-app .next-action-buttons {
@@ -256,6 +400,38 @@ html[data-ux-version="v3"] body {
   border-radius: 4px;
   border-color: var(--v3-border);
   background: var(--v3-surface-2);
+}
+
+.v3-app .kpi {
+  min-height: 118px;
+  border-top: 2px solid var(--v3-border-strong);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.v3-app .kpi strong {
+  display: block;
+  margin: 6px 0;
+  color: var(--v3-text);
+  font-size: clamp(1.4rem, 2.4vw, 2.1rem);
+  font-weight: 650;
+}
+
+.v3-app .kpi p {
+  margin: 0;
+}
+
+.v3-app .kpi-urgent,
+.v3-app .kpi-warn {
+  border-top-color: var(--v3-amber);
+}
+
+.v3-app .kpi-pass {
+  border-top-color: var(--v3-green);
+}
+
+.v3-app .kpi-block,
+.v3-app .kpi-danger {
+  border-top-color: var(--v3-red);
 }
 
 .v3-app .kpi strong,
@@ -310,6 +486,29 @@ html[data-ux-version="v3"] body {
   border-left: 3px solid var(--v3-amber);
 }
 
+.v3-app .selection-row,
+.v3-app .review-card,
+.v3-app .execution-preview-card {
+  padding: 16px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+}
+
+.v3-app .selection-ticker,
+.v3-app .review-ticker,
+.v3-app .text-link {
+  color: var(--v3-cyan);
+}
+
+.v3-app .selection-ticker,
+.v3-app .review-ticker {
+  margin-right: 8px;
+  font-family: var(--v3-mono);
+  font-size: 1.24rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-decoration: none;
+}
+
 .v3-app .selection-row-block,
 .v3-app .review-card-block,
 .v3-app .guidance-card-block,
@@ -345,6 +544,28 @@ html[data-ux-version="v3"] body {
   background: rgba(125, 211, 252, 0.06);
 }
 
+.v3-app .selection-facts,
+.v3-app .review-card-metrics,
+.v3-app .execution-review-status,
+.v3-app .data-health-summary,
+.v3-app .progress-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.v3-app .selection-facts > div,
+.v3-app .review-card-metrics > div,
+.v3-app .execution-review-status > div,
+.v3-app .data-health-summary > div,
+.v3-app .progress-grid > div {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid rgba(42, 61, 87, 0.72);
+  border-radius: 4px;
+  background: rgba(10, 16, 24, 0.58);
+}
+
 .v3-app .selection-provenance-visible strong,
 .v3-app .execution-proof-strip strong {
   color: var(--v3-text);
@@ -373,6 +594,27 @@ html[data-ux-version="v3"] body {
 .v3-app .guidance-card {
   border-left-width: 3px;
   border-left-style: solid;
+  padding: 12px;
+}
+
+.v3-app .reason-code-row strong,
+.v3-app .rationale-card strong,
+.v3-app .guidance-card strong {
+  line-height: 1.28;
+}
+
+.v3-app .reason-code-row span,
+.v3-app .gate-row em,
+.v3-app .ops-check-row em {
+  color: var(--v3-muted);
+  line-height: 1.38;
+}
+
+.v3-app .gate-row,
+.v3-app .ops-check-row,
+.v3-app .status-row,
+.v3-app .data-health-row {
+  gap: 10px;
   padding: 12px;
 }
 
@@ -462,6 +704,22 @@ html[data-ux-version="v3"] body {
   background: var(--v3-surface);
 }
 
+.v3-app table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.v3-app th,
+.v3-app td {
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(42, 61, 87, 0.55);
+  vertical-align: top;
+}
+
+.v3-app td {
+  color: var(--v3-text);
+}
+
 .v3-app .progress-failure-row,
 .v3-app .policy-form-actions,
 .v3-app .policy-acknowledgement {
@@ -484,6 +742,104 @@ html[data-ux-version="v3"] body {
 .v3-app .tag,
 .v3-app .status-pill {
   border-radius: 999px;
+  color: var(--v3-muted);
+  border: 1px solid var(--v3-border-strong);
+  background: rgba(255, 255, 255, 0.025);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.v3-app .tag-pass,
+.v3-app .status-pill-pass,
+.v3-app .status-pill-paper,
+.v3-app .action-approve {
+  color: #07130d;
+  border-color: rgba(95, 228, 157, 0.54);
+  background: linear-gradient(180deg, #82f0b5, var(--v3-green));
+}
+
+.v3-app .tag-warn,
+.v3-app .tag-urgent,
+.v3-app .status-pill-warn {
+  color: #171007;
+  border-color: rgba(255, 184, 69, 0.64);
+  background: linear-gradient(180deg, #ffd68a, var(--v3-amber));
+}
+
+.v3-app .tag-block,
+.v3-app .tag-danger,
+.v3-app .status-pill-block {
+  color: #2a0707;
+  border-color: rgba(255, 104, 104, 0.64);
+  background: linear-gradient(180deg, #ff9b9b, var(--v3-red));
+}
+
+.v3-app .tag-neutral,
+.v3-app .status-pill-neutral {
+  color: var(--v3-muted);
+  background: rgba(98, 116, 141, 0.14);
+}
+
+.v3-app .conviction-bar,
+.v3-app .progress-track {
+  height: 8px;
+  overflow: hidden;
+  border: 1px solid var(--v3-border);
+  border-radius: 999px;
+  background: rgba(10, 16, 24, 0.9);
+}
+
+.v3-app .conviction-bar span,
+.v3-app .progress-track span,
+.v3-app .progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--v3-amber-dark), var(--v3-amber), var(--v3-green));
+}
+
+.v3-app .llm-rationale-card,
+.v3-app .llm-status-panel,
+.v3-app .intelligence-panel {
+  border-left: 3px solid var(--v3-cyan);
+}
+
+.v3-app .breadcrumb-row {
+  margin: 0;
+}
+
+.v3-app .decision-brief {
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 0.32fr);
+  border-radius: 4px;
+}
+
+.v3-app .brief-score-meta {
+  grid-template-columns: repeat(3, minmax(76px, 1fr));
+  border-radius: 4px;
+}
+
+.v3-app .brief-score-meta .metric-label {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-size: 0.66rem;
+  letter-spacing: 0.06em;
+}
+
+.v3-app .cycle-id-chip,
+.v3-app .data-health-source-count,
+.v3-app .data-health-timestamp,
+.v3-app code {
+  font-family: var(--v3-mono);
+  color: var(--v3-text);
+}
+
+.v3-app .primary-action:hover,
+.v3-app .secondary-action:hover,
+.v3-app .mini-button:hover,
+.v3-app .text-link:hover {
+  filter: brightness(1.08);
+  text-decoration: none;
 }
 
 .v3-app .empty-block,
@@ -507,6 +863,11 @@ html[data-ux-version="v3"] body {
   .v3-phase-rail {
     position: static;
     grid-template-columns: 1fr;
+  }
+
+  .v3-briefing-strip {
+    grid-template-columns: 1fr;
+    padding: 14px 14px 0;
   }
 
   .v3-phase {

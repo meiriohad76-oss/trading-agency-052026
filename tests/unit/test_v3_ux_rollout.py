@@ -21,6 +21,10 @@ V3_SCREEN_TEMPLATES = [
     "signals.html",
 ]
 
+V3_NON_COCKPIT_TEMPLATES = [
+    name for name in V3_SCREEN_TEMPLATES if name != "cockpit.html"
+]
+
 
 def _template(name: str) -> str:
     return (TEMPLATE_ROOT / name).read_text(encoding="utf-8")
@@ -30,7 +34,7 @@ def test_shared_base_declares_v3_operating_shell() -> None:
     html = BASE.read_text(encoding="utf-8")
 
     assert 'data-ux-version="v3"' in html
-    assert 'data-ux-build="ux-v3-visible-20260523"' in html
+    assert 'data-ux-build="ux-v3-all-dashboards-20260523"' in html
     assert "Trading Agency v3" in html
     assert "UX V3" in html
     assert "Pre-Flight" in html
@@ -39,6 +43,7 @@ def test_shared_base_declares_v3_operating_shell() -> None:
     assert "PAPER" in html
     assert "v3-phase-rail" in html
     assert "/static/v3-screens.css" in html
+    assert "ux-v3-visible-20260523" not in html
     assert "ux-v3-all-screens-20260522" not in html
     assert "ux-v3-review-readable-2-20260522" not in html
     assert "Candidates" in html
@@ -88,10 +93,36 @@ def test_every_non_cockpit_dashboard_keeps_data_health_visible() -> None:
         assert "{{ data_health_panel(data_health) }}" in html, name
 
 
+def test_shared_base_renders_visible_v3_briefing_contract() -> None:
+    html = BASE.read_text(encoding="utf-8")
+
+    assert "v3-screen-{{ v3_screen" in html
+    assert 'data-v3-screen="{{ v3_screen' in html
+    assert 'data-v3-universal-briefing' in html
+    assert "v3-briefing-strip" in html
+    assert "{% block workflow_phase %}" in html
+    assert "{% block operator_focus %}" in html
+    assert "{% block evidence_contract %}" in html
+    assert "BLUF" in html
+    assert "Evidence" in html
+    assert "Operator move" in html
+
+
+def test_every_non_cockpit_dashboard_declares_v3_identity_and_brief() -> None:
+    for name in V3_NON_COCKPIT_TEMPLATES:
+        html = _template(name)
+        assert "{% set v3_screen =" in html, name
+        assert "{% block workflow_phase %}" in html, name
+        assert "{% block operator_focus %}" in html, name
+        assert "{% block evidence_contract %}" in html, name
+
+
 def test_v3_css_defines_shared_briefing_and_data_health_treatment() -> None:
     css = (STATIC_ROOT / "v3-screens.css").read_text(encoding="utf-8")
 
     assert ".v3-phase-rail" in css
+    assert ".v3-briefing-strip" in css
+    assert ".v3-briefing-card" in css
     assert ".v3-bluf-panel" in css
     assert ".data-health-panel" in css
     assert "font-variant-numeric: tabular-nums" in css

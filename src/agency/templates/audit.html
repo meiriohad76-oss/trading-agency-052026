@@ -2,11 +2,15 @@
 {% from "_data_health.html" import data_health_panel %}
 
 {% set active_nav = "audit" %}
+{% set v3_screen = "audit" %}
 
 {% block title %}Audit | Trading Agency v3{% endblock %}
 {% block eyebrow %}Trace{% endblock %}
 {% block page_title %}Audit proves what each agent recorded{% endblock %}
 {% block topbar_meta %}{{ summary.run_count }} runs &middot; read-only{% endblock %}
+{% block workflow_phase %}Cleared and trace{% endblock %}
+{% block operator_focus %}Use this page to prove what the agents did, not to approve trades.{% endblock %}
+{% block evidence_contract %}Every row must include agent, run, time, and state proof before it is trusted.{% endblock %}
 
 {% block content %}
   <section class="next-action hero-info" aria-label="Audit state">

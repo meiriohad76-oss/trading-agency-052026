@@ -2,11 +2,15 @@
 {% from "_data_health.html" import data_health_panel %}
 
 {% set active_nav = "risk" %}
+{% set v3_screen = "risk" %}
 
 {% block title %}Risk | Trading Agency v3{% endblock %}
 {% block eyebrow %}Decision{% endblock %}
 {% block page_title %}Risk guards each paper candidate{% endblock %}
 {% block topbar_meta %}{{ summary.decision_count }} decisions &middot; read-only{% endblock %}
+{% block workflow_phase %}Risk gate{% endblock %}
+{% block operator_focus %}Use ALLOW and WARN rows to see which candidates can continue and what must be checked first.{% endblock %}
+{% block evidence_contract %}Each gate states status, exact reason, measured value, and the next operator action.{% endblock %}
 
 {% block content %}
   <section class="next-action hero-info" aria-label="Risk state">

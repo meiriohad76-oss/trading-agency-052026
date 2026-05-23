@@ -2,11 +2,15 @@
 {% from "_data_health.html" import data_health_panel %}
 
 {% set active_nav = "final" %}
+{% set v3_screen = "candidates" %}
 
 {% block title %}Final Selection | Trading Agency v3{% endblock %}
 {% block eyebrow %}Decision{% endblock %}
 {% block page_title %}Candidates are ready for research review{% endblock %}
 {% block topbar_meta %}{{ summary.topbar_label }}{% endblock %}
+{% block workflow_phase %}Phase 1 - Candidates{% endblock %}
+{% block operator_focus %}Approve, defer, or reject only rows with visible evidence and current-cycle proof.{% endblock %}
+{% block evidence_contract %}Each candidate shows conviction, source count, LLM status, policy gate, and freshness proof before action buttons.{% endblock %}
 
 {% macro selection_card(row) %}
   <article class="selection-row selection-row-{{ row.gate_status | lower }}">

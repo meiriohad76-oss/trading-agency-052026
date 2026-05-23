@@ -2,11 +2,15 @@
 {% from "_data_health.html" import data_health_panel %}
 
 {% set active_nav = "market" %}
+{% set v3_screen = "market" %}
 
 {% block title %}Market Regime | Trading Agency v3{% endblock %}
 {% block eyebrow %}Sources{% endblock %}
 {% block page_title %}Universe and market briefing is ready{% endblock %}
 {% block topbar_meta %}{{ summary.topbar_label }}{% endblock %}
+{% block workflow_phase %}Market briefing{% endblock %}
+{% block operator_focus %}Check universe coverage and market state before trusting candidate context.{% endblock %}
+{% block evidence_contract %}Coverage, sector regime, PIT integrity, and source timestamps are shown with the displayed data.{% endblock %}
 
 {% block content %}
   <section class="next-action hero-{{ summary.status_class }}" aria-label="Market regime state">

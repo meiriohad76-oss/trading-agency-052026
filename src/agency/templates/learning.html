@@ -2,11 +2,15 @@
 {% from "_data_health.html" import data_health_panel %}
 
 {% set active_nav = "learning" %}
+{% set v3_screen = "learning" %}
 
 {% block title %}Learning | Trading Agency v3{% endblock %}
 {% block eyebrow %}Feedback{% endblock %}
 {% block page_title %}Learning tracks what almost worked{% endblock %}
 {% block topbar_meta %}{{ summary.sample_count }} samples &middot; advisory{% endblock %}
+{% block workflow_phase %}Learning loop{% endblock %}
+{% block operator_focus %}Review close calls and what-if outcomes after the trade workflow is complete.{% endblock %}
+{% block evidence_contract %}Near-miss samples must come from logged runtime decisions and measured outcomes, not synthetic examples.{% endblock %}
 
 {% block content %}
   <section class="next-action hero-watch" aria-label="Learning state">

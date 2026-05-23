@@ -2,11 +2,15 @@
 {% from "_data_health.html" import data_health_panel %}
 
 {% set active_nav = "command" %}
+{% set v3_screen = "command" %}
 
 {% block title %}Command | Trading Agency v3{% endblock %}
 {% block eyebrow %}Cockpit{% endblock %}
 {% block page_title %}Command shows the current operating picture{% endblock %}
 {% block topbar_meta %}{{ summary.source_count }} sources &middot; {{ summary.candidate_count }} candidates{% endblock %}
+{% block workflow_phase %}Operating picture{% endblock %}
+{% block operator_focus %}Start with the next-action card and the top review queue before scanning lower diagnostics.{% endblock %}
+{% block evidence_contract %}Health, lane progress, source proof, ETA, and review queue state come from current runtime artifacts.{% endblock %}
 
 {% block content %}
   <section class="next-action {{ summary.hero_class }}" aria-label="Recommended next action">
