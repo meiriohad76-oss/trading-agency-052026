@@ -3,9 +3,9 @@
 
 {% set active_nav = "policy" %}
 
-{% block title %}Policy | Trading Agency v2{% endblock %}
+{% block title %}Policy | Trading Agency v3{% endblock %}
 {% block eyebrow %}Configuration{% endblock %}
-{% block page_title %}Policy{% endblock %}
+{% block page_title %}Policy guards paper trading only{% endblock %}
 {% block topbar_meta %}local controls &middot; paper safety{% endblock %}
 
 {% block content %}
@@ -92,23 +92,15 @@
     <section class="panel" aria-labelledby="policy-actions-heading">
       <div class="section-heading">
         <h2 id="policy-actions-heading">Policy Actions</h2>
-        <span class="tag tag-neutral">DB Backed</span>
+        <span class="tag tag-neutral">Next-cycle review</span>
       </div>
-      <div class="button-row">
-        <button
-          type="button"
-          onclick="document.getElementById('policy-edit-form').style.display='block'; this.style.display='none';"
-        >Edit Policy</button>
-        <button class="disabled-button" type="button" disabled>Reset planned</button>
-        <button class="disabled-button" type="button" disabled>Audit planned</button>
-      </div>
+      <p class="section-subtitle">Policy edits are deliberate operator actions. Review the values, acknowledge the next-cycle effect, then save.</p>
+      <button class="disabled-button" type="button" disabled>Reset planned</button>
+      <button class="disabled-button" type="button" disabled>Audit planned</button>
     </section>
 
-    <section id="policy-edit-form" class="panel" style="display:none;" aria-labelledby="policy-form-heading">
-      <div class="section-heading">
-        <h2 id="policy-form-heading">Edit Policy Thresholds</h2>
-        <span class="tag tag-warn">Editable</span>
-      </div>
+    <details id="policy-edit-form" class="panel details-panel policy-edit-disclosure">
+      <summary>Edit Policy Thresholds</summary>
       <form
         hx-post="/api/policy"
         hx-target="#policy-content"
@@ -206,14 +198,14 @@
             />
           </div>
         </div>
-        <div class="button-row" style="margin-top:1rem;">
-          <button type="submit">Save to DB</button>
-          <button
-            type="button"
-            onclick="document.getElementById('policy-edit-form').style.display='none'; document.querySelector('.button-row button:first-of-type') && null;"
-          >Cancel</button>
+        <label class="checkbox-row policy-acknowledgement">
+          <input type="checkbox" name="next_cycle_acknowledged" value="true" required>
+          <span>I understand these policy values are an operator change and must be reviewed before the next paper cycle.</span>
+        </label>
+        <div class="button-row policy-form-actions">
+          <button type="submit">Save policy draft</button>
         </div>
       </form>
-    </section>
+    </details>
   </div>
 {% endblock %}

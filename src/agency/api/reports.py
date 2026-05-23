@@ -31,7 +31,7 @@ async def selection_reports(
     limit: int = Query(default=20, ge=1, le=1000),
 ) -> list[dict[str, object]]:
     try:
-        return await runtime_selection_reports(limit=limit)
+        return await runtime_selection_reports(limit=limit, validate_payloads=False)
     except RuntimeSelectionReportsUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
@@ -42,7 +42,11 @@ async def selection_reports_for_ticker(
     limit: int = Query(default=20, ge=1, le=1000),
 ) -> list[dict[str, object]]:
     try:
-        return await runtime_selection_reports(ticker=ticker, limit=limit)
+        return await runtime_selection_reports(
+            ticker=ticker,
+            limit=limit,
+            validate_payloads=False,
+        )
     except RuntimeSelectionReportsUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 

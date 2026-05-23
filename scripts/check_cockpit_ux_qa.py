@@ -298,6 +298,9 @@ def _exercise_focus(page: Any, focus: str) -> list[str]:
             if not panel_locator.is_visible():
                 errors.append(f"{panel} panel did not open")
             panel_locator.locator("button[data-cockpit-panel-close]").first.click()
+        candidates_phase = page.locator('[data-cockpit-phase-target="candidates"]').first
+        if candidates_phase.count() > 0:
+            candidates_phase.click()
         if page.locator("[data-cockpit-row-toggle]").first.count() > 0:
             page.locator("[data-cockpit-row-toggle]").first.click()
         detail_button = page.locator("[data-cockpit-ticker-detail]").first

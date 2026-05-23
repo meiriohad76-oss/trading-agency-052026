@@ -3,9 +3,9 @@
 
 {% set active_nav = "audit" %}
 
-{% block title %}Audit | Trading Agency v2{% endblock %}
+{% block title %}Audit | Trading Agency v3{% endblock %}
 {% block eyebrow %}Trace{% endblock %}
-{% block page_title %}Runtime Audit{% endblock %}
+{% block page_title %}Audit proves what each agent recorded{% endblock %}
 {% block topbar_meta %}{{ summary.run_count }} runs &middot; read-only{% endblock %}
 
 {% block content %}
@@ -39,15 +39,15 @@
     <div class="readiness-grid">
       <div>
         <label class="metric-label" for="audit-filter-ticker">Ticker</label>
-        <input id="audit-filter-ticker" type="text" placeholder="e.g. AAPL" style="width:100%;padding:0.3rem 0.5rem;background:var(--bg-2,#1e1e2e);border:1px solid var(--border,#444);color:inherit;border-radius:4px;" />
+        <input id="audit-filter-ticker" type="text" placeholder="e.g. AAPL" />
       </div>
       <div>
         <label class="metric-label" for="audit-filter-cycle">Cycle ID</label>
-        <input id="audit-filter-cycle" type="text" placeholder="partial match" style="width:100%;padding:0.3rem 0.5rem;background:var(--bg-2,#1e1e2e);border:1px solid var(--border,#444);color:inherit;border-radius:4px;" />
+        <input id="audit-filter-cycle" type="text" placeholder="partial match" />
       </div>
       <div>
         <label class="metric-label" for="audit-filter-event">Event / State</label>
-        <input id="audit-filter-event" type="text" placeholder="e.g. APPROVED" style="width:100%;padding:0.3rem 0.5rem;background:var(--bg-2,#1e1e2e);border:1px solid var(--border,#444);color:inherit;border-radius:4px;" />
+        <input id="audit-filter-event" type="text" placeholder="e.g. APPROVED" />
       </div>
     </div>
     <p class="panel-note" id="audit-filter-count"></p>

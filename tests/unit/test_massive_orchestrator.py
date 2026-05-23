@@ -343,6 +343,58 @@ def test_lane_manifest_writer_can_merge_same_window_batches(tmp_path: Path) -> N
     assert [row["ticker"] for row in payload["coverage"]] == ["AAPL", "MSFT"]
 
 
+def test_lane_manifest_writer_preserves_newer_operational_window(tmp_path: Path) -> None:
+    path = tmp_path / "massive_lanes" / "massive_live_trade_slices.json"
+
+    current_payload = write_lane_manifest(
+        path,
+        lane_id="massive_live_trade_slices",
+        dataset="stock_trades",
+        raw_source_dataset="stock_trades",
+        fetched_at=datetime(2026, 5, 22, 13, 25, tzinfo=UTC),
+        requested_start=date(2026, 5, 22),
+        requested_end=date(2026, 5, 22),
+        tickers=("AAPL", "MSFT"),
+        row_count=200,
+        source_manifest="stock_trades.json",
+        status="partial_usable",
+        coverage=[
+            {"ticker": "AAPL", "trade_date": "2026-05-22", "coverage_status": "partial"},
+            {"ticker": "MSFT", "trade_date": "2026-05-22", "coverage_status": "partial"},
+        ],
+        coverage_pct=100,
+    )
+
+    attempted_old_payload = write_lane_manifest(
+        path,
+        lane_id="massive_live_trade_slices",
+        dataset="stock_trades",
+        raw_source_dataset="stock_trades",
+        fetched_at=datetime(2026, 5, 23, 1, 0, tzinfo=UTC),
+        requested_start=date(2026, 5, 15),
+        requested_end=date(2026, 5, 15),
+        tickers=("AAPL",),
+        row_count=10,
+        source_manifest="stock_trades.json",
+        status="complete",
+        coverage=[
+            {"ticker": "AAPL", "trade_date": "2026-05-15", "coverage_status": "complete"}
+        ],
+        coverage_pct=100,
+    )
+
+    persisted = read_lane_manifest(path)
+    assert persisted["window"] == {"start": "2026-05-22", "end": "2026-05-22"}
+    assert persisted["fetched_at"] == current_payload["fetched_at"]
+    assert persisted["row_count"] == current_payload["row_count"]
+    assert attempted_old_payload["window"] == current_payload["window"]
+    superseded_paths = list((path.parent / "_superseded" / path.stem).glob("*.json"))
+    assert len(superseded_paths) == 1
+    superseded = json.loads(superseded_paths[0].read_text(encoding="utf-8"))
+    assert superseded["window"] == {"start": "2026-05-15", "end": "2026-05-15"}
+    assert superseded["preserved_window"] == {"start": "2026-05-22", "end": "2026-05-22"}
+
+
 def _config(
     tmp_path: Path,
     *,

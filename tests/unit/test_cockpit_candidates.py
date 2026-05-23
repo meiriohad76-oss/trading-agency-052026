@@ -67,6 +67,13 @@ def test_candidate_evidence_thresholds_have_whymark_tips() -> None:
     assert "data-cockpit-tip=\"evidence-tier-thresholds\"" in html
 
 
+def test_candidate_row_layout_keeps_decision_controls_from_compressing_evidence() -> None:
+    css = _styles()
+    row_rule = css.split(".cockpit-candidate-row {", 1)[1].split("}", 1)[0]
+
+    assert "grid-template-columns: 1fr;" in row_rule
+
+
 def test_blocked_candidate_has_audit_link_not_approve_button() -> None:
     context = cockpit_context_from_sources(_sample_sources())
     row = {row["ticker"]: row for row in context["candidates"]}["CCC"]

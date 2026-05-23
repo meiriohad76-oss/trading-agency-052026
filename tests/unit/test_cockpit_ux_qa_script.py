@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import inspect
+
 import pytest
 
 import scripts.check_cockpit_ux_qa as qa
@@ -53,3 +55,13 @@ def test_qa_script_applies_scenario_query_param() -> None:
     url = qa._scenario_url("http://127.0.0.1:8000/cockpit?foo=bar", "outage")
 
     assert url == "http://127.0.0.1:8000/cockpit?foo=bar&scenario=outage"
+
+
+def test_qa_script_returns_to_candidates_before_ticker_detail_focus() -> None:
+    source = inspect.getsource(qa._exercise_focus)
+    panels_branch = source.split('elif focus == "panels":', 1)[1]
+    candidates_phase = '[data-cockpit-phase-target="candidates"]'
+    row_toggle = "[data-cockpit-row-toggle]"
+
+    assert candidates_phase in panels_branch
+    assert panels_branch.index(candidates_phase) < panels_branch.index(row_toggle)

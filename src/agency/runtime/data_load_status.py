@@ -207,6 +207,7 @@ def load_data_load_status(
         source_health,
         data_refresh=data_refresh,
         manifest_root=manifest_dir,
+        parquet_root=parquet_dir,
         active_tickers=active_tickers,
         as_of=stock_trade_health_as_of,
         daily_as_of=as_of,
@@ -362,6 +363,8 @@ def _dataset_rows(
             _stock_trade_live_lane_snapshot(
                 data_refresh,
                 manifest_root=manifest_root,
+                parquet_root=parquet_root,
+                active_tickers=active_tickers,
                 as_of=dataset_as_of,
                 now=now,
             )
@@ -1452,6 +1455,8 @@ def _dataset_detail(
             status = str(live_trade_lane.get("status") or "unknown")
             fetched_at = str(live_trade_lane.get("fetched_at") or "not recorded")
             fetched_at_dt = _parse_datetime(fetched_at)
+            proof_detail = str(live_trade_lane.get("proof_detail") or "")
+            proof_note = f" {proof_detail}" if proof_detail else ""
             closed_market_note = (
                 " Closed-market freshness uses the latest completed trading session."
                 if fetched_at_dt is not None
@@ -1465,6 +1470,7 @@ def _dataset_detail(
                 f"{status}; fetched at {fetched_at}. Full-depth historical tape "
                 "repair is tracked separately by massive_backtest_trade_tape and is "
                 "not a live-decision blocker."
+                f"{proof_note}"
                 f"{closed_market_note}"
             )
         if dataset == "stock_trades" and 0.0 < (usable_coverage or coverage) < 1.0:
@@ -2161,6 +2167,7 @@ def _source_health_with_massive_lanes(
     *,
     data_refresh: Mapping[str, object],
     manifest_root: Path,
+    parquet_root: Path,
     active_tickers: set[str],
     as_of: date,
     daily_as_of: date,
@@ -2202,6 +2209,8 @@ def _source_health_with_massive_lanes(
         live_snapshot = _stock_trade_live_lane_snapshot(
             data_refresh,
             manifest_root=manifest_root,
+            parquet_root=parquet_root,
+            active_tickers=active_tickers,
             as_of=as_of,
             now=now,
         )
@@ -2333,6 +2342,8 @@ def _stock_trade_live_lane_snapshot(
     data_refresh: Mapping[str, object],
     *,
     manifest_root: Path,
+    parquet_root: Path | None = None,
+    active_tickers: set[str] | None = None,
     as_of: date,
     now: datetime,
 ) -> Mapping[str, object]:
@@ -2345,6 +2356,15 @@ def _stock_trade_live_lane_snapshot(
             return {}
         return _missing_lane_snapshot(lane_id, label="Massive Live Trade Slices")
     if not _lane_manifest_covers_as_of(manifest, as_of):
+        coverage_snapshot = _stock_trade_coverage_metadata_lane_snapshot(
+            manifest_root=manifest_root,
+            parquet_root=parquet_root,
+            active_tickers=active_tickers,
+            superseded_manifest=manifest,
+            as_of=as_of,
+        )
+        if coverage_snapshot:
+            return coverage_snapshot
         return _out_of_window_lane_snapshot(
             lane_id,
             label="Massive Live Trade Slices",
@@ -2426,12 +2446,183 @@ def _stock_trade_live_lane_snapshot(
     }
 
 
+def _stock_trade_coverage_metadata_lane_snapshot(
+    *,
+    manifest_root: Path,
+    parquet_root: Path | None,
+    active_tickers: set[str] | None,
+    superseded_manifest: Mapping[str, object],
+    as_of: date,
+) -> Mapping[str, object]:
+    if parquet_root is None:
+        return {}
+    stock_manifest = _read_json_object(manifest_root / "stock_trades.json")
+    if not stock_manifest or not _stock_trade_manifest_covers_as_of(stock_manifest, as_of):
+        return {}
+    path_value = stock_manifest.get("path")
+    root = parquet_root / str(path_value or "stock_trades")
+    coverage = _load_stock_trade_coverage_metadata(root)
+    manifest_tickers = _manifest_tickers(stock_manifest) or _partition_tickers(root)
+    expected_tickers = sorted(
+        {
+            str(ticker).upper()
+            for ticker in (active_tickers or manifest_tickers)
+            if str(ticker).strip()
+        }
+    )
+    if not expected_tickers:
+        return {}
+    coverage_rows: list[dict[str, object]] = []
+    issues: list[str] = []
+    checked_values: list[datetime] = []
+    missing_tickers: list[str] = []
+    for ticker in expected_tickers:
+        row = coverage.get(_coverage_key(ticker, as_of))
+        if row and _stock_trade_coverage_row_usable(row):
+            normalized = dict(row)
+            normalized["ticker"] = ticker
+            normalized.setdefault("trade_date", as_of.isoformat())
+            coverage_rows.append(normalized)
+            checked_at = _parse_datetime(
+                normalized.get("updated_at") or normalized.get("fetched_at")
+            )
+            if checked_at is not None:
+                checked_values.append(_ensure_utc(checked_at))
+            continue
+        if row and str(row.get("coverage_status") or row.get("status") or "").lower() == "failed":
+            failed = dict(row)
+            failed["ticker"] = ticker
+            failed.setdefault("trade_date", as_of.isoformat())
+            coverage_rows.append(failed)
+            issues.append(f"{ticker} has failed stock-trade coverage for {as_of.isoformat()}")
+            continue
+        missing_tickers.append(ticker)
+    parquet_counts = _stock_trade_parquet_row_counts(root, missing_tickers, as_of=as_of)
+    parquet_checked_at = (
+        _parse_datetime(stock_manifest.get("fetched_at"))
+        or _parse_datetime(stock_manifest.get("max_timestamp_as_of"))
+    )
+    for ticker in missing_tickers:
+        row_count = parquet_counts.get(ticker, 0)
+        if row_count > 0:
+            normalized = {
+                "ticker": ticker,
+                "trade_date": as_of.isoformat(),
+                "coverage_status": "partial_usable",
+                "downloaded_row_count": row_count,
+                "pages_downloaded": 1,
+                "order": "desc",
+                "row_count_verified": False,
+                "proof_source": "stock_trades_parquet_rows",
+                "updated_at": parquet_checked_at.isoformat()
+                if parquet_checked_at is not None
+                else "",
+            }
+            coverage_rows.append(normalized)
+            if parquet_checked_at is not None:
+                checked_values.append(_ensure_utc(parquet_checked_at))
+            continue
+        issues.append(f"{ticker} has no usable stock-trade coverage for {as_of.isoformat()}")
+    if not coverage_rows:
+        return {}
+    checked_at = (
+        max(checked_values)
+        if checked_values
+        else _parse_datetime(stock_manifest.get("fetched_at"))
+        or _parse_datetime(stock_manifest.get("max_timestamp_as_of"))
+    )
+    if checked_at is None:
+        return {}
+    usable_tickers = sorted(
+        {
+            str(row.get("ticker")).upper()
+            for row in coverage_rows
+            if _stock_trade_live_coverage_row_usable(row)
+            and _stock_trade_live_coverage_row_fresh(
+                row,
+                now=checked_at,
+                fallback_checked_at=checked_at,
+            )
+        }
+    )
+    failed_tickers = sorted(
+        {
+            str(row.get("ticker")).upper()
+            for row in coverage_rows
+            if str(row.get("coverage_status") or row.get("status") or "").lower()
+            == "failed"
+        }
+    )
+    partial_tickers = sorted(
+        set(expected_tickers).difference(usable_tickers).difference(failed_tickers)
+    )
+    coverage_pct = round(_coverage(len(usable_tickers), len(expected_tickers)) * PERCENT_SCALE)
+    lane_window = _mapping(superseded_manifest.get("window"))
+    lane_window_text = (
+        f"{lane_window.get('start', 'unknown')} to {lane_window.get('end', 'unknown')}"
+    )
+    parquet_proof_count = sum(
+        1
+        for row in coverage_rows
+        if str(row.get("proof_source") or "") == "stock_trades_parquet_rows"
+    )
+    proof_detail = (
+        "Proof came from stock_trades coverage metadata because the latest "
+        f"massive_live_trade_slices lane manifest covers {lane_window_text}, "
+        f"not {as_of.isoformat()}."
+    )
+    if parquet_proof_count:
+        proof_detail += (
+            f" {parquet_proof_count} ticker(s) used parquet row proof because "
+            "the coverage metadata was also older than the readiness date."
+        )
+    status = "partial_usable" if usable_tickers else "partial"
+    if not partial_tickers and not failed_tickers:
+        status = "partial_usable"
+    return {
+        "lane_id": MASSIVE_LIVE_TRADE_LANE_ID,
+        "label": "Massive Live Trade Slices",
+        "manifest": {
+            **dict(stock_manifest),
+            "status": status,
+            "coverage_pct": coverage_pct,
+            "coverage": coverage_rows,
+            "issues": issues,
+            "proof_source": "stock_trades_coverage_metadata",
+            "proof_detail": proof_detail,
+        },
+        "progress": {},
+        "progress_row": {},
+        "status": status,
+        "fetched_at": checked_at.isoformat(),
+        "coverage_pct": coverage_pct,
+        "tickers": expected_tickers,
+        "usable_tickers": usable_tickers,
+        "failed_tickers": failed_tickers,
+        "partial_tickers": partial_tickers,
+        "partial_source_tickers": sorted(
+            {
+                str(row.get("ticker")).upper()
+                for row in coverage_rows
+                if _stock_trade_live_coverage_row_usable(row)
+                and not _stock_trade_live_coverage_row_complete(row)
+            }
+        ),
+        "issues": issues,
+        "row_count": _int_value(stock_manifest.get("row_count")),
+        "proof_source": "stock_trades_coverage_metadata",
+        "proof_detail": proof_detail,
+    }
+
+
 def _stock_trade_raw_lane_snapshot(
     lane_id: str,
     *,
     label: str,
     data_refresh: Mapping[str, object],
     manifest_root: Path,
+    parquet_root: Path | None = None,
+    active_tickers: set[str] | None = None,
     as_of: date,
     now: datetime,
     missing_is_snapshot: bool = False,
@@ -2440,6 +2631,8 @@ def _stock_trade_raw_lane_snapshot(
         return _stock_trade_live_lane_snapshot(
             data_refresh,
             manifest_root=manifest_root,
+            parquet_root=parquet_root,
+            active_tickers=active_tickers,
             as_of=as_of,
             now=now,
         )
@@ -2737,6 +2930,7 @@ def _stock_trade_lane_source_health(
         freshness = "FRESH"
         status = "HEALTHY"
     checked = checked_at.isoformat()
+    proof_detail = str(live_trade_lane.get("proof_detail") or "")
     return {
         "source": "massive-stock-trades",
         "status": status,
@@ -2762,6 +2956,7 @@ def _stock_trade_lane_source_health(
                 if closed_market_current
                 else ""
             )
+            + (f" {proof_detail}" if proof_detail else "")
         ),
     }
 
@@ -2978,6 +3173,19 @@ def _lane_manifest_covers_as_of(manifest: Mapping[str, object], as_of: date) -> 
     return start <= as_of <= end
 
 
+def _stock_trade_manifest_covers_as_of(
+    manifest: Mapping[str, object],
+    as_of: date,
+) -> bool:
+    date_range = _mapping(manifest.get("date_range"))
+    start = _parse_date(date_range.get("start"))
+    end = _parse_date(date_range.get("end"))
+    if start is not None and end is not None:
+        return start <= as_of <= end
+    max_timestamp = _parse_datetime(manifest.get("max_timestamp_as_of"))
+    return max_timestamp is not None and _ensure_utc(max_timestamp).date() >= as_of
+
+
 def _lane_manifest_reaches_as_of(manifest: Mapping[str, object], as_of: date) -> bool:
     window = _mapping(manifest.get("window"))
     end = _parse_date(window.get("end"))
@@ -3061,6 +3269,43 @@ def _stock_trade_usable_tickers(
         if _stock_trade_coverage_row_usable(row):
             usable.add(ticker)
     return usable
+
+
+def _stock_trade_parquet_row_counts(
+    root: Path,
+    tickers: Sequence[str],
+    *,
+    as_of: date,
+) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    if not tickers:
+        return counts
+    try:
+        import pyarrow.compute as pc
+        import pyarrow.parquet as pq
+    except ImportError:
+        pc = None
+        pq = None
+    for ticker in tickers:
+        normalized_ticker = str(ticker).upper()
+        path = root / f"ticker={normalized_ticker}" / f"year={as_of.year}" / "trades.parquet"
+        if not path.exists():
+            continue
+        try:
+            if pc is not None and pq is not None:
+                table = pq.ParquetFile(path).read(columns=["trade_date"])
+                row_count = int(pc.sum(pc.equal(table["trade_date"], as_of)).as_py() or 0)
+            else:
+                frame = pd.read_parquet(path, columns=["trade_date"])
+                if "trade_date" not in frame:
+                    continue
+                trade_dates = pd.to_datetime(frame["trade_date"], errors="coerce").dt.date
+                row_count = int((trade_dates == as_of).sum())
+        except Exception:
+            continue
+        if row_count > 0:
+            counts[normalized_ticker] = row_count
+    return counts
 
 
 def _stock_trade_coverage_row_usable(row: Mapping[str, object]) -> bool:

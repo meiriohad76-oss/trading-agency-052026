@@ -3,9 +3,9 @@
 
 {% set active_nav = "command" %}
 
-{% block title %}Command | Trading Agency v2{% endblock %}
+{% block title %}Command | Trading Agency v3{% endblock %}
 {% block eyebrow %}Cockpit{% endblock %}
-{% block page_title %}Command{% endblock %}
+{% block page_title %}Command shows the current operating picture{% endblock %}
 {% block topbar_meta %}{{ summary.source_count }} sources &middot; {{ summary.candidate_count }} candidates{% endblock %}
 
 {% block content %}
@@ -1173,8 +1173,7 @@
         </div>
 
         <div
-          class="ops-check-row"
-          style="margin-top:0.75rem"
+          class="ops-check-row progress-failure-row"
           data-progress-failure-row
           {% if not data_refresh.failure_label %}hidden{% endif %}
         >

@@ -3,10 +3,10 @@
 
 {% set active_nav = "execution" %}
 
-{% block title %}Execution Preview | Trading Agency v2{% endblock %}
+{% block title %}Execution Preview | Trading Agency v3{% endblock %}
 {% block eyebrow %}Action{% endblock %}
-{% block page_title %}Execution Preview{% endblock %}
-{% block topbar_meta %}{{ summary.broker_mode }} broker &middot; submit gate {{ summary.submit_gate_label | lower }}{% endblock %}
+{% block page_title %}Clearance guards the paper submit gate{% endblock %}
+{% block topbar_meta %}{{ summary.broker_mode }} broker &middot; readiness gate {{ summary.submit_gate_label | lower }}{% endblock %}
 
 {% macro preview_card(row) %}
   <article class="review-card execution-preview-card paper-mode-card review-card-{{ row.state_class }}">
@@ -101,6 +101,16 @@
     </div>
     {% endif %}
     {% if row.paper_promotion_checks %}
+    <div class="execution-blocker-list execution-primary-check" aria-label="Primary rule evidence">
+      <span class="metric-label">Primary rule evidence</span>
+      {% for check in row.paper_promotion_checks[:3] %}
+      <p>
+        <strong>{{ check.label }}:</strong>
+        {{ check.value_detail }}.
+        {{ check.detail }}
+      </p>
+      {% endfor %}
+    </div>
     <details class="details-panel promotion-checks-panel">
       <summary>Paper promotion checks: {{ row.paper_promotion_check_summary }}</summary>
       <div class="ops-check-list promotion-check-list">
@@ -154,11 +164,31 @@
     <p class="microcopy">Intent hash {{ row.order_intent_hash_label }}; approval expires if the computed order changes.</p>
     {% endif %}
     {% if row.submit_enabled %}
-    <form method="post" action="{{ row.submit_action }}">
-      <button class="mini-button" type="submit">{{ row.submit_label }}</button>
+    <form class="submit-gate-form" method="post" action="{{ row.submit_action }}">
+      <label class="checkbox-row">
+        <input type="checkbox" name="submit_gate_armed" value="true" required>
+        <span>I want to open the paper submit gate for {{ row.ticker }}.</span>
+      </label>
+      <label class="form-field">
+        <span class="metric-label">Confirmation phrase</span>
+        <input
+          name="operator_phrase"
+          type="text"
+          required
+          pattern="submit paper orders"
+          placeholder="submit paper orders"
+          aria-label="Type submit paper orders to enable paper submission"
+        >
+      </label>
+      <button class="mini-button action-approve" type="submit">{{ row.submit_label }}</button>
     </form>
     <p class="microcopy">Submitted paper order confirmation will be recorded inline after Alpaca accepts the order.</p>
     {% endif %}
+    <div class="execution-proof-strip" aria-label="Execution proof timestamps">
+      <span>Report as of <strong>{{ row.as_of }}</strong></span>
+      <span>Review <strong>{{ row.human_review_time_label }}</strong></span>
+      <span>Broker <strong>{{ row.execution_status_label }}</strong></span>
+    </div>
   </article>
 {% endmacro %}
 
@@ -206,7 +236,7 @@
       </form>
       {% endif %}
       <span class="primary-action {% if not summary.submit_gate_open %}primary-action-disabled{% endif %}">
-        Broker submit {{ summary.submit_gate_label | lower }}
+        Broker readiness {{ summary.submit_gate_label | lower }}
       </span>
     </div>
   </section>
@@ -265,6 +295,8 @@
     </div>
   </section>
 
+  {{ data_health_panel(data_health) }}
+
   <section class="panel" aria-labelledby="orderable-heading">
     <div class="section-heading">
       <div>
@@ -298,8 +330,6 @@
       {% endfor %}
     </div>
   </section>
-
-  {{ data_health_panel(data_health) }}
 
   <section class="panel workflow-help" aria-labelledby="execution-help-heading">
     <div class="section-heading">
@@ -467,15 +497,15 @@
           <tbody>
             {% for row in blocked_rows %}
             <tr>
-              <td><a class="text-link" href="/candidates/{{ row.ticker }}">{{ row.ticker }}</a></td>
-              <td><span class="tag tag-{{ row.state_class }}">{{ row.preview_state }}</span></td>
-              <td>{{ row.side }}</td>
-              <td>{{ row.risk_decision }}</td>
-              <td>{{ "%.0f"|format(row.position_size_pct) }}%</td>
-              <td>{{ row.order_value_label }}</td>
-              <td><button class="disabled-button" type="button" disabled>{{ row.submit_label }}</button></td>
-              <td>{{ row.reason }}</td>
-              <td>{{ row.next_step }}</td>
+              <td data-label="Ticker"><a class="text-link" href="/candidates/{{ row.ticker }}">{{ row.ticker }}</a></td>
+              <td data-label="State"><span class="tag tag-{{ row.state_class }}">{{ row.preview_state }}</span></td>
+              <td data-label="Side">{{ row.side }}</td>
+              <td data-label="Risk">{{ row.risk_decision }}</td>
+              <td data-label="Size">{{ "%.0f"|format(row.position_size_pct) }}%</td>
+              <td data-label="Order Value">{{ row.order_value_label }}</td>
+              <td data-label="Submit"><button class="disabled-button" type="button" disabled>{{ row.submit_label }}</button></td>
+              <td data-label="Reason">{{ row.reason }}</td>
+              <td data-label="Next Step">{{ row.next_step }}</td>
             </tr>
             {% else %}
             <tr>

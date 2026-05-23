@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 import polars as pl
+from pit.exceptions import DataNotAvailableAt
 
 from agency.runtime.signal_evidence import enrich_signal_rows_with_evidence
 
@@ -24,6 +25,36 @@ class BrokenPriceLoader:
     def prices(self, tickers: list[str], as_of: date, lookback_days: int) -> pl.DataFrame:
         del tickers, as_of, lookback_days
         raise RuntimeError("price detail unavailable")
+
+
+class CountingTechnicalPriceLoader:
+    def __init__(self) -> None:
+        self.price_calls = 0
+
+    def prices(self, tickers: list[str], as_of: date, lookback_days: int) -> pl.DataFrame:
+        self.price_calls += 1
+        start = as_of - timedelta(days=lookback_days - 1)
+        rows = []
+        for ticker in tickers:
+            for offset in range(lookback_days):
+                close = 100.0 + offset
+                rows.append(
+                    {
+                        "ticker": ticker.upper(),
+                        "date": start + timedelta(days=offset),
+                        "open": close - 0.5,
+                        "high": close + 1.0,
+                        "low": close - 1.0,
+                        "close": close,
+                        "volume": 1_000_000 + offset,
+                        "timestamp_as_of": start + timedelta(days=offset),
+                    }
+                )
+        return pl.DataFrame(rows)
+
+    def stock_trades(self, tickers: list[str], as_of: date, lookback_days: int) -> pl.DataFrame:
+        del tickers, as_of, lookback_days
+        raise DataNotAvailableAt("stock_trades", AS_OF, "not needed for this unit test")
 
 
 def test_abnormal_volume_signal_inspector_explains_trigger_metrics() -> None:
@@ -83,6 +114,37 @@ def test_signal_inspector_marks_detail_reconstruction_failures() -> None:
     assert "Local metric reconstruction failed" in row["trigger_detail"]
     assert labels["Reconstruction"]["value"] == "Unavailable"
     assert "RuntimeError" in labels["Reconstruction"]["detail"]
+
+
+def test_signal_inspector_reuses_wide_price_window_for_daily_bar_lanes() -> None:
+    loader = CountingTechnicalPriceLoader()
+    rows = [
+        _signal_row("technical_analysis", "Technical Analysis"),
+        _signal_row("abnormal_volume", "Abnormal Volume"),
+    ]
+
+    enriched = enrich_signal_rows_with_evidence(rows, loader=loader)
+
+    assert loader.price_calls == 1
+    assert len(enriched) == 2
+    assert enriched[0]["trigger_cards"]
+    assert "AAPL triggered abnormal volume" in enriched[1]["trigger_headline"]
+
+
+def _signal_row(lane_key: str, lane: str) -> dict[str, object]:
+    return {
+        "ticker": "AAPL",
+        "lane_key": lane_key,
+        "lane": lane,
+        "direction": "BULLISH",
+        "source": "Daily Market Bars / Inferred From Bars",
+        "score": "+1.00 bullish",
+        "score_value": 1.0,
+        "signal_as_of": AS_OF.isoformat(),
+        "timestamp_as_of": AS_OF.isoformat(),
+        "confidence_pct": 70,
+        "reason_codes_label": lane,
+    }
 
 
 def _price_rows(

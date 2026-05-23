@@ -5,6 +5,7 @@ from collections.abc import Mapping, Sequence
 
 from agency.views._shared import (
     FINAL_SELECTION_REPORT_LIMIT,
+    _dashboard_risk_decisions,
     _dashboard_selection_reports,
     _format_timestamp_label,
     _human_list,
@@ -16,6 +17,7 @@ from agency.views._shared import (
     _latest_selection_cycle_id,
     _lifecycle_events_for_reports,
     _mapping_field,
+    _matching_payload,
     _percent,
     _plural,
     _reason_summary,
@@ -38,7 +40,12 @@ async def final_selection_context() -> dict[str, object]:
         event_type="HUMAN_REVIEW",
         limit_per_ticker=1,
     )
-    rows = final_selection_rows(cycle_reports, review_events=review_events)
+    risk_decisions = await _dashboard_risk_decisions(limit=len(cycle_reports) or 1)
+    rows = final_selection_rows(
+        cycle_reports,
+        review_events=review_events,
+        risk_decisions=risk_decisions,
+    )
     actionable_rows = [row for row in rows if _is_actionable_candidate(row)]
     watch_rows = [row for row in rows if str(row["action"]) == "WATCH"]
     no_trade_rows = [row for row in rows if str(row["action"]) == "NO_TRADE"]
@@ -82,6 +89,7 @@ def final_selection_rows(
     reports: Sequence[Mapping[str, object]],
     *,
     review_events: Sequence[Mapping[str, object]] = (),
+    risk_decisions: Sequence[Mapping[str, object]] = (),
 ) -> list[dict[str, object]]:
     review_index = _human_review_index(review_events)
     rows = [
@@ -94,6 +102,7 @@ def final_selection_rows(
                     str(report.get("as_of", "")),
                 )
             ),
+            risk_decision=_matching_payload(risk_decisions, report),
         )
         for report in reports
     ]
@@ -130,8 +139,13 @@ def _final_selection_row(
     report: Mapping[str, object],
     *,
     review_event: Mapping[str, object] | None = None,
+    risk_decision: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
-    from agency.views.candidates import _candidate_row
+    from agency.views.candidates import (
+        _candidate_row,
+        _review_action_url,
+        _review_caution,
+    )
     from agency.views.risk import _gate_rows, _selection_gate_summary
     from agency.views.signals import (
         _context_signal_rows,
@@ -156,6 +170,8 @@ def _final_selection_row(
     suppressed_signals = _signal_rows(evidence_pack, "suppressed_signals")
     deterministic_reason = _reason_text(deterministic)
     human_review = _human_review_summary(review_event)
+    ticker = str(base["ticker"])
+    caution = _review_caution(report, risk_decision)
     return {
         **base,
         "cycle_id": cycle_id,
@@ -212,6 +228,27 @@ def _final_selection_row(
         "human_review_reason": human_review["reason"],
         "human_review_time": human_review["event_time"],
         "human_review_time_label": _format_timestamp_label(human_review["event_time"]),
+        "caution_acknowledgement_required": caution["required"],
+        "caution_acknowledgement_text": caution["text"],
+        "caution_recommendation": caution["recommendation"],
+        "approve_review_action": _review_action_url(
+            ticker=ticker,
+            cycle_id=cycle_id,
+            as_of=str(report["as_of"]),
+            decision="APPROVE",
+        ),
+        "defer_review_action": _review_action_url(
+            ticker=ticker,
+            cycle_id=cycle_id,
+            as_of=str(report["as_of"]),
+            decision="DEFER",
+        ),
+        "reject_review_action": _review_action_url(
+            ticker=ticker,
+            cycle_id=cycle_id,
+            as_of=str(report["as_of"]),
+            decision="REJECT",
+        ),
     }
 
 def _freshness_proof_label(*, as_of_label: str, generated_at_label: str) -> str:

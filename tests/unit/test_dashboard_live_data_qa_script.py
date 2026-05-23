@@ -36,6 +36,11 @@ def test_dashboard_live_data_qa_result_passes_with_health_rows() -> None:
     assert result_failed(row) is False
 
 
+def test_dashboard_live_data_qa_checks_cockpit_root_and_command_route() -> None:
+    assert qa.PAGES[0] == "/"
+    assert "/command" in qa.PAGES
+
+
 def test_dashboard_live_data_qa_result_fails_on_page_error() -> None:
     row = _empty_result("mobile", "/signals")
     row["page_error"] = "TimeoutError: page did not finish loading"
@@ -103,6 +108,33 @@ def test_dashboard_live_data_qa_json_get_accepts_endpoint_lists(monkeypatch) -> 
     assert qa._json_get("http://unit.test/status/data-sources") == [
         {"source": "daily-market-bars", "status": "HEALTHY"}
     ]
+
+
+def test_dashboard_live_data_qa_json_get_retries_cold_endpoint_timeout(monkeypatch) -> None:
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self) -> bytes:
+            return b'[{"cycle_id":"cycle-1","ticker":"AAPL"}]'
+
+    attempts = {"count": 0}
+
+    def fake_urlopen(*_args, **_kwargs):
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            raise TimeoutError("cold endpoint startup")
+        return Response()
+
+    monkeypatch.setattr(qa, "urlopen", fake_urlopen)
+
+    assert qa._json_get("http://unit.test/reports/selection") == [
+        {"cycle_id": "cycle-1", "ticker": "AAPL"}
+    ]
+    assert attempts["count"] == 2
 
 
 def test_dashboard_live_data_qa_allows_context_only_data_load_warnings(monkeypatch) -> None:

@@ -139,6 +139,7 @@ def cockpit_context_from_sources(
         "policy": _policy_section(dashboard),
         "monitor_events": _monitor_events(dashboard),
         "monitor": monitor_status_from_scheduler(scheduler),
+        "data_health": _mapping(dashboard.get("data_health")),
         "preferences": _preferences_section(),
         "qa_scenarios_enabled": qa_enabled,
         "qa_scenarios": sorted(QA_SCENARIOS),

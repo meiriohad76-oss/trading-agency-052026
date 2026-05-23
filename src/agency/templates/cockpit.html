@@ -1,8 +1,9 @@
 {% extends "base.html" %}
+{% from "_data_health.html" import data_health_panel %}
 
 {% block title %}Pre-Flight Cockpit - Trading Agency{% endblock %}
 {% block eyebrow %}Trading Agency v3{% endblock %}
-{% block page_title %}Pre-Flight Cockpit{% endblock %}
+{% block page_title %}Pre-flight briefing is ready{% endblock %}
 {% block topbar_meta %}{{ cycle.mode }} mode - {{ cycle.id }}{% endblock %}
 
 {% block content %}
@@ -37,6 +38,8 @@
       <button type="button" class="button button-secondary" data-cockpit-preferences-open>Preferences</button>
     </div>
   </header>
+
+  {{ data_health_panel(data_health) }}
 
   <aside class="cockpit-preferences" data-cockpit-preferences hidden aria-label="Cockpit preferences">
     <div class="cockpit-panel-backdrop" data-cockpit-preferences-close></div>

@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping, Sequence
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
 
 import pandas as pd
+import polars as pl
 from market_flow.features import market_flow_feature_frame
 from pit.loader import PITLoader
 from signals.abnormal_volume import abnormal_volume_frame
@@ -90,9 +91,12 @@ def enrich_signal_rows_with_evidence(
 ) -> list[dict[str, object]]:
     if not rows:
         return []
-    active_loader = loader or PITLoader(
-        parquet_root=DEFAULT_PARQUET_ROOT,
-        manifest_root=DEFAULT_MANIFEST_ROOT,
+    active_loader = _CachedPriceWindowLoader(
+        loader
+        or PITLoader(
+            parquet_root=DEFAULT_PARQUET_ROOT,
+            manifest_root=DEFAULT_MANIFEST_ROOT,
+        )
     )
     as_of = _dashboard_as_of(rows)
     tickers = sorted({str(row["ticker"]).upper() for row in rows})
@@ -117,10 +121,10 @@ def _detail_frames(
 ) -> dict[str, pd.DataFrame]:
     lanes = {str(row["lane_key"]) for row in rows}
     frames: dict[str, pd.DataFrame] = {}
-    if "abnormal_volume" in lanes:
-        frames["abnormal_volume"] = _safe_frame(abnormal_volume_frame, as_of, tickers, loader)
     if "technical_analysis" in lanes:
         frames["technical_analysis"] = _safe_frame(technical_analysis_frame, as_of, tickers, loader)
+    if "abnormal_volume" in lanes:
+        frames["abnormal_volume"] = _safe_frame(abnormal_volume_frame, as_of, tickers, loader)
     if "fundamentals" in lanes:
         frames["fundamentals"] = _safe_frame(fundamental_factor_frame, as_of, tickers, loader)
     if "insider" in lanes:
@@ -132,6 +136,56 @@ def _detail_frames(
     if lanes & MARKET_FLOW_LANES:
         frames["market_flow"] = _safe_frame(market_flow_feature_frame, as_of, tickers, loader)
     return frames
+
+
+class _CachedPriceWindowLoader:
+    def __init__(self, loader: Any) -> None:
+        self._loader = loader
+        self._price_windows: list[tuple[date, int, tuple[str, ...], pd.Timestamp, pl.DataFrame]] = []
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._loader, name)
+
+    def prices(self, tickers: list[str], as_of: date, lookback_days: int) -> pl.DataFrame:
+        normalized = tuple(sorted({ticker.upper() for ticker in tickers}))
+        start = as_of - timedelta(days=lookback_days - 1)
+        cached = self._cached_price_window(normalized, as_of, lookback_days, start)
+        if cached is not None:
+            return cached
+        frame = self._loader.prices(list(normalized), as_of, lookback_days)
+        self._price_windows.append(
+            (as_of, lookback_days, normalized, pd.Timestamp(start), frame)
+        )
+        return frame
+
+    def _cached_price_window(
+        self,
+        tickers: tuple[str, ...],
+        as_of: date,
+        lookback_days: int,
+        start: date,
+    ) -> pl.DataFrame | None:
+        requested = set(tickers)
+        for cached_as_of, cached_lookback, cached_tickers, cached_start, frame in reversed(
+            self._price_windows
+        ):
+            if cached_as_of != as_of or cached_lookback < lookback_days:
+                continue
+            if not requested.issubset(set(cached_tickers)):
+                continue
+            if "date" not in frame.columns or "ticker" not in frame.columns:
+                continue
+            if cached_start > pd.Timestamp(start):
+                continue
+            try:
+                return frame.filter(
+                    pl.col("ticker").cast(pl.Utf8).str.to_uppercase().is_in(list(tickers)),
+                    pl.col("date") >= start,
+                    pl.col("date") <= as_of,
+                )
+            except Exception:
+                return None
+        return None
 
 
 def _evidence_for_row(

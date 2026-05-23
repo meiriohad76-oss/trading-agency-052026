@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from agency.api import reports as reports_api
 from agency.api.reports import RuntimeSelectionReportsUnavailable, runtime_selection_reports
 from agency.app import create_app
 from agency.runtime.operational_filters import is_non_operational_payload
@@ -38,6 +39,29 @@ def test_selection_reports_for_ticker_endpoint_uses_local_storage_when_postgres_
 
     assert response.status_code == HTTP_OK
     assert isinstance(response.json(), list)
+
+
+def test_selection_reports_endpoint_skips_route_validation_for_speed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: dict[str, object] = {}
+
+    async def fake_runtime_selection_reports(**kwargs: object) -> list[dict[str, object]]:
+        observed.update(kwargs)
+        return [{"ticker": "AAPL"}]
+
+    monkeypatch.setattr(
+        reports_api,
+        "runtime_selection_reports",
+        fake_runtime_selection_reports,
+    )
+    client = TestClient(create_app())
+
+    response = client.get("/reports/selection")
+
+    assert response.status_code == HTTP_OK
+    assert response.json() == [{"ticker": "AAPL"}]
+    assert observed["validate_payloads"] is False
 
 
 def test_non_operational_filter_uses_token_boundaries() -> None:

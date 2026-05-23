@@ -7,6 +7,13 @@ from pathlib import Path
 from typing import Any
 
 DEFAULT_LANE_MANIFEST_ROOT = Path("research/data/manifests/massive_lanes")
+MONOTONIC_WINDOW_LANES = {
+    "massive_daily_bars",
+    "massive_live_trade_slices",
+    "massive_premarket_trade_slices",
+    "massive_block_trade_feed",
+    "massive_options_flow",
+}
 
 
 def manifest_path_for_lane(repo_root: Path, lane_id: str) -> Path:
@@ -45,36 +52,35 @@ def write_lane_manifest(
     normalized_tickers = sorted({str(ticker).upper() for ticker in tickers if str(ticker).strip()})
     normalized_coverage = [dict(row) for row in coverage]
     normalized_issues = [dict(issue) for issue in issues]
-    if merge_existing:
-        existing = read_lane_manifest(path)
-        if _same_lane_window(
-            existing,
-            lane_id=lane_id,
-            dataset=dataset,
-            raw_source_dataset=raw_source_dataset,
-            requested_start=requested_start,
-            requested_end=requested_end,
-        ):
-            normalized_tickers = sorted(
-                {
-                    *normalized_tickers,
-                    *[
-                        str(ticker).upper()
-                        for ticker in existing.get("tickers", [])
-                        if str(ticker).strip()
-                    ],
-                }
-            )
-            normalized_coverage = _merged_coverage(
-                existing.get("coverage", []),
-                normalized_coverage,
-            )
-            normalized_issues = _merged_issues(
-                existing.get("issues", []),
-                normalized_issues,
-                completed_tickers=_complete_tickers(normalized_coverage),
-            )
-            row_count = int(existing.get("row_count") or 0) + max(row_count, 0)
+    existing = read_lane_manifest(path)
+    if merge_existing and _same_lane_window(
+        existing,
+        lane_id=lane_id,
+        dataset=dataset,
+        raw_source_dataset=raw_source_dataset,
+        requested_start=requested_start,
+        requested_end=requested_end,
+    ):
+        normalized_tickers = sorted(
+            {
+                *normalized_tickers,
+                *[
+                    str(ticker).upper()
+                    for ticker in existing.get("tickers", [])
+                    if str(ticker).strip()
+                ],
+            }
+        )
+        normalized_coverage = _merged_coverage(
+            existing.get("coverage", []),
+            normalized_coverage,
+        )
+        normalized_issues = _merged_issues(
+            existing.get("issues", []),
+            normalized_issues,
+            completed_tickers=_complete_tickers(normalized_coverage),
+        )
+        row_count = int(existing.get("row_count") or 0) + max(row_count, 0)
     resolved_coverage_pct = (
         max(0, min(100, coverage_pct))
         if coverage_pct is not None
@@ -105,8 +111,64 @@ def write_lane_manifest(
         "request_budget_label": request_budget_label or "",
     }
     path.parent.mkdir(parents=True, exist_ok=True)
+    if _preserve_existing_newer_window(existing, payload):
+        _write_superseded_manifest(path, payload, existing=existing)
+        return dict(existing)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return payload
+
+
+def _preserve_existing_newer_window(
+    existing: Mapping[str, Any],
+    candidate: Mapping[str, Any],
+) -> bool:
+    lane_id = str(candidate.get("lane_id") or "")
+    if lane_id not in MONOTONIC_WINDOW_LANES:
+        return False
+    if not existing:
+        return False
+    if str(existing.get("lane_id") or "") != lane_id:
+        return False
+    if str(existing.get("dataset") or "") != str(candidate.get("dataset") or ""):
+        return False
+    if str(existing.get("raw_source_dataset") or "") != str(
+        candidate.get("raw_source_dataset") or ""
+    ):
+        return False
+    existing_end = _manifest_window_end(existing)
+    candidate_end = _manifest_window_end(candidate)
+    return existing_end is not None and candidate_end is not None and candidate_end < existing_end
+
+
+def _write_superseded_manifest(
+    path: Path,
+    payload: Mapping[str, Any],
+    *,
+    existing: Mapping[str, Any],
+) -> None:
+    audit_payload = {
+        **dict(payload),
+        "superseded_manifest_path": str(path),
+        "superseded_reason": "older_window_preserved_newer_operational_manifest",
+        "preserved_window": existing.get("window", {}),
+        "preserved_fetched_at": existing.get("fetched_at"),
+    }
+    window = payload.get("window") if isinstance(payload.get("window"), Mapping) else {}
+    fragment = "-".join(
+        _safe_filename_fragment(str(part or "unknown"))
+        for part in (
+            payload.get("lane_id"),
+            window.get("start") if isinstance(window, Mapping) else None,
+            window.get("end") if isinstance(window, Mapping) else None,
+            payload.get("fetched_at"),
+        )
+    )
+    audit_path = path.parent / "_superseded" / path.stem / f"{fragment}.json"
+    audit_path.parent.mkdir(parents=True, exist_ok=True)
+    audit_path.write_text(
+        json.dumps(audit_payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
 
 
 def _same_lane_window(
@@ -130,6 +192,19 @@ def _same_lane_window(
         and str(window.get("start") or "") == str(_date_text(requested_start) or "")
         and str(window.get("end") or "") == str(_date_text(requested_end) or "")
     )
+
+
+def _manifest_window_end(payload: Mapping[str, Any]) -> date | None:
+    window = payload.get("window")
+    if not isinstance(window, Mapping):
+        return None
+    value = window.get("end") or window.get("start")
+    if value is None:
+        return None
+    try:
+        return date.fromisoformat(str(value))
+    except ValueError:
+        return None
 
 
 def _merged_coverage(
@@ -220,3 +295,11 @@ def _utc(value: datetime) -> datetime:
 def _safe_lane_id(value: str) -> str:
     safe = "".join(char if char.isalnum() or char in {"-", "_"} else "_" for char in value)
     return safe.strip("_") or "unknown"
+
+
+def _safe_filename_fragment(value: str) -> str:
+    safe = "".join(
+        char if char.isalnum() or char in {"-", "_", "."} else "_"
+        for char in value.strip()
+    )
+    return safe.strip("._") or "unknown"

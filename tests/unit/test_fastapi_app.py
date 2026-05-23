@@ -676,8 +676,11 @@ def test_dashboard_renders_status_overview(monkeypatch: MonkeyPatch) -> None:
 
     client = TestClient(create_app())
 
-    response = client.get("/")
+    root_response = client.get("/")
+    response = client.get("/command")
 
+    assert root_response.status_code == HTTP_OK
+    assert "Pre-Flight Cockpit" in root_response.text
     assert response.status_code == HTTP_OK
     assert "Command" in response.text
     assert "Paper trading" in response.text

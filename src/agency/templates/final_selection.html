@@ -3,9 +3,9 @@
 
 {% set active_nav = "final" %}
 
-{% block title %}Final Selection | Trading Agency v2{% endblock %}
+{% block title %}Final Selection | Trading Agency v3{% endblock %}
 {% block eyebrow %}Decision{% endblock %}
-{% block page_title %}Final Selection{% endblock %}
+{% block page_title %}Candidates are ready for research review{% endblock %}
 {% block topbar_meta %}{{ summary.topbar_label }}{% endblock %}
 
 {% macro selection_card(row) %}
@@ -40,6 +40,14 @@
         <strong>{{ row.plain_reason_rows[0].label }}</strong>
       </div>
       <div>
+        <span class="metric-label">LLM</span>
+        <strong>{{ row.llm_status_label }} / {{ row.llm_confidence_pct }}%</strong>
+      </div>
+      <div>
+        <span class="metric-label">Evidence Proof</span>
+        <strong>{{ row.confirmed_signal_count }} confirmed / {{ row.source_count }} sources</strong>
+      </div>
+      <div>
         <span class="metric-label">Policy Gate</span>
         <strong>{{ row.policy_gate_summary }}</strong>
       </div>
@@ -47,6 +55,41 @@
         <span class="metric-label">Review</span>
         <strong>{{ row.human_review_decision }}</strong>
       </div>
+    </div>
+    <div class="selection-provenance selection-provenance-visible" aria-label="Visible source and timestamp proof">
+      <strong>{{ row.freshness_proof_label }}</strong>
+      <span>
+        <span class="metric-label">LLM status</span>
+        <span>{{ row.llm_status_detail }}</span>
+      </span>
+    </div>
+    <div class="review-card-actions selection-decision-actions">
+      {% if row.review_bucket == "Actionable review" and row.human_review_decision|lower == "pending" %}
+      <span class="inline-actions">
+        <form method="post" action="{{ row.approve_review_action }}">
+          {% if row.caution_acknowledgement_required %}
+          <p class="card-next-step">{{ row.caution_acknowledgement_text }}</p>
+          <label class="checkbox-row">
+            <input type="checkbox" name="caution_acknowledged" value="true" required>
+            <span>I acknowledge this caution and approve this as research/watch-list only.</span>
+          </label>
+          {% endif %}
+          <button class="mini-button action-approve" type="submit">Approve</button>
+        </form>
+        <form method="post" action="{{ row.defer_review_action }}">
+          <button class="mini-button action-defer" type="submit">Defer</button>
+        </form>
+        <form method="post" action="{{ row.reject_review_action }}">
+          <button class="mini-button danger-button action-reject" type="submit">Reject</button>
+        </form>
+      </span>
+      {% else %}
+      <span class="tag tag-{{ row.human_review_class }}">{{ row.human_review_decision }}</span>
+      {% endif %}
+      <span class="inline-links">
+        <a class="text-link" href="/candidates/{{ row.ticker }}">Deep dive</a>
+        <a class="text-link" href="/candidates/{{ row.ticker }}#technical-heading">audit &gt;</a>
+      </span>
     </div>
     <details class="details-panel compact-details technical-provenance shared-disclosure">
       <summary>Show details: rationale, evidence, and provenance</summary>
@@ -146,9 +189,10 @@
   <section class="next-action hero-info" aria-label="Final selection state">
     <div class="next-action-step" aria-hidden="true">02</div>
     <div class="next-action-copy">
-      <p class="eyebrow">Decision queue / Read-only</p>
+      <p class="eyebrow">Decision queue / staged research approvals</p>
       <h2>{{ summary.headline }}</h2>
       <p>{{ summary.detail }} Start with the actionable review queue below. Rejected or blocked rows stay separate for traceability.</p>
+      <p class="next-action-sub">Read-only audit history remains available; current WATCH rows can be staged for research approval.</p>
     </div>
     <div class="next-action-buttons">
       <a class="primary-action" href="/risk">Open risk scan</a>
@@ -172,8 +216,6 @@
       <p>context only</p>
     </article>
   </section>
-
-  {{ data_health_panel(data_health) }}
 
   <section class="panel" aria-labelledby="final-heading" data-empty-copy="No final selection reports yet">
     <div class="section-heading">
@@ -199,6 +241,8 @@
       {% endfor %}
     </div>
   </section>
+
+  {{ data_health_panel(data_health) }}
 
   <section class="panel" aria-labelledby="trace-heading">
     <div class="section-heading">

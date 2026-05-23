@@ -1,19 +1,20 @@
 <!doctype html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="dark" data-ux-version="v3">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{% block title %}Trading Agency v2{% endblock %}</title>
+    <title>{% block title %}Trading Agency v3{% endblock %}</title>
     <link rel="stylesheet" href="/static/styles.css?v={{ static_version | default('ux-v3-review-readable-2-20260522') }}">
+    <link rel="stylesheet" href="/static/v3-screens.css?v={{ static_version | default('ux-v3-all-screens-20260522') }}">
   </head>
-  <body>
-    <div class="app-shell">
+  <body class="v3-app">
+    <div class="app-shell v3-app-shell">
       <aside class="sidebar" aria-label="Main navigation">
         <a class="brand" href="/cockpit">
           <span class="brand-mark" aria-hidden="true">TA</span>
           <span class="brand-text">
-            <strong class="brand-name">Trading Agency v2</strong>
-            <span class="brand-sub">Paper trading &middot; S&amp;P 100 + QQQ</span>
+            <strong class="brand-name">Trading Agency v3</strong>
+            <span class="brand-sub">Paper trading pre-flight &middot; real data only</span>
           </span>
         </a>
         <nav class="nav-list">
@@ -24,7 +25,7 @@
           </a>
           <a class="nav-link {% if active_nav == 'command' %}active{% endif %}" href="/command">
             <span class="nav-icon status-icon status-icon-data" aria-hidden="true">02</span>
-            <span>Command</span>
+            <span>Command dashboard</span>
           </a>
 
           <span class="nav-section">Core workflow</span>
@@ -78,7 +79,7 @@
       <div class="page-frame">
         <header class="topbar">
           <div class="topbar-title">
-            <p class="eyebrow">{% block eyebrow %}Trading Agency v2{% endblock %}</p>
+            <p class="eyebrow">{% block eyebrow %}Trading Agency v3{% endblock %}</p>
             <h1>{% block page_title %}Agency Status{% endblock %}</h1>
           </div>
           <div
@@ -88,12 +89,36 @@
             data-runtime-broker-endpoint="/status/broker"
           >
             <span class="status-dot status-dot-warn" data-runtime-dot aria-hidden="true"></span>
+            <span class="status-pill status-pill-paper">PAPER</span>
             <span class="topbar-meta">{% block topbar_meta %}Runtime dashboard{% endblock %}</span>
             <span class="status-pill status-pill-warn" data-runtime-server-status>Checking server</span>
             <span class="status-pill status-pill-paper" data-runtime-broker-status>Checking broker</span>
             <span class="status-pill status-pill-neutral" data-runtime-updated>Not checked</span>
           </div>
         </header>
+
+        <nav class="v3-phase-rail" aria-label="V3 paper-trading workflow">
+          <a class="v3-phase {% if active_nav == 'final' %}active{% endif %}" href="/final-selection">
+            <span class="v3-phase-index">01</span>
+            <strong>Candidates</strong>
+            <small>Audit evidence and approve the agent's research queue.</small>
+          </a>
+          <a class="v3-phase {% if active_nav == 'portfolio' %}active{% endif %}" href="/portfolio-monitor">
+            <span class="v3-phase-index">02</span>
+            <strong>Portfolio</strong>
+            <small>Check exposure, exits, capacity, and current holdings.</small>
+          </a>
+          <a class="v3-phase {% if active_nav in ['execution', 'policy'] %}active{% endif %}" href="/execution-preview">
+            <span class="v3-phase-index">03</span>
+            <strong>Clearance</strong>
+            <small>Review staged paper orders and open the submit gate deliberately.</small>
+          </a>
+          <a class="v3-phase {% if active_nav == 'cleared' %}active{% endif %}" href="/audit#execution-state-heading">
+            <span class="v3-phase-index">04</span>
+            <strong>Cleared</strong>
+            <small>Verify transmitted paper orders and lifecycle audit records.</small>
+          </a>
+        </nav>
 
         <main class="layout">
           {% block content %}{% endblock %}

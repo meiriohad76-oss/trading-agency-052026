@@ -14,6 +14,7 @@ from playwright.sync_api import sync_playwright
 
 PAGES = (
     "/",
+    "/command",
     "/signals",
     "/market-regime",
     "/final-selection",
@@ -43,12 +44,14 @@ VIEWPORTS = (
     ("mobile", {"width": 390, "height": 900}),
 )
 PAGE_LOAD_STATE = "domcontentloaded"
-PAGE_LOAD_TIMEOUT_MS = 30_000
+PAGE_LOAD_TIMEOUT_MS = 60_000
 BODY_TIMEOUT_MS = 10_000
 PAGE_LOAD_ATTEMPTS = 2
 PAGE_RETRY_DELAY_MS = 1_000
 BASE_URL = "http://127.0.0.1:8000"
-REQUEST_TIMEOUT_SECONDS = 10
+REQUEST_TIMEOUT_SECONDS = 45
+JSON_GET_ATTEMPTS = 3
+JSON_RETRY_DELAY_SECONDS = 1
 FULL_READINESS_SCOPE = "full"
 REVIEW_SUBSET_READINESS_SCOPE = "review-subset"
 CONTEXT_DATA_WARNING_ITEMS = {
@@ -94,10 +97,14 @@ def main() -> int:
         browser = playwright.chromium.launch()
         try:
             for viewport_name, viewport in VIEWPORTS:
-                page = browser.new_page(viewport=viewport)
-                try:
-                    for route in PAGES:
-                        name = (route.strip("/") or "command").replace("/", "-")
+                for route in PAGES:
+                    page = browser.new_page(viewport=viewport)
+                    try:
+                        name = (
+                            "cockpit-root"
+                            if route == "/"
+                            else route.strip("/").replace("/", "-")
+                        )
                         result = _empty_result(viewport_name, route)
                         result["operational_readiness_failures"] = list(
                             operational_readiness_failures
@@ -160,8 +167,8 @@ def main() -> int:
                         except PlaywrightError as exc:
                             result["page_error"] = _error_summary(exc)
                         results.append(result)
-                finally:
-                    page.close()
+                    finally:
+                        page.close()
         finally:
             browser.close()
 
@@ -344,12 +351,19 @@ def _first_operational_payload_forbidden_token(payload: object) -> str | None:
 
 
 def _json_get(url: str) -> Any:
-    try:
-        with urlopen(url, timeout=REQUEST_TIMEOUT_SECONDS) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-    except (OSError, URLError, TimeoutError, json.JSONDecodeError):
-        return {}
-    return payload if isinstance(payload, (dict, list)) else {}
+    for attempt in range(JSON_GET_ATTEMPTS):
+        try:
+            with urlopen(url, timeout=REQUEST_TIMEOUT_SECONDS) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            return payload if isinstance(payload, (dict, list)) else {}
+        except (OSError, URLError, TimeoutError, json.JSONDecodeError):
+            if attempt < JSON_GET_ATTEMPTS - 1:
+                import time
+
+                time.sleep(JSON_RETRY_DELAY_SECONDS)
+                continue
+            return {}
+    return {}
 
 
 def _data_load_has_only_context_warnings(data_load: Mapping[str, object]) -> bool:

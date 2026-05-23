@@ -44,6 +44,43 @@ def _context() -> dict[str, object]:
         },
         "monitor_events": [],
         "monitor": {"live": False, "label": "Monitor updates not observed", "last_update": "not reported"},
+        "data_health": {
+            "page_label": "Cockpit",
+            "status_class": "pass",
+            "status_label": "Ready",
+            "headline": "Displayed data is ready for review.",
+            "tooltip": "Live monitor proof is current.",
+            "overall_percent": 100,
+            "progress_style": "width: 100%",
+            "meaning": "The cockpit is using current production data.",
+            "recommended_action": "Continue to candidate review.",
+            "primary_blocker_detail": "No blocking issue.",
+            "action_buttons": [],
+            "summary_items": [],
+            "detail": "Cockpit data health is verified.",
+            "monitor_live": True,
+            "monitor_label": "Live Health Monitor",
+            "visible_row_count": 1,
+            "hidden_row_count": 0,
+            "diagnostics_items": [],
+            "rows": [
+                {
+                    "kind": "Market data",
+                    "name": "Massive trade prints",
+                    "status_class": "pass",
+                    "status_label": "Ready",
+                    "tooltip": "Coverage, freshness, and last update are verified.",
+                    "coverage_label": "2/2 tickers",
+                    "freshness_label": "Latest session",
+                    "last_update": "2026-05-22 19:12 UTC",
+                    "why_it_matters": "Trade prints feed the market-flow signals.",
+                    "blocking_reason": "No blocking issue.",
+                    "recommended_action": "No refresh needed.",
+                    "diagnostic_detail": "Live lane proof is current.",
+                    "detail": "Live lane proof is current.",
+                }
+            ],
+        },
         "preferences": {"color_preset": "amber", "theme": "accent", "density": "full"},
         "qa_scenarios_enabled": False,
         "qa_scenarios": [],
@@ -68,6 +105,31 @@ def test_cockpit_route_renders(monkeypatch: MonkeyPatch) -> None:
     assert "Pre-Flight Cockpit" in response.text
     assert "1 trade ready" in response.text
     assert "ROUT" in response.text
+
+
+def test_root_route_renders_v3_cockpit(monkeypatch: MonkeyPatch) -> None:
+    client = _client(monkeypatch)
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert "Pre-Flight Cockpit" in response.text
+    assert "1 trade ready" in response.text
+    assert "ROUT" in response.text
+    assert "Command shows the current operating picture" not in response.text
+
+
+def test_root_cockpit_exposes_displayed_data_health(monkeypatch: MonkeyPatch) -> None:
+    client = _client(monkeypatch)
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert 'class="panel data-health-panel data-health-pass"' in response.text
+    assert "Displayed Data Health" in response.text
+    assert "Coverage" in response.text
+    assert "Freshness" in response.text
+    assert "Last update" in response.text
 
 
 def test_cockpit_is_primary_operating_entrypoint(monkeypatch: MonkeyPatch) -> None:

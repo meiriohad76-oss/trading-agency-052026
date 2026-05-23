@@ -3,9 +3,9 @@
 
 {% set active_nav = "portfolio" %}
 
-{% block title %}Portfolio Monitor | Trading Agency v2{% endblock %}
+{% block title %}Portfolio Monitor | Trading Agency v3{% endblock %}
 {% block eyebrow %}Action{% endblock %}
-{% block page_title %}Portfolio Monitor{% endblock %}
+{% block page_title %}Portfolio tracks exposure before clearance{% endblock %}
 {% block topbar_meta %}{{ summary.position_count }} positions &middot; Alpaca paper{% endblock %}
 
 {% block content %}
@@ -137,7 +137,10 @@
         </div>
         <p class="card-reason">{{ position.exit_reason }}</p>
         <p class="card-next-step">{{ position.downstream_effect }}</p>
-        <a class="mini-button action-reject" href="/execution-preview">Confirm exit</a>
+        <div class="portfolio-exit-actions" aria-label="Portfolio exit decision">
+          <a class="mini-button action-reject" href="/execution-preview">Confirm exit plan</a>
+          <a class="mini-button action-defer" href="#positions-heading">Keep for now</a>
+        </div>
       </article>
       {% endif %}
       {% endfor %}
@@ -231,15 +234,15 @@
         <tbody>
           {% for snapshot in snapshot_rows %}
           <tr>
-            <td>{{ snapshot.captured_at }}</td>
-            <td>{{ snapshot.mode }}</td>
-            <td>{{ snapshot.account_status }}</td>
-            <td>${{ "%.0f"|format(snapshot.equity) }}</td>
-            <td>${{ "%.0f"|format(snapshot.cash) }}</td>
-            <td>${{ "%.0f"|format(snapshot.portfolio_value) }}</td>
-            <td>{{ "%.2f"|format(snapshot.gross_exposure_pct) }}%</td>
-            <td>{{ snapshot.position_count }}</td>
-            <td>{{ snapshot.open_order_count }}</td>
+            <td data-label="Captured">{{ snapshot.captured_at }}</td>
+            <td data-label="Mode">{{ snapshot.mode }}</td>
+            <td data-label="Status">{{ snapshot.account_status }}</td>
+            <td data-label="Equity">${{ "%.0f"|format(snapshot.equity) }}</td>
+            <td data-label="Cash">${{ "%.0f"|format(snapshot.cash) }}</td>
+            <td data-label="Portfolio Value">${{ "%.0f"|format(snapshot.portfolio_value) }}</td>
+            <td data-label="Exposure">{{ "%.2f"|format(snapshot.gross_exposure_pct) }}%</td>
+            <td data-label="Positions">{{ snapshot.position_count }}</td>
+            <td data-label="Open Orders">{{ snapshot.open_order_count }}</td>
           </tr>
           {% else %}
           <tr>
@@ -273,27 +276,27 @@
         <tbody>
           {% for position in positions %}
           <tr>
-            <td>{{ position.ticker }}</td>
-            <td>{{ position.classification }}</td>
-            <td>
+            <td data-label="Ticker">{{ position.ticker }}</td>
+            <td data-label="State">{{ position.classification }}</td>
+            <td data-label="Exit Signal">
               {% set exit_class = "block" if position.exit_priority == "URGENT" else "warn" if position.exit_signal != "NONE" else "pass" %}
               <span class="tag tag-{{ exit_class }}">{{ position.exit_signal }}</span>
             </td>
-            <td>
+            <td data-label="Current Thesis">
               {{ position.current_action or "No current thesis" }}
               {% if position.conviction is not none %}
                 <br><span class="muted">{{ "%.0f"|format(position.conviction * 100) }}% conviction</span>
               {% endif %}
             </td>
-            <td>
+            <td data-label="Position">
               {% if position.quantity is not none %}{{ "%.4f"|format(position.quantity) }} {{ position.side }}{% else %}No position size{% endif %}
               {% if position.market_value is not none %}
                 <br><span class="muted">${{ "%.2f"|format(position.market_value) }}</span>
               {% endif %}
             </td>
-            <td><span class="pnl-value pnl-value-{{ position.pnl_class }}">{{ position.pnl_label }}</span></td>
-            <td>{{ position.reason }}</td>
-            <td>{{ position.exit_reason }}</td>
+            <td data-label="Unrealized P/L"><span class="pnl-value pnl-value-{{ position.pnl_class }}">{{ position.pnl_label }}</span></td>
+            <td data-label="Rule Trigger">{{ position.reason }}</td>
+            <td data-label="What To Do">{{ position.exit_reason }}</td>
           </tr>
           {% else %}
           <tr>

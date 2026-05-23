@@ -155,7 +155,7 @@ BROKER_RECONCILIATION_POLL_SECONDS = 0.25
 
 @router.get("/")
 async def dashboard(request: Request) -> Response:
-    return await _command_dashboard_response(request)
+    return await _cockpit_response(request)
 
 
 @router.get("/command")
@@ -173,6 +173,10 @@ async def _command_dashboard_response(request: Request) -> Response:
 
 @router.get("/cockpit")
 async def cockpit(request: Request) -> Response:
+    return await _cockpit_response(request)
+
+
+async def _cockpit_response(request: Request) -> Response:
     qa_enabled = _env_bool_text("AGENCY_COCKPIT_QA_SCENARIOS")
     qa_scenario = request.query_params.get("scenario") if qa_enabled else None
     return templates.TemplateResponse(

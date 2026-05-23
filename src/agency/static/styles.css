@@ -5783,7 +5783,7 @@ table.signal-table {
 
 .cockpit-candidate-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(250px, auto);
+  grid-template-columns: 1fr;
   gap: 12px;
   align-items: center;
   padding: 12px;
@@ -5886,9 +5886,10 @@ table.signal-table {
 
 .cockpit-decision-cell {
   display: flex;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 8px;
   flex-wrap: wrap;
+  padding-left: 56px;
 }
 
 .cockpit-decision-cell .button,

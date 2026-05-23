@@ -831,6 +831,259 @@ def test_data_load_status_treats_full_universe_latest_trade_slices_as_tradable(
     assert "latest-slice" in str(row["detail"])
 
 
+def test_data_load_status_uses_stock_trade_coverage_when_live_lane_manifest_is_older(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    paths = _fixtures(tmp_path, monkeypatch)
+    config = json.loads(paths["config"].read_text(encoding="utf-8"))
+    config["end"] = "2026-05-12"
+    paths["config"].write_text(json.dumps(config), encoding="utf-8")
+    _write_manifest(
+        paths["manifest_root"],
+        "prices_daily",
+        row_count=20,
+        tickers=["AAPL", "MSFT"],
+        max_timestamp_as_of="2026-05-12T00:00:00+00:00",
+    )
+    _write_manifest(
+        paths["manifest_root"],
+        "stock_trades",
+        row_count=999,
+        tickers=["AAPL", "MSFT"],
+        max_timestamp_as_of="2026-05-12T21:00:00+00:00",
+        fetched_at="2026-05-12T21:05:00+00:00",
+        date_range={"start": "2026-05-12", "end": "2026-05-12"},
+    )
+    _write_stock_trade_coverage(
+        paths["parquet_root"],
+        {
+            "AAPL|2026-05-12": {
+                "coverage_status": "partial",
+                "downloaded_row_count": 1000,
+                "pages_downloaded": 1,
+                "order": "desc",
+                "updated_at": "2026-05-12T21:01:00+00:00",
+            },
+            "MSFT|2026-05-12": {
+                "coverage_status": "complete",
+                "complete": True,
+                "downloaded_row_count": 250,
+                "pages_downloaded": 1,
+                "order": "asc",
+                "row_count_verified": True,
+                "updated_at": "2026-05-12T21:02:00+00:00",
+            },
+        },
+    )
+    _write_massive_lane_manifest(
+        paths["manifest_root"],
+        lane_id="massive_daily_bars",
+        dataset="prices_daily",
+        source_manifest="prices_daily.json",
+        tickers=["AAPL", "MSFT"],
+        fetched_at="2026-05-12T21:00:00+00:00",
+        window_start="2026-05-12",
+        window_end="2026-05-12",
+        coverage=[
+            {"ticker": "AAPL", "coverage_status": "complete", "complete": True},
+            {"ticker": "MSFT", "coverage_status": "complete", "complete": True},
+        ],
+    )
+    _write_massive_lane_manifest(
+        paths["manifest_root"],
+        lane_id="massive_live_trade_slices",
+        tickers=["AAPL"],
+        fetched_at="2026-05-11T21:00:00+00:00",
+        window_start="2026-05-11",
+        window_end="2026-05-11",
+        coverage=[
+            {
+                "ticker": "AAPL",
+                "coverage_status": "complete",
+                "complete": True,
+                "downloaded_row_count": 100,
+                "pages_downloaded": 1,
+                "order": "desc",
+            }
+        ],
+    )
+    _write_runtime_summary(
+        paths["runtime_summary"],
+        {
+            "abnormal_volume": 2,
+            "technical_analysis": 2,
+            "buy_sell_pressure": 2,
+            "block_trade_pressure": 2,
+            "unusual_trade_activity": 2,
+            "pre_market_unusual_activity": 2,
+            "market_flow_trend": 2,
+        },
+    )
+    _write_source_health(
+        paths["source_health"],
+        [
+            _source("daily-market-bars", freshness="FRESH", status="HEALTHY"),
+            _source("massive-stock-trades", freshness="FRESH", status="HEALTHY"),
+        ],
+    )
+
+    status = load_data_load_status(
+        config_path=paths["config"],
+        universe_path=paths["universe"],
+        manifest_root=paths["manifest_root"],
+        parquet_root=paths["parquet_root"],
+        runtime_summary_path=paths["runtime_summary"],
+        source_health_path=paths["source_health"],
+        now=datetime(2026, 5, 13, 2, 0, tzinfo=UTC),
+    )
+
+    row = _dataset(status, "stock_trades")
+    assert row["status"] == "ready"
+    assert row["source_status"] == "HEALTHY"
+    assert row["usable_ticker_count"] == 2
+    assert row["partial_ticker_count"] == 0
+    assert row["massive_lane_id"] == "massive_live_trade_slices"
+    assert "coverage metadata" in str(row["detail"])
+    assert "lane manifest does not cover" not in str(status["blockers"])
+    assert status["health_monitor"]["reliable"] is True
+    assert status["review_operational_ready"] is True
+    assert status["tradable_ready"] is True
+
+
+def test_data_load_status_uses_stock_trade_parquet_rows_when_lane_and_coverage_metadata_are_older(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    paths = _fixtures(tmp_path, monkeypatch)
+    config = json.loads(paths["config"].read_text(encoding="utf-8"))
+    config["end"] = "2026-05-12"
+    paths["config"].write_text(json.dumps(config), encoding="utf-8")
+    _write_manifest(
+        paths["manifest_root"],
+        "prices_daily",
+        row_count=20,
+        tickers=["AAPL", "MSFT"],
+        max_timestamp_as_of="2026-05-12T00:00:00+00:00",
+    )
+    _write_manifest(
+        paths["manifest_root"],
+        "stock_trades",
+        row_count=999,
+        tickers=["AAPL", "MSFT"],
+        max_timestamp_as_of="2026-05-12T21:00:00+00:00",
+        fetched_at="2026-05-12T21:05:00+00:00",
+        date_range={"start": "2026-05-12", "end": "2026-05-12"},
+    )
+    _write_stock_trade_coverage(
+        paths["parquet_root"],
+        {
+            "AAPL|2026-05-11": {
+                "coverage_status": "partial",
+                "downloaded_row_count": 1000,
+                "pages_downloaded": 1,
+                "order": "desc",
+                "updated_at": "2026-05-12T20:00:00+00:00",
+            },
+            "MSFT|2026-05-11": {
+                "coverage_status": "partial",
+                "downloaded_row_count": 1000,
+                "pages_downloaded": 1,
+                "order": "desc",
+                "updated_at": "2026-05-12T20:00:00+00:00",
+            },
+        },
+    )
+    _write_stock_trade_parquet(
+        paths["parquet_root"],
+        "AAPL",
+        [
+            {"ticker": "AAPL", "year": 2026, "trade_date": date(2026, 5, 12)},
+            {"ticker": "AAPL", "year": 2026, "trade_date": date(2026, 5, 12)},
+        ],
+    )
+    _write_stock_trade_parquet(
+        paths["parquet_root"],
+        "MSFT",
+        [
+            {"ticker": "MSFT", "year": 2026, "trade_date": date(2026, 5, 11)},
+        ],
+    )
+    _write_massive_lane_manifest(
+        paths["manifest_root"],
+        lane_id="massive_daily_bars",
+        dataset="prices_daily",
+        source_manifest="prices_daily.json",
+        tickers=["AAPL", "MSFT"],
+        fetched_at="2026-05-12T21:00:00+00:00",
+        window_start="2026-05-12",
+        window_end="2026-05-12",
+        coverage=[
+            {"ticker": "AAPL", "coverage_status": "complete", "complete": True},
+            {"ticker": "MSFT", "coverage_status": "complete", "complete": True},
+        ],
+    )
+    _write_massive_lane_manifest(
+        paths["manifest_root"],
+        lane_id="massive_live_trade_slices",
+        tickers=["AAPL", "MSFT"],
+        fetched_at="2026-05-11T21:00:00+00:00",
+        window_start="2026-05-11",
+        window_end="2026-05-11",
+        coverage=[
+            {
+                "ticker": "AAPL",
+                "coverage_status": "complete",
+                "complete": True,
+                "downloaded_row_count": 100,
+                "pages_downloaded": 1,
+                "order": "desc",
+            }
+        ],
+    )
+    _write_runtime_summary(
+        paths["runtime_summary"],
+        {
+            "abnormal_volume": 2,
+            "technical_analysis": 2,
+            "buy_sell_pressure": 1,
+            "block_trade_pressure": 1,
+            "unusual_trade_activity": 1,
+            "pre_market_unusual_activity": 1,
+            "market_flow_trend": 1,
+        },
+    )
+    _write_source_health(
+        paths["source_health"],
+        [
+            _source("daily-market-bars", freshness="FRESH", status="HEALTHY"),
+            _source("massive-stock-trades", freshness="FRESH", status="HEALTHY"),
+        ],
+    )
+
+    status = load_data_load_status(
+        config_path=paths["config"],
+        universe_path=paths["universe"],
+        manifest_root=paths["manifest_root"],
+        parquet_root=paths["parquet_root"],
+        runtime_summary_path=paths["runtime_summary"],
+        source_health_path=paths["source_health"],
+        now=datetime(2026, 5, 13, 2, 0, tzinfo=UTC),
+    )
+
+    row = _dataset(status, "stock_trades")
+    assert row["status"] == "warning"
+    assert row["source_status"] == "DEGRADED"
+    assert row["usable_ticker_count"] == 1
+    assert row["partial_ticker_count"] == 1
+    assert row["massive_lane_id"] == "massive_live_trade_slices"
+    assert "parquet row proof" in str(row["detail"])
+    assert "lane manifest does not cover" not in str(status["blockers"])
+    assert not status["blockers"]
+    assert status["review_operational_ready"] is True
+    assert status["tradable_ready"] is False
+
+
 def test_data_load_status_treats_unverified_desc_complete_live_slice_as_usable(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
@@ -2909,6 +3162,16 @@ def _write_stock_trade_coverage(
         json.dumps({"schema_version": "0.1.0", "ticker_days": rows}),
         encoding="utf-8",
     )
+
+
+def _write_stock_trade_parquet(
+    parquet_root: Path,
+    ticker: str,
+    rows: list[dict[str, object]],
+) -> None:
+    path = parquet_root / "stock_trades" / f"ticker={ticker}" / "year=2026"
+    path.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(rows).to_parquet(path / "trades.parquet", index=False)
 
 
 def _write_massive_lane_manifest(
