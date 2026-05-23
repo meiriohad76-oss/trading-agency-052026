@@ -88,6 +88,6 @@ Starting a second instance exits with a clear error.
 | No candidates in queue | Check source health: `http://127.0.0.1:8000/status/source-health` |
 | Dataset refresh failed | Re-run: `run_data_refresh_batch.py --datasets <name>` |
 | Cycle fails to build | Check PIT data: `.\.venv\Scripts\python research\scripts\check_live_refresh_outputs.py` |
-| Dashboard unreachable | Restart server: `.\.venv\Scripts\python -m uvicorn agency.app:app --reload` |
+| Dashboard unreachable | Restart server: `.\scripts\start_dev.ps1` |
 | Email agent fails | Check provider readiness: `http://127.0.0.1:8000/status/provider-readiness` |
 | Lock file stale | Delete: `research\data\.email-watch.lock` |

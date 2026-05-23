@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$RepoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
+$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $Python = Join-Path $RepoRoot ".venv\Scripts\python.exe"
 
 Set-Location $RepoRoot
@@ -37,6 +37,36 @@ function Get-DotEnvValue {
     return $value.Trim('"').Trim("'")
 }
 
+function Get-TradingAgencyServerProcesses {
+    param([int]$Port)
+
+    $repoPattern = [regex]::Escape($RepoRoot)
+    $appPattern = "uvicorn agency\.app:app"
+    $legacyPattern = "run_local_app\.py"
+    $portPattern = "--port\s+$Port(\s|$)"
+    Get-CimInstance Win32_Process |
+        Where-Object {
+            $_.CommandLine -and
+            (($_.CommandLine -match $appPattern -and $_.CommandLine -match $portPattern) -or $_.CommandLine -match $legacyPattern) -and
+            ($_.CommandLine -match $repoPattern -or $_.CommandLine -match "\\.venv\\Scripts\\python")
+        }
+}
+
+function Stop-ExistingTradingAgencyServers {
+    param([int]$Port)
+
+    $processes = @(Get-TradingAgencyServerProcesses -Port $Port)
+    if (-not $processes) {
+        return
+    }
+
+    foreach ($process in ($processes | Sort-Object ParentProcessId -Descending)) {
+        Write-Host "Existing Trading Agency server process $($process.ProcessId) will be stopped before start."
+        Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
+    }
+    Start-Sleep -Seconds 2
+}
+
 if (-not (Test-Path $Python)) {
     py -3.14 -m venv .venv
 }
@@ -64,6 +94,8 @@ $env:AGENCY_PAPER_TRADE_MIN_CONVICTION = "0.62"
 $env:AGENCY_BROKER_SUBMIT_ENABLED = "true"
 $env:AGENCY_ALPACA_BROKER_ENABLED = "true"
 
+Stop-ExistingTradingAgencyServers -Port $Port
+
 & $Python -m pip install --upgrade pip
 & $Python -m pip install -e ".[dev]"
 
@@ -86,11 +118,7 @@ try {
 }
 
 if ($null -ne $health) {
-    if ($health.status -eq "ok") {
-        Write-Host "Trading Agency is already running at http://127.0.0.1:$Port$StartPath"
-        exit 0
-    }
-    throw "Port $Port responded, but the trading-agency health endpoint did not report ok."
+    throw "Port $Port still responds after existing Trading Agency servers were stopped. Close that server before starting this one."
 }
 
 Write-Host "Starting Trading Agency dev server at http://127.0.0.1:$Port$StartPath"

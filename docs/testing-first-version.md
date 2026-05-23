@@ -3,15 +3,14 @@
 Use this checklist after starting the local paper runtime with:
 
 ```powershell
-.\scripts\start_local_runtime.ps1
+.\scripts\start_dev.ps1
 ```
 
-This starts the server without demo data. Use `.\scripts\start_local_runtime.ps1 -SeedDemo`
-only for isolated UI demos, not live-paper operation.
-
-If the script reports that the local runtime is already running on port 8000,
-keep using the existing browser session. Stop that server and rerun the script only
-when you need to load newly changed Python or template code.
+This starts the server without demo data. It also stops older local
+`uvicorn agency.app:app` processes for the same port before starting, so newly
+changed Python and template code are what the browser sees. Use
+`.\scripts\start_local_runtime.ps1 -SeedDemo` only for isolated UI demos, not
+live-paper operation.
 
 Open `http://127.0.0.1:8000/` and inspect the app in this order.
 

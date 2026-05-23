@@ -8,6 +8,16 @@ checkpoint. The stack is paper-only by default; demo data is opt-in.
 PowerShell one-shot:
 
 ```powershell
+.\scripts\start_dev.ps1
+```
+
+This is the guarded local entrypoint. It stops older local
+`uvicorn agency.app:app` processes for the same port before starting a fresh
+server, so `http://127.0.0.1:8000/` cannot accidentally serve an older checkout.
+
+For a Docker/Postgres runtime, use:
+
+```powershell
 .\scripts\start_local_runtime.ps1
 ```
 
@@ -15,14 +25,6 @@ For a demo-only dashboard seed, opt in explicitly:
 
 ```powershell
 .\scripts\start_local_runtime.ps1 -SeedDemo
-```
-
-Manual equivalent:
-
-```powershell
-docker compose -f docker\docker-compose.yml up -d postgres
-.\.venv\Scripts\python -m alembic upgrade head
-.\.venv\Scripts\python -m uvicorn agency.app:app --host 127.0.0.1 --port 8000
 ```
 
 Then open `http://127.0.0.1:8000/`.

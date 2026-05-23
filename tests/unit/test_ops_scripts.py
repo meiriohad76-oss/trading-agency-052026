@@ -179,6 +179,22 @@ def test_start_dev_respects_dotenv_database_url_before_sqlite_fallback() -> None
     assert "DATABASE_URL is configured from .env" in script
 
 
+def test_start_dev_restarts_existing_trading_agency_server() -> None:
+    script = Path("scripts/start_dev.ps1").read_text(encoding="utf-8")
+
+    assert "Stop-ExistingTradingAgencyServers" in script
+    assert "Get-CimInstance Win32_Process" in script
+    assert "uvicorn agency\\.app:app" in script
+    assert "run_local_app\\.py" in script
+    assert "Stop-Process -Id $process.ProcessId" in script
+    assert "Existing Trading Agency server process" in script
+    assert "Trading Agency is already running" not in script
+
+
+def test_legacy_direct_local_app_entrypoint_removed() -> None:
+    assert not Path("scripts/run_local_app.py").exists()
+
+
 def test_start_local_runtime_requires_explicit_demo_seed() -> None:
     script = Path("scripts/start_local_runtime.ps1").read_text(encoding="utf-8")
 
@@ -186,6 +202,17 @@ def test_start_local_runtime_requires_explicit_demo_seed() -> None:
     assert "if ($SeedDemo)" in script
     assert "seed_demo_runtime.py" in script
     assert "$SkipSeed" not in script
+
+
+def test_start_local_runtime_restarts_existing_trading_agency_server() -> None:
+    script = Path("scripts/start_local_runtime.ps1").read_text(encoding="utf-8")
+
+    assert "Stop-ExistingTradingAgencyServers" in script
+    assert "Get-CimInstance Win32_Process" in script
+    assert "uvicorn agency\\.app:app" in script
+    assert "run_local_app\\.py" in script
+    assert "Stop-Process -Id $process.ProcessId" in script
+    assert "Local runtime is already running" not in script
 
 
 def test_operator_massive_stock_trade_runbooks_use_lane_model() -> None:

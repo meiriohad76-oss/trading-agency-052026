@@ -1,8 +1,8 @@
-# Trading Agency v2
+# Trading Agency v3
 
 [![CI](https://github.com/meiriohad76-oss/trading-agency-052026/actions/workflows/ci.yml/badge.svg)](https://github.com/meiriohad76-oss/trading-agency-052026/actions/workflows/ci.yml)
 
-Trading Agency v2 is a supervised, Python-first equity research and paper-trading assistant. The project starts with a point-in-time research pipeline, versioned schemas, and strict testing discipline before any production trading workflow is built.
+Trading Agency v3 is a supervised, Python-first equity research and paper-trading assistant. The project starts with a point-in-time research pipeline, versioned schemas, and strict testing discipline before any production trading workflow is built.
 
 ## Project Docs
 
@@ -93,23 +93,26 @@ To run the research result batch after PIT data manifests are refreshed:
 
 ## Local API
 
-Fast local test runtime:
+Fast local paper runtime:
+
+```powershell
+.\scripts\start_dev.ps1
+```
+
+`start_dev.ps1` is the guarded entrypoint. It stops older local
+`uvicorn agency.app:app` processes for the same port before starting, so the
+browser cannot keep hitting an older server version.
+
+For a Docker/Postgres runtime, use:
 
 ```powershell
 .\scripts\start_local_runtime.ps1
 ```
 
-The startup script does not seed demo data by default. For an explicit demo-only
-dashboard seed, run:
+For an explicit demo-only dashboard seed, run:
 
 ```powershell
 .\scripts\start_local_runtime.ps1 -SeedDemo
-```
-
-Run the FastAPI shell:
-
-```powershell
-.\.venv\Scripts\python -m uvicorn agency.app:app --reload
 ```
 
 The local API exposes `/health`, `/contracts`, `/contracts/{name}`, `/status/data-sources`,
