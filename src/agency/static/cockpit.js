@@ -188,7 +188,12 @@
       saveState();
     }
   }
-  showPhase(state.phase || "candidates");
+  const scenarioState = shell.getAttribute("data-cockpit-scenario") || "normal";
+  const defaultPhase = scenarioState === "submitted" ? "cleared" : "candidates";
+  const forcedScenarioPhase = scenarioState === "submitted" ? "cleared" : (
+    scenarioState === "outage" || scenarioState === "no-actionable" ? "candidates" : ""
+  );
+  showPhase(forcedScenarioPhase || state.phase || defaultPhase);
   restoreMarks();
   updateCapacity();
   shell.dataset.cockpitReady = "true";

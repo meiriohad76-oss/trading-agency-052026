@@ -81,7 +81,7 @@
     <article class="cockpit-arc-gauge">
       <span class="cockpit-whymark info-tip" title="Market regime summarizes the current environment from the production market-regime view.">?</span>
       <div class="cockpit-arc">
-        <span class="cockpit-arc-needle" style="--needle: 52deg"></span>
+        <span class="cockpit-arc-needle" style="--needle: {{ market.needle_degrees|default(0, true) }}deg"></span>
       </div>
       <p>Market Regime</p>
       <strong>{{ market.status_label }}</strong>
@@ -90,7 +90,7 @@
     <article class="cockpit-arc-gauge">
       <span class="cockpit-whymark info-tip" data-cockpit-tip="gross-exposure-threshold" title="Gross exposure compares current exposure plus staged orders to the policy cap.">?</span>
       <div class="cockpit-arc">
-        <span class="cockpit-arc-needle" style="--needle: 36deg"></span>
+        <span class="cockpit-arc-needle" style="--needle: {{ account.gross_needle_degrees|default(0, true) }}deg"></span>
       </div>
       <p>Gross Exposure</p>
       <strong class="cockpit-mono" data-capacity-gross-post>{{ "%.1f"|format(account.gross_post_trade|default(0, true)) }}%</strong>
@@ -99,20 +99,20 @@
     <article class="cockpit-arc-gauge">
       <span class="cockpit-whymark info-tip" data-cockpit-tip="cash-reserve-threshold" title="Cash reserve shows how much cash remains against the policy floor after staged orders.">?</span>
       <div class="cockpit-arc">
-        <span class="cockpit-arc-needle" style="--needle: 44deg"></span>
+        <span class="cockpit-arc-needle" style="--needle: {{ account.cash_needle_degrees|default(0, true) }}deg"></span>
       </div>
       <p>Cash Reserve</p>
       <strong class="cockpit-mono" data-capacity-cash>{{ "%.1f"|format(account.cash_available|default(0, true)) }}%</strong>
       <small>Floor {{ "%.0f"|format(account.cash_cap|default(0, true)) }}%</small>
     </article>
     <article class="cockpit-arc-gauge">
-      <span class="cockpit-whymark info-tip" data-cockpit-tip="sector-exposure-threshold" title="Sector exposure compares the largest sector after staged orders to the policy cap.">?</span>
+      <span class="cockpit-whymark info-tip" data-cockpit-tip="concentration-threshold" title="Concentration compares the largest single-name exposure to the policy cap.">?</span>
       <div class="cockpit-arc">
-        <span class="cockpit-arc-needle" style="--needle: 18deg"></span>
+        <span class="cockpit-arc-needle" style="--needle: {{ account.concentration_needle_degrees|default(0, true) }}deg"></span>
       </div>
-      <p>Sector Exposure</p>
-      <strong class="cockpit-mono" data-capacity-sector>{{ "%.1f"|format(account.sector_exposure|default(0, true)) }}%</strong>
-      <small>Cap {{ "%.0f"|format(account.sector_cap|default(0, true)) }}%</small>
+      <p>Concentration</p>
+      <strong class="cockpit-mono" data-capacity-concentration>{{ "%.1f"|format(account.largest_name|default(0, true)) }}%</strong>
+      <small>Cap {{ "%.0f"|format(account.largest_name_cap|default(0, true)) }}%</small>
     </article>
     <div class="cockpit-readout-stack">
       <div class="cockpit-segment-readout">
@@ -165,7 +165,7 @@
         <h2 id="cockpit-candidates-heading">{{ scenario.headline }}</h2>
         <p class="muted">Cycle {{ cycle.id }} has {{ funnel.final }} visible candidates; {{ funnel.reviewable|default(funnel.actionable, true) }} can be reviewed now.</p>
       </div>
-      <a class="button button-secondary" href="/final-selection">Open classic candidates</a>
+      <button type="button" class="button button-secondary" data-cockpit-phase-target="portfolio">Advance to Portfolio</button>
     </div>
 
     <div class="cockpit-tier-legend">
@@ -173,6 +173,44 @@
       <span><strong>Evidence tiers:</strong> confirmed direct data, inferred interpretation, suppressed audit-only.</span>
     </div>
 
+    {% if scenario.state == "outage" %}
+      <section class="cockpit-scenario-panel cockpit-scenario-outage" data-cockpit-scenario-panel="outage">
+        <p class="eyebrow">Selection blocked</p>
+        <h3>{{ scenario.headline }}</h3>
+        <p>{{ scenario.detail }}</p>
+        <div class="cockpit-scenario-card-grid">
+          {% for engine in scenario.engine_cards|default([], true) %}
+            <article>
+              <span class="status-pill status-pill-block">{{ engine.state_label }}</span>
+              <strong>{{ engine.name }}</strong>
+              <p>{{ engine.detail }}</p>
+              <small>{{ engine.age }}</small>
+            </article>
+          {% endfor %}
+        </div>
+        <p class="cockpit-mono">{{ scenario.retry_label }}</p>
+        <p class="muted">{{ scenario.last_good_cycle_label }}</p>
+        <p class="empty-state">No candidate controls are available until critical data access recovers.</p>
+      </section>
+    {% elif scenario.state == "no-actionable" %}
+      <section class="cockpit-scenario-panel cockpit-scenario-empty" data-cockpit-scenario-panel="no-actionable">
+        <p class="eyebrow">Low-conviction day</p>
+        <h3>{{ scenario.headline }}</h3>
+        <p>{{ scenario.detail }}</p>
+        <button type="button" class="button button-primary" data-cockpit-phase-target="portfolio">{{ scenario.skip_to_portfolio_label }}</button>
+        <div class="cockpit-scenario-card-grid">
+          {% for row in scenario.closest_candidates|default([], true) %}
+            <article>
+              <strong>{{ row.ticker }} <span class="cockpit-mono">{{ row.score }}</span></strong>
+              <p>{{ row.reason }}</p>
+            </article>
+          {% endfor %}
+        </div>
+        <p class="panel-note">Agent note: {{ scenario.agent_note }}</p>
+      </section>
+    {% endif %}
+
+    {% if scenario.state not in ["outage", "no-actionable"] %}
     <div class="cockpit-candidate-table">
       {% for candidate in candidates %}
         <article
@@ -208,8 +246,13 @@
           </button>
           <div class="cockpit-decision-cell">
             {% if candidate.actionable %}
-              <a class="button button-primary" href="{{ candidate.order_action_url|default('/execution-preview#orderable-heading', true) }}">Review paper order</a>
-              <a class="button button-secondary" href="{{ candidate.detail_url }}">Open brief</a>
+              <button type="button" class="button button-primary" data-cockpit-phase-target="clearance">Review manifest</button>
+              <button
+                type="button"
+                class="button button-secondary"
+                data-cockpit-ticker-detail
+                data-cockpit-ticker-payload='{{ candidate|tojson }}'
+              >Open ticker detail</button>
             {% elif candidate.reviewable %}
               <form method="post" action="{{ candidate.approve_review_action }}">
                 {% if candidate.caution_acknowledgement_required %}
@@ -253,7 +296,6 @@
                 data-cockpit-ticker-detail
                 data-cockpit-ticker-payload='{{ candidate|tojson }}'
               >Open ticker detail</button>
-              <a class="button button-secondary" href="{{ candidate.detail_url }}">Classic brief</a>
             </div>
           </div>
         </article>
@@ -264,6 +306,7 @@
         </div>
       {% endfor %}
     </div>
+    {% endif %}
   </section>
 
   <section class="cockpit-phase" data-cockpit-phase="portfolio" aria-labelledby="cockpit-portfolio-heading" hidden>
@@ -346,10 +389,38 @@
     <div class="section-heading">
       <div>
         <p class="eyebrow">Phase 4 - Cleared</p>
-        <h2 id="cockpit-cleared-heading">Paper broker responses appear here after submit.</h2>
-        <p class="muted">Accepted rows show broker IDs; rejected rows stay in review until the operator resolves them.</p>
+        <h2 id="cockpit-cleared-heading">
+          {% if scenario.state == "submitted" %}
+            {{ scenario.headline }}
+          {% else %}
+            Paper broker responses appear here after submit.
+          {% endif %}
+        </h2>
+        <p class="muted">
+          {% if scenario.state == "submitted" %}
+            {{ scenario.detail }}
+          {% else %}
+            Accepted rows show broker IDs; rejected rows stay in review until the operator resolves them.
+          {% endif %}
+        </p>
       </div>
     </div>
+    {% if scenario.state == "submitted" %}
+      <section class="cockpit-scenario-panel cockpit-scenario-submitted" data-cockpit-scenario-panel="submitted">
+        <p class="eyebrow">Paper orders transmitted</p>
+        <div class="cockpit-scenario-card-grid">
+          {% for row in scenario.submitted_orders|default([], true) %}
+            <article>
+              <span class="status-pill status-pill-pass">{{ row.state }}</span>
+              <strong>{{ row.ticker }} - {{ row.side }} <span class="cockpit-mono">{{ "%.2f"|format(row.qty|default(0, true)) }}</span></strong>
+              <p>Broker ID {{ row.broker_order_id }}</p>
+              <small class="cockpit-mono">${{ "%.0f"|format(row.notional|default(0, true)) }}</small>
+            </article>
+          {% endfor %}
+        </div>
+        <p class="cockpit-mono">Total notional ${{ "%.0f"|format(scenario.submitted_total_notional|default(0, true)) }}</p>
+      </section>
+    {% endif %}
     <div class="cockpit-submit-results" data-cockpit-submit-results></div>
   </section>
 
@@ -358,5 +429,5 @@
 {% endblock %}
 
 {% block extra_scripts %}
-  <script src="/static/cockpit.js?v=ux-v3-visible-20260523" defer></script>
+  <script src="/static/cockpit.js?v=ux-v3-rich-ticker-detail-20260522-ux-v3-visible-20260523" defer></script>
 {% endblock %}

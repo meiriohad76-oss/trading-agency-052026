@@ -52,11 +52,34 @@ def test_universe_panel_uses_source_health_rows() -> None:
     assert "source in sources" in _panels()
 
 
+def test_universe_panel_has_expert_stat_grid_source_table_blocked_and_pit_sections() -> None:
+    html = _panels()
+
+    assert "cockpit-panel-stat-grid" in html
+    assert "Data sources" in html
+    assert "Blocked tickers" in html
+    assert "PIT integrity" in html
+    assert "source.coverage" in html
+    assert "universe_blocked" in html
+
+
 def test_signals_panel_explains_tier_ladder() -> None:
     html = _panels()
 
     assert "Confirmed means a direct production source supplied the value." in html
     assert "Suppressed means the signal is retained for audit but not allowed to drive the decision." in html
+
+
+def test_signals_panel_has_filters_rule_cards_and_signal_log() -> None:
+    html = _panels()
+
+    assert "cockpit-filter-chip" in html
+    assert "confirmed" in html
+    assert "inferred" in html
+    assert "suppressed" in html
+    assert "Evidence treatment rule" in html
+    assert "Breadth rule" in html
+    assert "Signal log" in html
 
 
 def test_ticker_panel_shows_llm_rationale_or_not_run_reason() -> None:
@@ -97,6 +120,14 @@ def test_audit_panel_shows_cycle_and_evidence_hash_when_available() -> None:
     assert "evidence hash" in _panels().lower()
 
 
+def test_audit_panel_uses_timeline_and_reproducibility_note() -> None:
+    html = _panels()
+
+    assert "cockpit-audit-timeline" in html
+    assert "state transitions are deterministic" in html
+    assert "evidence pack hash" in html.lower()
+
+
 def test_policy_panel_locks_live_trading() -> None:
     context = cockpit_context_from_sources(_sample_sources())
 
@@ -109,3 +140,12 @@ def test_monitor_panel_has_live_or_last_event_timestamp() -> None:
 
     assert context["monitor_events"][0]["timestamp"] == "after close"
     assert "event.timestamp" in _panels()
+
+
+def test_monitor_panel_has_filter_chips_and_live_indicator() -> None:
+    html = _panels()
+
+    assert "data-monitor-filter=\"all\"" in html
+    assert "data-monitor-filter=\"warn\"" in html
+    assert "data-monitor-filter=\"block\"" in html
+    assert "data-cockpit-monitor-live" in html

@@ -57,6 +57,12 @@ def test_qa_script_applies_scenario_query_param() -> None:
     assert url == "http://127.0.0.1:8000/cockpit?foo=bar&scenario=outage"
 
 
+def test_qa_script_can_expand_all_required_scenarios() -> None:
+    assert qa.SCENARIOS == ("normal", "no-actionable", "outage", "submitted")
+    assert qa._scenario_names("all") == ["normal", "no-actionable", "outage", "submitted"]
+    assert qa._scenario_names("outage") == ["outage"]
+
+
 def test_qa_script_returns_to_candidates_before_ticker_detail_focus() -> None:
     source = inspect.getsource(qa._exercise_focus)
     panels_branch = source.split('elif focus == "panels":', 1)[1]

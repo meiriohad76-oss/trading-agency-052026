@@ -52,6 +52,24 @@ def test_cockpit_template_has_arc_gauge_primitives() -> None:
     assert ".cockpit-arc-needle" in css
 
 
+def test_cockpit_gauge_needles_are_data_driven_not_literal_angles() -> None:
+    html = _template()
+    context = cockpit_context_from_sources(_sample_sources())
+    account = context["account"]
+    market = context["market"]
+
+    for literal in ('style="--needle: 52deg"', 'style="--needle: 36deg"', 'style="--needle: 44deg"', 'style="--needle: 18deg"'):
+        assert literal not in html
+    assert "market.needle_degrees" in html
+    assert "account.gross_needle_degrees" in html
+    assert "account.cash_needle_degrees" in html
+    assert "account.concentration_needle_degrees" in html
+    assert account["gross_needle_degrees"] == -24
+    assert account["cash_needle_degrees"] == 90
+    assert account["concentration_needle_degrees"] == -90
+    assert market["needle_degrees"] == 0
+
+
 def test_cockpit_template_has_segment_readouts() -> None:
     html = _template()
     css = _styles()
@@ -108,6 +126,13 @@ def test_cockpit_template_posts_research_review_actions() -> None:
     assert "candidate.approve_review_action" in html
     assert "method=\"post\"" in html
     assert "Approve Research" in html
+
+
+def test_cockpit_script_forces_safety_scenario_starting_phase() -> None:
+    script = Path("src/agency/static/cockpit.js").read_text(encoding="utf-8")
+
+    assert 'scenarioState === "submitted" ? "cleared"' in script
+    assert 'scenarioState === "outage" || scenarioState === "no-actionable"' in script
 
 
 def test_cockpit_engine_strip_does_not_call_healthy_fresh_source_down() -> None:

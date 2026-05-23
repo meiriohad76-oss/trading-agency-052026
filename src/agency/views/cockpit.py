@@ -469,6 +469,12 @@ def _market_section(
 ) -> dict[str, object]:
     summary = _mapping(market.get("summary"))
     readiness = _mapping(dashboard.get("full_live_readiness"))
+    regime_score = _bounded_score(
+        summary.get("score"),
+        summary.get("regime_score"),
+        market.get("regime_score"),
+        fallback=0.5,
+    )
     return {
         "regime": _first_text(
             summary.get("headline"),
@@ -476,6 +482,8 @@ def _market_section(
             market.get("regime"),
             default="Market regime unavailable",
         ),
+        "score": regime_score,
+        "needle_degrees": _gauge_degrees(regime_score, 1.0),
         "status_label": _first_text(summary.get("status_label"), default="Market check"),
         "readiness_label": _first_text(readiness.get("status_label"), default="Readiness check"),
         "long_threshold": _float(_mapping(dashboard.get("policy_summary")).get("min_conviction"), fallback=0.62),
@@ -669,7 +677,7 @@ def _candidate_rows(
                     if reviewable
                     else ["audit"]
                 ),
-                "order_action_url": "/execution-preview#orderable-heading" if actionable else "",
+                "order_action_url": "",
                 "approve_review_action": _first_text(item.get("approve_review_action")),
                 "defer_review_action": _first_text(item.get("defer_review_action")),
                 "reject_review_action": _first_text(item.get("reject_review_action")),
@@ -776,16 +784,26 @@ def _account_section(
             f"Gross exposure would be {gross_post_trade:.1f}% versus the {gross_cap:.1f}% cap. "
             "Reduce staged buys or close exposure before clearance."
         )
+    cash_available = _float(portfolio_summary.get("cash_reserve_pct"), fallback=0.0)
+    cash_cap = _float(policy.get("cash_reserve_pct"), fallback=10.0)
+    sector_exposure = _float(portfolio_summary.get("sector_exposure_pct"), fallback=0.0)
+    sector_cap = _float(policy.get("max_sector_exposure_pct"), fallback=35.0)
+    largest_name = _float(portfolio_summary.get("largest_name_pct"), fallback=0.0)
+    largest_name_cap = _float(policy.get("largest_name_cap_pct"), fallback=25.0)
     return {
         "gross_exposure": gross_exposure,
         "gross_post_trade": gross_post_trade,
         "gross_cap": gross_cap,
-        "cash_available": _float(portfolio_summary.get("cash_reserve_pct"), fallback=0.0),
-        "cash_cap": _float(policy.get("cash_reserve_pct"), fallback=10.0),
-        "sector_exposure": _float(portfolio_summary.get("sector_exposure_pct"), fallback=0.0),
-        "sector_cap": _float(policy.get("max_sector_exposure_pct"), fallback=35.0),
-        "largest_name": _float(portfolio_summary.get("largest_name_pct"), fallback=0.0),
-        "largest_name_cap": _float(policy.get("largest_name_cap_pct"), fallback=25.0),
+        "gross_needle_degrees": _gauge_degrees(gross_post_trade, gross_cap),
+        "cash_available": cash_available,
+        "cash_cap": cash_cap,
+        "cash_needle_degrees": _gauge_degrees(cash_available, cash_cap),
+        "sector_exposure": sector_exposure,
+        "sector_cap": sector_cap,
+        "sector_needle_degrees": _gauge_degrees(sector_exposure, sector_cap),
+        "largest_name": largest_name,
+        "largest_name_cap": largest_name_cap,
+        "concentration_needle_degrees": _gauge_degrees(largest_name, largest_name_cap),
         "open_orders": _int(broker.get("open_order_count"), fallback=len(_list(broker.get("orders")))),
         "open_orders_cap": _int(policy.get("max_open_orders"), fallback=10),
         "buying_power": _float(account.get("buying_power")),
@@ -828,22 +846,30 @@ def _scenario_from_context(
     candidates = [_mapping(item) for item in _list(context.get("candidates"))]
     actionable_count = sum(1 for row in candidates if row.get("actionable") is True)
     reviewable_count = sum(1 for row in candidates if row.get("reviewable") is True)
-    if reviewable_count == 0 and any(engine.get("state") == "down" for engine in engines):
-        return {
-            "state": "outage",
-            "headline": "Selection is paused because critical data is unavailable.",
-            "detail": "Refresh the red engine or open its lane detail before approving new decisions.",
-        }
-    submitted_rows = [
-        _mapping(row)
-        for row in _list(execution.get("preview_rows"))
-        if str(_mapping(row).get("execution_state") or "").upper() in {"SUBMITTED", "FILLED"}
-    ]
+    submitted_rows = _submitted_order_rows(execution)
     if submitted_rows:
+        total_notional = round(sum(_money_value(row.get("notional")) for row in submitted_rows), 2)
         return {
             "state": "submitted",
             "headline": f"{len(submitted_rows)} paper orders were transmitted for this cycle.",
             "detail": "Review broker IDs and wait for the next cycle before staging more orders.",
+            "submitted_orders": submitted_rows,
+            "submitted_total_notional": total_notional,
+            "candidate_controls_enabled": False,
+        }
+    down_engines = [engine for engine in engines if engine.get("state") == "down"]
+    if down_engines:
+        return {
+            "state": "outage",
+            "headline": "Selection is paused because critical data is unavailable.",
+            "detail": "Refresh the red engine or open its lane detail before approving new decisions.",
+            "engine_cards": _engine_cards(down_engines),
+            "retry_label": _first_text(
+                _mapping(context.get("cycle")).get("next_in"),
+                default="Retry follows the scheduler lane policy.",
+            ),
+            "last_good_cycle_label": _last_good_cycle_label(context),
+            "candidate_controls_enabled": False,
         }
     if actionable_count == 0:
         if reviewable_count > 0:
@@ -851,17 +877,91 @@ def _scenario_from_context(
                 "state": "review",
                 "headline": f"{reviewable_count} candidates are ready for research review.",
                 "detail": "Approve, defer, or reject the review rows; no paper order is staged until policy and execution gates create an orderable preview.",
+                "candidate_controls_enabled": True,
             }
         return {
             "state": "no-actionable",
             "headline": "Nothing actionable today. The agent already filtered the universe.",
             "detail": "Review the closest candidates or portfolio only; no paper order is staged.",
+            "skip_to_portfolio_label": "Skip to Portfolio",
+            "closest_candidates": _closest_candidate_rows(candidates),
+            "agent_note": "The agent completed the funnel and filtered out every setup that did not clear the policy bar.",
+            "candidate_controls_enabled": False,
         }
     return {
         "state": "normal",
         "headline": f"{actionable_count} trades ready. Approve what you want to ship today.",
         "detail": "Start with the ranked candidates, then review portfolio capacity before clearance.",
+        "candidate_controls_enabled": True,
     }
+
+
+def _submitted_order_rows(execution: Mapping[str, object]) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for raw in _list(execution.get("preview_rows")):
+        item = _mapping(raw)
+        state = _first_text(item.get("execution_state"), item.get("status")).upper()
+        if state not in {"SUBMITTED", "FILLED", "ACCEPTED"}:
+            continue
+        ticker = _first_text(item.get("ticker"), default="Order")
+        rows.append(
+            {
+                "ticker": ticker,
+                "side": _first_text(item.get("side"), default="BUY"),
+                "qty": _float(item.get("qty"), item.get("quantity")),
+                "limit_price": _float(item.get("limit_price"), item.get("limit")),
+                "notional": _money_value(
+                    item.get("notional"),
+                    item.get("notional_label"),
+                    item.get("order_value_label"),
+                ),
+                "broker_order_id": _first_text(
+                    item.get("broker_order_id"),
+                    item.get("order_id"),
+                    default="broker id not reported",
+                ),
+                "state": state,
+            }
+        )
+    return rows
+
+
+def _engine_cards(engines: Sequence[Mapping[str, object]]) -> list[dict[str, object]]:
+    return [
+        {
+            "name": _first_text(engine.get("name"), default="Critical engine"),
+            "state_label": "Unavailable",
+            "detail": _first_text(engine.get("detail"), default="No detail reported."),
+            "age": _first_text(engine.get("age"), default="not checked"),
+        }
+        for engine in engines[:4]
+    ]
+
+
+def _closest_candidate_rows(candidates: Sequence[Mapping[str, object]]) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for candidate in candidates[:3]:
+        ticker = _first_text(candidate.get("ticker"), default="Ticker")
+        reason = _first_text(
+            candidate.get("blocker"),
+            candidate.get("risk_line"),
+            candidate.get("evidence_line"),
+            default="Did not clear the current policy bar.",
+        )
+        rows.append(
+            {
+                "ticker": ticker,
+                "score": _first_text(candidate.get("score_display"), default="0.00"),
+                "reason": reason,
+            }
+        )
+    return rows
+
+
+def _last_good_cycle_label(context: Mapping[str, object]) -> str:
+    cycle = _mapping(context.get("cycle"))
+    as_of = _first_text(cycle.get("as_of"), default="not reported")
+    return f"Last good cycle proof: {as_of}"
 
 
 def _policy_section(dashboard: Mapping[str, object]) -> dict[str, object]:
@@ -941,18 +1041,42 @@ def _qa_scenario(state: str, context: Mapping[str, object]) -> dict[str, object]
             "state": "outage",
             "headline": "Selection is paused because critical data is unavailable.",
             "detail": "QA scenario only. Refresh actions are disabled as readiness proof.",
+            "engine_cards": _engine_cards([_mapping(item) for item in _list(context.get("engines"))][:2]),
+            "retry_label": "QA retry countdown",
+            "last_good_cycle_label": "Last good cycle proof: QA fixture",
+            "candidate_controls_enabled": False,
         }
     elif state == "submitted":
+        submitted_orders = [
+            {
+                "ticker": "QA",
+                "side": "BUY",
+                "qty": 1.0,
+                "limit_price": 0.0,
+                "notional": 0.0,
+                "broker_order_id": "QA scenario only",
+                "state": "SUBMITTED",
+            }
+        ]
         scenario = {
             "state": "submitted",
             "headline": "1 paper orders were transmitted for this cycle.",
             "detail": "QA scenario only. Broker evidence is simulated by the scenario shell.",
+            "submitted_orders": submitted_orders,
+            "submitted_total_notional": 0.0,
+            "candidate_controls_enabled": False,
         }
     elif state == "no-actionable":
         scenario = {
             "state": "no-actionable",
             "headline": "Nothing actionable today. The agent already filtered the universe.",
             "detail": "QA scenario only. Review calm empty-state behavior.",
+            "skip_to_portfolio_label": "Skip to Portfolio",
+            "closest_candidates": _closest_candidate_rows(
+                [_mapping(item) for item in _list(context.get("candidates"))]
+            ),
+            "agent_note": "QA scenario only. The production funnel is not being judged by this state.",
+            "candidate_controls_enabled": False,
         }
     else:
         actionable = _int(_mapping(context.get("funnel")).get("actionable"), fallback=0)
@@ -960,6 +1084,7 @@ def _qa_scenario(state: str, context: Mapping[str, object]) -> dict[str, object]
             "state": "normal",
             "headline": f"{actionable} trades ready. Approve what you want to ship today.",
             "detail": "QA scenario only. This page is not operational evidence.",
+            "candidate_controls_enabled": True,
         }
     scenario["qa_override"] = True
     return scenario
@@ -1363,3 +1488,15 @@ def _score(*values: object) -> float:
     if value > 1.0:
         value = value / 100.0
     return max(0.0, min(1.0, value))
+
+
+def _bounded_score(*values: object, fallback: float = 0.0) -> float:
+    value = _float(*values, fallback=fallback)
+    if value > 1.0:
+        value = value / 100.0
+    return max(0.0, min(1.0, value))
+
+
+def _gauge_degrees(value: float, cap: float) -> int:
+    ratio = value / cap if cap > 0 else 0.0
+    return int(round(max(0.0, min(1.0, ratio)) * 180 - 90))

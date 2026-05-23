@@ -5971,6 +5971,105 @@ table.signal-table {
   background: var(--cockpit-panel-2);
 }
 
+.cockpit-panel-stat-grid,
+.cockpit-scenario-card-grid,
+.cockpit-rule-grid,
+.cockpit-panel-two-col {
+  display: grid;
+  gap: 12px;
+}
+
+.cockpit-panel-stat-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 14px 0;
+}
+
+.cockpit-panel-stat-grid article,
+.cockpit-integrity-card,
+.cockpit-rule-grid article,
+.cockpit-scenario-panel {
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 4px;
+  background: var(--cockpit-panel-2);
+  padding: 14px;
+}
+
+.cockpit-panel-stat-grid span,
+.cockpit-panel-stat-grid strong {
+  display: block;
+}
+
+.cockpit-panel-two-col {
+  grid-template-columns: minmax(0, 1.6fr) minmax(260px, 1fr);
+  align-items: start;
+}
+
+.cockpit-source-table {
+  display: grid;
+  gap: 8px;
+}
+
+.cockpit-source-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 1.2fr) minmax(80px, .6fr) minmax(150px, 1fr) minmax(180px, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 4px;
+  background: var(--cockpit-panel-2);
+}
+
+.cockpit-source-head {
+  background: transparent;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  font-size: .78rem;
+}
+
+.cockpit-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0;
+}
+
+.cockpit-filter-chip {
+  min-height: var(--cockpit-touch-target);
+  padding: 8px 12px;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+
+.cockpit-rule-grid,
+.cockpit-scenario-card-grid {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  margin: 14px 0;
+}
+
+.cockpit-audit-timeline article {
+  position: relative;
+  padding-left: 22px;
+}
+
+.cockpit-audit-timeline article::before {
+  content: "";
+  position: absolute;
+  left: 8px;
+  top: 12px;
+  bottom: 12px;
+  border-left: 1px solid rgba(245, 158, 11, 0.55);
+}
+
+.cockpit-scenario-panel {
+  margin: 14px 0;
+}
+
 .cockpit-position-row {
   grid-template-columns: minmax(180px, 1fr) repeat(3, minmax(80px, 0.45fr)) minmax(160px, auto);
 }

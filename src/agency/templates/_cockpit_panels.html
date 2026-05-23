@@ -5,21 +5,61 @@
       <button type="button" class="cockpit-panel-close" data-cockpit-panel-close>Close panel</button>
       <h2 id="cockpit-panel-universe-heading">Universe and Source Coverage</h2>
       <p class="muted">Use this panel to see which production sources support the current cockpit data.</p>
-      <div class="cockpit-panel-list">
-        {% for source in sources %}
-          <article>
-            <strong>{{ source.name }}</strong>
-            <span class="status-pill status-pill-{% if source.state == 'ready' %}pass{% elif source.state == 'needs_refresh' or source.state == 'not_analyzed' %}warn{% else %}block{% endif %}">{{ source.state_label }}</span>
-            <p>{{ source.coverage }} - {{ source.note }}</p>
-            <small>Proof timestamp {{ source.proof_timestamp }} / source timestamp {{ source.source_timestamp }} / analysis timestamp {{ source.analysis_timestamp }} / tier {{ source.tier }}</small>
-            <p>{{ source.next_action }}</p>
-            {% if source.refresh_action.url %}
-              <a class="button button-secondary" href="{{ source.refresh_action.url }}">{{ source.refresh_action.label }}</a>
-            {% endif %}
+      <div class="cockpit-panel-stat-grid" aria-label="Universe summary">
+        <article><span>Universe</span><strong class="cockpit-mono">{{ funnel.universe }}</strong></article>
+        <article><span>Ready</span><strong class="cockpit-mono">{{ funnel.universe_ready }}</strong></article>
+        <article><span>Blocked</span><strong class="cockpit-mono">{{ universe_blocked|length }}</strong></article>
+        <article><span>Refreshed</span><strong class="cockpit-mono">{{ cycle.as_of }}</strong></article>
+      </div>
+      <div class="cockpit-panel-two-col">
+        <section>
+          <h3>Data sources</h3>
+          <div class="cockpit-source-table" role="table" aria-label="Data sources">
+            <div role="row" class="cockpit-source-row cockpit-source-head">
+              <strong role="columnheader">Source</strong>
+              <strong role="columnheader">Tier</strong>
+              <strong role="columnheader">State</strong>
+              <strong role="columnheader">Coverage</strong>
+            </div>
+            {% for source in sources %}
+              <article role="row" class="cockpit-source-row">
+                <span role="cell">{{ source.name }}</span>
+                <span role="cell">{{ source.tier }}</span>
+                <span role="cell">
+                  <span class="status-pill status-pill-{% if source.state == 'ready' %}pass{% elif source.state == 'needs_refresh' or source.state == 'not_analyzed' %}warn{% else %}block{% endif %}">{{ source.state_label }}</span>
+                  <small>Proof timestamp {{ source.proof_timestamp }}</small>
+                </span>
+                <span role="cell">
+                  {{ source.coverage }}
+                  <small>{{ source.note }}</small>
+                  <small>{{ source.next_action }}</small>
+                  {% if source.refresh_action.url %}
+                    <a class="button button-secondary" href="{{ source.refresh_action.url }}">{{ source.refresh_action.label }}</a>
+                  {% endif %}
+                </span>
+              </article>
+            {% else %}
+              <p class="empty-state">No source-health rows are available for this cycle.</p>
+            {% endfor %}
+          </div>
+        </section>
+        <aside>
+          <h3>Blocked tickers</h3>
+          <div class="cockpit-panel-list">
+            {% for ticker in universe_blocked %}
+              <article>
+                <strong>{{ ticker.ticker|default(ticker.symbol|default("Ticker", true), true) }}</strong>
+                <p>{{ ticker.reason|default(ticker.detail|default("Blocked by the active universe policy.", true), true) }}</p>
+              </article>
+            {% else %}
+              <p class="empty-state">No blocked tickers were reported for this cycle.</p>
+            {% endfor %}
+          </div>
+          <article class="cockpit-integrity-card">
+            <h3>PIT integrity</h3>
+            <p>Point-in-time data is accepted only when source and proof timestamps are visible in this panel.</p>
           </article>
-        {% else %}
-          <p class="empty-state">No source-health rows are available for this cycle.</p>
-        {% endfor %}
+        </aside>
       </div>
     </article>
   </section>
@@ -30,7 +70,24 @@
       <button type="button" class="cockpit-panel-close" data-cockpit-panel-close>Close panel</button>
       <h2 id="cockpit-panel-signals-heading">Signal Evidence</h2>
       <p class="muted">Confirmed means a direct production source supplied the value. Inferred means the agency derived it from source data. Suppressed means the signal is retained for audit but not allowed to drive the decision.</p>
-      <div class="cockpit-panel-list">
+      <div class="cockpit-filter-row" aria-label="Signal filters">
+        <button type="button" class="cockpit-filter-chip" data-signal-filter="all">all</button>
+        <button type="button" class="cockpit-filter-chip" data-signal-filter="confirmed">confirmed</button>
+        <button type="button" class="cockpit-filter-chip" data-signal-filter="inferred">inferred</button>
+        <button type="button" class="cockpit-filter-chip" data-signal-filter="suppressed">suppressed</button>
+      </div>
+      <div class="cockpit-rule-grid">
+        <article>
+          <h3>Evidence treatment rule</h3>
+          <p>Confirmed evidence can support a decision. Inferred evidence needs corroboration. Suppressed evidence stays audit-only.</p>
+        </article>
+        <article>
+          <h3>Breadth rule</h3>
+          <p>A recommendation is strongest when price, flow, risk, and narrative lanes agree inside their freshness policy.</p>
+        </article>
+      </div>
+      <h3>Signal log</h3>
+      <div class="cockpit-panel-list cockpit-signal-log">
         {% for signal in signals %}
           <article>
             <strong>{{ signal.name }}</strong>
@@ -50,19 +107,20 @@
       <button type="button" class="cockpit-panel-close" data-cockpit-panel-close>Close panel</button>
       <h2 id="cockpit-panel-audit-heading">Audit Trace</h2>
       <p class="muted">Cycle {{ audit_lifecycle.cycle_id }}. Evidence hash values are shown when the runtime persisted them.</p>
-      <div class="cockpit-panel-list">
+      <div class="cockpit-panel-list cockpit-audit-timeline">
         {% for ticker, events in audit_lifecycle.traces.items() %}
           <article>
             <strong>{{ ticker }}</strong>
             {% for event in events %}
               <p>{{ event.message }}</p>
-              <small>Status {{ event.status }}{% if event.evidence_hash %} / evidence hash {{ event.evidence_hash }}{% endif %}</small>
+              <small>Status {{ event.status }}{% if event.evidence_hash %} / evidence pack hash {{ event.evidence_hash }}{% endif %}</small>
             {% endfor %}
           </article>
         {% else %}
           <p class="empty-state">No audit trace is available for this cycle.</p>
         {% endfor %}
       </div>
+      <p class="panel-note">All state transitions are deterministic given the same input pack, policy version, and evidence pack hash.</p>
     </article>
   </section>
 
@@ -113,7 +171,19 @@
     <article class="cockpit-panel-card">
       <button type="button" class="cockpit-panel-close" data-cockpit-panel-close>Close panel</button>
       <h2 id="cockpit-panel-monitor-heading">Monitor Events</h2>
-      <p class="muted">{{ monitor.label }}. Last monitor proof: {{ monitor.last_update }}.</p>
+      <p class="muted">
+        <span
+          class="status-pill status-pill-{% if monitor.live %}pass{% else %}warn{% endif %}"
+          data-cockpit-monitor-live="{{ 'true' if monitor.live else 'false' }}"
+        >{{ monitor.label }}</span>
+        Last monitor proof: {{ monitor.last_update }}.
+      </p>
+      <div class="cockpit-filter-row" aria-label="Monitor filters">
+        <button type="button" class="cockpit-filter-chip" data-monitor-filter="all">all</button>
+        <button type="button" class="cockpit-filter-chip" data-monitor-filter="info">info</button>
+        <button type="button" class="cockpit-filter-chip" data-monitor-filter="warn">warn</button>
+        <button type="button" class="cockpit-filter-chip" data-monitor-filter="block">block</button>
+      </div>
       <div class="cockpit-panel-list">
         {% for event in monitor_events %}
           <article>

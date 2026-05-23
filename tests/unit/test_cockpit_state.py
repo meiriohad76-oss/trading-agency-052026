@@ -1,0 +1,97 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from agency.views.cockpit import cockpit_context_from_sources
+from tests.unit.test_cockpit_contract import _sample_sources
+
+TEMPLATE = Path("src/agency/templates/cockpit.html")
+
+
+def _template() -> str:
+    return TEMPLATE.read_text(encoding="utf-8")
+
+
+def test_outage_scenario_exposes_blocked_engine_cards_and_retry_context() -> None:
+    sources = _sample_sources()
+    sources["dashboard"]["data_sources"] = [  # type: ignore[index]
+        {
+            "name": "Massive market data",
+            "status_label": "Unavailable",
+            "status_class": "block",
+            "freshness_label": "access problem",
+            "detail": "Provider token rejected the request.",
+        }
+    ]
+    sources["dashboard"]["review_queue"] = []  # type: ignore[index]
+    sources["execution"]["preview_rows"] = []  # type: ignore[index]
+    sources["execution"]["orderable_rows"] = []  # type: ignore[index]
+
+    context = cockpit_context_from_sources(sources)
+
+    assert context["scenario"]["state"] == "outage"
+    assert context["scenario"]["candidate_controls_enabled"] is False
+    assert context["scenario"]["engine_cards"][0]["name"] == "Massive market data"
+    assert context["scenario"]["retry_label"]
+    assert "last good" in context["scenario"]["last_good_cycle_label"].lower()
+
+
+def test_no_actionable_scenario_has_skip_and_closest_candidate_explanations() -> None:
+    sources = _sample_sources()
+    for row in sources["dashboard"]["review_queue"]:  # type: ignore[index]
+        row["final_action"] = "WATCH"
+        row["is_reviewable"] = False
+    sources["execution"]["preview_rows"] = []  # type: ignore[index]
+    sources["execution"]["orderable_rows"] = []  # type: ignore[index]
+
+    context = cockpit_context_from_sources(sources)
+
+    assert context["scenario"]["state"] == "no-actionable"
+    assert context["scenario"]["skip_to_portfolio_label"] == "Skip to Portfolio"
+    assert len(context["scenario"]["closest_candidates"]) == 3
+    assert context["scenario"]["closest_candidates"][0]["ticker"] == "AAA"
+    assert "filtered" in context["scenario"]["agent_note"].lower()
+
+
+def test_submitted_scenario_exposes_order_cards_from_broker_acknowledgements() -> None:
+    sources = _sample_sources()
+    sources["execution"]["preview_rows"] = [  # type: ignore[index]
+        {
+            "ticker": "AAA",
+            "side": "BUY",
+            "qty": 3,
+            "limit_price": 140.25,
+            "notional_label": "$421",
+            "execution_state": "SUBMITTED",
+            "broker_order_id": "paper-aaa-001",
+        }
+    ]
+
+    context = cockpit_context_from_sources(sources)
+
+    assert context["scenario"]["state"] == "submitted"
+    assert context["scenario"]["submitted_orders"][0]["ticker"] == "AAA"
+    assert context["scenario"]["submitted_orders"][0]["broker_order_id"] == "paper-aaa-001"
+    assert context["scenario"]["submitted_total_notional"] == 421.0
+
+
+def test_scenario_template_has_dedicated_no_actionable_outage_and_submitted_layouts() -> None:
+    html = _template()
+
+    assert 'data-cockpit-scenario-panel="no-actionable"' in html
+    assert 'data-cockpit-scenario-panel="outage"' in html
+    assert 'data-cockpit-scenario-panel="submitted"' in html
+    assert "scenario.closest_candidates" in html
+    assert "scenario.engine_cards" in html
+    assert "scenario.submitted_orders" in html
+
+
+def test_primary_cockpit_flow_has_no_classic_dashboard_escape_hatches() -> None:
+    html = _template()
+    context = cockpit_context_from_sources(_sample_sources())
+
+    assert "Open classic candidates" not in html
+    assert "Classic brief" not in html
+    assert "/final-selection" not in html
+    assert "/execution-preview#orderable-heading" not in html
+    assert all(row["order_action_url"] == "" for row in context["candidates"])

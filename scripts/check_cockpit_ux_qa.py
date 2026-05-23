@@ -17,6 +17,7 @@ PREFLIGHT_ENDPOINTS = (
     "/status/execution-preview",
 )
 PREFLIGHT_REPORT_NAME = "cockpit-preflight.json"
+SCENARIOS = ("normal", "no-actionable", "outage", "submitted")
 VIEWPORTS = (
     ("desktop-1920", {"viewport": {"width": 1920, "height": 1080}}),
     ("desktop-1366", {"viewport": {"width": 1366, "height": 768}}),
@@ -38,9 +39,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
-    target_url = _scenario_url(args.url, args.scenario)
+    scenario_names = _scenario_names(args.scenario)
 
-    preflight = _preflight(target_url)
+    preflight = _preflight(args.url)
     _validate_paper_submit_preflight(
         preflight,
         allow_paper_submit=args.allow_paper_submit,
@@ -55,74 +56,80 @@ def main(argv: Sequence[str] | None = None) -> int:
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
         try:
-            for viewport_name, profile in VIEWPORTS:
-                console_errors: list[str] = []
-                page_errors: list[str] = []
-                page = browser.new_page(
-                    viewport=profile["viewport"],
-                    has_touch=bool(profile.get("has_touch")),
-                    is_mobile=bool(profile.get("is_mobile")),
-                )
-                page.on("console", _console_error_collector(console_errors))
-                page.on("pageerror", _page_error_collector(page_errors))
-                result = {
-                    "viewport": viewport_name,
-                    "url": target_url,
-                    "scenario": args.scenario,
-                    "focus": args.focus,
-                    "http_ok": False,
-                    "console_errors": console_errors,
-                    "page_errors": page_errors,
-                    "horizontal_overflow": False,
-                    "bluf_visible": False,
-                    "phase_visible": False,
-                    "candidate_visible": False,
-                    "submit_gate_safe": False,
-                    "panel_screenshots": [],
-                    "unreadable_controls": [],
-                    "screenshot": "",
-                    "error": "",
-                }
-                try:
-                    response = page.goto(
-                        target_url,
-                        wait_until="domcontentloaded",
-                        timeout=PAGE_GOTO_TIMEOUT_MS,
+            for scenario_name in scenario_names:
+                target_url = _scenario_url(args.url, scenario_name)
+                for viewport_name, profile in VIEWPORTS:
+                    console_errors: list[str] = []
+                    page_errors: list[str] = []
+                    page = browser.new_page(
+                        viewport=profile["viewport"],
+                        has_touch=bool(profile.get("has_touch")),
+                        is_mobile=bool(profile.get("is_mobile")),
                     )
-                    result["http_ok"] = response is not None and response.status == 200
-                    page.wait_for_selector(".cockpit-bluf", timeout=10_000)
-                    page.wait_for_selector('[data-cockpit-cycle][data-cockpit-ready="true"]', timeout=10_000)
-                    result["horizontal_overflow"] = bool(
-                        page.evaluate(
-                            "document.documentElement.scrollWidth > document.documentElement.clientWidth"
+                    page.on("console", _console_error_collector(console_errors))
+                    page.on("pageerror", _page_error_collector(page_errors))
+                    result = {
+                        "viewport": viewport_name,
+                        "url": target_url,
+                        "scenario": scenario_name,
+                        "focus": args.focus,
+                        "http_ok": False,
+                        "console_errors": console_errors,
+                        "page_errors": page_errors,
+                        "horizontal_overflow": False,
+                        "bluf_visible": False,
+                        "phase_visible": False,
+                        "candidate_visible": False,
+                        "submit_gate_safe": False,
+                        "panel_screenshots": [],
+                        "unreadable_controls": [],
+                        "screenshot": "",
+                        "error": "",
+                    }
+                    try:
+                        response = page.goto(
+                            target_url,
+                            wait_until="domcontentloaded",
+                            timeout=PAGE_GOTO_TIMEOUT_MS,
                         )
-                    )
-                    result["bluf_visible"] = _is_in_first_viewport(page, ".cockpit-bluf")
-                    result["phase_visible"] = page.locator(".cockpit-phase:not([hidden])").first.is_visible()
-                    result["candidate_visible"] = page.locator(".cockpit-candidate-row, .empty-state").count() > 0
-                    result["submit_gate_safe"] = _submit_gate_is_safe(page)
-                    result["focus_errors"] = _exercise_focus(page, args.focus)
-                    result["panel_screenshots"] = _screenshot_panels(page, output_dir, viewport_name)
-                    result["unreadable_controls"] = page.evaluate(
-                        """
-                        () => Array.from(document.querySelectorAll('button, a.button, .status-pill'))
-                          .filter((el) => (
-                            el.scrollWidth > el.clientWidth + 1 ||
-                            el.scrollHeight > el.clientHeight + 1
-                          ))
-                          .map((el) => (el.textContent || '').trim().replace(/\\s+/g, ' '))
-                          .filter(Boolean)
-                          .slice(0, 10)
-                        """
-                    )
-                    screenshot_path = output_dir / f"{viewport_name}-{args.scenario}-{args.focus}.png"
-                    page.screenshot(path=str(screenshot_path), full_page=False)
-                    result["screenshot"] = str(screenshot_path)
-                except PlaywrightError as exc:
-                    result["error"] = f"{exc.__class__.__name__}: {str(exc).splitlines()[0]}"
-                finally:
-                    page.close()
-                results.append(result)
+                        result["http_ok"] = response is not None and response.status == 200
+                        page.wait_for_selector(".cockpit-bluf", timeout=10_000)
+                        page.wait_for_selector('[data-cockpit-cycle][data-cockpit-ready="true"]', timeout=10_000)
+                        result["horizontal_overflow"] = bool(
+                            page.evaluate(
+                                "document.documentElement.scrollWidth > document.documentElement.clientWidth"
+                            )
+                        )
+                        result["bluf_visible"] = _is_in_first_viewport(page, ".cockpit-bluf")
+                        result["phase_visible"] = page.locator(".cockpit-phase:not([hidden])").first.is_visible()
+                        result["candidate_visible"] = page.locator(".cockpit-candidate-row, .empty-state").count() > 0
+                        result["submit_gate_safe"] = _submit_gate_is_safe(page)
+                        result["focus_errors"] = _exercise_focus(page, args.focus)
+                        result["panel_screenshots"] = _screenshot_panels(
+                            page,
+                            output_dir,
+                            f"{viewport_name}-{scenario_name}",
+                        )
+                        result["unreadable_controls"] = page.evaluate(
+                            """
+                            () => Array.from(document.querySelectorAll('button, a.button, .status-pill'))
+                              .filter((el) => (
+                                el.scrollWidth > el.clientWidth + 1 ||
+                                el.scrollHeight > el.clientHeight + 1
+                              ))
+                              .map((el) => (el.textContent || '').trim().replace(/\\s+/g, ' '))
+                              .filter(Boolean)
+                              .slice(0, 10)
+                            """
+                        )
+                        screenshot_path = output_dir / f"{viewport_name}-{scenario_name}-{args.focus}.png"
+                        page.screenshot(path=str(screenshot_path), full_page=False)
+                        result["screenshot"] = str(screenshot_path)
+                    except PlaywrightError as exc:
+                        result["error"] = f"{exc.__class__.__name__}: {str(exc).splitlines()[0]}"
+                    finally:
+                        page.close()
+                    results.append(result)
         finally:
             browser.close()
 
@@ -152,6 +159,14 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Permit submit-path checks only when preflight proves readiness.",
     )
     return parser.parse_args(argv)
+
+
+def _scenario_names(raw: str) -> list[str]:
+    if raw == "all":
+        return list(SCENARIOS)
+    if raw not in SCENARIOS:
+        return ["normal"]
+    return [raw]
 
 
 def _preflight(url: str) -> dict[str, object]:
