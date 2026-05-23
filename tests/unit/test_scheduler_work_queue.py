@@ -639,6 +639,39 @@ def test_scheduler_queue_stays_tradable_for_fresh_degraded_trade_lane() -> None:
     assert queue["tradability"]["status_class"] == "warn"
 
 
+def test_scheduler_tradability_uses_lane_states_for_execution_blockers() -> None:
+    queue = build_scheduler_work_queue(
+        _market_plan("regular_market"),
+        tiers=build_ticker_tiers(active_universe=["AAPL", "MSFT"]),
+        data_load_status={
+            "state": "ready",
+            "review_operational_ready": True,
+            "datasets": [],
+            "lane_states": [
+                {
+                    "lane_id": "massive_live_trade_slices",
+                    "status_label": "Analysis exists but needs refresh",
+                    "state": "needs_refresh",
+                    "status_class": "block",
+                    "blocks_execution": True,
+                    "blocker": True,
+                    "operator_message": (
+                        "Live trade slices were analyzed but the proof is older than policy."
+                    ),
+                    "recommended_action": "Refresh Massive Live Trade Slices.",
+                }
+            ],
+        },
+        source_health=_fresh_sources(),
+        broker={"connected": True, "mode": "paper", "checked_at": NOW.isoformat()},
+        now=NOW,
+    )
+
+    assert queue["tradability"]["state"] == "context_only"
+    assert "Massive Live Trade Slices" in str(queue["tradability"]["detail"])
+    assert queue["stale_datasets"][0]["dataset"] == "massive_live_trade_slices"
+
+
 def test_scheduler_queue_explains_pending_broker_without_claiming_it_is_fresh() -> None:
     queue = build_scheduler_work_queue(
         _market_plan("regular_market"),

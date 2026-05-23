@@ -1125,6 +1125,13 @@ def _tradability(
                 "Execution-critical data refresh is still running.",
             )
         )
+    elif _execution_blocking_lane_state_rows(stale_datasets):
+        state = "context_only"
+        lane = _execution_blocking_lane_state_rows(stale_datasets)[0]
+        detail = str(
+            lane.get("reason")
+            or "A required lane is not fresh enough for paper execution."
+        )
     elif data_load_status.get("state") in {"blocked", "loading"}:
         state = "context_only"
         detail = str(data_load_status.get("detail", "Data load is not tradable yet."))
@@ -2701,6 +2708,26 @@ def _stale_dataset_rows(
     source_health: Sequence[Mapping[str, object]],
 ) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
+    for row in _sequence_mappings(data_load_status.get("lane_states")):
+        if row.get("blocker") is not True:
+            continue
+        lane_id = str(row.get("lane_id") or "unknown")
+        label = str(row.get("label") or lane_id.replace("_", " ").title())
+        reason = str(
+            row.get("operator_message")
+            or row.get("recommended_action")
+            or "Lane needs attention before paper execution."
+        )
+        rows.append(
+            {
+                "kind": "lane_state",
+                "dataset": lane_id,
+                "status": str(row.get("status_label") or row.get("state") or "ATTENTION"),
+                "status_class": str(row.get("status_class") or "block"),
+                "reason": f"{label}: {reason}",
+                "blocks_execution": row.get("blocks_execution") is True,
+            }
+        )
     for row in _sequence_mappings(data_load_status.get("datasets")):
         status = str(row.get("status", ""))
         if status in {"blocked", "warning"}:
@@ -2740,6 +2767,16 @@ def _stale_dataset_rows(
                 }
             )
     return rows
+
+
+def _execution_blocking_lane_state_rows(
+    rows: Sequence[Mapping[str, object]],
+) -> list[Mapping[str, object]]:
+    return [
+        row
+        for row in rows
+        if row.get("kind") == "lane_state" and row.get("blocks_execution") is True
+    ]
 
 
 def _source_to_dataset(source: str) -> str | None:

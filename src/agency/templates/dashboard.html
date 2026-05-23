@@ -716,32 +716,37 @@
             </div>
 
             <div>
-              <h3>Agent Lanes</h3>
+              <h3>Lane State Registry</h3>
               <div class="table-wrap data-load-table">
                 <table>
                   <thead>
                     <tr>
                       <th>Lane</th>
                       <th>Status</th>
-                      <th>Coverage</th>
-                      <th>Interpretation</th>
+                      <th>Proof</th>
+                      <th>Action</th>
                     </tr>
                   </thead>
                   <tbody data-load-lane-body>
-                    {% for row in data_load_status.lane_rows %}
+                    {% for row in data_load_status.lane_state_rows %}
                     <tr>
                       <td>
                         <strong>{{ row.name }}</strong>
-                        <span>{{ row.group_label }}</span>
+                        <span>{{ row.lane_kind_label }} &middot; {{ row.requirement_label }}</span>
                       </td>
                       <td><span class="tag tag-{{ row.status_class }}">{{ row.status_label }}</span></td>
                       <td>
-                        <div class="mini-meter" aria-label="{{ row.coverage_pct }}% coverage">
-                          <span style="{{ row.coverage_style }}"></span>
-                        </div>
-                        <span>{{ row.coverage_pct }}% &middot; {{ row.count_label }}</span>
+                        <span>{{ row.progress_label }}</span>
+                        <span>As of {{ row.latest_as_of_label }} &middot; checked {{ row.checked_at_label }}</span>
                       </td>
-                      <td>{{ row.detail }}</td>
+                      <td>
+                        <span>{{ row.operator_message }}</span>
+                        <span>{{ row.recommended_action }}</span>
+                      </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                      <td class="empty-row" colspan="4">No lane-state registry rows are available.</td>
                     </tr>
                     {% endfor %}
                   </tbody>

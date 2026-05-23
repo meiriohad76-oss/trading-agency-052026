@@ -1263,7 +1263,7 @@ const operatorDataHealthText = (value) =>
       const cell = document.createElement("td");
       cell.className = "empty-row";
       cell.colSpan = 4;
-      cell.textContent = "No agent-lane status rows are available.";
+      cell.textContent = "No lane-state registry rows are available.";
       row.appendChild(cell);
       body.appendChild(row);
       return;
@@ -1273,20 +1273,38 @@ const operatorDataHealthText = (value) =>
       const laneCell = document.createElement("td");
       laneCell.dataset.label = "Lane";
       const strong = document.createElement("strong");
-      strong.textContent = title(item.label || item.lane);
+      strong.textContent = title(item.label || item.lane_id || item.lane);
       const group = document.createElement("span");
-      group.textContent = title(item.group);
+      const requirements = Array.isArray(item.raw_lanes_required) && item.raw_lanes_required.length
+        ? item.raw_lanes_required.join(", ")
+        : "Direct source";
+      group.textContent = item.lane_kind
+        ? `${title(item.lane_kind)} - ${requirements}`
+        : title(item.group);
       laneCell.append(strong, group);
       row.appendChild(laneCell);
       appendCell(row, "Status", tag(item.status_label || item.status, item.status_class));
-      const coverageCell = document.createElement("td");
-      coverageCell.dataset.label = "Coverage";
-      coverageCell.appendChild(meter(item.coverage_pct));
-      const coverageText = document.createElement("span");
-      coverageText.textContent = `${item.coverage_pct || 0}% - ${countLabel(item)}`;
-      coverageCell.appendChild(coverageText);
-      row.appendChild(coverageCell);
-      appendCell(row, "Interpretation", item.detail || "No lane detail recorded.");
+      if (item.lane_kind) {
+        appendCell(row, "Proof", [
+          document.createTextNode(item.progress_label || "not tracked"),
+          document.createElement("br"),
+          document.createTextNode(`As of ${item.latest_as_of || "not recorded"} - checked ${item.checked_at || "not checked"}`),
+        ]);
+        appendCell(row, "Action", [
+          document.createTextNode(item.operator_message || "No lane-state explanation recorded."),
+          document.createElement("br"),
+          document.createTextNode(item.recommended_action || "No lane action recorded."),
+        ]);
+      } else {
+        const coverageCell = document.createElement("td");
+        coverageCell.dataset.label = "Coverage";
+        coverageCell.appendChild(meter(item.coverage_pct));
+        const coverageText = document.createElement("span");
+        coverageText.textContent = `${item.coverage_pct || 0}% - ${countLabel(item)}`;
+        coverageCell.appendChild(coverageText);
+        row.appendChild(coverageCell);
+        appendCell(row, "Interpretation", item.detail || "No lane detail recorded.");
+      }
       body.appendChild(row);
     });
   };
@@ -1405,7 +1423,7 @@ const operatorDataHealthText = (value) =>
     setText("[data-load-agent-blocked]", agentSummary.blocked_count || 0);
     setText("[data-load-agent-warning]", agentSummary.warning_count || 0);
     renderDatasetRows(payload.datasets || []);
-    renderLaneRows(payload.lanes || []);
+    renderLaneRows(payload.lane_states || payload.lanes || []);
     renderFreshnessRows(payload.freshness_rows || []);
     renderIssues(payload.blockers || [], payload.warnings || []);
   };

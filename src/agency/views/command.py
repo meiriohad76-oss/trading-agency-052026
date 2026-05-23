@@ -1623,6 +1623,10 @@ def data_load_status_view(status: Mapping[str, object]) -> dict[str, object]:
         _data_load_row(cast(Mapping[str, object], row))
         for row in _list_field(status, "lanes")
     ]
+    view["lane_state_rows"] = [
+        _lane_state_row(cast(Mapping[str, object], row))
+        for row in _list_field_or_empty(status, "lane_states")
+    ]
     view["issue_rows"] = [
         _data_load_issue(cast(Mapping[str, object], row), fallback_status_class="block")
         for row in _list_field(status, "blockers")
@@ -2655,6 +2659,28 @@ def _data_load_row(row: Mapping[str, object]) -> dict[str, object]:
     view["source_last_success_at_label"] = _format_timestamp_or_text(
         row.get("source_last_success_at") or row.get("last_success_at")
     )
+    return view
+
+
+def _lane_state_row(row: Mapping[str, object]) -> dict[str, object]:
+    view = dict(row)
+    view["name"] = _label_text(str(row.get("label") or row.get("lane_id") or "Unknown"))
+    view["lane_kind_label"] = _label_text(str(row.get("lane_kind") or "lane"))
+    view["status_label"] = _operator_text(row.get("status_label") or "Unknown")
+    view["operator_message"] = _operator_text(
+        row.get("operator_message") or "No lane-state explanation recorded."
+    )
+    view["recommended_action"] = _operator_text(
+        row.get("recommended_action") or "No lane action recorded."
+    )
+    view["latest_as_of_label"] = _format_timestamp_or_text(row.get("latest_as_of"))
+    view["checked_at_label"] = _format_timestamp_or_text(row.get("checked_at"))
+    requirements = [
+        str(item)
+        for item in _list_field_or_empty(row, "raw_lanes_required")
+        if str(item).strip()
+    ]
+    view["requirement_label"] = ", ".join(requirements) if requirements else "Direct source"
     return view
 
 def _data_load_issue(

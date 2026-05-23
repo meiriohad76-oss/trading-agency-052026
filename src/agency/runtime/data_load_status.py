@@ -11,6 +11,7 @@ import pandas as pd
 from news.consumption import load_news_consumption_entries
 
 from agency.runtime.data_refresh_progress import load_data_refresh_progress
+from agency.runtime.lane_state import build_lane_states
 from agency.runtime.live_config_readiness import load_live_config_readiness
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -243,6 +244,13 @@ def load_data_load_status(
         market_session=market_session,
         now=current,
     )
+    lane_states = build_lane_states(
+        data_refresh=data_refresh,
+        dataset_rows=dataset_rows,
+        lane_rows=lane_rows,
+        source_health_rows=monitored_source_health,
+        now=current,
+    )
     market_flow = _market_flow_summary(dataset_rows, lane_rows, expected)
     blockers = _blockers(dataset_rows, lane_rows, expected)
     if not config_as_of_verified:
@@ -313,6 +321,7 @@ def load_data_load_status(
         "freshness_rows": _freshness_rows(monitored_source_health, now=current),
         "datasets": dataset_rows,
         "lanes": lane_rows,
+        "lane_states": lane_states,
         "data_refresh": data_refresh,
         "live_config": live_config,
         "is_loading": data_refresh.get("state") == "running",

@@ -101,6 +101,9 @@ def test_data_load_status_is_ready_with_full_core_and_sparse_context(
     assert _dataset(status, "sec_company_facts")["coverage_pct"] == FULL_PERCENT
     assert _dataset(status, "sec_form4")["status"] == "ready"
     assert _dataset(status, "sec_form4")["analysis_state"] == "analyzed_current"
+    assert _lane_state(status, "technical_analysis")["status_label"] == (
+        "Ready for paper execution"
+    )
 
 
 def test_data_load_status_reports_news_resolution_coverage(
@@ -3232,3 +3235,13 @@ def _lane(status: dict[str, object], name: str) -> dict[str, object]:
         if isinstance(row, dict) and row.get("lane") == name:
             return row
     raise AssertionError(f"missing lane {name}")
+
+
+def _lane_state(status: dict[str, object], name: str) -> dict[str, object]:
+    rows = status["lane_states"]
+    if not isinstance(rows, list):
+        raise TypeError("lane_states must be a list")
+    for row in rows:
+        if isinstance(row, dict) and row.get("lane_id") == name:
+            return row
+    raise AssertionError(f"missing lane state {name}")

@@ -1724,7 +1724,7 @@ def _data_health_state(
     monitor_status = str(health_monitor.get("status") or "").casefold()
     monitor_label = str(health_monitor.get("status_label") or "").casefold()
     if not monitor_status:
-        if "stale" in monitor_label:
+        if "stale" in monitor_label or "needs refresh" in monitor_label:
             monitor_status = "stale"
         elif "unavailable" in monitor_label:
             monitor_status = "unavailable"

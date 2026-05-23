@@ -32,6 +32,7 @@ from .candidate_lifecycle import (
     record_candidate_lifecycle_event,
 )
 from .full_live_readiness import load_full_live_readiness
+from .lane_state import build_lane_states
 from .metrics import runtime_metrics_text
 from .readiness import build_live_readiness
 from .risk_decisions import (
@@ -76,6 +77,7 @@ __all__ = [
     "build_portfolio_snapshot_insert",
     "build_prompt_audit_insert",
     "build_live_readiness",
+    "build_lane_states",
     "build_off_hours_baseline_repair_plan",
     "build_risk_decision_upsert",
     "build_risk_snapshot_insert",
