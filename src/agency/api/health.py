@@ -44,7 +44,7 @@ CONTRACT_NAMES: tuple[ContractName, ...] = contract_names()
 
 @router.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "service": "trading-agency-v2"}
+    return {"status": "ok", "service": "trading-agency-v3"}
 
 
 @router.get("/contracts")

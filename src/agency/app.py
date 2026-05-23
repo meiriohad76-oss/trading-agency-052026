@@ -75,7 +75,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 def create_app() -> FastAPI:
     app = FastAPI(
-        title="Trading Agency v2",
+        title="Trading Agency v3",
         version="0.1.0",
         description="Supervised equity research and paper-trading assistant.",
         lifespan=_lifespan,

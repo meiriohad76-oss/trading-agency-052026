@@ -30,10 +30,17 @@ def test_shared_base_declares_v3_operating_shell() -> None:
     html = BASE.read_text(encoding="utf-8")
 
     assert 'data-ux-version="v3"' in html
+    assert 'data-ux-build="ux-v3-visible-20260523"' in html
     assert "Trading Agency v3" in html
+    assert "UX V3" in html
+    assert "Pre-Flight" in html
+    assert "V3 Cockpit" in html
+    assert "Ops status" in html
     assert "PAPER" in html
     assert "v3-phase-rail" in html
     assert "/static/v3-screens.css" in html
+    assert "ux-v3-all-screens-20260522" not in html
+    assert "ux-v3-review-readable-2-20260522" not in html
     assert "Candidates" in html
     assert "Portfolio" in html
     assert "Clearance" in html

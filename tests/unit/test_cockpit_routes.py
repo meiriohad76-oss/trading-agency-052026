@@ -103,6 +103,7 @@ def test_cockpit_route_renders(monkeypatch: MonkeyPatch) -> None:
 
     assert response.status_code == 200
     assert "Pre-Flight Cockpit" in response.text
+    assert 'data-cockpit-ready="true"' in response.text
     assert "1 trade ready" in response.text
     assert "ROUT" in response.text
 

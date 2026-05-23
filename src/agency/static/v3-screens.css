@@ -105,6 +105,22 @@ html[data-ux-version="v3"] body {
   gap: 8px;
 }
 
+.ux-build-marker {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 4px 10px;
+  color: #171007;
+  border: 1px solid rgba(244, 198, 79, 0.62);
+  border-radius: 4px;
+  background: linear-gradient(180deg, #ffe08a, var(--v3-amber));
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 0.78rem;
+  font-weight: 900;
+  white-space: nowrap;
+  box-shadow: 0 0 0 1px rgba(244, 198, 79, 0.16), 0 10px 24px rgba(0, 0, 0, 0.24);
+}
+
 .v3-phase-rail {
   position: sticky;
   top: 72px;

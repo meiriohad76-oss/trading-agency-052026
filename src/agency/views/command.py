@@ -133,7 +133,7 @@ async def dashboard_context() -> dict[str, object]:
         data_refresh_progress=data_refresh,
     )
     operational_readiness = build_operational_readiness(
-        health={"status": "ok", "service": "trading-agency-v2"},
+        health={"status": "ok", "service": "trading-agency-v3"},
         live_config=live_config,
         data_refresh=data_refresh,
         data_load_status=data_load_status,
@@ -3116,7 +3116,7 @@ async def operational_readiness_context() -> dict[str, object]:
             readiness=readiness,
         )
     return build_operational_readiness(
-        health={"status": "ok", "service": "trading-agency-v2"},
+        health={"status": "ok", "service": "trading-agency-v3"},
         live_config=live_config,
         data_refresh=load_data_refresh_progress(),
         data_load_status=data_load_status,

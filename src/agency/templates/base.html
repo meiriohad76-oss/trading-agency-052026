@@ -1,11 +1,11 @@
 <!doctype html>
-<html lang="en" data-theme="dark" data-ux-version="v3">
+<html lang="en" data-theme="dark" data-ux-version="v3" data-ux-build="ux-v3-visible-20260523">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}Trading Agency v3{% endblock %}</title>
-    <link rel="stylesheet" href="/static/styles.css?v={{ static_version | default('ux-v3-review-readable-2-20260522') }}">
-    <link rel="stylesheet" href="/static/v3-screens.css?v={{ static_version | default('ux-v3-all-screens-20260522') }}">
+    <link rel="stylesheet" href="/static/styles.css?v={{ static_version | default('ux-v3-visible-20260523') }}">
+    <link rel="stylesheet" href="/static/v3-screens.css?v={{ static_version | default('ux-v3-visible-20260523') }}">
   </head>
   <body class="v3-app">
     <div class="app-shell v3-app-shell">
@@ -21,11 +21,11 @@
           <span class="nav-section">Operate</span>
           <a class="nav-link {% if active_nav == 'cockpit' %}active{% endif %}" href="/cockpit">
             <span class="nav-icon status-icon status-icon-pass" aria-hidden="true">01</span>
-            <span>Cockpit</span>
+            <span>V3 Cockpit</span>
           </a>
           <a class="nav-link {% if active_nav == 'command' %}active{% endif %}" href="/command">
             <span class="nav-icon status-icon status-icon-data" aria-hidden="true">02</span>
-            <span>Command dashboard</span>
+            <span>Ops status</span>
           </a>
 
           <span class="nav-section">Core workflow</span>
@@ -89,6 +89,7 @@
             data-runtime-broker-endpoint="/status/broker"
           >
             <span class="status-dot status-dot-warn" data-runtime-dot aria-hidden="true"></span>
+            <span class="ux-build-marker" aria-label="Current UX build">UX V3 · Pre-Flight · 2026-05-23</span>
             <span class="status-pill status-pill-paper">PAPER</span>
             <span class="topbar-meta">{% block topbar_meta %}Runtime dashboard{% endblock %}</span>
             <span class="status-pill status-pill-warn" data-runtime-server-status>Checking server</span>
@@ -125,8 +126,8 @@
         </main>
       </div>
     </div>
-    <script src="/static/data-refresh-progress.js?v=ops-health-copy-20260521" defer></script>
-    <script src="/static/responsive-tables.js" defer></script>
+    <script src="/static/data-refresh-progress.js?v=ux-v3-visible-20260523" defer></script>
+    <script src="/static/responsive-tables.js?v=ux-v3-visible-20260523" defer></script>
     <script>
       function enhanceInfoTips() {
         document.querySelectorAll(".info-tip").forEach((tip) => {

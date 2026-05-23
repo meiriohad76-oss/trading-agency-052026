@@ -638,7 +638,7 @@ def test_health_endpoint_reports_service_status() -> None:
     response = client.get("/health")
 
     assert response.status_code == HTTP_OK
-    assert response.json() == {"status": "ok", "service": "trading-agency-v2"}
+    assert response.json() == {"status": "ok", "service": "trading-agency-v3"}
 
 
 def test_dashboard_renders_status_overview(monkeypatch: MonkeyPatch) -> None:
