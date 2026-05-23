@@ -1604,6 +1604,10 @@ async def test_dashboard_context_uses_full_cycle_for_review_queue(
     assert len(context["review_queue"]) == 20
 
 
+def test_command_dashboard_runtime_timeout_budget_covers_live_selection_reads() -> None:
+    assert command_module.DASHBOARD_RUNTIME_QUERY_TIMEOUT_SECONDS >= 15.0
+
+
 async def test_operational_readiness_context_reuses_source_health_load_status(
     monkeypatch: MonkeyPatch,
 ) -> None:
