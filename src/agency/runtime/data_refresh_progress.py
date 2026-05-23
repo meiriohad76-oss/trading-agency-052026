@@ -5,7 +5,7 @@ import os
 import subprocess
 import sys
 from collections.abc import Mapping, Sequence
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import cast
 
@@ -48,6 +48,9 @@ MASSIVE_LANE_LABELS = {
 MASSIVE_LANE_FRESHNESS_SECONDS = {
     policy.lane_id: policy.freshness_requirement_seconds
     for policy in MASSIVE_RAW_LANE_POLICIES
+}
+MASSIVE_LANE_BLOCKS_EXECUTION = {
+    policy.lane_id: policy.blocks_execution for policy in MASSIVE_RAW_LANE_POLICIES
 }
 
 COMPLETE_STATES = {"complete"}
@@ -99,7 +102,7 @@ def _progress_from_payload(payload: Mapping[str, object], status_path: Path) -> 
         ):
             state = "stale"
             stale_reason = (
-                "Latest data refresh stopped updating; verify whether the worker is still running."
+                "Latest data refresh stopped sending progress; verify whether the worker is still running."
             )
         if state == "stale":
             eta_value = eta_seconds(progress, jobs, state) or 0
@@ -447,6 +450,14 @@ def _massive_lane_progress_rows(status_path: Path) -> list[dict[str, object]]:
             progress["state"] = "stale"
         state = _massive_lane_state(lane_id, progress, manifest, now=current)
         percent = _massive_lane_percent(state, progress, manifest)
+        lane_eta_seconds = _massive_lane_eta_seconds(state, progress)
+        detail = _massive_lane_detail(
+            lane_id,
+            state,
+            progress,
+            manifest,
+            now=current,
+        )
         rows.append(
             {
                 "lane_id": lane_id,
@@ -455,6 +466,8 @@ def _massive_lane_progress_rows(status_path: Path) -> list[dict[str, object]]:
                 "status_label": _massive_lane_status_label(state),
                 "status_class": _massive_lane_status_class(state),
                 "percent_complete": percent,
+                "eta_seconds": lane_eta_seconds,
+                "eta_label": _massive_lane_eta_label(state, lane_eta_seconds),
                 "progress_label": _massive_lane_progress_label(progress, manifest),
                 "ticker_count": _int_value(
                     progress.get("ticker_count"),
@@ -465,19 +478,19 @@ def _massive_lane_progress_rows(status_path: Path) -> list[dict[str, object]]:
                 "manifest_status": _text_value(manifest.get("status"), "missing"),
                 "manifest_coverage_pct": _int_value(manifest.get("coverage_pct"), 0),
                 "issue_count": _int_value(manifest.get("issue_count"), 0),
+                "issues": _massive_lane_issues(progress, manifest),
                 "updated_at": _text_value(
                     progress.get("updated_at"),
                     _text_value(manifest.get("fetched_at"), "not recorded"),
                 ),
                 "latest_as_of": _timestamp_label(manifest.get("fetched_at")),
                 "window_label": _lane_window_label(manifest, progress),
-                "detail": _massive_lane_detail(
-                    lane_id,
-                    state,
-                    progress,
-                    manifest,
-                    now=current,
-                ),
+                "detail": detail,
+                "reason": detail,
+                "reason_code": _massive_lane_reason_code(state),
+                "required_now": MASSIVE_LANE_BLOCKS_EXECUTION.get(lane_id, False),
+                "next_due_at": _massive_lane_next_due_at(lane_id, state, progress, manifest),
+                "analysis_state": _massive_lane_analysis_state(state),
                 "progress_path": _display_path(progress_path),
                 "manifest_path": _display_path(manifest_path),
             }
@@ -536,7 +549,7 @@ def _massive_lane_status_label(state: str) -> str:
         "partial_usable": "Usable Partial",
         "failed": "Lane Failed",
         "blocked": "Lane Blocked",
-        "stale": "Lane Stale",
+        "stale": "Refresh Needed",
     }
     return labels.get(state, state.replace("_", " ").title())
 
@@ -567,6 +580,86 @@ def _massive_lane_progress_label(
     return "not tracked"
 
 
+def _massive_lane_eta_seconds(
+    state: str,
+    progress: Mapping[str, object],
+) -> int | None:
+    value = progress.get("eta_seconds")
+    if isinstance(value, int) and not isinstance(value, bool):
+        return max(value, 0)
+    if state != "running":
+        return None
+    total = _int_value(progress.get("ticker_days_total"), 0)
+    processed = _int_value(progress.get("ticker_days_processed"), 0)
+    if total <= 0:
+        return None
+    remaining = max(total - processed, 0)
+    return remaining * 30
+
+
+def _massive_lane_eta_label(state: str, value: int | None) -> str:
+    if state == "ready":
+        return "complete"
+    return eta_label(value, "running" if state == "running" else state)
+
+
+def _massive_lane_issues(
+    progress: Mapping[str, object],
+    manifest: Mapping[str, object],
+) -> list[dict[str, object]]:
+    issues: list[dict[str, object]] = []
+    for source in (manifest.get("issues"), progress.get("issues")):
+        for issue in _sequence(source):
+            if isinstance(issue, Mapping):
+                issues.append(dict(issue))
+    return issues
+
+
+def _massive_lane_reason_code(state: str) -> str:
+    return {
+        "missing_manifest": "manifest_missing",
+        "ready": "ready",
+        "running": "running",
+        "partial": "partial_coverage",
+        "partial_usable": "partial_usable_coverage",
+        "failed": "failed",
+        "blocked": "blocked",
+        "stale": "refresh_needed",
+    }.get(state, state)
+
+
+def _massive_lane_next_due_at(
+    lane_id: str,
+    state: str,
+    progress: Mapping[str, object],
+    manifest: Mapping[str, object],
+) -> str:
+    if state == "running":
+        return ""
+    explicit = _text_value(progress.get("next_due_at"), _text_value(manifest.get("next_due_at"), ""))
+    if explicit:
+        return explicit
+    freshness_seconds = MASSIVE_LANE_FRESHNESS_SECONDS.get(lane_id)
+    fetched_at = _parse_datetime(manifest.get("fetched_at"))
+    if freshness_seconds is None or fetched_at is None:
+        return ""
+    return (fetched_at + timedelta(seconds=freshness_seconds)).isoformat()
+
+
+def _massive_lane_analysis_state(state: str) -> str:
+    if state == "missing_manifest":
+        return "data_void"
+    if state in {"failed", "blocked"}:
+        return "data_void"
+    if state == "running":
+        return "loading"
+    if state == "ready":
+        return "analyzed_current"
+    if state in {"partial", "partial_usable", "stale"}:
+        return "analyzed_needs_refresh"
+    return "loaded_unanalyzed"
+
+
 def _massive_lane_detail(
     lane_id: str,
     state: str,
@@ -584,10 +677,10 @@ def _massive_lane_detail(
         required = MASSIVE_LANE_FRESHNESS_SECONDS.get(lane_id)
         if age is not None and required is not None:
             return (
-                f"{MASSIVE_LANE_LABELS.get(lane_id, lane_id)} manifest is stale: "
-                f"{age}s old, beyond the {required}s freshness SLA."
+                f"{MASSIVE_LANE_LABELS.get(lane_id, lane_id)} needs refresh: "
+                f"latest proof is {age}s old, beyond the {required}s freshness SLA."
             )
-        return f"{MASSIVE_LANE_LABELS.get(lane_id, lane_id)} manifest is stale."
+        return f"{MASSIVE_LANE_LABELS.get(lane_id, lane_id)} needs refresh before execution use."
     if manifest:
         status = _massive_lane_effective_manifest_status(manifest) or _text_value(manifest.get("status"), state)
         coverage = _int_value(manifest.get("coverage_pct"), 0)
@@ -798,7 +891,7 @@ def _trade_status_label(state: str) -> str:
         "unverified": "Unverified",
         "blocked": "Blocked",
         "failed": "Failed",
-        "stale": "Stale",
+        "stale": "Needs Refresh",
     }
     return labels.get(state, state.replace("_", " ").title())
 
@@ -1131,7 +1224,7 @@ def _status_label(state: str) -> str:
         "planned": "Planned",
         "blocked": "Blocked",
         "failed": "Failed",
-        "stale": "Stale",
+        "stale": "Needs Restart",
         "unavailable": "Unavailable",
     }
     return labels.get(state, state.replace("_", " ").title())
@@ -1157,7 +1250,7 @@ def _detail(state: str, *, stale_reason: str = "") -> str:
         "blocked": "Latest data refresh is blocked by missing inputs.",
         "failed": "Latest data refresh failed before all datasets loaded.",
         "stale": (
-            "Latest data refresh stopped updating; verify whether the worker is still running."
+            "Latest data refresh stopped sending progress; verify whether the worker is still running."
         ),
     }
     if state == "stale" and stale_reason:

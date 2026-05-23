@@ -97,8 +97,10 @@ def test_data_load_status_is_ready_with_full_core_and_sparse_context(
     assert status["blockers"] == []
     assert _lane(status, "sector_momentum")["status"] == "ready"
     assert _lane(status, "sector_momentum")["expected_count"] is None
+    assert _lane(status, "sector_momentum")["analysis_state"] == "analyzed_current"
     assert _dataset(status, "sec_company_facts")["coverage_pct"] == FULL_PERCENT
     assert _dataset(status, "sec_form4")["status"] == "ready"
+    assert _dataset(status, "sec_form4")["analysis_state"] == "analyzed_current"
 
 
 def test_data_load_status_reports_news_resolution_coverage(
@@ -2834,7 +2836,7 @@ def test_data_load_status_blocks_stale_health_monitor_rows(
 
     monitor = status["health_monitor"]
     assert isinstance(monitor, dict)
-    assert monitor["status_label"] == "Health Monitor Stale"
+    assert monitor["status_label"] == "Health Monitor Needs Refresh"
     assert monitor["status_class"] == "block"
     assert monitor["live"] is False
     assert monitor["reliable"] is False

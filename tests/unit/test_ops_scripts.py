@@ -283,7 +283,7 @@ def test_check_local_runtime_records_route_budget_timings() -> None:
     timings = summary["route_timings"]
     assert timings["/reports/selection"]["budget_seconds"] == 5.0
     assert timings["/reports/selection"]["budget_metric"] == "total_seconds"
-    assert timings["/"]["budget_seconds"] == 3.0
+    assert timings["/"]["budget_seconds"] == 12.0
     assert timings["/"]["budget_metric"] == "first_byte_seconds"
 
 
@@ -320,7 +320,7 @@ def test_check_local_runtime_fails_slow_selection_reports_route() -> None:
         )
 
 
-def test_check_local_runtime_fails_slow_command_dashboard_first_byte() -> None:
+def test_check_local_runtime_fails_slow_cockpit_root_first_byte() -> None:
     def fake_fetch_json(_base_url: str, path: str) -> dict[str, object]:
         if path == "/health":
             return _timed_payload(path=path, payload={"status": "ok"})
@@ -340,11 +340,11 @@ def test_check_local_runtime_fails_slow_command_dashboard_first_byte() -> None:
             return _timed_payload(
                 path=path,
                 payload="<html>Command</html>",
-                first_byte_seconds=3.2,
+                first_byte_seconds=12.2,
             )
         raise AssertionError(path)
 
-    with pytest.raises(RuntimeError, match="Command dashboard route exceeded 3.0s"):
+    with pytest.raises(RuntimeError, match="V3 cockpit root route exceeded 12.0s"):
         local_runtime.check_runtime(
             min_selection_reports=1,
             min_risk_decisions=1,

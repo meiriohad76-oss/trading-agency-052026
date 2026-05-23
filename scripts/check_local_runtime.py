@@ -11,7 +11,8 @@ from urllib.request import Request, urlopen
 DEFAULT_BASE_URL = "http://127.0.0.1:8000"
 HTTP_OK = 200
 SELECTION_REPORTS_ROUTE_BUDGET_SECONDS = 5.0
-COMMAND_DASHBOARD_FIRST_BYTE_BUDGET_SECONDS = 3.0
+COCKPIT_ROOT_FIRST_BYTE_BUDGET_SECONDS = 12.0
+HTTP_TIMEOUT_SECONDS = 30
 HTTP_MAX_ATTEMPTS = 4
 TimedFetchResult = Mapping[str, object]
 TimedJsonFetcher = Callable[[str, str], TimedFetchResult]
@@ -24,10 +25,10 @@ ROUTE_BUDGETS: dict[str, dict[str, object]] = {
         "seconds": SELECTION_REPORTS_ROUTE_BUDGET_SECONDS,
     },
     "/": {
-        "label": "Command dashboard",
+        "label": "V3 cockpit root",
         "metric": "first_byte_seconds",
         "kind": "first-byte",
-        "seconds": COMMAND_DASHBOARD_FIRST_BYTE_BUDGET_SECONDS,
+        "seconds": COCKPIT_ROOT_FIRST_BYTE_BUDGET_SECONDS,
     },
 }
 
@@ -117,7 +118,7 @@ def _fetch_text_with_timing(base_url: str, path: str) -> dict[str, object]:
         started = time.perf_counter()
         try:
             request = Request(f"{base_url}{path}", headers={"Connection": "close"})
-            with urlopen(request, timeout=10) as response:
+            with urlopen(request, timeout=HTTP_TIMEOUT_SECONDS) as response:
                 first_byte_at = time.perf_counter()
                 if response.status != HTTP_OK:
                     raise RuntimeError(f"{path} returned HTTP {response.status}")

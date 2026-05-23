@@ -462,6 +462,7 @@ def _dataset_rows(
                 "status": status,
                 "status_label": _row_status_label(status),
                 "status_class": _status_class(status),
+                "analysis_state": _row_analysis_state(status),
                 "loaded_ticker_count": loaded_count if tickers else None,
                 "usable_ticker_count": usable_count if usable_tickers else None,
                 "expected_ticker_count": expected,
@@ -588,6 +589,7 @@ def _lane_rows(
                 "status": status,
                 "status_label": _row_status_label(status),
                 "status_class": _status_class(status),
+                "analysis_state": _row_analysis_state(status),
                 "produced_count": count,
                 "expected_count": required_count,
                 "coverage_pct": round(coverage * PERCENT_SCALE),
@@ -707,7 +709,10 @@ def _data_refresh_blockers(
     ) > 0:
         detail = str(
             trade_pull.get("detail")
-            or "Massive stock-trade pull is stale; usable prior slices cannot satisfy live execution freshness."
+            or (
+                "Massive stock-trade pull needs refresh; usable prior slices cannot "
+                "satisfy live execution freshness."
+            )
         )
         return [_issue("data_refresh", "stock_trades", detail)]
     if state not in TRADE_PULL_BLOCKING_STATES:
@@ -1590,7 +1595,7 @@ def _detail(
     if state == "blocked" and blockers:
         return str(blockers[0]["reason"])
     if state == "blocked":
-        return "The latest data refresh is stale, failed, blocked, or unavailable."
+        return "The latest data refresh needs attention: it failed, is blocked, or is unavailable."
     if state == "loading":
         return "A refresh worker is still loading datasets; wait for completion before review."
     return "No data-load detail is available."
@@ -1618,6 +1623,18 @@ def _status_class(status: str) -> str:
     if status in {"attention", "warning", "warn", "loading"}:
         return "warn"
     return "block"
+
+
+def _row_analysis_state(status: str) -> str:
+    if status in {"ready", "pass"}:
+        return "analyzed_current"
+    if status in {"attention", "warning", "warn"}:
+        return "analyzed_needs_refresh"
+    if status == "loading":
+        return "loading"
+    if status in {"blocked", "failed", "unavailable"}:
+        return "data_void"
+    return "loaded_unanalyzed"
 
 
 def _issue(kind: str, item: str, reason: str) -> dict[str, object]:
@@ -1704,7 +1721,7 @@ def _health_monitor_summary(
         critical_stale = bool(critical_stale_rows)
         status = "stale" if critical_stale else "context_stale"
         status_class = "block" if critical_stale else "warn"
-        label = "Health Monitor Stale" if critical_stale else "Context Health Needs Refresh"
+        label = "Health Monitor Needs Refresh" if critical_stale else "Context Health Needs Refresh"
         detail = (
             f"{source} source-health is older than its SLA"
             + (f" ({row_age}s > {row_sla}s)." if row_age is not None else ".")
@@ -1992,8 +2009,8 @@ def _source_summary_headline(rows: Sequence[Mapping[str, object]]) -> str:
         if status == "UNAVAILABLE" or freshness == "UNAVAILABLE":
             return f"Critical source unavailable: {label}"
         if status in {"HEALTHY", "FRESH"} and freshness == "FRESH":
-            return f"Critical health proof stale: {label}"
-        return f"Critical stale source: {label}"
+            return f"Critical health proof needs refresh: {label}"
+        return f"Critical source needs refresh: {label}"
     blocked = _count_rows(rows, "status_class", "block")
     warned = _count_rows(rows, "status_class", "warn")
     if blocked:

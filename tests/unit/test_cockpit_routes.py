@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import time
+
 from fastapi.testclient import TestClient
 from pytest import MonkeyPatch
 
 import agency.dashboard as dashboard_module
+import agency.views.cockpit as cockpit_view
+import agency.views.command as command_view
+import agency.views.execution as execution_view
+import agency.views.portfolio as portfolio_view
 from agency.app import create_app
 
 
@@ -236,3 +242,61 @@ def test_api_cockpit_ticker_detail_returns_rich_payload(monkeypatch: MonkeyPatch
     assert response.status_code == 200
     assert response.json()["ticker"] == "ROUT"
     assert response.json()["headline"] == "ROUT rich detail"
+
+
+async def test_cockpit_context_does_not_block_on_slow_optional_sections(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    async def fake_dashboard_context() -> dict[str, object]:
+        return {
+            "review_queue": [
+                {
+                    "ticker": "FAST",
+                    "action": "WATCH",
+                    "conviction_pct": 81,
+                    "gate_status": "PASS",
+                    "risk_decision": "WARN",
+                    "source_count": 2,
+                    "confirmed_signal_count": 1,
+                    "reason": "Queue proof.",
+                }
+            ],
+            "review_progress": {"total_count": 1},
+            "data_sources": [],
+            "broker_status": {},
+        }
+
+    async def fake_paper_review_status_context() -> dict[str, object]:
+        return {
+            "queue": [
+                {
+                    "ticker": "FAST",
+                    "action": "WATCH",
+                    "conviction_pct": 81,
+                    "gate_status": "PASS",
+                    "risk_decision": "WARN",
+                    "source_count": 2,
+                    "confirmed_signal_count": 1,
+                    "reason": "Queue proof.",
+                }
+            ],
+            "progress": {"total_count": 1},
+        }
+
+    async def slow_optional_context() -> dict[str, object]:
+        time.sleep(0.25)
+        return {}
+
+    monkeypatch.setenv("AGENCY_COCKPIT_OPTIONAL_CONTEXT_TIMEOUT_SECONDS", "0.02")
+    monkeypatch.setattr(command_view, "dashboard_context", fake_dashboard_context)
+    monkeypatch.setattr(command_view, "paper_review_status_context", fake_paper_review_status_context)
+    monkeypatch.setattr(execution_view, "execution_preview_context", slow_optional_context)
+    monkeypatch.setattr(portfolio_view, "portfolio_monitor_context", slow_optional_context)
+
+    start = time.perf_counter()
+    context = await cockpit_view.cockpit_context()
+    elapsed = time.perf_counter() - start
+
+    assert elapsed < 0.20
+    assert context["candidates"][0]["ticker"] == "FAST"  # type: ignore[index]
+    assert context["portfolio_phase"]["status_label"] == "Portfolio Check Delayed"  # type: ignore[index]

@@ -469,6 +469,7 @@ def test_data_refresh_progress_exposes_massive_lane_progress(
                 "lane_id": "massive_live_trade_slices",
                 "state": "running",
                 "percent_complete": 25,
+                "eta_seconds": 90,
                 "ticker_days_processed": 1,
                 "ticker_days_total": 4,
                 "current_ticker": "AAPL",
@@ -491,6 +492,14 @@ def test_data_refresh_progress_exposes_massive_lane_progress(
     assert lane["percent_complete"] == 25
     assert lane["manifest_status"] == "partial"
     assert lane["progress_label"] == "1/4 ticker-days"
+    assert lane["eta_seconds"] == 90
+    assert lane["eta_label"] == "2m"
+    assert lane["issues"] == []
+    assert lane["reason_code"] == "running"
+    assert lane["reason"] == lane["detail"]
+    assert lane["required_now"] is True
+    assert lane["next_due_at"] == ""
+    assert lane["analysis_state"] == "loading"
 
 
 def test_trade_pull_summary_prefers_live_lane_over_newer_premarket_progress(
@@ -652,6 +661,8 @@ def test_data_refresh_progress_marks_stale_complete_massive_lane_manifest(
     assert lane["state"] == "stale"
     assert lane["status_class"] == "block"
     assert "freshness SLA" in str(lane["detail"])
+    assert "stale" not in str(lane["status_label"]).lower()
+    assert "stale" not in str(lane["detail"]).lower()
 
 
 def test_data_refresh_progress_marks_stale_partial_usable_massive_lane_manifest(

@@ -303,6 +303,15 @@ def test_lane_manifest_writer_records_lane_level_coverage(tmp_path: Path) -> Non
     )
 
     assert payload["coverage_pct"] == 42
+    assert payload["state"] == "partial"
+    assert payload["progress"]["percent_complete"] == 42
+    assert payload["progress"]["eta_seconds"] is None
+    assert payload["progress"]["eta_label"] == "not available"
+    assert payload["reason_code"] == "partial"
+    assert payload["last_attempt_at"] == payload["fetched_at"]
+    assert payload["next_due_at"] == ""
+    assert payload["required_now"] is True
+    assert payload["analysis_state"] == "analyzed_needs_refresh"
     assert read_lane_manifest(path)["tickers"] == ["AAPL", "MSFT"]
     assert json.loads(path.read_text(encoding="utf-8"))["lane_id"] == "massive_live_trade_slices"
 

@@ -14,6 +14,12 @@ MONOTONIC_WINDOW_LANES = {
     "massive_block_trade_feed",
     "massive_options_flow",
 }
+EXECUTION_REQUIRED_LANES = {
+    "massive_daily_bars",
+    "massive_live_trade_slices",
+    "massive_premarket_trade_slices",
+    "massive_block_trade_feed",
+}
 
 
 def manifest_path_for_lane(repo_root: Path, lane_id: str) -> Path:
@@ -93,6 +99,7 @@ def write_lane_manifest(
         "dataset": dataset,
         "raw_source_dataset": raw_source_dataset,
         "fetched_at": _utc(fetched_at).isoformat(),
+        "last_attempt_at": _utc(fetched_at).isoformat(),
         "window": {
             "start": _date_text(requested_start),
             "end": _date_text(requested_end),
@@ -109,6 +116,16 @@ def write_lane_manifest(
         "issues": normalized_issues,
         "issue_count": len(normalized_issues),
         "request_budget_label": request_budget_label or "",
+        "state": status,
+        "progress": {
+            "percent_complete": resolved_coverage_pct,
+            "eta_seconds": None,
+            "eta_label": "not available",
+        },
+        "reason_code": _reason_code(status),
+        "required_now": lane_id in EXECUTION_REQUIRED_LANES,
+        "next_due_at": "",
+        "analysis_state": _analysis_state(status),
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     if _preserve_existing_newer_window(existing, payload):
@@ -205,6 +222,28 @@ def _manifest_window_end(payload: Mapping[str, Any]) -> date | None:
         return date.fromisoformat(str(value))
     except ValueError:
         return None
+
+
+def _reason_code(status: str) -> str:
+    normalized = str(status or "unknown").lower()
+    return {
+        "complete": "ready",
+        "partial": "partial",
+        "partial_usable": "partial_usable",
+        "failed": "failed",
+        "blocked": "blocked",
+    }.get(normalized, normalized)
+
+
+def _analysis_state(status: str) -> str:
+    normalized = str(status or "").lower()
+    if normalized == "complete":
+        return "analyzed_current"
+    if normalized in {"partial", "partial_usable"}:
+        return "analyzed_needs_refresh"
+    if normalized in {"failed", "blocked"}:
+        return "data_void"
+    return "loaded_unanalyzed"
 
 
 def _merged_coverage(

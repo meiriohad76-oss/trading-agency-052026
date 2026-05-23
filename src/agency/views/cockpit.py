@@ -5,7 +5,8 @@ import asyncio
 import math
 import os
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from contextlib import suppress
 from typing import cast
 
 from agency.runtime.cockpit_monitor import (
@@ -17,6 +18,10 @@ from agency.runtime.cockpit_monitor import (
 TRADE_ACTIONS = {"BUY", "SELL", "SHORT", "COVER"}
 MAX_COCKPIT_CANDIDATES = 25
 QA_SCENARIOS = {"normal", "no-actionable", "outage", "submitted"}
+DEFAULT_OPTIONAL_CONTEXT_TIMEOUT_SECONDS = 4.0
+DEFAULT_REQUIRED_CONTEXT_TIMEOUT_SECONDS = 12.0
+
+ContextBuilder = Callable[[], Awaitable[dict[str, object]]]
 
 
 async def cockpit_context(
@@ -30,11 +35,29 @@ async def cockpit_context(
     from agency.views.execution import execution_preview_context
     from agency.views.portfolio import portfolio_monitor_context
 
+    optional_timeout = _optional_context_timeout_seconds()
+    required_timeout = _required_context_timeout_seconds()
     dashboard, execution, portfolio, paper_review = await asyncio.gather(
-        dashboard_context(),
-        execution_preview_context(),
-        portfolio_monitor_context(),
-        paper_review_status_context(),
+        _source_context(
+            "dashboard",
+            dashboard_context,
+            timeout_seconds=required_timeout,
+        ),
+        _source_context(
+            "execution",
+            execution_preview_context,
+            timeout_seconds=optional_timeout,
+        ),
+        _source_context(
+            "portfolio",
+            portfolio_monitor_context,
+            timeout_seconds=optional_timeout,
+        ),
+        _source_context(
+            "paper_review",
+            paper_review_status_context,
+            timeout_seconds=required_timeout,
+        ),
     )
     dashboard = _dashboard_with_paper_review(dashboard, paper_review)
     context = cockpit_context_from_sources(
@@ -75,6 +98,96 @@ async def cockpit_context(
     return context if candidates else retry_context
 
 
+async def _source_context(
+    name: str,
+    builder: ContextBuilder,
+    *,
+    timeout_seconds: float,
+) -> dict[str, object]:
+    """Load a non-critical cockpit section without freezing the first screen."""
+
+    task = asyncio.create_task(asyncio.to_thread(_run_context_builder, builder))
+    done, _pending = await asyncio.wait({task}, timeout=timeout_seconds)
+    if task not in done:
+        task.add_done_callback(_consume_context_task_result)
+        return _delayed_context(name, timeout_seconds=timeout_seconds)
+    try:
+        return task.result()
+    except Exception as exc:
+        return _failed_context(name, exc)
+
+
+def _consume_context_task_result(task: asyncio.Task[dict[str, object]]) -> None:
+    with suppress(BaseException):
+        task.result()
+
+
+def _run_context_builder(builder: ContextBuilder) -> dict[str, object]:
+    return asyncio.run(builder())
+
+
+def _optional_context_timeout_seconds() -> float:
+    return _context_timeout_seconds(
+        "AGENCY_COCKPIT_OPTIONAL_CONTEXT_TIMEOUT_SECONDS",
+        default=DEFAULT_OPTIONAL_CONTEXT_TIMEOUT_SECONDS,
+    )
+
+
+def _required_context_timeout_seconds() -> float:
+    return _context_timeout_seconds(
+        "AGENCY_COCKPIT_REQUIRED_CONTEXT_TIMEOUT_SECONDS",
+        default=DEFAULT_REQUIRED_CONTEXT_TIMEOUT_SECONDS,
+    )
+
+
+def _context_timeout_seconds(env_name: str, *, default: float) -> float:
+    raw = os.environ.get(env_name, "")
+    if not raw.strip():
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        return default
+    return max(0.1, value)
+
+
+def _delayed_context(name: str, *, timeout_seconds: float) -> dict[str, object]:
+    label = _source_context_label(name)
+    return {
+        "context_status": {
+            "status": "delayed",
+            "status_label": f"{label} Check Delayed",
+            "status_class": "warn",
+            "detail": (
+                f"{label} did not finish within {timeout_seconds:.1f}s. "
+                "The cockpit loaded the current review queue first; open the dedicated dashboard "
+                "or refresh this section before using it for a decision."
+            ),
+        }
+    }
+
+
+def _failed_context(name: str, exc: Exception) -> dict[str, object]:
+    label = _source_context_label(name)
+    return {
+        "context_status": {
+            "status": "failed",
+            "status_label": f"{label} Check Failed",
+            "status_class": "block",
+            "detail": f"{label} could not be loaded for the cockpit: {exc}",
+        }
+    }
+
+
+def _source_context_label(name: str) -> str:
+    return {
+        "execution": "Execution Preview",
+        "dashboard": "Command Dashboard",
+        "paper_review": "Review Queue",
+        "portfolio": "Portfolio",
+    }.get(name, name.replace("_", " ").title())
+
+
 def _dashboard_with_paper_review(
     dashboard: Mapping[str, object],
     paper_review: Mapping[str, object],
@@ -108,10 +221,17 @@ def cockpit_context_from_sources(
     signals_context = _mapping(sources.get("signals"))
     candidates = _candidate_rows(dashboard, execution)
     engines = _engine_rows(dashboard, signals_context, execution)
+    portfolio_status = _source_context_status(portfolio)
+    execution_status = _source_context_status(execution)
     positions = _position_rows(portfolio)
     account = _account_section(market, portfolio, dashboard, execution, len(candidates))
-    portfolio_phase = _portfolio_phase_section(positions)
-    clearance = _clearance_section(positions, candidates, execution)
+    portfolio_phase = _portfolio_phase_section(positions, portfolio_status=portfolio_status)
+    clearance = _clearance_section(
+        positions,
+        candidates,
+        execution,
+        execution_status=execution_status,
+    )
     cycle = _cycle_section(dashboard, engines)
     qa_enabled = _qa_scenarios_enabled(qa_scenarios_enabled)
     scheduler = _mapping(dashboard.get("scheduler"))
@@ -131,6 +251,10 @@ def cockpit_context_from_sources(
         "account": account,
         "portfolio_phase": portfolio_phase,
         "clearance": clearance,
+        "source_contexts": {
+            "portfolio": portfolio_status,
+            "execution": execution_status,
+        },
         "sectors": _sector_rows(market),
         "sources": _source_rows(dashboard, proof_timestamp=proof_timestamp),
         "universe_blocked": _universe_blocked_rows(dashboard),
@@ -841,11 +965,31 @@ def _qa_scenario(state: str, context: Mapping[str, object]) -> dict[str, object]
     return scenario
 
 
-def _portfolio_phase_section(positions: Sequence[Mapping[str, object]]) -> dict[str, object]:
+def _source_context_status(context: Mapping[str, object]) -> dict[str, object]:
+    status = _mapping(context.get("context_status"))
+    if status:
+        return status
+    return {
+        "status": "ready",
+        "status_label": "Ready",
+        "status_class": "pass",
+        "detail": "Section data loaded for this cockpit request.",
+    }
+
+
+def _portfolio_phase_section(
+    positions: Sequence[Mapping[str, object]],
+    *,
+    portfolio_status: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    status = _mapping(portfolio_status)
     return {
         "bluf": "Review current positions before clearing today's manifest.",
         "empty_state": "No open paper positions are reported by the broker for this cycle.",
         "position_count": len(positions),
+        "status_label": _first_text(status.get("status_label"), default="Ready"),
+        "status_class": _first_text(status.get("status_class"), default="pass"),
+        "status_detail": _first_text(status.get("detail")),
     }
 
 
@@ -853,6 +997,8 @@ def _clearance_section(
     positions: Sequence[Mapping[str, object]],
     candidates: Sequence[Mapping[str, object]],
     execution: Mapping[str, object],
+    *,
+    execution_status: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     manifest: list[dict[str, object]] = []
     for position in positions:
@@ -891,6 +1037,7 @@ def _clearance_section(
                 "as_of": _first_text(candidate.get("as_of")),
             }
         )
+    status = _mapping(execution_status)
     return {
         "bluf": "Check the manifest, confirm the paper-only gate, then submit approved paper orders.",
         "requires_position_decisions": len(positions) > 0,
@@ -898,6 +1045,9 @@ def _clearance_section(
         "manifest": manifest,
         "exits": [row for row in manifest if row.get("kind") == "exit"],
         "orders": [row for row in manifest if row.get("kind") != "exit"],
+        "status_label": _first_text(status.get("status_label"), default="Ready"),
+        "status_class": _first_text(status.get("status_class"), default="pass"),
+        "status_detail": _first_text(status.get("detail")),
     }
 
 
