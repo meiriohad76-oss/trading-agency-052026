@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pandas as pd
 from dotenv import load_dotenv
+from pyarrow.lib import ArrowInvalid
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "research" / "src"))
@@ -67,16 +68,16 @@ def main() -> int:
         return 2
 
     coverage = _coverage_from_source(source_manifest, tickers, start=args.start, end=args.end)
-    trade_frame = _read_trade_frame(
+    trade_frame, read_issues = _read_trade_frame(
         _resolve(args.trade_root),
-        tickers=tickers,
+        tickers=_usable_coverage_tickers(coverage),
         start=args.start,
         end=args.end,
     )
     focus_frame = _focus_trade_frame(trade_frame)
     rows_written = _write_focus_frame(_resolve(args.output_root), focus_frame)
     fetched_at = datetime.now(UTC)
-    issues = _coverage_issues(coverage)
+    issues = [*_coverage_issues(coverage), *read_issues]
     status = _coverage_status(coverage, issues)
     manifest_path = _resolve(args.lane_manifest_path) if args.lane_manifest_path else manifest_path_for_lane(ROOT, args.lane_id)
     write_lane_manifest(
@@ -258,27 +259,58 @@ def _read_trade_frame(
     tickers: Sequence[str],
     start: date,
     end: date,
-) -> pd.DataFrame:
+) -> tuple[pd.DataFrame, list[dict[str, str]]]:
     frames: list[pd.DataFrame] = []
+    issues: list[dict[str, str]] = []
     for ticker in tickers:
         for year in range(start.year, end.year + 1):
             path = trade_root / f"ticker={ticker.upper()}" / f"year={year}" / "trades.parquet"
             if not path.is_file():
                 continue
-            frame = pd.read_parquet(path)
+            try:
+                frame = pd.read_parquet(path)
+            except (ArrowInvalid, OSError, ValueError) as exc:
+                issues.append(
+                    {
+                        "ticker": ticker.upper(),
+                        "trade_date": start.isoformat()
+                        if start == end
+                        else f"{start.isoformat()}..{end.isoformat()}",
+                        "reason": (
+                            "local stock-trade parquet could not be read: "
+                            f"{type(exc).__name__}"
+                        ),
+                    }
+                )
+                continue
+            if "ticker" not in frame.columns or "trade_date" not in frame.columns:
+                issues.append(
+                    {
+                        "ticker": ticker.upper(),
+                        "trade_date": start.isoformat()
+                        if start == end
+                        else f"{start.isoformat()}..{end.isoformat()}",
+                        "reason": "local stock-trade parquet is missing ticker or trade_date columns",
+                    }
+                )
+                continue
+            frame = frame.copy()
+            frame["ticker"] = frame["ticker"].astype(str).str.upper()
+            frame["trade_date"] = pd.to_datetime(
+                frame["trade_date"], errors="coerce"
+            ).dt.date
+            selected = {ticker.upper() for ticker in tickers}
+            frame = frame[
+                frame["ticker"].isin(selected)
+                & (frame["trade_date"] >= start)
+                & (frame["trade_date"] <= end)
+            ].copy()
             if not frame.empty:
                 frames.append(frame)
     if not frames:
-        return pd.DataFrame()
+        return pd.DataFrame(), issues
     combined = pd.concat(frames, ignore_index=True)
-    combined["ticker"] = combined["ticker"].astype(str).str.upper()
-    combined["trade_date"] = pd.to_datetime(combined["trade_date"], errors="coerce").dt.date
-    selected = {ticker.upper() for ticker in tickers}
-    return combined[
-        combined["ticker"].isin(selected)
-        & (combined["trade_date"] >= start)
-        & (combined["trade_date"] <= end)
-    ].copy()
+    return combined.copy(), issues
 
 
 def _focus_trade_frame(frame: pd.DataFrame) -> pd.DataFrame:
@@ -306,9 +338,13 @@ def _write_focus_frame(root: Path, frame: pd.DataFrame) -> int:
         merged = group.copy()
         previous_count = 0
         if path.is_file():
-            existing = pd.read_parquet(path)
+            try:
+                existing = pd.read_parquet(path)
+            except (ArrowInvalid, OSError, ValueError):
+                existing = pd.DataFrame()
             previous_count = len(existing)
-            merged = pd.concat([existing, merged], ignore_index=True)
+            if not existing.empty:
+                merged = pd.concat([existing, merged], ignore_index=True)
         dedupe_columns = [
             column
             for column in ("source_id", "trade_id", "sequence_number", "trade_ts")
@@ -360,6 +396,14 @@ def _coverage_issues(coverage: Sequence[Mapping[str, object]]) -> list[dict[str,
         for row in coverage
         if row.get("usable_for_live_pipeline") is not True
     ]
+
+
+def _usable_coverage_tickers(coverage: Sequence[Mapping[str, object]]) -> tuple[str, ...]:
+    return tuple(
+        str(row.get("ticker") or "").upper()
+        for row in coverage
+        if row.get("usable_for_live_pipeline") is True and str(row.get("ticker") or "").strip()
+    )
 
 
 def _coverage_pct(coverage: Sequence[Mapping[str, object]]) -> int:
