@@ -41,7 +41,11 @@ research/results/massive-api-usage/**
 
 # Database tooling
 *.db
+*.db-shm
+*.db-wal
 *.sqlite
+*.sqlite-shm
+*.sqlite-wal
 *.sql.gz
 backups/
 
