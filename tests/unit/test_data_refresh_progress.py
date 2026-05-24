@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+import agency.runtime.data_refresh_eta as eta_module
 import agency.runtime.data_refresh_progress as progress_module
 from agency.app import create_app
 from agency.runtime.data_refresh_progress import load_data_refresh_progress
@@ -22,6 +23,16 @@ MIN_FORM4_ETA_SECONDS = 500
 RUNNING_ELAPSED_SECONDS = 30
 STALE_STATUS_SECONDS = 45 * 60
 EXPECTED_STOCK_TRADE_PERCENT = 25
+
+
+def _freeze_progress_time(monkeypatch: pytest.MonkeyPatch, value: datetime) -> None:
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz: object = None) -> datetime:
+            return value if tz is not None else value.replace(tzinfo=None)
+
+    monkeypatch.setattr(progress_module, "datetime", FrozenDateTime)
+    monkeypatch.setattr(eta_module, "datetime", FrozenDateTime)
 
 
 def test_load_data_refresh_progress_reports_running_eta(tmp_path: Path) -> None:
@@ -97,9 +108,14 @@ def test_load_data_refresh_progress_does_not_mark_planned_dry_run_as_pass(
     assert progress["status_class"] == "block"
 
 
-def test_load_data_refresh_progress_recomputes_running_eta(tmp_path: Path) -> None:
+def test_load_data_refresh_progress_recomputes_running_eta(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     status_path = tmp_path / "data-refresh-status.json"
-    started_at = datetime.now(UTC) - timedelta(seconds=RUNNING_ELAPSED_SECONDS)
+    now = datetime(2026, 5, 8, 12, 5, tzinfo=UTC)
+    _freeze_progress_time(monkeypatch, now)
+    started_at = now - timedelta(seconds=RUNNING_ELAPSED_SECONDS)
     status_path.write_text(
         json.dumps(
             {
@@ -122,9 +138,14 @@ def test_load_data_refresh_progress_recomputes_running_eta(tmp_path: Path) -> No
     assert 0 < progress["eta_seconds"] <= MAX_PRICE_ETA_SECONDS
 
 
-def test_load_data_refresh_progress_keeps_slow_dataset_eta_baseline(tmp_path: Path) -> None:
+def test_load_data_refresh_progress_keeps_slow_dataset_eta_baseline(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     status_path = tmp_path / "data-refresh-status.json"
-    started_at = datetime.now(UTC) - timedelta(seconds=RUNNING_ELAPSED_SECONDS)
+    now = datetime(2026, 5, 8, 12, 5, tzinfo=UTC)
+    _freeze_progress_time(monkeypatch, now)
+    started_at = now - timedelta(seconds=RUNNING_ELAPSED_SECONDS)
     status_path.write_text(
         json.dumps(
             {
@@ -151,8 +172,13 @@ def test_load_data_refresh_progress_keeps_slow_dataset_eta_baseline(tmp_path: Pa
     assert progress["eta_seconds"] >= MIN_FORM4_ETA_SECONDS
 
 
-def test_load_data_refresh_progress_marks_old_running_file_stale(tmp_path: Path) -> None:
+def test_load_data_refresh_progress_marks_old_running_file_stale(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     status_path = tmp_path / "data-refresh-status.json"
+    now = datetime(2026, 5, 8, 12, 5, tzinfo=UTC)
+    _freeze_progress_time(monkeypatch, now)
     status_path.write_text(
         json.dumps(
             {
@@ -162,7 +188,7 @@ def test_load_data_refresh_progress_marks_old_running_file_stale(tmp_path: Path)
         ),
         encoding="utf-8",
     )
-    stale_timestamp = (datetime.now(UTC) - timedelta(seconds=STALE_STATUS_SECONDS)).timestamp()
+    stale_timestamp = (now - timedelta(seconds=STALE_STATUS_SECONDS)).timestamp()
     os.utime(status_path, (stale_timestamp, stale_timestamp))
 
     progress = load_data_refresh_progress(status_path)
@@ -176,10 +202,12 @@ def test_load_data_refresh_progress_marks_orphaned_running_command_stale(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     status_path = tmp_path / "data-refresh-status.json"
+    now = datetime(2026, 5, 8, 12, 5, tzinfo=UTC)
+    _freeze_progress_time(monkeypatch, now)
     status_path.write_text(
         json.dumps(
             {
-                "updated_at": datetime.now(UTC).isoformat(),
+                "updated_at": now.isoformat(),
                 "progress": {"state": "running", "current_dataset": "sec_form4"},
                 "jobs": [
                     {
@@ -563,6 +591,89 @@ def test_data_refresh_progress_ignores_legacy_live_progress_without_window(
     assert lane["state"] == "partial"
     assert lane["percent_complete"] == 50
     assert lane["window_label"] == "2026-05-22"
+
+
+def test_data_refresh_progress_preserves_massive_lane_string_issues(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lane_root = tmp_path / "massive_lanes"
+    lane_root.mkdir()
+    (lane_root / "massive_live_trade_slices.json").write_text(
+        json.dumps(
+            {
+                "lane_id": "massive_live_trade_slices",
+                "status": "partial",
+                "coverage_pct": 50,
+                "ticker_count": 2,
+                "row_count": 100,
+                "fetched_at": "2026-05-22T20:00:00+00:00",
+                "window": {"start": "2026-05-22", "end": "2026-05-22"},
+                "issues": ["manifest issue", {"reason": "structured manifest issue"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "massive_live_trade_slices-progress.json").write_text(
+        json.dumps(
+            {
+                "lane_id": "massive_live_trade_slices",
+                "state": "partial",
+                "start": "2026-05-22",
+                "end": "2026-05-22",
+                "issues": ["progress issue"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(progress_module, "DEFAULT_MASSIVE_LANE_MANIFEST_ROOT", lane_root)
+    status_path = tmp_path / "data-refresh-status.json"
+    status_path.write_text(json.dumps({"progress": {"state": "idle"}, "jobs": []}))
+
+    progress = load_data_refresh_progress(status_path)
+    lane = next(
+        row
+        for row in progress["massive_lanes"]
+        if row["lane_id"] == "massive_live_trade_slices"
+    )
+
+    assert lane["issues"] == [
+        {"reason": "manifest issue"},
+        {"reason": "structured manifest issue"},
+        {"reason": "progress issue"},
+    ]
+
+
+def test_data_refresh_progress_ignores_null_like_massive_lane_issues(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lane_root = tmp_path / "massive_lanes"
+    lane_root.mkdir()
+    (lane_root / "massive_live_trade_slices.json").write_text(
+        json.dumps(
+            {
+                "lane_id": "massive_live_trade_slices",
+                "status": "partial",
+                "coverage_pct": 50,
+                "fetched_at": "2026-05-22T20:00:00+00:00",
+                "issues": [None, "null", "<none>", "real issue"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(progress_module, "DEFAULT_MASSIVE_LANE_MANIFEST_ROOT", lane_root)
+    status_path = tmp_path / "data-refresh-status.json"
+    status_path.write_text(json.dumps({"progress": {"state": "idle"}, "jobs": []}))
+
+    progress = load_data_refresh_progress(status_path)
+    lane = next(
+        row
+        for row in progress["massive_lanes"]
+        if row["lane_id"] == "massive_live_trade_slices"
+    )
+
+    assert lane["issues"] == [{"reason": "real issue"}]
 
 
 def test_trade_pull_summary_prefers_live_lane_over_newer_premarket_progress(

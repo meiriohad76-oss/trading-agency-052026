@@ -49,6 +49,41 @@ def test_submit_disabled_until_gate_and_phrase() -> None:
     assert "ack.checked && phrase.value.trim() === SUBMIT_PHRASE" in script
 
 
+def test_cockpit_submit_advances_to_cleared_only_after_successful_response() -> None:
+    script = _script()
+    clearance_block = script.split(
+        'const form = document.querySelector("[data-cockpit-clearance-form]");',
+        1,
+    )[1].split("setupPolicyPanel();", 1)[0]
+
+    assert "if (!response.ok)" in clearance_block
+    assert clearance_block.index("if (!response.ok)") < clearance_block.index('showPhase("cleared")')
+
+
+def test_cockpit_submit_non_json_success_fallback_is_not_failure_copy() -> None:
+    script = _script()
+    clearance_block = script.split(
+        'const form = document.querySelector("[data-cockpit-clearance-form]");',
+        1,
+    )[1].split("setupPolicyPanel();", 1)[0]
+
+    assert "response.ok" in clearance_block
+    assert "Non-JSON submit response received" in clearance_block
+    assert 'detail: `Submit failed with HTTP ${response.status}.`' in clearance_block
+    assert (
+        clearance_block.index("Non-JSON submit response received")
+        < clearance_block.index('detail: `Submit failed with HTTP ${response.status}.`')
+    )
+
+
+def test_cockpit_submit_result_uses_dom_text_nodes_for_api_values() -> None:
+    script = _script()
+    submit_result_block = script.split("function renderSubmitResult(payload)", 1)[1]
+
+    assert "article.innerHTML" not in submit_result_block
+    assert ".textContent" in submit_result_block
+
+
 def test_clearance_phase_starts_with_bluf_sentence() -> None:
     html = _template()
 
@@ -126,6 +161,51 @@ def test_cockpit_submit_handles_partial_broker_failure(monkeypatch: MonkeyPatch)
     assert payload["state"] == "partial"
     assert payload["accepted"][0]["ticker"] == "AAA"
     assert payload["rejected"][0]["detail"] == "Alpaca rejected BBB"
+
+
+def test_cockpit_submit_treats_accepted_async_reconcile_as_non_rejected(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    async def fake_submit_execution_order(**_kwargs: object) -> RedirectResponse:
+        raise HTTPException(status_code=202, detail="paper submit accepted; reconciliation pending")
+
+    _patch_submit_context(monkeypatch, broker_order_id="paper-pending")
+    monkeypatch.setattr(dashboard_module, "submit_execution_order", fake_submit_execution_order)
+
+    response = TestClient(create_app()).post(
+        "/cockpit/submit",
+        data=_submit_form(),
+    )
+
+    payload = response.json()
+    assert response.status_code == 202
+    assert payload["state"] == "reconcile_pending"
+    assert payload["accepted"][0]["ticker"] == "AAA"
+    assert payload["rejected"] == []
+
+
+def test_cockpit_submit_keeps_reconcile_pending_rows_accepted_in_partial_failure(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    async def fake_submit_execution_order(**kwargs: object) -> RedirectResponse:
+        if kwargs["ticker"] == "BBB":
+            raise HTTPException(status_code=503, detail="Alpaca rejected BBB")
+        raise HTTPException(status_code=202, detail="paper submit accepted; reconciliation pending")
+
+    _patch_submit_context(monkeypatch, include_second=True, broker_order_id="paper-pending")
+    monkeypatch.setattr(dashboard_module, "submit_execution_order", fake_submit_execution_order)
+
+    response = TestClient(create_app()).post(
+        "/cockpit/submit",
+        data=_submit_form(include_second=True),
+    )
+
+    payload = response.json()
+    assert response.status_code == 207
+    assert payload["state"] == "partial"
+    assert payload["accepted"][0]["ticker"] == "AAA"
+    assert payload["accepted"][0]["status_code"] == 202
+    assert payload["rejected"][0]["ticker"] == "BBB"
 
 
 def test_cockpit_submit_requires_order_intent_hash_match(monkeypatch: MonkeyPatch) -> None:

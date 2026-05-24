@@ -303,8 +303,15 @@ def _exercise_focus(page: Any, focus: str) -> list[str]:
             if not page.locator(".cockpit-row-detail").first.is_visible():
                 errors.append("candidate row expansion did not open")
     elif focus == "portfolio":
-        page.locator('[data-cockpit-phase-target="portfolio"]').click()
-        if not page.locator('[data-cockpit-phase="portfolio"]').is_visible():
+        phase_button = page.locator('[data-cockpit-phase-target="portfolio"]')
+        if phase_button.count() == 0 or not phase_button.first.is_visible():
+            errors.append("portfolio phase target is missing or hidden")
+            return errors
+        phase_button.first.click()
+        portfolio_phase = page.locator('[data-cockpit-phase="portfolio"]')
+        if portfolio_phase.count() == 0:
+            errors.append("portfolio phase panel is missing")
+        elif not portfolio_phase.first.is_visible():
             errors.append("portfolio phase did not open")
     elif focus == "panels":
         for panel in PANEL_NAMES:

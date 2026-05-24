@@ -158,10 +158,17 @@
           body: new FormData(form),
           headers: { Accept: "application/json" },
         });
-        const payload = await response.json();
+        const payload = await response.json().catch(() =>
+          response.ok
+            ? { detail: `Non-JSON submit response received with HTTP ${response.status}.` }
+            : { detail: `Submit failed with HTTP ${response.status}.` }
+        );
         renderSubmitResult(payload);
         if (stateOutput) {
           stateOutput.textContent = payload.detail || payload.state || "Submit response received.";
+        }
+        if (!response.ok) {
+          return;
         }
         showPhase("cleared");
       } catch (error) {
@@ -543,12 +550,24 @@
         }))
         .filter((row) => row.deployed !== row.staged);
       if (diffTarget) {
+        const title = document.createElement("h3");
+        title.textContent = "Policy diff";
         if (!changes.length) {
-          diffTarget.innerHTML = "<h3>Policy diff</h3><p>No staged changes.</p>";
+          const empty = document.createElement("p");
+          empty.textContent = "No staged changes.";
+          diffTarget.replaceChildren(title, empty);
         } else {
-          diffTarget.innerHTML = `<h3>Policy diff</h3><ul>${changes
-            .map((row) => `<li><strong>${row.key}</strong>: deployed ${row.deployed}, staged ${row.staged}</li>`)
-            .join("")}</ul>`;
+          const list = document.createElement("ul");
+          changes.forEach((row) => {
+            const item = document.createElement("li");
+            const key = document.createElement("strong");
+            key.textContent = row.key || "policy";
+            const detail = document.createElement("span");
+            detail.textContent = `: deployed ${row.deployed}, staged ${row.staged}`;
+            item.append(key, detail);
+            list.appendChild(item);
+          });
+          diffTarget.replaceChildren(title, list);
         }
       }
       applyButton.disabled = !(confirm.checked && changes.length);
@@ -557,7 +576,6 @@
     fields.forEach((field) => {
       field.addEventListener("input", () => {
         refreshPolicyDiff();
-        invalidateSubmitGate();
       });
     });
     confirm.addEventListener("change", refreshPolicyDiff);
@@ -618,13 +636,20 @@
     }
     const accepted = payload.accepted || [];
     const rejected = payload.rejected || [];
-    target.innerHTML = "";
-    [...accepted, ...rejected].forEach((row) => {
+    target.replaceChildren();
+    const appendRow = (row, status) => {
       const article = document.createElement("article");
       article.className = "cockpit-manifest-row";
-      const status = accepted.includes(row) ? "accepted" : "rejected";
-      article.innerHTML = `<strong>${row.ticker || "Order"}</strong><span>${status}</span><span>${row.broker_order_id || row.detail || ""}</span>`;
+      const ticker = document.createElement("strong");
+      const statusText = document.createElement("span");
+      const detail = document.createElement("span");
+      ticker.textContent = row.ticker || "Order";
+      statusText.textContent = status;
+      detail.textContent = row.broker_order_id || row.detail || "";
+      article.append(ticker, statusText, detail);
       target.appendChild(article);
-    });
+    };
+    accepted.forEach((row) => appendRow(row, "accepted"));
+    rejected.forEach((row) => appendRow(row, "rejected"));
   }
 })();

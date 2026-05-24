@@ -3,6 +3,12 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 
 ALWAYS_RELEVANT_DEGRADED_SOURCES = {"subscription-email-thesis"}
+SOURCE_ALIASES = {
+    "prices_daily": "daily-market-bars",
+    "daily-market-bars": "daily-market-bars",
+    "stock_trades": "massive-stock-trades",
+    "massive-stock-trades": "massive-stock-trades",
+}
 
 
 def relevant_source_health(
@@ -39,7 +45,7 @@ def used_sources(selection_reports: Sequence[Mapping[str, object]]) -> set[str]:
             if isinstance(provenance, Mapping):
                 source = provenance.get("source")
                 if isinstance(source, str) and source:
-                    sources.add(source)
+                    sources.add(SOURCE_ALIASES.get(source, source))
     return sources
 
 

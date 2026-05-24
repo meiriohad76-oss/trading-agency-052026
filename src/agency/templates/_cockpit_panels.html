@@ -160,9 +160,13 @@
     <article class="cockpit-panel-card">
       <button type="button" class="cockpit-panel-close" data-cockpit-panel-close>Close panel</button>
       <h2 id="cockpit-panel-audit-heading">Audit Trace</h2>
-      <p class="muted">Cycle {{ audit_lifecycle.cycle_id }}. Evidence hash values are shown when the runtime persisted them.</p>
+      {% set audit_traces = audit_lifecycle.traces|default({}) %}
+      {% if audit_traces is not mapping %}
+        {% set audit_traces = {} %}
+      {% endif %}
+      <p class="muted">Cycle {{ audit_lifecycle.cycle_id|default("not recorded") }}. Evidence hash values are shown when the runtime persisted them.</p>
       <div class="cockpit-panel-list cockpit-audit-timeline">
-        {% for ticker, events in audit_lifecycle.traces.items() %}
+        {% for ticker, events in audit_traces.items() %}
           <article>
             <strong>{{ ticker }}</strong>
             {% for event in events %}

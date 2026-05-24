@@ -14,12 +14,23 @@ from agency.runtime.cockpit_monitor import (
     monitor_status_from_scheduler,
     source_health_rows,
 )
+from agency.views._shared import dashboard_data_health
 
 TRADE_ACTIONS = {"BUY", "SELL", "SHORT", "COVER"}
 MAX_COCKPIT_CANDIDATES = 25
 QA_SCENARIOS = {"normal", "no-actionable", "outage", "submitted"}
 DEFAULT_OPTIONAL_CONTEXT_TIMEOUT_SECONDS = 4.0
 DEFAULT_REQUIRED_CONTEXT_TIMEOUT_SECONDS = 12.0
+DEFAULT_SOURCE_LOAD_TIMEOUT_SECONDS = 1.5
+COCKPIT_DATA_HEALTH_DATASETS = (
+    "prices_daily",
+    "stock_trades",
+    "sec_company_facts",
+    "sec_form4",
+    "sec_13f",
+    "news_rss",
+    "subscription_emails",
+)
 
 ContextBuilder = Callable[[], Awaitable[dict[str, object]]]
 
@@ -31,7 +42,13 @@ async def cockpit_context(
 ) -> dict[str, object]:
     """Build the cockpit aggregate from existing production page contexts."""
 
-    from agency.views.command import dashboard_context, paper_review_status_context
+    from agency.views.command import (
+        _runtime_data_source_status_with_load_status_live,
+        dashboard_context,
+        data_load_status_view,
+        paper_review_status_context,
+        source_status_rows,
+    )
     from agency.views.execution import execution_preview_context
     from agency.views.portfolio import portfolio_monitor_context
 
@@ -58,6 +75,12 @@ async def cockpit_context(
             paper_review_status_context,
             timeout_seconds=required_timeout,
         ),
+    )
+    dashboard = await _dashboard_with_cockpit_data_proof(
+        dashboard,
+        source_load_status_builder=_runtime_data_source_status_with_load_status_live,
+        data_load_status_view_builder=data_load_status_view,
+        source_status_rows_builder=source_status_rows,
     )
     dashboard = _dashboard_with_paper_review(dashboard, paper_review)
     context = cockpit_context_from_sources(
@@ -140,6 +163,13 @@ def _required_context_timeout_seconds() -> float:
     )
 
 
+def _source_load_timeout_seconds() -> float:
+    return _context_timeout_seconds(
+        "AGENCY_COCKPIT_SOURCE_LOAD_TIMEOUT_SECONDS",
+        default=DEFAULT_SOURCE_LOAD_TIMEOUT_SECONDS,
+    )
+
+
 def _context_timeout_seconds(env_name: str, *, default: float) -> float:
     raw = os.environ.get(env_name, "")
     if not raw.strip():
@@ -200,6 +230,69 @@ def _dashboard_with_paper_review(
         "review_queue": queue,
         "review_progress": _mapping(paper_review.get("progress")),
     }
+
+
+async def _dashboard_with_cockpit_data_proof(
+    dashboard: Mapping[str, object],
+    *,
+    source_load_status_builder: Callable[[], Awaitable[dict[str, object]]],
+    data_load_status_view_builder: Callable[[Mapping[str, object]], dict[str, object]],
+    source_status_rows_builder: Callable[[Sequence[Mapping[str, object]]], list[dict[str, object]]],
+) -> dict[str, object]:
+    if _dashboard_has_cockpit_data_proof(dashboard):
+        return dict(dashboard)
+    if not _dashboard_context_needs_data_proof_fallback(dashboard):
+        return dict(dashboard)
+    fallback = dict(dashboard)
+    try:
+        source_load_status = await asyncio.wait_for(
+            source_load_status_builder(),
+            timeout=_source_load_timeout_seconds(),
+        )
+    except TimeoutError:
+        return fallback
+    except Exception:
+        return fallback
+    data_sources = [
+        _mapping(row)
+        for row in _list(source_load_status.get("data_sources"))
+        if _mapping(row)
+    ]
+    data_load_status = _mapping(source_load_status.get("data_load_status"))
+    if not data_sources and not data_load_status:
+        return fallback
+    existing_data_load = _mapping(fallback.get("data_load_status"))
+    if not _dashboard_data_load_has_lane_rows(existing_data_load):
+        fallback["data_load_status"] = data_load_status_view_builder(data_load_status)
+    if not _list(fallback.get("data_sources")) and data_sources:
+        fallback["data_sources"] = source_status_rows_builder(data_sources)
+    if not _list(_mapping(fallback.get("data_health")).get("rows")):
+        fallback["data_health"] = dashboard_data_health(
+            "Pre-flight cockpit",
+            data_load_status=data_load_status,
+            datasets=COCKPIT_DATA_HEALTH_DATASETS,
+        )
+    return fallback
+
+
+def _dashboard_has_cockpit_data_proof(dashboard: Mapping[str, object]) -> bool:
+    return _dashboard_data_load_has_lane_rows(_mapping(dashboard.get("data_load_status"))) and bool(
+        _list(_mapping(dashboard.get("data_health")).get("rows"))
+    )
+
+
+def _dashboard_context_needs_data_proof_fallback(dashboard: Mapping[str, object]) -> bool:
+    context_status = _mapping(dashboard.get("context_status"))
+    status = _first_text(context_status.get("status")).lower()
+    status_class = _first_text(context_status.get("status_class")).lower()
+    return status in {"delayed", "failed"} or status_class == "block"
+
+
+def _dashboard_data_load_has_lane_rows(data_load_status: Mapping[str, object]) -> bool:
+    return bool(
+        _list(data_load_status.get("lane_state_rows"))
+        or _list(data_load_status.get("lane_states"))
+    )
 
 
 def cockpit_context_from_sources(
@@ -1829,13 +1922,44 @@ def _scrub_secrets(value: object) -> object:
         scrubbed: dict[str, object] = {}
         for key, item in value.items():
             key_text = str(key)
-            if any(token in key_text.lower() for token in ("secret", "api_key", "password", "database_url")):
+            key_lower = key_text.lower()
+            if _is_secret_key(key_lower):
                 continue
             scrubbed[key_text] = _scrub_secrets(item)
         return scrubbed
     if isinstance(value, list):
         return [_scrub_secrets(item) for item in value]
     return value
+
+
+def _is_secret_key(key_lower: str) -> bool:
+    normalized = re.sub(r"[^a-z0-9]+", "_", key_lower).strip("_")
+    exact_secret_keys = {
+        "secret",
+        "api_key",
+        "apikey",
+        "password",
+        "database_url",
+        "token",
+        "bearer",
+        "credential",
+        "credentials",
+        "authorization",
+        "private_key",
+        "certificate",
+        "access_key",
+        "access_token",
+        "accesstoken",
+        "refresh_key",
+        "refresh_token",
+        "refreshtoken",
+        "auth_token",
+    }
+    return (
+        normalized in exact_secret_keys
+        or normalized.endswith(("_secret", "_token", "_password", "_api_key", "_private_key", "_access_key"))
+        or normalized.startswith("secret_")
+    )
 
 
 def _mapping(value: object) -> Mapping[str, object]:

@@ -88,3 +88,22 @@ def test_policy_change_invalidates_staged_submit_until_revalidated() -> None:
     assert "data-policy-change-invalidates-submit" in panels
     assert "invalidateSubmitGate" in script
     assert "Refresh cockpit after policy apply before submitting paper orders." in script
+
+
+def test_policy_field_typing_updates_diff_without_invalidating_submit_gate() -> None:
+    script = SCRIPT.read_text(encoding="utf-8")
+    input_handler = script.split('field.addEventListener("input", () => {', 1)[1].split("});", 1)[0]
+
+    assert "refreshPolicyDiff();" in input_handler
+    assert "invalidateSubmitGate" not in input_handler
+
+
+def test_policy_diff_uses_dom_text_nodes_for_staged_values() -> None:
+    script = SCRIPT.read_text(encoding="utf-8")
+    policy_block = script.split("function setupPolicyPanel()", 1)[1].split(
+        "function invalidateSubmitGate()",
+        1,
+    )[0]
+
+    assert "diffTarget.innerHTML" not in policy_block
+    assert ".textContent" in policy_block

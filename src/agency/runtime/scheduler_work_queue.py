@@ -760,13 +760,13 @@ def _trade_pull_running(
     trade_pull = _mapping(progress.get("trade_pull"))
     if lane_id:
         lane_rows = _mapping_rows(progress, "massive_lanes")
-        if lane_rows:
-            return any(
-                str(lane_row.get("lane_id") or "") == lane_id
-                and str(lane_row.get("state") or "").lower() == "running"
-                and _progress_window_matches_lane(row, lane_row)
-                for lane_row in lane_rows
-            )
+        if lane_rows and any(
+            str(lane_row.get("lane_id") or "") == lane_id
+            and str(lane_row.get("state") or "").lower() == "running"
+            and _progress_window_matches_lane(row, lane_row)
+            for lane_row in lane_rows
+        ):
+            return True
         running_lane = str(trade_pull.get("lane_id") or "")
         if running_lane and running_lane != lane_id:
             return False
@@ -1873,6 +1873,7 @@ def _massive_lane_command(
         "BLOCKED",
         "READY",
         "READY_FROM_RAW",
+        "RUNNING",
     }:
         return []
     profile = str(row.get("command_profile") or "")

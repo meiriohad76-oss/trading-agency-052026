@@ -3218,30 +3218,47 @@ def _member(ticker: str, start: date, end: date | None) -> dict[str, object]:
 
 
 def _dataset(status: dict[str, object], name: str) -> dict[str, object]:
-    rows = status["datasets"]
-    if not isinstance(rows, list):
-        raise TypeError("datasets must be a list")
-    for row in rows:
-        if isinstance(row, dict) and row.get("dataset") == name:
-            return row
-    raise AssertionError(f"missing dataset {name}")
+    return _row_by_key(
+        status,
+        collection="datasets",
+        key="dataset",
+        value=name,
+        missing_label="dataset",
+    )
 
 
 def _lane(status: dict[str, object], name: str) -> dict[str, object]:
-    rows = status["lanes"]
-    if not isinstance(rows, list):
-        raise TypeError("lanes must be a list")
-    for row in rows:
-        if isinstance(row, dict) and row.get("lane") == name:
-            return row
-    raise AssertionError(f"missing lane {name}")
+    return _row_by_key(
+        status,
+        collection="lanes",
+        key="lane",
+        value=name,
+        missing_label="lane",
+    )
 
 
 def _lane_state(status: dict[str, object], name: str) -> dict[str, object]:
-    rows = status["lane_states"]
+    return _row_by_key(
+        status,
+        collection="lane_states",
+        key="lane_id",
+        value=name,
+        missing_label="lane state",
+    )
+
+
+def _row_by_key(
+    status: dict[str, object],
+    *,
+    collection: str,
+    key: str,
+    value: str,
+    missing_label: str,
+) -> dict[str, object]:
+    rows = status[collection]
     if not isinstance(rows, list):
-        raise TypeError("lane_states must be a list")
+        raise TypeError(f"{collection} must be a list")
     for row in rows:
-        if isinstance(row, dict) and row.get("lane_id") == name:
+        if isinstance(row, dict) and row.get(key) == value:
             return row
-    raise AssertionError(f"missing lane state {name}")
+    raise AssertionError(f"missing {missing_label} {value}")

@@ -64,6 +64,7 @@ def test_shared_base_declares_v3_operating_shell() -> None:
     assert "Portfolio" in html
     assert "Clearance" in html
     assert "Cleared" in html
+    assert "active_nav in ['audit', 'cleared']" in html
 
 
 def test_all_primary_screens_have_bottom_line_page_titles() -> None:

@@ -3092,7 +3092,8 @@ async def paper_review_status_context() -> dict[str, object]:
         cast(Sequence[Mapping[str, object]], risk_result),
         reports,
     )
-    data_load_status = load_data_load_status(
+    data_load_status = await asyncio.to_thread(
+        load_data_load_status,
         source_health_rows=data_sources,
         source_health_origin=_source_health_origin_label(data_sources),
     )
@@ -3151,7 +3152,7 @@ async def operational_readiness_context() -> dict[str, object]:
     return build_operational_readiness(
         health={"status": "ok", "service": "trading-agency-v3"},
         live_config=live_config,
-        data_refresh=load_data_refresh_progress(),
+        data_refresh=await asyncio.to_thread(load_data_refresh_progress),
         data_load_status=data_load_status,
         live_readiness=readiness,
         paper_review=paper_status,
@@ -3232,7 +3233,8 @@ async def scheduler_work_queue_raw_context() -> dict[str, object]:
     )
     reports = _active_cycle_reports(raw_reports)
     risk_decisions = _risk_decisions_for_reports(raw_risk_decisions, reports)
-    data_load_status = load_data_load_status(
+    data_load_status = await asyncio.to_thread(
+        load_data_load_status,
         source_health_rows=data_sources,
         source_health_origin=_source_health_origin_label(data_sources),
     )

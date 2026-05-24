@@ -971,7 +971,7 @@ async def test_broker_status_context_bounds_dashboard_broker_reads(
             "detail": "slow broker response",
         }
 
-    market_regime_module._broker_status_context_cache.clear()
+    await _reset_broker_test_state()
     monkeypatch.setenv("AGENCY_ALPACA_BROKER_ENABLED", "true")
     monkeypatch.setenv("ALPACA_API_KEY", "paper-key")
     monkeypatch.setenv("ALPACA_SECRET_KEY", "paper-secret")
@@ -991,6 +991,7 @@ async def test_broker_status_context_bounds_dashboard_broker_reads(
     assert context["status_class"] == "warn"
     assert "did not finish within 0.01s" in str(context["detail"])
     assert datetime.fromisoformat(str(context["checked_at"])) >= started
+    await _wait_for_broker_inflight(allow_errors=True)
 
 
 async def test_broker_status_context_caches_completed_delayed_broker_reads(
@@ -1016,7 +1017,7 @@ async def test_broker_status_context_caches_completed_delayed_broker_reads(
             "detail": "broker response",
         }
 
-    market_regime_module._broker_status_context_cache.clear()
+    await _reset_broker_test_state()
     monkeypatch.setenv("AGENCY_ALPACA_BROKER_ENABLED", "true")
     monkeypatch.setenv("ALPACA_API_KEY", "paper-key")
     monkeypatch.setenv("ALPACA_SECRET_KEY", "paper-secret")
@@ -1029,7 +1030,7 @@ async def test_broker_status_context_caches_completed_delayed_broker_reads(
     )
 
     delayed = await market_regime_module.broker_status_context(use_cache=True)
-    await asyncio.sleep(0.06)
+    await _wait_for_broker_inflight()
     recovered = await market_regime_module.broker_status_context(use_cache=True)
 
     assert delayed["status_label"] == "Broker Check Delayed"
@@ -1049,8 +1050,7 @@ async def test_broker_status_context_caches_failed_delayed_broker_reads(
         await asyncio.sleep(0.05)
         raise market_regime_module.AlpacaBrokerError("paper broker network unavailable")
 
-    market_regime_module._broker_status_context_cache.clear()
-    market_regime_module._broker_status_inflight.clear()
+    await _reset_broker_test_state()
     monkeypatch.setenv("AGENCY_ALPACA_BROKER_ENABLED", "true")
     monkeypatch.setenv("ALPACA_API_KEY", "paper-key")
     monkeypatch.setenv("ALPACA_SECRET_KEY", "paper-secret")
@@ -1064,7 +1064,7 @@ async def test_broker_status_context_caches_failed_delayed_broker_reads(
 
     delayed = await market_regime_module.broker_status_context(use_cache=True)
     repeated = await market_regime_module.broker_status_context(use_cache=True)
-    await asyncio.sleep(0.06)
+    await _wait_for_broker_inflight(allow_errors=True)
     offline = await market_regime_module.broker_status_context(use_cache=True)
 
     assert delayed["status_label"] == "Broker Check Delayed"
@@ -1073,6 +1073,48 @@ async def test_broker_status_context_caches_failed_delayed_broker_reads(
     assert offline["status_class"] == "warn"
     assert "paper broker network unavailable" in str(offline["detail"])
     assert calls == 1
+
+
+async def _wait_for_broker_inflight(*, allow_errors: bool = False) -> None:
+    tasks = list(market_regime_module._broker_status_inflight.values())
+    if not tasks:
+        return
+    await _await_broker_tasks(tasks, allow_errors=allow_errors)
+
+
+async def _await_broker_tasks(
+    tasks: list[asyncio.Future[object]],
+    *,
+    allow_errors: bool,
+) -> None:
+    current_loop = asyncio.get_running_loop()
+    current_loop_tasks: list[asyncio.Future[object]] = []
+    for task in tasks:
+        task_loop = task.get_loop()
+        if task_loop is not current_loop:
+            if not task.done():
+                task.cancel()
+            continue
+        current_loop_tasks.append(task)
+    if current_loop_tasks:
+        await asyncio.wait(current_loop_tasks)
+        for task in current_loop_tasks:
+            if task.cancelled():
+                continue
+            error = task.exception()
+            if error is not None and not allow_errors:
+                raise error
+    await asyncio.sleep(0)
+
+
+async def _reset_broker_test_state() -> None:
+    tasks = list(market_regime_module._broker_status_inflight.values())
+    market_regime_module._broker_status_inflight.clear()
+    for task in tasks:
+        if not task.done():
+            task.cancel()
+    await _await_broker_tasks(tasks, allow_errors=False)
+    market_regime_module._broker_status_context_cache.clear()
 
 
 async def test_broker_status_context_does_not_reuse_foreign_loop_inflight_task(
@@ -1097,8 +1139,7 @@ async def test_broker_status_context_does_not_reuse_foreign_loop_inflight_task(
             "detail": "broker response",
         }
 
-    market_regime_module._broker_status_context_cache.clear()
-    market_regime_module._broker_status_inflight.clear()
+    await _reset_broker_test_state()
     monkeypatch.setenv("AGENCY_ALPACA_BROKER_ENABLED", "true")
     monkeypatch.setenv("ALPACA_API_KEY", "paper-key")
     monkeypatch.setenv("ALPACA_SECRET_KEY", "paper-secret")
@@ -1128,7 +1169,7 @@ async def test_broker_status_context_can_return_nonblocking_pending_status(
     async def failing_broker_snapshot(*, config: object) -> dict[str, object]:
         raise AssertionError("dashboard shell should not call live broker")
 
-    market_regime_module._broker_status_context_cache.clear()
+    await _reset_broker_test_state()
     monkeypatch.setenv("AGENCY_ALPACA_BROKER_ENABLED", "true")
     monkeypatch.setattr(market_regime_module, "broker_snapshot", failing_broker_snapshot)
 

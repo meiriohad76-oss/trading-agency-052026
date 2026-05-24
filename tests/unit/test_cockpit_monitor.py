@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from agency.runtime.cockpit_monitor import source_state
 from agency.views.cockpit import cockpit_context_from_sources
 
 TEMPLATE = Path("src/agency/templates/cockpit.html")
@@ -97,6 +98,50 @@ def test_cockpit_replaces_stale_with_actionable_state_copy() -> None:
     assert source["state_label"] == "Analyzed result needs refresh"
     assert "stale" not in source["state_label"].lower()
     assert source["next_action"] == "Refresh this lane, then rerun the agent analysis."
+
+
+def test_source_state_treats_degraded_freshness_as_needs_refresh_even_with_timestamp() -> None:
+    state = source_state(
+        {
+            "status": "HEALTHY",
+            "freshness": "AGING",
+            "status_label": "Loaded",
+            "last_update": "2026-05-22T14:00:00+00:00",
+        }
+    )
+
+    assert state["state"] == "needs_refresh"
+    assert state["label"] == "Analyzed result needs refresh"
+
+
+def test_source_state_does_not_treat_generic_needs_text_as_refresh() -> None:
+    state = source_state(
+        {
+            "status": "HEALTHY",
+            "status_label": "Loaded",
+            "freshness": "fresh",
+            "last_update": "2026-05-22T14:00:00+00:00",
+            "detail": "Operator needs to review the visible proof before approval.",
+        }
+    )
+
+    assert state["state"] == "ready"
+    assert state["label"] == "Usable with proof timestamp"
+
+
+def test_source_state_does_not_treat_generic_access_text_as_unavailable() -> None:
+    state = source_state(
+        {
+            "status": "HEALTHY",
+            "status_label": "Loaded",
+            "freshness": "fresh",
+            "last_update": "2026-05-22T14:00:00+00:00",
+            "detail": "Data access exists and the latest proof is visible.",
+        }
+    )
+
+    assert state["state"] == "ready"
+    assert state["label"] == "Usable with proof timestamp"
 
 
 def test_refreshable_lane_has_refresh_action() -> None:

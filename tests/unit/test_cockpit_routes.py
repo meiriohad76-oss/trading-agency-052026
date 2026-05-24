@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import time
 
 from fastapi.testclient import TestClient
@@ -11,6 +12,7 @@ import agency.views.command as command_view
 import agency.views.execution as execution_view
 import agency.views.portfolio as portfolio_view
 from agency.app import create_app
+from agency.views.cockpit import _scrub_secrets
 
 
 def _context() -> dict[str, object]:
@@ -137,6 +139,24 @@ def test_root_cockpit_exposes_displayed_data_health(monkeypatch: MonkeyPatch) ->
     assert "Coverage" in response.text
     assert "Freshness" in response.text
     assert "Last update" in response.text
+
+
+def test_cockpit_payload_scrubber_removes_common_secret_aliases() -> None:
+    payload = {
+        "token": "bearer-secret",
+        "access_token": "access-secret",
+        "refreshToken": "refresh-secret",
+        "Authorization": "Bearer secret",
+        "credentials": {"username": "paper", "password": "hidden"},
+        "private_key": "key-secret",
+        "certificate": "cert-secret",
+        "author": "research desk",
+        "visible": [{"ticker": "AAPL"}],
+    }
+
+    scrubbed = _scrub_secrets(payload)
+
+    assert scrubbed == {"author": "research desk", "visible": [{"ticker": "AAPL"}]}
 
 
 def test_cockpit_is_primary_operating_entrypoint(monkeypatch: MonkeyPatch) -> None:
@@ -300,3 +320,112 @@ async def test_cockpit_context_does_not_block_on_slow_optional_sections(
     assert elapsed < 0.20
     assert context["candidates"][0]["ticker"] == "FAST"  # type: ignore[index]
     assert context["portfolio_phase"]["status_label"] == "Portfolio Check Delayed"  # type: ignore[index]
+
+
+async def test_cockpit_context_keeps_lane_state_when_dashboard_context_is_partial(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    async def partial_dashboard_context() -> dict[str, object]:
+        return {
+            "context_status": {
+                "status": "delayed",
+                "status_label": "Command Dashboard Check Delayed",
+                "status_class": "warn",
+            }
+        }
+
+    async def fake_source_status() -> dict[str, object]:
+        return {
+            "data_sources": [
+                {
+                    "source": "massive-stock-trades",
+                    "name": "Massive live trade slices",
+                    "lane_id": "massive_live_trade_slices",
+                    "status": "OK",
+                    "freshness": "FRESH",
+                    "status_label": "Loaded",
+                    "status_class": "pass",
+                    "reliability_score": 1.0,
+                    "checked_at": "2026-05-22T14:01:00+00:00",
+                    "last_update": "2026-05-22T14:00:00+00:00",
+                }
+            ],
+            "data_load_status": {
+                "status_label": "Review ready",
+                "status_class": "pass",
+                "overall_percent": 100,
+                "latest_checked_at": "2026-05-22T14:01:00+00:00",
+                "datasets": [],
+                "lanes": [],
+                "blockers": [],
+                "warnings": [],
+                "lane_states": [
+                    {
+                        "lane_id": "massive_live_trade_slices",
+                        "label": "Massive live trade slices",
+                        "lane_kind": "raw",
+                        "state": "ready_for_review",
+                        "status_label": "Ready for review",
+                        "status_class": "pass",
+                        "progress_label": "1/1 ticker-days",
+                        "required_now": True,
+                        "blocks_execution": True,
+                        "ready_for_review": True,
+                        "ready_for_paper_execution": True,
+                        "latest_as_of": "2026-05-22T14:00:00+00:00",
+                        "checked_at": "2026-05-22T14:01:00+00:00",
+                        "operator_message": "Current live slice is loaded.",
+                        "recommended_action": "No action needed.",
+                    }
+                ],
+            },
+        }
+
+    async def fake_paper_review_status_context() -> dict[str, object]:
+        return {"queue": [], "progress": {"total_count": 0}}
+
+    async def empty_context() -> dict[str, object]:
+        return {}
+
+    monkeypatch.setattr(command_view, "dashboard_context", partial_dashboard_context)
+    monkeypatch.setattr(
+        command_view,
+        "_runtime_data_source_status_with_load_status_live",
+        fake_source_status,
+    )
+    monkeypatch.setattr(command_view, "paper_review_status_context", fake_paper_review_status_context)
+    monkeypatch.setattr(execution_view, "execution_preview_context", empty_context)
+    monkeypatch.setattr(portfolio_view, "portfolio_monitor_context", empty_context)
+
+    context = await cockpit_view.cockpit_context()
+
+    assert context["data_health"]["rows"]  # type: ignore[index]
+    assert context["data_state"]["lane_rows"][0]["name"] == "Massive Live Trade Slices"  # type: ignore[index]
+
+
+async def test_cockpit_data_proof_fallback_has_bounded_timeout(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    async def slow_source_status() -> dict[str, object]:
+        await asyncio.sleep(0.25)
+        return {"data_sources": [], "data_load_status": {}}
+
+    monkeypatch.setenv("AGENCY_COCKPIT_SOURCE_LOAD_TIMEOUT_SECONDS", "0.02")
+    start = time.perf_counter()
+    context = await cockpit_view._dashboard_with_cockpit_data_proof(
+        {
+            "context_status": {
+                "status": "delayed",
+                "status_label": "Command Dashboard Check Delayed",
+                "status_class": "warn",
+            }
+        },
+        source_load_status_builder=slow_source_status,
+        data_load_status_view_builder=command_view.data_load_status_view,
+        source_status_rows_builder=command_view.source_status_rows,
+    )
+    elapsed = time.perf_counter() - start
+
+    assert elapsed < 0.20
+    assert context["context_status"]["status"] == "delayed"  # type: ignore[index]
+    assert "data_health" not in context

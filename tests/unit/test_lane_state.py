@@ -153,6 +153,45 @@ def test_lane_states_report_raw_ready_but_derived_not_analyzed() -> None:
     assert "Run the Technical Analysis agent" in str(lane["recommended_action"])
 
 
+def test_lane_states_keep_partial_derived_subset_reviewable_not_execution_ready() -> None:
+    states = build_lane_states(
+        data_refresh={},
+        dataset_rows=[
+            {
+                "dataset": "prices_daily",
+                "status": "ready",
+                "status_class": "pass",
+                "source_status": "HEALTHY",
+                "source_freshness": "FRESH",
+            }
+        ],
+        lane_rows=[
+            {
+                "lane": "technical_analysis",
+                "label": "Technical Analysis",
+                "group": "critical",
+                "source_dataset": "prices_daily",
+                "status": "warning",
+                "status_class": "warn",
+                "analysis_state": "analyzed_current",
+                "produced_count": 1,
+                "expected_count": 168,
+                "required_now": True,
+                "source_status": "HEALTHY",
+                "source_freshness": "FRESH",
+            }
+        ],
+        source_health_rows=[],
+        now=NOW,
+    )
+
+    lane = _lane(states, "technical_analysis")
+    assert lane["state"] == "ready_for_review"
+    assert lane["ready_for_review"] is True
+    assert lane["ready_for_paper_execution"] is False
+    assert lane["blocker"] is False
+
+
 def test_lane_states_cover_massive_orchestrator_derived_requirements() -> None:
     states = build_lane_states(
         data_refresh={"massive_lanes": []},

@@ -252,6 +252,7 @@ async def cockpit_submit(request: Request) -> JSONResponse:
 
     accepted: list[dict[str, object]] = []
     rejected: list[dict[str, object]] = []
+    reconcile_pending: list[dict[str, object]] = []
     for order in orders:
         row = row_from_execution_context(
             context,
@@ -272,6 +273,22 @@ async def cockpit_submit(request: Request) -> JSONResponse:
                 order_intent_hash=str(row["order_intent_hash"]),
             )
         except HTTPException as exc:
+            if exc.status_code == 202:
+                accepted_row = {
+                    "ticker": str(row.get("ticker") or order["ticker"]),
+                    "broker_order_id": str(
+                        row.get("broker_order_id")
+                        or row.get("order_id")
+                        or row.get("submitted_order_id")
+                        or ""
+                    ),
+                    "order_intent_hash": str(row.get("order_intent_hash") or ""),
+                    "detail": str(exc.detail),
+                    "status_code": exc.status_code,
+                }
+                accepted.append(accepted_row)
+                reconcile_pending.append(accepted_row)
+                continue
             rejected.append(
                 {
                     "ticker": str(row.get("ticker") or order["ticker"]),
@@ -292,6 +309,16 @@ async def cockpit_submit(request: Request) -> JSONResponse:
                     "order_intent_hash": str(row.get("order_intent_hash") or ""),
                 }
             )
+    if reconcile_pending and not rejected:
+        return JSONResponse(
+            {
+                "state": "reconcile_pending",
+                "detail": "Paper submit was accepted and needs broker reconciliation.",
+                "accepted": accepted,
+                "rejected": rejected,
+            },
+            status_code=202,
+        )
     if accepted and rejected:
         return JSONResponse(
             {

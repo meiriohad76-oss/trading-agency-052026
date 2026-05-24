@@ -78,3 +78,16 @@ def test_qa_script_panel_focus_uses_first_matching_panel_trigger() -> None:
     panels_branch = source.split('elif focus == "panels":', 1)[1]
 
     assert ".first.click()" in panels_branch
+
+
+def test_qa_script_portfolio_focus_uses_first_matching_phase_controls() -> None:
+    source = inspect.getsource(qa._exercise_focus)
+    portfolio_branch = source.split('elif focus == "portfolio":', 1)[1].split(
+        'elif focus == "panels":',
+        1,
+    )[0]
+
+    assert "phase_button = page.locator" in portfolio_branch
+    assert "phase_button.count() == 0" in portfolio_branch
+    assert "phase_button.first.click()" in portfolio_branch
+    assert "portfolio_phase.first.is_visible()" in portfolio_branch

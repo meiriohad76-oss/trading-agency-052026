@@ -657,6 +657,10 @@ def _massive_lane_issues(
         for issue in _sequence(source):
             if isinstance(issue, Mapping):
                 issues.append(dict(issue))
+            elif issue is not None:
+                text = str(issue).strip()
+                if text and text.casefold() not in {"none", "null", "<none>"}:
+                    issues.append({"reason": text})
     return issues
 
 

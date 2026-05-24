@@ -228,6 +228,23 @@ def test_live_readiness_prefers_newer_full_active_cycle_over_old_live_pit() -> N
     assert summary["ready"] is True
 
 
+def test_live_readiness_prefers_operational_cycle_over_newer_manual_smoke() -> None:
+    summary = build_live_readiness(
+        source_health=[_source("sec-edgar", status="HEALTHY", freshness="FRESH")],
+        selection_reports=[
+            _report("manual-smoke-20260524T090000Z", "MSFT", "WATCH"),
+            _report("live-pit-2026-05-23-20260523T210000Z", "AAPL", "WATCH"),
+        ],
+        risk_decisions=[
+            _risk("manual-smoke-20260524T090000Z", "MSFT", "WARN"),
+            _risk("live-pit-2026-05-23-20260523T210000Z", "AAPL", "WARN"),
+        ],
+    )
+
+    assert summary["cycle_id"] == "live-pit-2026-05-23-20260523T210000Z"
+    assert summary["ready"] is True
+
+
 def test_live_readiness_ignores_sources_not_used_by_latest_cycle() -> None:
     summary = build_live_readiness(
         source_health=[

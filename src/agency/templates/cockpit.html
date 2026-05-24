@@ -102,20 +102,20 @@
       <p class="muted">These controls change display only. They never arm submit, broker state, or live trading.</p>
       <fieldset>
         <legend>Color preset</legend>
-        <label><input type="radio" name="cockpit-color-preset" value="amber" checked> Amber</label>
-        <label><input type="radio" name="cockpit-color-preset" value="duotone"> Duotone</label>
-        <label><input type="radio" name="cockpit-color-preset" value="saturated"> Saturated</label>
+        <label><input type="radio" name="cockpit-color-preset" value="amber" {% if preferences.color_preset == 'amber' %}checked{% endif %}> Amber</label>
+        <label><input type="radio" name="cockpit-color-preset" value="duotone" {% if preferences.color_preset == 'duotone' %}checked{% endif %}> Duotone</label>
+        <label><input type="radio" name="cockpit-color-preset" value="saturated" {% if preferences.color_preset == 'saturated' %}checked{% endif %}> Saturated</label>
       </fieldset>
       <fieldset>
         <legend>Theme</legend>
-        <label><input type="radio" name="cockpit-theme" value="dark"> Dark</label>
-        <label><input type="radio" name="cockpit-theme" value="accent" checked> Accent</label>
-        <label><input type="radio" name="cockpit-theme" value="light"> Light</label>
+        <label><input type="radio" name="cockpit-theme" value="dark" {% if preferences.theme == 'dark' %}checked{% endif %}> Dark</label>
+        <label><input type="radio" name="cockpit-theme" value="accent" {% if preferences.theme == 'accent' %}checked{% endif %}> Accent</label>
+        <label><input type="radio" name="cockpit-theme" value="light" {% if preferences.theme == 'light' %}checked{% endif %}> Light</label>
       </fieldset>
       <fieldset>
         <legend>Density</legend>
-        <label><input type="radio" name="cockpit-density" value="full" checked> Full</label>
-        <label><input type="radio" name="cockpit-density" value="calm"> Calm</label>
+        <label><input type="radio" name="cockpit-density" value="full" {% if preferences.density == 'full' %}checked{% endif %}> Full</label>
+        <label><input type="radio" name="cockpit-density" value="calm" {% if preferences.density == 'calm' %}checked{% endif %}> Calm</label>
       </fieldset>
       {% if qa_scenarios_enabled %}
         <fieldset data-cockpit-qa-scenario>

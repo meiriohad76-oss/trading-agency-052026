@@ -75,6 +75,17 @@ def test_cockpit_preferences_default_to_amber_accent_full() -> None:
     assert '"density":"full"' in script
 
 
+def test_cockpit_preferences_radio_checked_state_uses_server_preferences() -> None:
+    html = TEMPLATE.read_text(encoding="utf-8")
+
+    assert 'value="amber" checked' not in html
+    assert 'value="accent" checked' not in html
+    assert 'value="full" checked' not in html
+    assert "preferences.color_preset == 'amber'" in html
+    assert "preferences.theme == 'accent'" in html
+    assert "preferences.density == 'full'" in html
+
+
 def test_live_trading_is_not_a_tweak() -> None:
     html = TEMPLATE.read_text(encoding="utf-8")
     script = SCRIPT.read_text(encoding="utf-8")

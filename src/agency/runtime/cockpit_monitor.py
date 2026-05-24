@@ -5,11 +5,17 @@ known, when it was proven, and what the operator can do next.
 """
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import cast
 
 MONITOR_LIVE_WINDOW_SECONDS = 180
+NEEDS_REFRESH_PATTERN = re.compile(r"\b(?:needs refresh|needs update|needs rebuild|needs_rebuild)\b")
+UNAVAILABLE_PATTERN = re.compile(r"\b(?:block|blocked|down|unavailable|void|failed|failure)\b")
+ACCESS_FAILURE_PATTERN = re.compile(
+    r"\b(?:access denied|access failure|access unavailable|unauthorized|forbidden|permission denied)\b"
+)
 
 
 def source_health_rows(
@@ -68,6 +74,34 @@ def source_state(source: Mapping[str, object]) -> dict[str, str]:
     status_class = _first_text(source.get("status_class")).lower()
     status_label = _first_text(source.get("status"), source.get("status_label")).lower()
     freshness = _first_text(source.get("freshness"), source.get("freshness_label")).lower()
+    status_text = " ".join(
+        _first_text(source.get(key))
+        for key in (
+            "status_class",
+            "status",
+            "status_label",
+            "freshness",
+            "freshness_label",
+            "detail",
+        )
+    ).lower()
+    structured_text = " ".join(
+        _first_text(source.get(key))
+        for key in ("status_class", "status", "status_label", "freshness", "freshness_label")
+    ).lower()
+    detail_text = _first_text(source.get("detail")).lower()
+    if UNAVAILABLE_PATTERN.search(structured_text) or ACCESS_FAILURE_PATTERN.search(detail_text):
+        return {
+            "state": "unavailable",
+            "label": "Source unavailable or access problem",
+            "next_action": "Check credentials or provider status, then refresh this lane.",
+        }
+    if any(token in status_text for token in ("stale", "aging", "expired", "delayed", "not current")) or NEEDS_REFRESH_PATTERN.search(status_text):
+        return {
+            "state": "needs_refresh",
+            "label": "Analyzed result needs refresh",
+            "next_action": "Refresh this lane, then rerun the agent analysis.",
+        }
     has_proof_timestamp = bool(
         _first_text(
             source.get("last_update"),
@@ -87,22 +121,6 @@ def source_state(source: Mapping[str, object]) -> dict[str, str]:
             "state": "ready",
             "label": "Usable with proof timestamp",
             "next_action": "No action needed unless the policy window expires.",
-        }
-    status_text = " ".join(
-        _first_text(source.get(key))
-        for key in ("status_class", "status_label", "freshness_label", "detail")
-    ).lower()
-    if any(token in status_text for token in ("block", "down", "unavailable", "void", "failed", "access")):
-        return {
-            "state": "unavailable",
-            "label": "Source unavailable or access problem",
-            "next_action": "Check credentials or provider status, then refresh this lane.",
-        }
-    if any(token in status_text for token in ("stale", "expired", "needs", "delayed", "not current")):
-        return {
-            "state": "needs_refresh",
-            "label": "Analyzed result needs refresh",
-            "next_action": "Refresh this lane, then rerun the agent analysis.",
         }
     if not _first_text(source.get("last_update"), source.get("source_timestamp"), source.get("updated_at")):
         return {

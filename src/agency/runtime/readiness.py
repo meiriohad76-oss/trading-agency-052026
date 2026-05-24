@@ -246,8 +246,8 @@ def _latest_cycle_id(
 
 def _cycle_sort_key(cycle_id: str, *, index: int) -> tuple[int, int, int, int]:
     return (
-        _cycle_timestamp_rank(cycle_id),
         _cycle_operational_rank(cycle_id),
+        _cycle_timestamp_rank(cycle_id),
         1 if cycle_id.startswith(LIVE_CYCLE_PREFIXES) else 0,
         -index,
     )

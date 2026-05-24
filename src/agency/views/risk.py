@@ -55,7 +55,8 @@ async def risk_context() -> dict[str, object]:
     )
     reports = _active_cycle_reports(raw_reports)
     policy = await load_active_portfolio_policy()
-    data_load_status = load_data_load_status(
+    data_load_status = await asyncio.to_thread(
+        load_data_load_status,
         source_health_rows=data_sources,
         source_health_origin=_source_health_origin_label(data_sources),
     )

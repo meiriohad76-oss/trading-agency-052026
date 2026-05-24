@@ -114,7 +114,7 @@
             <strong>Clearance</strong>
             <small>Review staged paper orders and open the submit gate deliberately.</small>
           </a>
-          <a class="v3-phase {% if active_nav == 'cleared' %}active{% endif %}" href="/audit#execution-state-heading">
+          <a class="v3-phase {% if active_nav in ['audit', 'cleared'] %}active{% endif %}" href="/audit#execution-state-heading">
             <span class="v3-phase-index">04</span>
             <strong>Cleared</strong>
             <small>Verify transmitted paper orders and lifecycle audit records.</small>

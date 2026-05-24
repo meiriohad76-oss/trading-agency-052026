@@ -294,6 +294,9 @@ def _derived_state(
     expected = _int_or_none(row.get("expected_count"))
     if produced <= 0 and (expected is None or expected > 0) and _source_available(row, dataset):
         return "loaded_unanalyzed"
+    partial_output = expected is not None and 0 < produced < expected
+    if partial_output and _source_available(row, dataset):
+        return "ready_for_review"
     if analysis_state == "analyzed_needs_refresh" or row_status == "warning":
         return "needs_refresh"
     if row_status == "blocked":

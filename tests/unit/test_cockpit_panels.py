@@ -129,6 +129,14 @@ def test_audit_panel_uses_timeline_and_reproducibility_note() -> None:
     assert "evidence pack hash" in html.lower()
 
 
+def test_audit_panel_defaults_missing_trace_mapping_to_empty_state() -> None:
+    html = _panels()
+
+    assert "audit_traces" in html
+    assert "audit_lifecycle.traces|default({})" in html
+    assert "No audit trace is available for this cycle." in html
+
+
 def test_policy_panel_locks_live_trading() -> None:
     context = cockpit_context_from_sources(_sample_sources())
 
