@@ -187,16 +187,20 @@ def test_v3_templates_do_not_ship_inline_form_styles() -> None:
             assert not (("<input" in line or "<textarea" in line or "<select" in line) and 'style="' in line), name
 
 
-def test_v3_execution_and_portfolio_tables_keep_mobile_labels() -> None:
-    for name in ("execution_preview.html", "portfolio_monitor.html"):
+def test_v3_tables_keep_mobile_labels_on_all_non_cockpit_screens() -> None:
+    for name in V3_NON_COCKPIT_TEMPLATES:
         html = _template(name)
         table_body = "\n".join(
             line.strip()
             for line in html.splitlines()
             if line.strip().startswith("<td") and "empty-row" not in line
         )
+        if not table_body:
+            continue
         assert "data-label=" in table_body, name
         for line in table_body.splitlines():
+            if "colspan=" in line:
+                continue
             assert "data-label=" in line, f"{name}: {line}"
 
 

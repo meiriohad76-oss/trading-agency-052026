@@ -161,17 +161,17 @@
             data-sort-conviction="{{ row.report_conviction_pct }}"
             data-sort-confidence="{{ row.confidence_pct }}"
           >
-            <td><strong>{{ row.ticker }}</strong></td>
-            <td>{{ row.lane }}</td>
-            <td><span class="tag tag-{{ row.bucket_class }}">{{ row.bucket }}</span></td>
-            <td><span class="tag tag-{{ row.direction_class }}">{{ row.direction }}</span></td>
-            <td>{{ row.score }}</td>
-            <td>{{ row.report_conviction_pct }}%</td>
-            <td>{{ row.confidence_pct }}%</td>
-            <td><span class="tag tag-{{ row.freshness_class }}">{{ row.freshness }}</span></td>
-            <td>{{ row.source }}</td>
-            <td>{{ row.summary }}</td>
-            <td>
+            <td data-label="Ticker"><strong>{{ row.ticker }}</strong></td>
+            <td data-label="Lane / Type">{{ row.lane }}</td>
+            <td data-label="Bucket"><span class="tag tag-{{ row.bucket_class }}">{{ row.bucket }}</span></td>
+            <td data-label="Direction"><span class="tag tag-{{ row.direction_class }}">{{ row.direction }}</span></td>
+            <td data-label="Score">{{ row.score }}</td>
+            <td data-label="Conviction">{{ row.report_conviction_pct }}%</td>
+            <td data-label="Confidence">{{ row.confidence_pct }}%</td>
+            <td data-label="Freshness"><span class="tag tag-{{ row.freshness_class }}">{{ row.freshness }}</span></td>
+            <td data-label="Source">{{ row.source }}</td>
+            <td data-label="Summary">{{ row.summary }}</td>
+            <td data-label="Inspect">
               <button class="inspect-signal-button" type="button" data-inspect-target="{{ row.inspect_id }}">
                 Inspect Signal
               </button>

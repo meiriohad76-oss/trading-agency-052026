@@ -105,13 +105,13 @@
         <tbody>
           {% for run in agent_runs %}
           <tr>
-            <td>{{ run.cycle_id }}</td>
-            <td>{{ run.agent_name }}</td>
-            <td><span class="tag tag-{{ run.status_class }}">{{ run.status }}</span></td>
-            <td>{{ run.trigger }}</td>
-            <td>{{ run.selection_count }}</td>
-            <td>{{ run.risk_count }}</td>
-            <td>{{ run.started_at }}</td>
+            <td data-label="Cycle">{{ run.cycle_id }}</td>
+            <td data-label="Agent">{{ run.agent_name }}</td>
+            <td data-label="Status"><span class="tag tag-{{ run.status_class }}">{{ run.status }}</span></td>
+            <td data-label="Trigger">{{ run.trigger }}</td>
+            <td data-label="Selection">{{ run.selection_count }}</td>
+            <td data-label="Risk">{{ run.risk_count }}</td>
+            <td data-label="Started">{{ run.started_at }}</td>
           </tr>
           {% else %}
           <tr>
@@ -141,11 +141,11 @@
         <tbody>
           {% for snapshot in risk_snapshots %}
           <tr>
-            <td>{{ snapshot.cycle_id }}</td>
-            <td>{{ snapshot.ticker }}</td>
-            <td><span class="tag tag-{{ snapshot.risk_class }}">{{ snapshot.risk_level }}</span></td>
-            <td>{{ "%.0f"|format(snapshot.gross_exposure_pct) }}%</td>
-            <td>{{ snapshot.generated_at }}</td>
+            <td data-label="Cycle">{{ snapshot.cycle_id }}</td>
+            <td data-label="Ticker">{{ snapshot.ticker }}</td>
+            <td data-label="Risk"><span class="tag tag-{{ snapshot.risk_class }}">{{ snapshot.risk_level }}</span></td>
+            <td data-label="Gross Exposure">{{ "%.0f"|format(snapshot.gross_exposure_pct) }}%</td>
+            <td data-label="Generated">{{ snapshot.generated_at }}</td>
           </tr>
           {% else %}
           <tr>
@@ -179,14 +179,14 @@
         <tbody>
           {% for snapshot in portfolio_snapshots %}
           <tr>
-            <td>{{ snapshot.captured_at }}</td>
-            <td>{{ snapshot.mode }}</td>
-            <td>{{ snapshot.account_status }}</td>
-            <td>${{ "%.0f"|format(snapshot.equity) }}</td>
-            <td>${{ "%.0f"|format(snapshot.cash) }}</td>
-            <td>{{ "%.2f"|format(snapshot.gross_exposure_pct) }}%</td>
-            <td>{{ snapshot.position_count }}</td>
-            <td>{{ snapshot.open_order_count }}</td>
+            <td data-label="Captured">{{ snapshot.captured_at }}</td>
+            <td data-label="Mode">{{ snapshot.mode }}</td>
+            <td data-label="Status">{{ snapshot.account_status }}</td>
+            <td data-label="Equity">${{ "%.0f"|format(snapshot.equity) }}</td>
+            <td data-label="Cash">${{ "%.0f"|format(snapshot.cash) }}</td>
+            <td data-label="Exposure">{{ "%.2f"|format(snapshot.gross_exposure_pct) }}%</td>
+            <td data-label="Positions">{{ snapshot.position_count }}</td>
+            <td data-label="Open Orders">{{ snapshot.open_order_count }}</td>
           </tr>
           {% else %}
           <tr>
@@ -217,11 +217,11 @@
         <tbody>
           {% for state in execution_states %}
           <tr>
-            <td>{{ state.cycle_id }}</td>
-            <td>{{ state.ticker }}</td>
-            <td><span class="tag tag-{{ state.state_class }}">{{ state.state }}</span></td>
-            <td>{{ state.reason }}</td>
-            <td>{{ state.event_time }}</td>
+            <td data-label="Cycle">{{ state.cycle_id }}</td>
+            <td data-label="Ticker">{{ state.ticker }}</td>
+            <td data-label="State"><span class="tag tag-{{ state.state_class }}">{{ state.state }}</span></td>
+            <td data-label="Reason">{{ state.reason }}</td>
+            <td data-label="Event Time">{{ state.event_time }}</td>
           </tr>
           {% else %}
           <tr>
@@ -254,17 +254,17 @@
         <tbody>
           {% for prompt in prompt_audits %}
           <tr>
-            <td><strong>{{ prompt.ticker }}</strong></td>
-            <td><span class="tag tag-{{ prompt.status_class }}">{{ prompt.llm_action }}</span></td>
-            <td>
+            <td data-label="Ticker"><strong>{{ prompt.ticker }}</strong></td>
+            <td data-label="Result"><span class="tag tag-{{ prompt.status_class }}">{{ prompt.llm_action }}</span></td>
+            <td data-label="Rationale">
               <details class="shared-disclosure">
                 <summary>Show details: LLM rationale</summary>
                 <p>{{ prompt.llm_rationale }}</p>
               </details>
             </td>
-            <td><code class="technical-provenance">{{ prompt.cycle_id }}</code></td>
-            <td>{{ prompt.model }}</td>
-            <td>{{ prompt.redaction_status }}</td>
+            <td data-label="Cycle"><code class="technical-provenance">{{ prompt.cycle_id }}</code></td>
+            <td data-label="Model">{{ prompt.model }}</td>
+            <td data-label="Redaction">{{ prompt.redaction_status }}</td>
           </tr>
           {% endfor %}
         </tbody>

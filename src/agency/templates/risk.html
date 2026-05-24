@@ -152,15 +152,15 @@
         <tbody>
           {% for row in allow_rows + warn_rows %}
           <tr>
-            <td><a class="text-link" href="/candidates/{{ row.ticker }}">{{ row.ticker }}</a></td>
-            <td><span class="tag tag-{{ row.decision_class }}">{{ row.decision }}</span></td>
-            <td>{{ row.final_action }}</td>
-            <td>{{ row.conviction_pct }}%</td>
-            <td>{{ "%.0f"|format(row.projected_gross_exposure_pct) }}%</td>
-            <td>{{ row.plain_check_summary }}</td>
-            <td>{{ row.llm_action }}</td>
-            <td>{{ row.deterministic_score_label }}</td>
-            <td>{{ row.decision_action }}</td>
+            <td data-label="Ticker"><a class="text-link" href="/candidates/{{ row.ticker }}">{{ row.ticker }}</a></td>
+            <td data-label="Decision"><span class="tag tag-{{ row.decision_class }}">{{ row.decision }}</span></td>
+            <td data-label="Action">{{ row.final_action }}</td>
+            <td data-label="Conviction">{{ row.conviction_pct }}%</td>
+            <td data-label="Projected Gross">{{ "%.0f"|format(row.projected_gross_exposure_pct) }}%</td>
+            <td data-label="Meaning">{{ row.plain_check_summary }}</td>
+            <td data-label="LLM status">{{ row.llm_action }}</td>
+            <td data-label="Rules score">{{ row.deterministic_score_label }}</td>
+            <td data-label="User Action">{{ row.decision_action }}</td>
           </tr>
           {% else %}
           <tr>

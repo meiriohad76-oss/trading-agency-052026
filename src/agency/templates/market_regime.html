@@ -95,15 +95,15 @@
           <tbody>
             {% for row in benchmark_rows %}
             <tr>
-              <td>
+              <td data-label="Benchmark">
                 <strong>{{ row.ticker }}</strong>
                 <span class="muted-line">{{ row.label }}</span>
               </td>
-              <td>{{ row.latest_price }}</td>
-              <td>{{ row.return_5d }}</td>
-              <td><span class="tag tag-{{ row.tone_class }}">{{ row.return_20d }}</span></td>
-              <td>{{ row.return_60d }}</td>
-              <td>{{ row.observations }}</td>
+              <td data-label="Latest">{{ row.latest_price }}</td>
+              <td data-label="5D">{{ row.return_5d }}</td>
+              <td data-label="20D"><span class="tag tag-{{ row.tone_class }}">{{ row.return_20d }}</span></td>
+              <td data-label="60D">{{ row.return_60d }}</td>
+              <td data-label="Bars">{{ row.observations }}</td>
             </tr>
             {% endfor %}
           </tbody>

@@ -85,18 +85,18 @@
         <tbody>
           {% for row in near_miss.rows %}
           <tr>
-            <td>{{ row.ticker }}</td>
-            <td>{{ "%.2f"|format(row.inclusion_gap) }}</td>
-            <td>{{ "%.2f"|format(row.deterministic_score) }}</td>
-            <td>{{ row.miss_reason }}</td>
-            <td>
+            <td data-label="Ticker">{{ row.ticker }}</td>
+            <td data-label="Gap">{{ "%.2f"|format(row.inclusion_gap) }}</td>
+            <td data-label="Score">{{ "%.2f"|format(row.deterministic_score) }}</td>
+            <td data-label="Why Missed">{{ row.miss_reason }}</td>
+            <td data-label="Evidence">
               {{ row.source_count or 0 }} source(s),
               {{ row.confirmed_signal_count or 0 }} confirmed
               {% if row.strongest_lanes %}
                 <br><span class="muted">{{ row.strongest_lanes | join(", ") }}</span>
               {% endif %}
             </td>
-            <td>
+            <td data-label="What-If">
               {% if row.what_if.status == "complete" %}
                 {% for horizon in row.what_if.horizons %}
                   {% if horizon.status == "complete" %}

@@ -689,22 +689,22 @@
                   <tbody data-load-dataset-body>
                     {% for row in data_load_status.dataset_rows %}
                     <tr>
-                      <td>
+                      <td data-label="Dataset">
                         <strong>{{ row.name }}</strong>
                         <span>{{ row.detail }}</span>
                       </td>
-                      <td><span class="tag tag-{{ row.status_class }}">{{ row.status_label }}</span></td>
-                      <td>
+                      <td data-label="Status"><span class="tag tag-{{ row.status_class }}">{{ row.status_label }}</span></td>
+                      <td data-label="Coverage">
                         <div class="mini-meter" aria-label="{{ row.coverage_pct }}% coverage">
                           <span style="{{ row.coverage_style }}"></span>
                         </div>
                         <span>{{ row.coverage_pct }}% &middot; {{ row.count_label }}</span>
                       </td>
-                      <td>
+                      <td data-label="Freshness">
                         <span class="tag tag-{{ row.status_class }}">{{ row.source_freshness }}</span>
                         <span>{{ row.source_status }}</span>
                       </td>
-                      <td>
+                      <td data-label="Rows / As-of">
                         <span>{{ row.row_count }}</span>
                         <span>{{ row.max_as_of_label }}</span>
                       </td>
@@ -730,16 +730,16 @@
                   <tbody data-load-lane-body>
                     {% for row in data_load_status.lane_state_rows %}
                     <tr>
-                      <td>
+                      <td data-label="Lane">
                         <strong>{{ row.name }}</strong>
                         <span>{{ row.lane_kind_label }} &middot; {{ row.requirement_label }}</span>
                       </td>
-                      <td><span class="tag tag-{{ row.status_class }}">{{ row.status_label }}</span></td>
-                      <td>
+                      <td data-label="Status"><span class="tag tag-{{ row.status_class }}">{{ row.status_label }}</span></td>
+                      <td data-label="Proof">
                         <span>{{ row.progress_label }}</span>
                         <span>As of {{ row.latest_as_of_label }} &middot; checked {{ row.checked_at_label }}</span>
                       </td>
-                      <td>
+                      <td data-label="Action">
                         <span>{{ row.operator_message }}</span>
                         <span>{{ row.recommended_action }}</span>
                       </td>
@@ -771,20 +771,20 @@
               <tbody data-load-freshness-body>
                 {% for row in data_load_status.freshness_rows %}
                 <tr title="{{ row.tooltip }}">
-                  <td>
+                  <td data-label="Source">
                     <strong>{{ row.label }}</strong>
                     <span>{{ row.critical }}</span>
                   </td>
-                  <td><span class="tag tag-{{ row.status_class }}">{{ row.status }}</span></td>
-                  <td>
+                  <td data-label="Status"><span class="tag tag-{{ row.status_class }}">{{ row.status }}</span></td>
+                  <td data-label="Freshness">
                     <span>{{ row.freshness }}</span>
                     <span>{{ row.validity_label }}</span>
                   </td>
-                  <td>{{ row.impact_label }}</td>
-                  <td>{{ row.last_success_at_label }}</td>
-                  <td>{{ row.checked_at_label }}</td>
-                  <td>{{ row.next_action }}</td>
-                  <td>{{ row.detail }}</td>
+                  <td data-label="Impact">{{ row.impact_label }}</td>
+                  <td data-label="Last Success">{{ row.last_success_at_label }}</td>
+                  <td data-label="Checked">{{ row.checked_at_label }}</td>
+                  <td data-label="Action">{{ row.next_action }}</td>
+                  <td data-label="Meaning">{{ row.detail }}</td>
                 </tr>
                 {% else %}
                 <tr>
@@ -1009,15 +1009,15 @@
                 <tbody>
                   {% for job in scheduler.next_job_rows %}
                   <tr>
-                    <td>
+                    <td data-label="Job">
                       <strong>{{ job.name | replace("_", " ") | title }}</strong>
                       <span>{{ job.kind | replace("_", " ") }}</span>
                     </td>
-                    <td><span class="tag tag-{{ job.status_class }}">{{ job.status }}</span></td>
-                    <td>{{ job.ticker_tier }} &middot; {{ job.ticker_count }} tickers</td>
-                    <td>{{ job.cadence_minutes or "event" }}</td>
-                    <td>{{ job.eta_label }}</td>
-                    <td>{{ job.reason }}</td>
+                    <td data-label="Status"><span class="tag tag-{{ job.status_class }}">{{ job.status }}</span></td>
+                    <td data-label="Tier">{{ job.ticker_tier }} &middot; {{ job.ticker_count }} tickers</td>
+                    <td data-label="Cadence">{{ job.cadence_minutes or "event" }}</td>
+                    <td data-label="ETA">{{ job.eta_label }}</td>
+                    <td data-label="Reason">{{ job.reason }}</td>
                   </tr>
                   {% else %}
                   <tr>
@@ -1458,9 +1458,9 @@
             <tbody>
               {% for blocker in readiness.blocker_rows %}
               <tr>
-                <td><span class="tag tag-{{ blocker.status_class }}">{{ blocker.kind }}</span></td>
-                <td>{{ blocker.item }}</td>
-                <td>{{ blocker.reason }}</td>
+                <td data-label="Blocker"><span class="tag tag-{{ blocker.status_class }}">{{ blocker.kind }}</span></td>
+                <td data-label="Item">{{ blocker.item }}</td>
+                <td data-label="Reason">{{ blocker.reason }}</td>
               </tr>
               {% else %}
               <tr>
@@ -1494,12 +1494,12 @@
         <tbody>
           {% for candidate in candidates %}
           <tr>
-            <td><a class="text-link" href="/candidates/{{ candidate.ticker }}">{{ candidate.ticker }}</a></td>
-            <td><span class="tag tag-neutral">{{ candidate.action }}</span></td>
-            <td>{{ candidate.conviction_pct }}%</td>
-            <td><span class="tag tag-{{ candidate.gate_status | lower }}">{{ candidate.gate_status }}</span></td>
-            <td>{{ candidate.risk_flag_count }}</td>
-            <td>{{ candidate.as_of_label }}</td>
+            <td data-label="Ticker"><a class="text-link" href="/candidates/{{ candidate.ticker }}">{{ candidate.ticker }}</a></td>
+            <td data-label="Action"><span class="tag tag-neutral">{{ candidate.action }}</span></td>
+            <td data-label="Conviction">{{ candidate.conviction_pct }}%</td>
+            <td data-label="Gate"><span class="tag tag-{{ candidate.gate_status | lower }}">{{ candidate.gate_status }}</span></td>
+            <td data-label="Risk Flags">{{ candidate.risk_flag_count }}</td>
+            <td data-label="As Of">{{ candidate.as_of_label }}</td>
           </tr>
           {% else %}
           <tr>
@@ -1527,15 +1527,15 @@
           {% for source in data_sources %}
           {% set source_name = source.source|lower %}
           <tr>
-            <td>{{ source.source }}</td>
+            <td data-label="Source">{{ source.source }}</td>
             {% if "demo" in source_name or "mock" in source_name or "fake" in source_name or "fixture" in source_name or "manual-smoke" in source_name %}
-            <td><span class="tag tag-block">TEST DATA BLOCKED</span></td>
-            <td>Not allowed in live dashboards</td>
-            <td>0%</td>
+            <td data-label="Status"><span class="tag tag-block">TEST DATA BLOCKED</span></td>
+            <td data-label="Freshness">Not allowed in live dashboards</td>
+            <td data-label="Reliability">0%</td>
             {% else %}
-            <td><span class="tag tag-{{ source.status_class }}">{{ source.status }}</span></td>
-            <td>{{ source.freshness }}</td>
-            <td>{{ source.reliability_pct }}%</td>
+            <td data-label="Status"><span class="tag tag-{{ source.status_class }}">{{ source.status }}</span></td>
+            <td data-label="Freshness">{{ source.freshness }}</td>
+            <td data-label="Reliability">{{ source.reliability_pct }}%</td>
             {% endif %}
           </tr>
           {% endfor %}
