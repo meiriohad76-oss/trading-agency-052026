@@ -48,6 +48,11 @@ SUMMARY_DIRECTION_THRESHOLD = 0.2
 REASON_DIRECTION_THRESHOLD = 0.05
 MIN_INVALIDATION_BUFFER = 0.015
 BENCHMARK_TICKERS = ("SPY", "QQQ")
+TA_METHODOLOGY = (
+    "sma20_50_200_trend; rsi14_macd_momentum; volume_confirmation; "
+    "relative_strength_vs_spy_qqq; candle_regime; chart_patterns; "
+    "optional_indicator_pack; massive_trade_pressure"
+)
 
 
 @dataclass(frozen=True)
@@ -266,6 +271,7 @@ def _factor_row(
         "resistance_level": resistance,
         "invalidation_level": support * (1.0 - max(atr_pct, MIN_INVALIDATION_BUFFER)),
         "technical_analysis_score": score,
+        "ta_methodology": TA_METHODOLOGY,
         "summary": _summary(
             ticker=ticker,
             setup_label=setup_label,
@@ -707,6 +713,7 @@ def _empty_frame() -> pd.DataFrame:
             "resistance_level",
             "invalidation_level",
             "technical_analysis_score",
+            "ta_methodology",
             "summary",
         ]
     )

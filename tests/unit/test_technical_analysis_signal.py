@@ -105,6 +105,8 @@ def test_technical_analysis_scores_bullish_setups_above_bearish_setups() -> None
     assert frame.loc[frame["ticker"] == "MSFT", "trade_pressure_score"].iloc[0] < 0.0
     assert "external_indicator_score" in frame.columns
     assert frame["external_indicator_score"].between(-1.0, 1.0).all()
+    assert "ta_methodology" in frame.columns
+    assert "sma20_50_200" in frame.loc[frame["ticker"] == "AAPL", "ta_methodology"].iloc[0]
 
 
 def test_technical_analysis_context_explains_chart_and_candle_evidence() -> None:

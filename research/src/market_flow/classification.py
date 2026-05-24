@@ -6,14 +6,15 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 import pandas as pd
+from signals.calibration import DEFAULT_THRESHOLDS
 
 EASTERN = ZoneInfo("America/New_York")
 PRE_MARKET_START = time(4, 0)
 REGULAR_START = time(9, 30)
 REGULAR_END = time(16, 0)
 AFTER_HOURS_END = time(20, 0)
-DEFAULT_BLOCK_NOTIONAL = 1_000_000.0
-DEFAULT_BLOCK_SIZE = 10_000.0
+DEFAULT_BLOCK_NOTIONAL = DEFAULT_THRESHOLDS.block_absolute_notional_floor
+DEFAULT_BLOCK_SIZE = DEFAULT_THRESHOLDS.block_absolute_shares_floor
 
 
 @dataclass(frozen=True)
@@ -60,7 +61,9 @@ def classify_trades(frame: pd.DataFrame) -> pd.DataFrame:
     output["trade_date"] = output["trade_ts"].map(_local_date)
     output["session"] = output["trade_ts"].map(_session)
     output["notional"] = output["price"] * output["size"]
-    output["direction"] = _tick_test_direction(output)
+    output["direction"], output["direction_method"], output["direction_confidence"] = (
+        _trade_direction(output)
+    )
     output["signed_volume"] = output["direction"] * output["size"]
     output["signed_notional"] = output["direction"] * output["notional"]
     output["is_off_exchange"] = output.apply(_off_exchange_row, axis=1)
@@ -118,6 +121,33 @@ def _tick_test_direction(frame: pd.DataFrame) -> pd.Series:
     raw = price_diff.map(lambda value: 1 if value > 0 else (-1 if value < 0 else 0))
     carried = raw.replace(0, pd.NA).groupby(frame["ticker"]).ffill().fillna(0)
     return carried.astype("int64")
+
+
+def _trade_direction(frame: pd.DataFrame) -> tuple[pd.Series, pd.Series, pd.Series]:
+    tick_direction = _tick_test_direction(frame)
+    quote_direction = _quote_rule_direction(frame)
+    has_quote = quote_direction != 0
+    direction = quote_direction.where(has_quote, tick_direction).astype("int64")
+    method = pd.Series("tick_test", index=frame.index, dtype="object")
+    method.loc[has_quote] = "quote_rule"
+    confidence = pd.Series(0.55, index=frame.index, dtype="float64")
+    confidence.loc[has_quote] = 0.90
+    confidence.loc[direction == 0] = 0.0
+    return direction, method, confidence
+
+
+def _quote_rule_direction(frame: pd.DataFrame) -> pd.Series:
+    if "bid" not in frame.columns or "ask" not in frame.columns:
+        return pd.Series(0, index=frame.index, dtype="int64")
+    bid = pd.to_numeric(frame["bid"], errors="coerce")
+    ask = pd.to_numeric(frame["ask"], errors="coerce")
+    price = pd.to_numeric(frame["price"], errors="coerce")
+    midpoint = (bid + ask) / 2.0
+    valid = bid.gt(0.0) & ask.gt(bid) & price.gt(0.0)
+    direction = pd.Series(0, index=frame.index, dtype="int64")
+    direction.loc[valid & price.gt(midpoint)] = 1
+    direction.loc[valid & price.lt(midpoint)] = -1
+    return direction
 
 
 def _local_date(value: pd.Timestamp) -> object:

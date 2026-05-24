@@ -175,6 +175,28 @@ def test_news_factor_frame_carries_scorable_source_ids_for_single_use_consumptio
     assert frame.iloc[0]["source_ids"] == ["rss:aapl:1", "rss:aapl:2"]
 
 
+def test_news_factor_frame_classifies_financial_event_types() -> None:
+    loader = _FakeNewsLoader(
+        [
+            _item("AAPL", "AAPL raises guidance after earnings beat", "PRN"),
+            _item("AAPL", "AAPL faces regulatory probe", "SEC"),
+            _item("AAPL", "AAPL files Form 10-Q", "SEC"),
+        ]
+    )
+
+    frame = news_factor_frame(AS_OF, {"AAPL"}, loader)
+    row = frame.iloc[0]
+
+    assert row["event_type_counts"]["guidance"] == 1
+    assert row["event_type_counts"]["litigation_regulatory"] == 1
+    assert row["event_type_counts"]["sec_filing"] == 1
+    assert row["dominant_event_type"] in {
+        "guidance",
+        "litigation_regulatory",
+        "sec_filing",
+    }
+
+
 def test_news_score_is_deterministic_uppercases_and_forwards_lookback() -> None:
     loader = _FakeNewsLoader(
         [

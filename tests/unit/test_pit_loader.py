@@ -416,6 +416,60 @@ def test_stock_trade_activity_frames_for_trade_window_uses_separate_knowledge_cu
     assert daily.get_column("trade_count").to_list() == [1]
 
 
+def test_stock_trade_activity_frames_use_stock_relative_block_thresholds(tmp_path: Path) -> None:
+    parquet_root = tmp_path / "parquet"
+    manifest_root = tmp_path / "manifests"
+    trade_root = parquet_root / "stock_trades"
+    trade_path = trade_root / "ticker=AAPL" / "year=2026" / "trades.parquet"
+    trade_path.parent.mkdir(parents=True)
+    manifest_root.mkdir()
+    rows = [
+        *_stock_trade_rows("AAPL", date(2026, 5, 6), notional=10_000.0, count=8),
+        *_stock_trade_rows("AAPL", date(2026, 5, 6), notional=250_000.0, count=1),
+        *_stock_trade_rows("MSFT", date(2026, 5, 6), notional=250_000.0, count=8),
+    ]
+    pl.DataFrame(rows).write_parquet(trade_path)
+    (trade_root / "_coverage.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "0.1.0",
+                "ticker_days": {
+                    "AAPL|2026-05-06": {
+                        "ticker": "AAPL",
+                        "trade_date": "2026-05-06",
+                        "coverage_status": "complete",
+                    },
+                    "MSFT|2026-05-06": {
+                        "ticker": "MSFT",
+                        "trade_date": "2026-05-06",
+                        "coverage_status": "complete",
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    write_manifest(manifest_root, DatasetName.STOCK_TRADES, "stock_trades", row_count=len(rows))
+    loader = PITLoader(
+        parquet_root=parquet_root,
+        manifest_root=manifest_root,
+        today=lambda: date(2026, 5, 7),
+    )
+
+    total, _daily = loader.stock_trade_activity_frames(
+        ["AAPL", "MSFT"],
+        date(2026, 5, 6),
+        lookback_days=1,
+    )
+    by_ticker = {row["ticker"]: row for row in total.to_dicts()}
+
+    assert by_ticker["AAPL"]["relative_block_count"] == 1
+    assert by_ticker["AAPL"]["focus_trade_count"] == 1
+    assert by_ticker["MSFT"]["absolute_block_count"] == 8
+    assert by_ticker["MSFT"]["relative_block_count"] == 0
+    assert by_ticker["MSFT"]["focus_trade_count"] == 0
+
+
 def test_stock_trades_reject_missing_requested_coverage_rows(tmp_path: Path) -> None:
     parquet_root = tmp_path / "parquet"
     manifest_root = tmp_path / "manifests"
@@ -688,3 +742,23 @@ def stock_trade(
         "sequence_number": 1,
         **provenance(SourceTier.CONFIRMED_TRADE_PRINT, timestamp_as_of, source_id=source_id),
     }
+
+
+def _stock_trade_rows(
+    ticker: str,
+    trade_date: date,
+    *,
+    notional: float,
+    count: int,
+) -> list[dict[str, object]]:
+    return [
+        {
+            **stock_trade(ticker, trade_date, trade_date, f"{ticker}-{notional}-{index}"),
+            "size": notional / 100.0,
+            "notional": notional,
+            "signed_volume": notional / 100.0,
+            "signed_notional": notional,
+            "is_block_trade": notional >= 200_000.0,
+        }
+        for index in range(count)
+    ]

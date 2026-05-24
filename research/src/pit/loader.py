@@ -29,6 +29,9 @@ from .records import (
 from .sec_views import fundamentals_from_frame, institutional_holdings_from_frame
 
 STALE_CONTEXT_READ_DATASETS = {DatasetName.SUBSCRIPTION_EMAILS}
+STOCK_TRADE_BLOCK_ABSOLUTE_SHARES_FLOOR = 10_000.0
+STOCK_TRADE_BLOCK_ABSOLUTE_NOTIONAL_FLOOR = 200_000.0
+STOCK_TRADE_BLOCK_RELATIVE_MEDIAN_MULTIPLE = 5.0
 
 
 class PITLoader:
@@ -480,6 +483,8 @@ class PITLoader:
             raise DataNotAvailableAt(dataset.value, as_of, "no stock trade partitions matched")
         try:
             schema = pl.scan_parquet(files[0]).collect_schema()
+            ticker_median_size = pl.col("__size").median().over("ticker")
+            ticker_median_notional = pl.col("__notional").median().over("ticker")
             prepared = (
                 pl.scan_parquet(files)
                 .with_columns(
@@ -496,14 +501,57 @@ class PITLoader:
                         "__is_pre_market"
                     ),
                     self._lazy_bool_expression(schema, "is_block_trade").alias(
-                        "__is_block_trade"
+                        "__source_block_trade"
                     ),
                     self._lazy_bool_expression(schema, "is_off_exchange").alias(
                         "__is_off_exchange"
                     ),
                 )
                 .with_columns(
-                    (pl.col("__is_block_trade") | pl.col("__is_off_exchange")).alias(
+                    (
+                        pl.col("__source_block_trade")
+                        | (
+                            pl.col("__size")
+                            >= STOCK_TRADE_BLOCK_ABSOLUTE_SHARES_FLOOR
+                        )
+                        | (
+                            pl.col("__notional")
+                            >= STOCK_TRADE_BLOCK_ABSOLUTE_NOTIONAL_FLOOR
+                        )
+                    ).alias("__absolute_block"),
+                    (
+                        (
+                            (ticker_median_size > 0.0)
+                            & (
+                                pl.col("__size")
+                                >= ticker_median_size
+                                * STOCK_TRADE_BLOCK_RELATIVE_MEDIAN_MULTIPLE
+                            )
+                        )
+                        | (
+                            (ticker_median_notional > 0.0)
+                            & (
+                                pl.col("__notional")
+                                >= ticker_median_notional
+                                * STOCK_TRADE_BLOCK_RELATIVE_MEDIAN_MULTIPLE
+                            )
+                        )
+                    ).alias("__relative_block"),
+                    pl.max_horizontal(
+                        pl.lit(STOCK_TRADE_BLOCK_ABSOLUTE_SHARES_FLOOR),
+                        ticker_median_size * STOCK_TRADE_BLOCK_RELATIVE_MEDIAN_MULTIPLE,
+                    ).alias("__block_size_threshold"),
+                    pl.max_horizontal(
+                        pl.lit(STOCK_TRADE_BLOCK_ABSOLUTE_NOTIONAL_FLOOR),
+                        ticker_median_notional * STOCK_TRADE_BLOCK_RELATIVE_MEDIAN_MULTIPLE,
+                    ).alias("__block_notional_threshold"),
+                )
+                .with_columns(
+                    pl.col("__absolute_block").alias("__is_block_trade"),
+                    (
+                        pl.col("__is_off_exchange")
+                        | (pl.col("__absolute_block") & pl.col("__relative_block"))
+                    ).alias(
                         "__is_focus"
                     )
                 )
@@ -542,8 +590,12 @@ class PITLoader:
             .sum()
             .alias("pre_market_signed_volume"),
             pl.col("__is_focus").sum().alias("focus_trade_count"),
-            pl.col("__is_block_trade").sum().alias("block_count"),
+            pl.col("__absolute_block").sum().alias("absolute_block_count"),
+            pl.col("__relative_block").sum().alias("relative_block_count"),
+            pl.col("__absolute_block").sum().alias("block_count"),
             pl.col("__is_off_exchange").sum().alias("off_exchange_count"),
+            pl.col("__block_notional_threshold").max().alias("block_notional_threshold"),
+            pl.col("__block_size_threshold").max().alias("block_size_threshold"),
             pl.when(pl.col("__is_focus"))
             .then(pl.col("__notional"))
             .otherwise(0.0)

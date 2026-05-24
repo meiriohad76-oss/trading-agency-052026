@@ -66,6 +66,27 @@ def test_abnormal_volume_score_is_deterministic_uppercases_and_forwards_lookback
     ]
 
 
+def test_abnormal_volume_frame_exposes_rvol_band_and_trend_confluence() -> None:
+    loader = _FakePriceLoader(
+        [
+            _price("AAPL", date(2023, 1, 27), 100.0, 100),
+            _price("AAPL", date(2023, 1, 28), 102.0, 100),
+            _price("AAPL", date(2023, 1, 29), 104.0, 100),
+            _price("AAPL", date(2023, 1, 30), 106.0, 100),
+            _price("AAPL", AS_OF, 110.0, 300),
+        ]
+    )
+
+    frame = abnormal_volume_frame(AS_OF, {"AAPL"}, loader, LOOKBACK_DAYS)
+    row = frame.iloc[0]
+
+    assert row["volume_signal_band"] == "extreme"
+    assert row["trend_agreement"] == "uptrend_confirmed"
+    assert row["rvol_z_score"] > 0.0
+    assert row["rvol_mad_score"] > 0.0
+    assert row["signal_confidence"] > 0.75
+
+
 class _FakePriceLoader:
     def __init__(self, rows: list[dict[str, object]]) -> None:
         self._rows = rows

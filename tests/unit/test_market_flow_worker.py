@@ -20,6 +20,28 @@ def test_market_flow_feature_frame_builds_worker_inputs() -> None:
     assert frame.loc[frame["ticker"] == "MSFT", "block_trade_pressure"].iat[0] < 0
 
 
+def test_market_flow_feature_frame_uses_stock_relative_block_thresholds() -> None:
+    frame = market_flow_feature_frame(START, {"AAPL", "MSFT"}, _RelativeBlockLoader())
+    by_ticker = frame.set_index("ticker")
+
+    assert by_ticker.loc["AAPL", "relative_block_count"] == 1
+    assert by_ticker.loc["AAPL", "block_trade_pressure"] > 0
+    assert by_ticker.loc["MSFT", "absolute_block_count"] > 0
+    assert by_ticker.loc["MSFT", "relative_block_count"] == 0
+    assert by_ticker.loc["MSFT", "block_trade_pressure"] == 0.0
+
+
+def test_market_flow_feature_frame_exposes_robust_activity_anomaly_metadata() -> None:
+    frame = market_flow_feature_frame(START, {"AAPL"}, _ActivityAnomalyLoader())
+    row = frame.iloc[0]
+
+    assert row["trade_count_anomaly_ratio"] >= 2.0
+    assert row["notional_anomaly_ratio"] >= 2.0
+    assert row["volume_anomaly_ratio"] >= 2.0
+    assert row["activity_anomaly_band"] in {"strong", "extreme"}
+    assert row["market_flow_trend_participation"] > 0.0
+
+
 def test_market_flow_worker_writes_calibration_artifacts(tmp_path: Path) -> None:
     result = run_market_flow_worker(
         config=MarketFlowWorkerConfig(
@@ -105,6 +127,66 @@ class _WorkerLoader:
         if "MSFT" in tickers:
             rows.append(_trade("MSFT", as_of, -1))
         return pl.DataFrame(rows)
+
+
+class _RelativeBlockLoader:
+    def stock_trades(
+        self,
+        tickers: list[str],
+        as_of: date,
+        lookback_days: int,
+    ) -> pl.DataFrame:
+        del lookback_days
+        rows: list[dict[str, object]] = []
+        if "AAPL" in tickers:
+            rows.extend(_flow_trade("AAPL", as_of, 10_000.0, 100.0, 1) for _ in range(8))
+            rows.append(_flow_trade("AAPL", as_of, 250_000.0, 100.0, 1))
+        if "MSFT" in tickers:
+            rows.extend(_flow_trade("MSFT", as_of, 250_000.0, 100.0, 1) for _ in range(8))
+        return pl.DataFrame(rows)
+
+
+class _ActivityAnomalyLoader:
+    def stock_trades(
+        self,
+        tickers: list[str],
+        as_of: date,
+        lookback_days: int,
+    ) -> pl.DataFrame:
+        del lookback_days
+        rows: list[dict[str, object]] = []
+        if "AAPL" in tickers:
+            prior_day = as_of - timedelta(days=1)
+            rows.extend(_flow_trade("AAPL", prior_day, 10_000.0, 100.0, 1) for _ in range(3))
+            rows.extend(_flow_trade("AAPL", as_of, 10_000.0, 100.0, 1) for _ in range(9))
+        return pl.DataFrame(rows)
+
+
+def _flow_trade(
+    ticker: str,
+    trade_date: date,
+    notional: float,
+    price: float,
+    direction: int,
+) -> dict[str, object]:
+    size = notional / price
+    return {
+        "ticker": ticker,
+        "trade_date": trade_date,
+        "trade_ts": f"{trade_date.isoformat()}T13:30:00Z",
+        "price": price,
+        "size": size,
+        "notional": notional,
+        "direction": direction,
+        "signed_volume": direction * size,
+        "signed_notional": direction * notional,
+        "session": "REGULAR",
+        "is_block_trade": notional >= 200_000.0 or size >= 10_000.0,
+        "is_off_exchange": False,
+        "sequence_number": 1,
+        "source_id": f"{ticker}-{trade_date.isoformat()}-{notional}",
+        "timestamp_as_of": trade_date,
+    }
 
 
 def _trade(ticker: str, trade_date: date, direction: int) -> dict[str, object]:

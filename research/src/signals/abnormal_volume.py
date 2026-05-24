@@ -9,6 +9,13 @@ import pandas as pd
 import polars as pl
 from pit.exceptions import DataNotAvailableAt
 from signals._common import directional_rank_score, positive_float, score_dict
+from signals.calibration import (
+    anomaly_band,
+    confluence_confidence,
+    robust_mad_score,
+    robust_z_score,
+    volume_signal_band,
+)
 
 DEFAULT_LOOKBACK_DAYS = 60
 MIN_OBSERVATIONS = 2
@@ -90,13 +97,31 @@ def _factor_row(ticker: str, group: pd.DataFrame, price_column: str) -> dict[str
     latest_return = latest_price / previous_price - 1.0
     volume_ratio = latest_volume / baseline_volume
     signed_pressure = _sign(latest_return) * max(math.log(volume_ratio), 0.0)
+    rvol_z = robust_z_score(latest_volume, history["volume"])
+    rvol_mad = robust_mad_score(latest_volume, history["volume"])
+    trend_return = _trend_return(ordered[price_column])
+    trend_agreement = _trend_agreement(latest_return, trend_return)
+    agreements = 1 if trend_agreement in {"uptrend_confirmed", "downtrend_confirmed"} else 0
+    conflicts = 1 if trend_agreement == "trend_conflict" else 0
+    confidence = confluence_confidence(
+        base=_base_confidence(volume_ratio, rvol_z, rvol_mad),
+        agreements=agreements,
+        conflicts=conflicts,
+    )
     return {
         "ticker": ticker,
         "latest_volume": latest_volume,
         "baseline_volume": baseline_volume,
         "volume_ratio": volume_ratio,
+        "volume_signal_band": volume_signal_band(volume_ratio),
+        "rvol_z_score": rvol_z,
+        "rvol_mad_score": rvol_mad,
+        "volume_anomaly_band": anomaly_band(volume_ratio, rvol_z, rvol_mad),
         "latest_return": latest_return,
+        "trend_return": trend_return,
+        "trend_agreement": trend_agreement,
         "signed_volume_pressure": signed_pressure,
+        "signal_confidence": confidence,
     }
 
 
@@ -114,6 +139,32 @@ def _latest_positive(series: pd.Series) -> float | None:
     if values.empty:
         return None
     return float(values.iloc[-1])
+
+
+def _trend_return(series: pd.Series) -> float:
+    values = pd.to_numeric(series, errors="coerce")
+    values = values[values > 0.0]
+    if len(values) < MIN_OBSERVATIONS:
+        return 0.0
+    return float(values.iloc[-1]) / float(values.iloc[0]) - 1.0
+
+
+def _trend_agreement(latest_return: float, trend_return: float) -> str:
+    latest_sign = _sign(latest_return)
+    trend_sign = _sign(trend_return)
+    if latest_sign == 0.0 or trend_sign == 0.0:
+        return "no_trend_confirmation"
+    if latest_sign == trend_sign and latest_sign > 0.0:
+        return "uptrend_confirmed"
+    if latest_sign == trend_sign and latest_sign < 0.0:
+        return "downtrend_confirmed"
+    return "trend_conflict"
+
+
+def _base_confidence(volume_ratio: float, z_score: float, mad_score: float) -> float:
+    ratio_component = min(max((volume_ratio - 1.0) / 2.0, 0.0), 0.30)
+    robust_component = min(max(max(abs(z_score), abs(mad_score)) / 10.0, 0.0), 0.20)
+    return 0.50 + ratio_component + robust_component
 
 
 def _sign(value: float) -> float:
@@ -138,8 +189,15 @@ def _empty_frame() -> pd.DataFrame:
             "latest_volume",
             "baseline_volume",
             "volume_ratio",
+            "volume_signal_band",
+            "rvol_z_score",
+            "rvol_mad_score",
+            "volume_anomaly_band",
             "latest_return",
+            "trend_return",
+            "trend_agreement",
             "signed_volume_pressure",
+            "signal_confidence",
             "abnormal_volume_score",
         ]
     )

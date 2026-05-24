@@ -684,6 +684,40 @@ def test_classify_trades_adds_defaults_for_missing_optional_order_fields() -> No
     assert classified.iloc[0]["trade_id"] == ""
 
 
+def test_classify_trades_prefers_quote_rule_when_bid_ask_are_available() -> None:
+    classified = classify_trades(
+        pd.DataFrame(
+            [
+                {
+                    "ticker": "AAPL",
+                    "trade_ts": "2026-05-06T13:31:00Z",
+                    "price": 100.0,
+                    "bid": 99.0,
+                    "ask": 101.0,
+                    "size": 100,
+                    "sequence_number": 1,
+                    "trade_id": "1",
+                },
+                {
+                    "ticker": "AAPL",
+                    "trade_ts": "2026-05-06T13:32:00Z",
+                    "price": 99.8,
+                    "bid": 99.0,
+                    "ask": 99.5,
+                    "size": 100,
+                    "sequence_number": 2,
+                    "trade_id": "2",
+                },
+            ]
+        )
+    )
+
+    row = classified.iloc[1]
+    assert row["direction"] == 1
+    assert row["direction_method"] == "quote_rule"
+    assert row["direction_confidence"] > 0.8
+
+
 def test_write_stock_trade_frame_and_manifest_support_partitioned_dataset(
     tmp_path: Path,
 ) -> None:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections import Counter
 from collections.abc import Iterable, Sequence
 from datetime import date
 from typing import Protocol
@@ -17,6 +18,18 @@ POSITIVE_TERMS = frozenset(
 )
 NEGATIVE_TERMS = frozenset(
     {"downgrade", "misses", "miss", "cuts", "cut", "sell", "lawsuit", "probe", "falls"}
+)
+EVENT_TYPE_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("guidance", ("guidance", "raises outlook", "raises forecast", "cuts outlook", "cuts forecast")),
+    ("earnings", ("earnings", "eps", "revenue", "quarterly results", "profit")),
+    (
+        "litigation_regulatory",
+        ("lawsuit", "probe", "investigation", "regulatory", "sec charges", "settlement"),
+    ),
+    ("sec_filing", ("form 10-q", "form 10-k", "form 8-k", "13f", "sec filing", "files form")),
+    ("analyst_action", ("upgrade", "downgrade", "price target", "initiates", "outperform")),
+    ("m_and_a", ("merger", "acquisition", "acquires", "buyout", "takeover")),
+    ("product", ("launch", "product", "approval", "patent", "developer event")),
 )
 
 
@@ -80,6 +93,8 @@ def _rows(tickers: list[str], items: Sequence[object]) -> list[dict[str, object]
 def _factor_row(ticker: str, items: list[dict[str, object]]) -> dict[str, object]:
     sentiments = [_headline_sentiment(item) for item in items]
     confidences = [_ticker_match_confidence(item) for item in items]
+    event_types = [_event_type(item) for item in items]
+    event_counts = Counter(event_types)
     sources = {
         str(item.get("feed_name") or item.get("url"))
         for item in items
@@ -103,6 +118,8 @@ def _factor_row(ticker: str, items: list[dict[str, object]]) -> dict[str, object
         "positive_count": sum(1 for value in sentiments if value > 0),
         "negative_count": sum(1 for value in sentiments if value < 0),
         "sentiment_score": sentiment_score,
+        "event_type_counts": dict(sorted(event_counts.items())),
+        "dominant_event_type": _dominant_event_type(event_counts),
         "source_ids": _source_ids(items, "source_id"),
         "raw_source_ids": _source_ids(items, "raw_source_id"),
     }
@@ -121,6 +138,26 @@ def _headline_sentiment(item: dict[str, object]) -> int:
 
 def _term_count(text: str, term: str) -> int:
     return len(re.findall(rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])", text))
+
+
+def _event_type(item: dict[str, object]) -> str:
+    text = f"{item.get('title', '')} {item.get('summary', '')}".lower()
+    for event_type, patterns in EVENT_TYPE_PATTERNS:
+        if any(_phrase_match(text, phrase) for phrase in patterns):
+            return event_type
+    return "general"
+
+
+def _phrase_match(text: str, phrase: str) -> bool:
+    if " " in phrase or "-" in phrase:
+        return phrase in text
+    return _term_count(text, phrase) > 0
+
+
+def _dominant_event_type(counts: Counter[str]) -> str:
+    if not counts:
+        return "general"
+    return sorted(counts.items(), key=lambda item: (-item[1], item[0]))[0][0]
 
 
 def _scorable_news_row(item: dict[str, object]) -> bool:
@@ -183,6 +220,8 @@ def _empty_frame() -> pd.DataFrame:
             "positive_count",
             "negative_count",
             "sentiment_score",
+            "event_type_counts",
+            "dominant_event_type",
             "source_ids",
             "raw_source_ids",
             "news_score",
