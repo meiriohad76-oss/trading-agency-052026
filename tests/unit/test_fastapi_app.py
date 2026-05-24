@@ -1037,6 +1037,90 @@ async def test_broker_status_context_caches_completed_delayed_broker_reads(
     assert calls == 1
 
 
+async def test_broker_status_context_caches_failed_delayed_broker_reads(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    calls = 0
+
+    async def delayed_failure_broker_snapshot(*, config: object) -> dict[str, object]:
+        nonlocal calls
+        calls += 1
+        await asyncio.sleep(0.05)
+        raise market_regime_module.AlpacaBrokerError("paper broker network unavailable")
+
+    market_regime_module._broker_status_context_cache.clear()
+    market_regime_module._broker_status_inflight.clear()
+    monkeypatch.setenv("AGENCY_ALPACA_BROKER_ENABLED", "true")
+    monkeypatch.setenv("ALPACA_API_KEY", "paper-key")
+    monkeypatch.setenv("ALPACA_SECRET_KEY", "paper-secret")
+    monkeypatch.setattr(market_regime_module, "broker_snapshot", delayed_failure_broker_snapshot)
+    monkeypatch.setattr(
+        market_regime_module,
+        "DASHBOARD_BROKER_STATUS_TIMEOUT_SECONDS",
+        0.01,
+        raising=False,
+    )
+
+    delayed = await market_regime_module.broker_status_context(use_cache=True)
+    repeated = await market_regime_module.broker_status_context(use_cache=True)
+    await asyncio.sleep(0.06)
+    offline = await market_regime_module.broker_status_context(use_cache=True)
+
+    assert delayed["status_label"] == "Broker Check Delayed"
+    assert repeated["status_label"] == "Broker Check Delayed"
+    assert offline["status_label"] == "Broker Offline"
+    assert offline["status_class"] == "warn"
+    assert "paper broker network unavailable" in str(offline["detail"])
+    assert calls == 1
+
+
+async def test_broker_status_context_does_not_reuse_foreign_loop_inflight_task(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    calls = 0
+
+    async def connected_broker_snapshot(*, config: object) -> dict[str, object]:
+        nonlocal calls
+        calls += 1
+        return {
+            "provider": "alpaca",
+            "mode": "paper",
+            "connected": True,
+            "checked_at": datetime.now(UTC).isoformat(),
+            "account": {},
+            "positions": [],
+            "orders": [],
+            "gross_exposure_pct": 0.0,
+            "status_label": "Broker Connected",
+            "status_class": "pass",
+            "detail": "broker response",
+        }
+
+    market_regime_module._broker_status_context_cache.clear()
+    market_regime_module._broker_status_inflight.clear()
+    monkeypatch.setenv("AGENCY_ALPACA_BROKER_ENABLED", "true")
+    monkeypatch.setenv("ALPACA_API_KEY", "paper-key")
+    monkeypatch.setenv("ALPACA_SECRET_KEY", "paper-secret")
+    monkeypatch.setattr(market_regime_module, "broker_snapshot", connected_broker_snapshot)
+
+    foreign_loop = asyncio.new_event_loop()
+    foreign_task = foreign_loop.create_future()
+    market_regime_module._broker_status_inflight[
+        market_regime_module._broker_status_inflight_key(
+            market_regime_module._broker_status_cache_key(),
+            foreign_loop,
+        )
+    ] = foreign_task  # type: ignore[assignment]
+    try:
+        context = await market_regime_module.broker_status_context(use_cache=True)
+    finally:
+        foreign_task.cancel()
+        foreign_loop.close()
+
+    assert context["status_label"] == "Broker Connected"
+    assert calls == 1
+
+
 async def test_broker_status_context_can_return_nonblocking_pending_status(
     monkeypatch: MonkeyPatch,
 ) -> None:

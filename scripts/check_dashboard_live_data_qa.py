@@ -147,6 +147,17 @@ def main() -> int:
                             result["health_visible"] = health_panel_count > 0
                             result["health_panel_count"] = health_panel_count
                             result["health_rows_count"] = health_rows_count
+                            cockpit_data_state = page.locator(
+                                ".cockpit-data-state-strip"
+                            ).first
+                            result["cockpit_data_state_visible"] = (
+                                route in COCKPIT_ROUTES
+                                and cockpit_data_state.count() > 0
+                                and cockpit_data_state.is_visible()
+                            )
+                            result["cockpit_lane_rows_count"] = page.locator(
+                                ".cockpit-lane-row:not(.cockpit-lane-head)"
+                            ).count()
                             result["health_rows_missing_fields"] = page.evaluate(
                                 """
                                 () => Array.from(document.querySelectorAll('.data-health-row'))
@@ -162,6 +173,33 @@ def main() -> int:
                                   })
                                   .filter(Boolean)
                                   .slice(0, 8)
+                                """
+                            )
+                            result["cockpit_lane_rows_missing_fields"] = page.evaluate(
+                                """
+                                () => Array.from(
+                                  document.querySelectorAll(
+                                    '.cockpit-lane-row:not(.cockpit-lane-head)'
+                                  )
+                                )
+                                .map((row) => {
+                                  const text = row.textContent || '';
+                                  const cells = Array.from(row.querySelectorAll('[role="cell"]'));
+                                  const progressText = cells[2]?.textContent || '';
+                                  const proofText = cells[5]?.textContent || '';
+                                  const actionText = cells[6]?.textContent || '';
+                                  const hasStatus = row.querySelector('.status-pill') !== null;
+                                  const hasProgress = progressText.trim().length > 0;
+                                  const hasProof = proofText.trim().length > 0 &&
+                                    (proofText.includes('Checked') || proofText.includes('not checked'));
+                                  const hasAction = actionText.trim().length > 0 &&
+                                    !actionText.includes('No lane action recorded');
+                                  return cells.length >= 7 && hasStatus && hasProgress && hasProof && hasAction
+                                    ? null
+                                    : text.trim().replace(/\\s+/g, ' ').slice(0, 120);
+                                })
+                                .filter(Boolean)
+                                .slice(0, 8)
                                 """
                             )
                             result["v3_build_served"] = (
@@ -231,6 +269,9 @@ def _empty_result(viewport: str, route: str) -> dict[str, object]:
         "health_panel_count": 0,
         "health_rows_count": 0,
         "health_rows_missing_fields": [],
+        "cockpit_data_state_visible": False,
+        "cockpit_lane_rows_count": 0,
+        "cockpit_lane_rows_missing_fields": [],
         "operational_readiness_failures": [],
         "v3_build_served": False,
         "v3_screen_class": False,
@@ -271,9 +312,9 @@ def result_failed(row: Mapping[str, object]) -> bool:
         or bool(row["forbidden_hits"])
         or bool(row["horizontal_overflow"])
         or bool(row["clipped_controls"])
-        or not bool(row["health_visible"])
-        or int(row["health_rows_count"]) <= 0
+        or not _has_valid_health_proof(row)
         or bool(row["health_rows_missing_fields"])
+        or bool(row.get("cockpit_lane_rows_missing_fields"))
         or bool(row["operational_readiness_failures"])
         or not bool(row["v3_build_served"])
         or not bool(row["v3_screen_class"])
@@ -282,6 +323,16 @@ def result_failed(row: Mapping[str, object]) -> bool:
             _route_requires_v3_briefing(str(row["route"]))
             and not bool(row["v3_briefing_visible"])
         )
+    )
+
+
+def _has_valid_health_proof(row: Mapping[str, object]) -> bool:
+    if bool(row["health_visible"]) and int(row["health_rows_count"]) > 0:
+        return True
+    return (
+        str(row["route"]) in COCKPIT_ROUTES
+        and bool(row.get("cockpit_data_state_visible"))
+        and int(row.get("cockpit_lane_rows_count") or 0) > 0
     )
 
 

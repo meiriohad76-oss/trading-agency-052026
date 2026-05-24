@@ -40,6 +40,52 @@
     </div>
   </header>
 
+  {% set data_state = data_state|default({}, true) %}
+  {% set data_review = data_state.review|default({}, true) %}
+  {% set data_paper = data_state.paper|default({}, true) %}
+  <section class="cockpit-data-state-strip" aria-label="Data State">
+    <div class="cockpit-data-state-headline">
+      <p class="eyebrow">Data State</p>
+      <h2>{{ data_review.label|default("Review status unavailable", true) }} / {{ data_paper.label|default("Paper execution status unavailable", true) }}</h2>
+      <p>{{ data_state.headline|default("Lane-state proof is not available for this cockpit request.", true) }}</p>
+    </div>
+    <div class="cockpit-data-state-metrics" aria-label="Operationability progress">
+      <article>
+        <span>Review</span>
+        <strong class="status-pill status-pill-{{ data_review.status_class|default('neutral', true) }}">{{ data_review.label|default("Unknown", true) }}</strong>
+        <small>{{ data_review.detail|default("No review detail reported.", true) }}</small>
+      </article>
+      <article>
+        <span>Paper execution</span>
+        <strong class="status-pill status-pill-{{ data_paper.status_class|default('neutral', true) }}">{{ data_paper.label|default("Unknown", true) }}</strong>
+        <small>{{ data_paper.detail|default("No paper gate detail reported.", true) }}</small>
+      </article>
+      <article>
+        <span>Overall loaded</span>
+        <strong class="cockpit-mono">{{ data_state.overall_percent|default(0, true) }}%</strong>
+        <small>{{ data_state.active_universe_label|default("Active-universe size not reported", true) }}</small>
+      </article>
+      <article>
+        <span>Critical lanes</span>
+        <strong class="cockpit-mono">{{ data_state.critical_lane_percent|default(0, true) }}%</strong>
+        <small>Proof {{ data_state.proof_label|default("not checked", true) }}</small>
+      </article>
+    </div>
+    <div class="cockpit-data-state-gaps">
+      <strong>Operationability gaps</strong>
+      {% for gap in data_state.top_gaps|default([], true) %}
+        <p>
+          <span class="status-pill status-pill-{{ gap.status_class|default('warn', true) }}">{{ gap.lane }}</span>
+          {{ gap.detail }}
+          <small>{{ gap.progress_label }} - {{ gap.recommended_action }}</small>
+        </p>
+      {% else %}
+        <p>No required lane gaps are reported for the current workflow.</p>
+      {% endfor %}
+      <button type="button" class="button button-secondary" data-cockpit-panel-target="universe">Open Lane State Board</button>
+    </div>
+  </section>
+
   {{ data_health_panel(data_health) }}
 
   <aside class="cockpit-preferences" data-cockpit-preferences hidden aria-label="Cockpit preferences">
@@ -322,7 +368,10 @@
     {% endif %}
     <div class="cockpit-capacity-grid">
       <article><span>Gross after staged orders</span><strong class="cockpit-mono" data-capacity-gross-post>{{ "%.1f"|format(account.gross_post_trade|default(0, true)) }}%</strong><small>Rule cap {{ "%.1f"|format(account.gross_cap|default(0, true)) }}%</small></article>
-      <article><span>Largest sector</span><strong class="cockpit-mono" data-capacity-sector>{{ "%.1f"|format(account.sector_exposure|default(0, true)) }}%</strong><small>Rule cap {{ "%.1f"|format(account.sector_cap|default(0, true)) }}%</small></article>
+      <article>
+        <span class="cockpit-whymark info-tip" data-cockpit-tip="sector-exposure-threshold" title="Sector exposure compares the largest sector exposure to the deployed policy cap.">?</span>
+        <span>Largest sector</span><strong class="cockpit-mono" data-capacity-sector>{{ "%.1f"|format(account.sector_exposure|default(0, true)) }}%</strong><small>Rule cap {{ "%.1f"|format(account.sector_cap|default(0, true)) }}%</small>
+      </article>
       <article><span>Cash reserve</span><strong class="cockpit-mono" data-capacity-cash>{{ "%.1f"|format(account.cash_available|default(0, true)) }}%</strong><small>Rule floor {{ "%.1f"|format(account.cash_cap|default(0, true)) }}%</small></article>
     </div>
     <div class="cockpit-position-table">

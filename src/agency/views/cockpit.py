@@ -240,6 +240,7 @@ def cockpit_context_from_sources(
         _mapping(dashboard.get("data_load_status")).get("updated_at"),
         _mapping(dashboard.get("data_load_status")).get("as_of"),
     )
+    data_state = _data_state_section(dashboard)
     context: dict[str, object] = {
         "active_nav": "cockpit",
         "cycle": cycle,
@@ -264,6 +265,7 @@ def cockpit_context_from_sources(
         "monitor_events": _monitor_events(dashboard),
         "monitor": monitor_status_from_scheduler(scheduler),
         "data_health": _mapping(dashboard.get("data_health")),
+        "data_state": data_state,
         "preferences": _preferences_section(),
         "qa_scenarios_enabled": qa_enabled,
         "qa_scenarios": sorted(QA_SCENARIOS),
@@ -821,6 +823,406 @@ def _source_rows(
     proof_timestamp: str = "",
 ) -> list[dict[str, object]]:
     return source_health_rows(_list(dashboard.get("data_sources")), proof_timestamp=proof_timestamp)
+
+
+def _data_state_section(dashboard: Mapping[str, object]) -> dict[str, object]:
+    data_load = _mapping(dashboard.get("data_load_status"))
+    lane_rows = _data_state_lane_rows(data_load)
+    review_ready = _data_state_bool(
+        data_load.get("review_operational_ready"),
+        fallback=not any(row["status_class"] == "block" for row in lane_rows),
+    )
+    paper_ready = _data_state_bool(
+        data_load.get("tradable_ready"),
+        fallback=all(
+            row["ready_for_paper_execution"] is True
+            for row in lane_rows
+            if row["required_now"] is True and row["blocks_execution"] is True
+        ),
+    )
+    top_gaps = _data_state_top_gaps(lane_rows)
+    overall_percent = _bounded_int(
+        data_load.get("overall_percent"),
+        fallback=_progress_average(lane_rows),
+    )
+    critical_lane_percent = _bounded_int(
+        data_load.get("critical_lane_percent"),
+        fallback=_progress_average(
+            [
+                row
+                for row in lane_rows
+                if row["required_now"] is True and row["blocks_execution"] is True
+            ]
+        ),
+    )
+    expected_ticker_count = _int(
+        data_load.get("expected_ticker_count"),
+        _mapping(dashboard.get("live_config")).get("active_universe_count"),
+        fallback=0,
+    )
+    warning_count = _int(data_load.get("warning_count"), fallback=len(top_gaps))
+    blocker_count = _int(
+        data_load.get("blocker_count"),
+        fallback=sum(1 for row in lane_rows if row["blocker"] is True),
+    )
+    review_label = "Review ready" if review_ready else "Review not ready"
+    paper_label = "Ready for paper execution" if paper_ready else "Paper execution gated"
+    gap_summary = (
+        _data_state_gap_summary(top_gaps)
+        if top_gaps
+        else "No required lane gaps are reported for the current workflow."
+    )
+    return {
+        "status_label": _data_state_text(data_load.get("status_label") or "Data state checked"),
+        "status_class": _first_text(data_load.get("status_class"), default="neutral"),
+        "headline": (
+            f"{review_label}; {paper_label}. "
+            f"{overall_percent}% overall data readiness with {warning_count} warning(s) "
+            f"and {blocker_count} blocker(s)."
+        ),
+        "overall_percent": overall_percent,
+        "critical_lane_percent": critical_lane_percent,
+        "active_universe_count": expected_ticker_count,
+        "active_universe_label": (
+            f"{expected_ticker_count} active-universe tickers"
+            if expected_ticker_count
+            else "Active-universe size not reported"
+        ),
+        "review": {
+            "ready": review_ready,
+            "label": review_label,
+            "status_class": "pass" if review_ready else "warn",
+            "detail": (
+                "The loaded evidence is usable for research review."
+                if review_ready
+                else "Research review needs the listed lane gaps resolved first."
+            ),
+        },
+        "paper": {
+            "ready": paper_ready,
+            "label": paper_label,
+            "status_class": "pass" if paper_ready else "warn",
+            "detail": (
+                "Paper execution can proceed after broker and order approval checks."
+                if paper_ready
+                else gap_summary
+            ),
+        },
+        "top_gaps": top_gaps[:3],
+        "lane_rows": lane_rows,
+        "loading_count": sum(1 for row in lane_rows if row["state"] == "loading"),
+        "loaded_unanalyzed_count": sum(
+            1 for row in lane_rows if row["state"] == "loaded_unanalyzed"
+        ),
+        "needs_refresh_count": sum(1 for row in lane_rows if row["state"] == "needs_refresh"),
+        "unavailable_count": sum(
+            1 for row in lane_rows if row["state"] == "provider_unavailable"
+        ),
+        "ready_review_count": sum(
+            1 for row in lane_rows if row["ready_for_review"] is True
+        ),
+        "ready_paper_count": sum(
+            1 for row in lane_rows if row["ready_for_paper_execution"] is True
+        ),
+        "optional_count": sum(1 for row in lane_rows if row["state"] == "disabled_optional"),
+        "as_of_label": _data_state_text(
+            _first_text(
+                data_load.get("as_of_label"),
+                data_load.get("as_of"),
+                data_load.get("updated_at"),
+                data_load.get("generated_at_label"),
+                default="not recorded",
+            )
+        ),
+        "proof_label": _data_state_text(
+            _first_text(
+                data_load.get("status_checked_at_label"),
+                data_load.get("latest_checked_at"),
+                data_load.get("generated_at"),
+                default="not checked",
+            )
+        ),
+    }
+
+
+def _data_state_lane_rows(data_load: Mapping[str, object]) -> list[dict[str, object]]:
+    rows = _list(data_load.get("lane_state_rows")) or _list(data_load.get("lane_states"))
+    return [_data_state_lane_row(_mapping(row)) for row in rows]
+
+
+def _data_state_lane_row(row: Mapping[str, object]) -> dict[str, object]:
+    lane_id = _first_text(row.get("lane_id"), row.get("lane"), row.get("name"), default="lane")
+    name = _data_state_text(
+        _first_text(row.get("name"), row.get("label"), row.get("lane_id"), default="Data lane")
+    )
+    state = _first_text(row.get("state"), default=_state_from_lane_label(row))
+    status_label = _data_state_text(
+        _first_text(row.get("status_label"), row.get("display_status_label"), default="Status not reported")
+    )
+    status_class = _first_text(row.get("status_class"), default=_lane_state_class(row))
+    progress_label = _data_state_text(_first_text(row.get("progress_label"), default="not tracked"))
+    required_now = _data_state_bool(row.get("required_now"), fallback=True)
+    blocks_execution = _data_state_bool(row.get("blocks_execution"), fallback=False)
+    ready_for_review = _data_state_bool(
+        row.get("ready_for_review"),
+        fallback=state in {"ready_for_review", "ready_for_paper_execution"},
+    )
+    ready_for_paper = _data_state_bool(
+        row.get("ready_for_paper_execution"),
+        fallback=state == "ready_for_paper_execution",
+    )
+    blocker = _data_state_bool(
+        row.get("blocker"),
+        fallback=required_now
+        and blocks_execution
+        and state
+        in {"loading", "loaded_unanalyzed", "needs_refresh", "provider_unavailable"},
+    )
+    raw_requirements = [
+        _data_state_text(item)
+        for item in _list(row.get("raw_lanes_required"))
+        if _first_text(item)
+    ]
+    requirement_label = _data_state_text(
+        _first_text(
+            row.get("requirement_label"),
+            ", ".join(raw_requirements),
+            default="Direct source",
+        )
+    )
+    operator_message = _data_state_text(
+        _first_text(row.get("operator_message"), row.get("detail"), default="No lane-state explanation recorded.")
+    )
+    recommended_action = _lane_recommended_action(
+        row,
+        state=state,
+        name=name,
+        required_now=required_now,
+        blocks_execution=blocks_execution,
+    )
+    latest_as_of_label = _data_state_text(
+        _first_text(row.get("latest_as_of_label"), row.get("latest_as_of"), default="not recorded")
+    )
+    checked_at_label = _data_state_text(
+        _first_text(row.get("checked_at_label"), row.get("checked_at"), default="not checked")
+    )
+    return {
+        "lane_id": lane_id,
+        "name": name,
+        "lane_kind_label": _data_state_text(
+            _first_text(row.get("lane_kind_label"), row.get("lane_kind"), default="lane")
+        ),
+        "state": state,
+        "status_label": status_label,
+        "status_class": status_class,
+        "progress_label": progress_label,
+        "progress_percent": _lane_progress_percent(row, progress_label),
+        "required_now": required_now,
+        "required_label": "Required now" if required_now else "Optional today",
+        "blocks_execution": blocks_execution,
+        "blocks_paper_label": "Yes" if blocks_execution else "No",
+        "blocker": blocker,
+        "ready_for_review": ready_for_review,
+        "ready_for_paper_execution": ready_for_paper,
+        "latest_as_of_label": latest_as_of_label,
+        "checked_at_label": checked_at_label,
+        "requirement_label": requirement_label,
+        "operator_message": operator_message,
+        "recommended_action": recommended_action,
+        "gap_detail": operator_message,
+        "tooltip": (
+            f"{name}: {status_label}. Progress: {progress_label}. "
+            f"Proof: {latest_as_of_label}. Next action: {recommended_action}"
+        ),
+        "sort_key": _data_lane_sort_key(
+            state,
+            required_now=required_now,
+            blocks_execution=blocks_execution,
+            status_class=status_class,
+        ),
+    }
+
+
+def _data_state_top_gaps(
+    lane_rows: Sequence[Mapping[str, object]],
+) -> list[dict[str, object]]:
+    gap_rows = [
+        row
+        for row in lane_rows
+        if row.get("required_now") is True
+        and (
+            row.get("blocker") is True
+            or str(row.get("state") or "")
+            in {"loading", "loaded_unanalyzed", "needs_refresh", "provider_unavailable"}
+        )
+    ]
+    ordered = sorted(gap_rows, key=lambda row: _int(row.get("sort_key"), fallback=99))
+    return [
+        {
+            "lane": str(row.get("name") or "Data lane"),
+            "status_label": str(row.get("status_label") or "Needs attention"),
+            "status_class": str(row.get("status_class") or "warn"),
+            "progress_label": str(row.get("progress_label") or "not tracked"),
+            "detail": str(row.get("operator_message") or "No lane detail recorded."),
+            "recommended_action": str(row.get("recommended_action") or "Review this lane."),
+            "blocks_execution": bool(row.get("blocks_execution")),
+        }
+        for row in ordered
+    ]
+
+
+def _data_state_gap_summary(top_gaps: Sequence[Mapping[str, object]]) -> str:
+    execution_gaps = [row for row in top_gaps if row.get("blocks_execution") is True]
+    rows = execution_gaps or list(top_gaps)
+    labels = [
+        f"{row.get('lane')} ({row.get('progress_label')})"
+        for row in rows[:3]
+        if row.get("lane")
+    ]
+    if not labels:
+        return "Paper execution needs lane attention before submit."
+    return "Resolve or acknowledge these operationability gaps: " + "; ".join(labels) + "."
+
+
+def _lane_recommended_action(
+    row: Mapping[str, object],
+    *,
+    state: str,
+    name: str,
+    required_now: bool,
+    blocks_execution: bool,
+) -> str:
+    explicit = _data_state_text(_first_text(row.get("recommended_action")))
+    if explicit:
+        return explicit
+    if state == "loading":
+        return f"Wait for {name} to finish loading, then refresh the cockpit."
+    if state == "loaded_unanalyzed":
+        return f"Run the {name} analysis before using this lane for decisions."
+    if state == "needs_refresh":
+        return f"Refresh {name}, then recheck the cockpit proof timestamp."
+    if state == "provider_unavailable":
+        return f"Check provider access for {name}, then retry the lane refresh."
+    if state == "ready_for_paper_execution":
+        return f"No action needed for {name}; it is ready for paper execution."
+    if state == "ready_for_review":
+        return f"Use {name} for research review; refresh if proof is outside policy."
+    if not required_now:
+        return f"No action needed today; {name} is not required for the current workflow."
+    if blocks_execution:
+        return f"Review {name} before paper execution because this lane is execution-critical."
+    return f"Review {name} before advancing this workflow."
+
+
+def _lane_progress_percent(
+    row: Mapping[str, object],
+    progress_label: str,
+) -> int | None:
+    for key in ("progress_percent", "coverage_pct", "manifest_coverage_pct"):
+        value = row.get(key)
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, int | float):
+            return _bounded_int(value)
+    ratio_match = re.search(r"(\d+(?:\.\d+)?)\s*/\s*(\d+(?:\.\d+)?)", progress_label)
+    if ratio_match:
+        done = _float(ratio_match.group(1))
+        total = _float(ratio_match.group(2))
+        if total > 0:
+            return _bounded_int(done / total * 100)
+    percent_match = re.search(r"(\d+(?:\.\d+)?)\s*%", progress_label)
+    if percent_match:
+        return _bounded_int(_float(percent_match.group(1)))
+    return None
+
+
+def _progress_average(rows: Sequence[Mapping[str, object]]) -> int:
+    values = [
+        _int(row.get("progress_percent"), fallback=-1)
+        for row in rows
+        if row.get("progress_percent") is not None
+    ]
+    values = [value for value in values if value >= 0]
+    if not values:
+        return 0
+    return _bounded_int(sum(values) / len(values))
+
+
+def _bounded_int(value: object, *, fallback: int = 0) -> int:
+    if isinstance(value, bool):
+        return fallback
+    numeric = _float(value, fallback=float(fallback))
+    return max(0, min(100, int(round(numeric))))
+
+
+def _data_state_bool(value: object, *, fallback: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "ready", "pass"}
+    return fallback
+
+
+def _data_state_text(value: object) -> str:
+    text = _first_text(value)
+    return re.sub(r"\bstale\b", "needs refresh", text, flags=re.IGNORECASE)
+
+
+def _state_from_lane_label(row: Mapping[str, object]) -> str:
+    text = _first_text(
+        row.get("status_label"),
+        row.get("state"),
+        row.get("analysis_state"),
+    ).lower()
+    if "loading" in text or "running" in text:
+        return "loading"
+    if "not required" in text or "optional" in text:
+        return "disabled_optional"
+    if "unavailable" in text or "failed" in text or "missing" in text:
+        return "provider_unavailable"
+    if "refresh" in text:
+        return "needs_refresh"
+    if "paper execution" in text:
+        return "ready_for_paper_execution"
+    if "review" in text:
+        return "ready_for_review"
+    return "loaded_unanalyzed"
+
+
+def _lane_state_class(row: Mapping[str, object]) -> str:
+    state = _state_from_lane_label(row)
+    if state == "provider_unavailable":
+        return "block"
+    if state in {"loading", "loaded_unanalyzed", "needs_refresh"}:
+        return "warn"
+    if state in {"ready_for_review", "ready_for_paper_execution"}:
+        return "pass"
+    return "neutral"
+
+
+def _data_lane_sort_key(
+    state: str,
+    *,
+    required_now: bool,
+    blocks_execution: bool,
+    status_class: str,
+) -> int:
+    if not required_now:
+        return 90
+    base = {
+        "provider_unavailable": 0,
+        "loading": 1,
+        "loaded_unanalyzed": 2,
+        "needs_refresh": 3,
+        "ready_for_review": 6,
+        "ready_for_paper_execution": 8,
+        "disabled_optional": 9,
+    }.get(state, 5)
+    if blocks_execution:
+        base -= 1
+    if status_class == "block":
+        base -= 1
+    return max(0, base)
 
 
 def _signal_rows(signals_context: Mapping[str, object]) -> list[dict[str, object]]:

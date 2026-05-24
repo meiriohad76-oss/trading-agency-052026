@@ -71,3 +71,10 @@ def test_qa_script_returns_to_candidates_before_ticker_detail_focus() -> None:
 
     assert candidates_phase in panels_branch
     assert panels_branch.index(candidates_phase) < panels_branch.index(row_toggle)
+
+
+def test_qa_script_panel_focus_uses_first_matching_panel_trigger() -> None:
+    source = inspect.getsource(qa._exercise_focus)
+    panels_branch = source.split('elif focus == "panels":', 1)[1]
+
+    assert ".first.click()" in panels_branch

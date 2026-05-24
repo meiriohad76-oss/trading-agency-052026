@@ -308,7 +308,7 @@ def _exercise_focus(page: Any, focus: str) -> list[str]:
             errors.append("portfolio phase did not open")
     elif focus == "panels":
         for panel in PANEL_NAMES:
-            page.locator(f'[data-cockpit-panel-target="{panel}"]').click()
+            page.locator(f'[data-cockpit-panel-target="{panel}"]').first.click()
             panel_locator = page.locator(f"#cockpit-panel-{panel}")
             if not panel_locator.is_visible():
                 errors.append(f"{panel} panel did not open")

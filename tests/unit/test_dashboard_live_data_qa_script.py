@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from scripts import check_dashboard_live_data_qa as qa
 from scripts.check_dashboard_live_data_qa import _empty_result, result_failed
+
+QA_SCRIPT = Path("scripts/check_dashboard_live_data_qa.py")
 
 
 def _ready_payload_for(url: str):
@@ -38,6 +42,37 @@ def test_dashboard_live_data_qa_result_passes_with_health_rows() -> None:
     row["v3_briefing_visible"] = True
 
     assert result_failed(row) is False
+
+
+def test_dashboard_live_data_qa_accepts_cockpit_lane_state_as_root_health_proof() -> None:
+    row = _empty_result("mobile", "/")
+    row["cockpit_data_state_visible"] = True
+    row["cockpit_lane_rows_count"] = 3
+    row["v3_build_served"] = True
+    row["v3_screen_class"] = True
+    row["v3_universal_briefing"] = True
+    row["v3_briefing_visible"] = False
+
+    assert result_failed(row) is False
+
+
+def test_dashboard_live_data_qa_rejects_cockpit_lane_state_on_non_cockpit_route() -> None:
+    row = _empty_result("mobile", "/signals")
+    row["cockpit_data_state_visible"] = True
+    row["cockpit_lane_rows_count"] = 3
+    row["v3_build_served"] = True
+    row["v3_screen_class"] = True
+    row["v3_universal_briefing"] = True
+    row["v3_briefing_visible"] = True
+
+    assert result_failed(row) is True
+
+
+def test_dashboard_live_data_qa_cockpit_lane_probe_accepts_row_count_progress() -> None:
+    script = QA_SCRIPT.read_text(encoding="utf-8")
+
+    assert "progressText.trim().length > 0" in script
+    assert "No lane action recorded" in script
 
 
 def test_dashboard_live_data_qa_checks_cockpit_root_and_command_route() -> None:

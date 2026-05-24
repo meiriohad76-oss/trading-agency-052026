@@ -11,6 +11,60 @@
         <article><span>Blocked</span><strong class="cockpit-mono">{{ universe_blocked|length }}</strong></article>
         <article><span>Refreshed</span><strong class="cockpit-mono">{{ cycle.as_of }}</strong></article>
       </div>
+      <section class="cockpit-lane-board" aria-label="Lane State Board">
+        <div class="cockpit-lane-board-heading">
+          <div>
+            <h3>Lane State Board</h3>
+            <p class="muted">This is the operator proof for loading, analysis, progress, latest timestamp, and remaining gaps.</p>
+          </div>
+          <div class="cockpit-lane-board-summary">
+            <span>{{ data_state.loading_count|default(0, true) }} loading</span>
+            <span>{{ data_state.needs_refresh_count|default(0, true) }} need refresh</span>
+            <span>{{ data_state.unavailable_count|default(0, true) }} unavailable</span>
+            <span>{{ data_state.ready_paper_count|default(0, true) }} paper-ready</span>
+          </div>
+        </div>
+        <div class="cockpit-lane-row cockpit-lane-head" role="row">
+          <strong role="columnheader">Lane</strong>
+          <strong role="columnheader">State</strong>
+          <strong role="columnheader">Progress</strong>
+          <strong role="columnheader">Required now?</strong>
+          <strong role="columnheader">Blocks paper?</strong>
+          <strong role="columnheader">Latest proof/as-of</strong>
+          <strong role="columnheader">Gap / next action</strong>
+        </div>
+        {% for lane in data_state.lane_rows|default([], true) %}
+          <article class="cockpit-lane-row cockpit-lane-row-{{ lane.status_class }}" role="row" title="{{ lane.tooltip }}">
+            <span role="cell">
+              <strong>{{ lane.name }}</strong>
+              <small>{{ lane.lane_kind_label }} / requires {{ lane.requirement_label }}</small>
+            </span>
+            <span role="cell">
+              <span class="status-pill status-pill-{{ lane.status_class }}">{{ lane.status_label }}</span>
+            </span>
+            <span role="cell">
+              <strong>{{ lane.progress_label }}</strong>
+              {% if lane.progress_percent is not none %}
+                <span class="cockpit-lane-progress" aria-label="{{ lane.progress_percent }} percent complete">
+                  <span style="width: {{ lane.progress_percent }}%"></span>
+                </span>
+              {% endif %}
+            </span>
+            <span role="cell">{{ lane.required_label }}</span>
+            <span role="cell">{{ lane.blocks_paper_label }}</span>
+            <span role="cell">
+              {{ lane.latest_as_of_label }}
+              <small>Checked {{ lane.checked_at_label }}</small>
+            </span>
+            <span role="cell">
+              {{ lane.gap_detail }}
+              <small>{{ lane.recommended_action }}</small>
+            </span>
+          </article>
+        {% else %}
+          <p class="empty-state">No lane-state rows are available for this cycle.</p>
+        {% endfor %}
+      </section>
       <div class="cockpit-panel-two-col">
         <section>
           <h3>Data sources</h3>

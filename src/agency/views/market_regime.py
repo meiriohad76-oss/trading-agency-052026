@@ -18,6 +18,7 @@ from agency.views._shared import (
 
 _market_regime_context_cache: dict[str, tuple[float, dict[str, object]]] = {}
 _broker_status_context_cache: dict[str, tuple[float, dict[str, object]]] = {}
+_broker_status_inflight: dict[tuple[str, int], asyncio.Task[dict[str, object]]] = {}
 DASHBOARD_BROKER_STATUS_TIMEOUT_SECONDS = 2.5
 
 
@@ -99,10 +100,16 @@ async def broker_status_context(
         _store_broker_status_context(cache_key, context)
         return context
     cache_context = True
+    broker_read: asyncio.Task[dict[str, object]] | None = None
     try:
         config = AlpacaTradingConfig.from_env()
         config.require_paper(purpose="dashboard broker reads")
-        broker_read = asyncio.create_task(broker_snapshot(config=config))
+        loop_key = _broker_status_inflight_key(cache_key)
+        broker_read = _broker_status_inflight.get(loop_key) if use_cache else None
+        if broker_read is None or broker_read.done():
+            broker_read = asyncio.create_task(broker_snapshot(config=config))
+            if use_cache:
+                _broker_status_inflight[loop_key] = broker_read
         context = (
             await asyncio.wait_for(
                 asyncio.shield(broker_read),
@@ -111,11 +118,14 @@ async def broker_status_context(
             if use_cache
             else await broker_read
         )
+        if use_cache and broker_read.done():
+            _broker_status_inflight.pop(loop_key, None)
     except TimeoutError:
         cache_context = False
-        broker_read.add_done_callback(
-            lambda task: _store_completed_broker_status_context(cache_key, task),
-        )
+        if broker_read is not None:
+            broker_read.add_done_callback(
+                lambda task: _store_completed_broker_status_context(cache_key, loop_key, task),
+            )
         context = {
             "provider": "alpaca",
             "mode": "paper",
@@ -133,7 +143,9 @@ async def broker_status_context(
                 "still performs a strict fresh broker check before any paper order."
             ),
         }
+        _store_broker_status_context(cache_key, context)
     except AlpacaBrokerError as exc:
+        _clear_broker_status_inflight(cache_key)
         context = {
             "provider": "alpaca",
             "mode": "paper",
@@ -188,14 +200,37 @@ def _store_broker_status_context(key: str, context: dict[str, object]) -> None:
 
 def _store_completed_broker_status_context(
     key: str,
+    loop_key: tuple[str, int],
     task: asyncio.Task[dict[str, object]],
 ) -> None:
     try:
         context = task.result()
-    except (asyncio.CancelledError, AlpacaBrokerError, OSError):
+    except asyncio.CancelledError:
+        _broker_status_inflight.pop(loop_key, None)
         return
+    except Exception as exc:
+        _broker_status_inflight.pop(loop_key, None)
+        _store_broker_status_context(key, _broker_offline_context(exc))
+        return
+    _broker_status_inflight.pop(loop_key, None)
     if isinstance(context, dict):
         _store_broker_status_context(key, context)
+
+
+def _broker_offline_context(exc: BaseException) -> dict[str, object]:
+    return {
+        "provider": "alpaca",
+        "mode": "paper",
+        "connected": False,
+        "checked_at": datetime.now(UTC).isoformat(),
+        "account": None,
+        "positions": [],
+        "orders": [],
+        "gross_exposure_pct": 0.0,
+        "status_label": "Broker Offline",
+        "status_class": "warn",
+        "detail": str(exc) or exc.__class__.__name__,
+    }
 
 
 def _broker_status_cache_key() -> str:
@@ -204,3 +239,17 @@ def _broker_status_cache_key() -> str:
     enabled = "enabled" if _env_bool_text("AGENCY_ALPACA_BROKER_ENABLED") else "disabled"
     base_url = os.environ.get("ALPACA_TRADING_BASE_URL", "")
     return f"{enabled}|{base_url}"
+
+
+def _broker_status_inflight_key(
+    cache_key: str,
+    loop: asyncio.AbstractEventLoop | None = None,
+) -> tuple[str, int]:
+    current_loop = asyncio.get_running_loop() if loop is None else loop
+    return (cache_key, id(current_loop))
+
+
+def _clear_broker_status_inflight(cache_key: str) -> None:
+    for key in list(_broker_status_inflight):
+        if key[0] == cache_key:
+            _broker_status_inflight.pop(key, None)

@@ -33,8 +33,9 @@ def test_cockpit_has_all_six_instrument_panels() -> None:
 
 def test_instrument_nav_has_five_buttons_and_excludes_ticker_detail() -> None:
     html = _template()
+    nav = html.split('<nav class="cockpit-instrument-nav"', 1)[1].split("</nav>", 1)[0]
 
-    assert html.count("data-cockpit-panel-target=") == 5
+    assert nav.count("data-cockpit-panel-target=") == 5
     assert 'data-cockpit-panel-target="ticker-detail"' not in html
 
 
