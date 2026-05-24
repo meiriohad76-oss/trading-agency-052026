@@ -205,6 +205,30 @@ async def test_review_evidence_packs_defaults_to_top_ten_by_conviction() -> None
     assert provider.reviewed == batch.reviewed_tickers
 
 
+async def test_review_evidence_packs_hard_caps_automatic_review_at_top_ten() -> None:
+    provider = _FakeProvider()
+    packs = [
+        _evidence_pack(ticker=f"T{index:02d}", score=0.51 + index * 0.01)
+        for index in range(12)
+    ]
+
+    batch = await review_evidence_packs(packs, provider=provider, max_reviews=50)
+
+    assert len(batch.reviewed_tickers) == 10
+    assert batch.reviewed_tickers == [
+        "T11",
+        "T10",
+        "T09",
+        "T08",
+        "T07",
+        "T06",
+        "T05",
+        "T04",
+        "T03",
+        "T02",
+    ]
+
+
 # ---------------------------------------------------------------------------
 # T137 — structured JSON logging for LLM review runs
 # ---------------------------------------------------------------------------

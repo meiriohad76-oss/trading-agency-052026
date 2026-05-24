@@ -519,6 +519,10 @@ def test_ingest_uses_linked_article_content_for_ticker_and_summary(tmp_path: Pat
         clock=lambda: FETCHED_AT,
         summary_root=tmp_path / "summary",
         article_fetcher=fetcher,
+        article_login_preflight=lambda config, _records: replace(
+            config,
+            article_login_preflight_confirmed=True,
+        ),
     )
 
     news = pd.read_parquet(tmp_path / "research" / "data" / "parquet" / "news_rss.parquet")
@@ -833,6 +837,37 @@ def test_sa_article_links_are_not_opened_until_login_preflight_is_confirmed(
     assert result.records[0].linked_content_url == "https://seekingalpha.com/article/aapl"
 
 
+def test_sa_article_links_require_login_preflight_by_default_when_following_links(
+    tmp_path: Path,
+) -> None:
+    config_path = _config_path(
+        tmp_path,
+        follow_article_links=True,
+        article_analysis_cache_path=tmp_path / "article-cache.local.json",
+    )
+    config = load_subscription_email_config(config_path, repo_root=tmp_path)
+    records = [
+        _record(
+            "seeking_alpha",
+            "Seeking Alpha AAPL article",
+            "AAPL analyst article https://seekingalpha.com/article/aapl",
+        )
+    ]
+
+    def fetcher(_url: str, _timeout_seconds: int) -> FetchedArticle:
+        raise AssertionError("SA article links must not open before login is verified")
+
+    result = linked_content.enrich_records_with_linked_content(
+        records,
+        config=config,
+        fetcher=fetcher,
+    )
+
+    assert result.stats.attempted == 0
+    assert result.stats.skipped == 1
+    assert result.records[0].linked_content_status == "article_login_preflight_required"
+
+
 def test_ingest_source_health_marks_article_login_needed(tmp_path: Path) -> None:
     mailbox = tmp_path / "mail"
     mailbox.mkdir()
@@ -1076,6 +1111,7 @@ def test_ingest_verdict_is_not_ready_when_all_paid_article_fetches_fail(
         clock=lambda: FETCHED_AT,
         summary_root=tmp_path / "summary",
         article_fetcher=fetcher,
+        article_login_preflight=_confirmed_article_login_preflight,
     )
     summary = json.loads((tmp_path / "summary" / "subscription-email-ingest.json").read_text())
 
@@ -2718,6 +2754,7 @@ def test_monitor_opens_article_links_only_for_changed_emails(tmp_path: Path) -> 
         summary_root=tmp_path / "summary",
         clock=lambda: FETCHED_AT,
         article_fetcher=fetcher,
+        article_login_preflight=_confirmed_article_login_preflight,
     )
 
     assert result.status == "analyzed"
@@ -2877,6 +2914,7 @@ def test_import_syncs_gmail_emails_then_analyzes_real_article_links(
         clock=lambda: FETCHED_AT,
         summary_root=tmp_path / "summary",
         article_fetcher=fetcher,
+        article_login_preflight=_confirmed_article_login_preflight,
         imap_factory=lambda _config: client,
         env={
             "SUBSCRIPTION_EMAIL_USERNAME": "user@example.test",
@@ -2953,6 +2991,7 @@ def test_gmail_import_processes_only_newly_saved_mailbox_files(
         clock=lambda: FETCHED_AT,
         summary_root=tmp_path / "summary",
         article_fetcher=fetcher,
+        article_login_preflight=_confirmed_article_login_preflight,
         imap_factory=lambda _config: client,
         env={
             "SUBSCRIPTION_EMAIL_USERNAME": "user@example.test",
@@ -3015,6 +3054,7 @@ def test_gmail_import_processes_selected_duplicate_without_whole_folder(
         clock=lambda: FETCHED_AT,
         summary_root=tmp_path / "summary",
         article_fetcher=fetcher,
+        article_login_preflight=_confirmed_article_login_preflight,
         imap_factory=lambda _config: client,
         env={
             "SUBSCRIPTION_EMAIL_USERNAME": "user@example.test",
@@ -3191,6 +3231,13 @@ def _config_path(
         encoding="utf-8",
     )
     return path
+
+
+def _confirmed_article_login_preflight(
+    config: SubscriptionEmailConfig,
+    _records: list[EmailRecord],
+) -> SubscriptionEmailConfig:
+    return replace(config, article_login_preflight_confirmed=True)
 
 
 def _config(

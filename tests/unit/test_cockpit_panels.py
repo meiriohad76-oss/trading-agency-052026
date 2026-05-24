@@ -108,7 +108,7 @@ def test_ticker_panel_has_rich_evidence_targets() -> None:
         assert target in html
     assert "/api/cockpit/ticker/" in script
     assert "#cockpit-panel-ticker-detail" in script
-    assert "ux-v3-rich-ticker-detail-20260522" in template
+    assert 'data-ux-feature="rich-ticker-detail"' in template
 
 
 def test_audit_panel_shows_cycle_and_evidence_hash_when_available() -> None:

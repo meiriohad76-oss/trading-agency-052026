@@ -39,6 +39,31 @@ def test_candidate_row_includes_concrete_risk_or_clear_empty_state() -> None:
     assert rows["AAA"]["risk_line"] == "No major risk flag in current pack."
 
 
+def test_candidate_row_missing_evidence_and_risk_uses_neutral_copy() -> None:
+    sources = _sample_sources()
+    sources["dashboard"]["review_queue"] = [  # type: ignore[index]
+        {
+            "ticker": "NODATA",
+            "company": "No Data Inc.",
+            "sector": "Technology",
+            "final_action": "WATCH",
+            "final_score": 0.61,
+            "risk_status_label": "",
+            "is_reviewable": False,
+            "cycle_id": "cycle-live-20260522-1530",
+            "as_of": "2026-05-22T15:28:00+00:00",
+        }
+    ]
+
+    context = cockpit_context_from_sources(sources)
+    row = context["candidates"][0]
+
+    assert row["evidence_tiers"] == ["suppressed"]
+    assert row["evidence_line"] == "No concrete evidence line is available in the current pack."
+    assert row["risk_line"] == "Risk check did not attach a specific finding."
+    assert row["risk_status_label"] == "Risk proof not attached"
+
+
 def test_candidate_row_uses_conviction_dial_and_mono_score() -> None:
     context = cockpit_context_from_sources(_sample_sources())
     row = context["candidates"][0]
@@ -58,6 +83,10 @@ def test_candidate_evidence_tiers_are_visually_distinct() -> None:
     assert ".evidence-tier-inferred" in css
     assert ".evidence-tier-suppressed" in css
     assert "candidate.evidence_tiers" in html
+    assert 'default(["confirmed"]' not in html
+    assert "Evidence available in audit." not in html
+    assert 'default("No major risk flag' not in html
+    assert 'default("Ready for review"' not in html
 
 
 def test_candidate_evidence_thresholds_have_whymark_tips() -> None:

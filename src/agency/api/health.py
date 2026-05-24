@@ -391,11 +391,24 @@ async def runtime_live_readiness(
         if risk_decision_provider is None
         else risk_decision_provider
     )
+    source_health = await source_provider()
+    data_load = await asyncio.to_thread(
+        load_data_load_status,
+        source_health_rows=source_health,
+        source_health_origin=_source_health_origin_label(source_health),
+    )
     return build_live_readiness(
-        source_health=await source_provider(),
+        source_health=source_health,
         selection_reports=await selection_provider(),
         risk_decisions=await risk_provider(),
+        lane_states=_mapping_list(data_load.get("lane_states")),
     )
+
+
+def _mapping_list(value: object) -> list[dict[str, object]]:
+    if not isinstance(value, list):
+        return []
+    return [dict(item) for item in value if isinstance(item, Mapping)]
 
 
 async def _default_source_status() -> list[dict[str, object]]:
@@ -404,14 +417,20 @@ async def _default_source_status() -> list[dict[str, object]]:
 
 async def _default_selection_reports() -> list[dict[str, object]]:
     try:
-        return await runtime_selection_reports(limit=200)
+        return await runtime_selection_reports(
+            limit=200,
+            prefer_latest_artifact=True,
+        )
     except RuntimeSelectionReportsUnavailable:
         return []
 
 
 async def _default_risk_decisions() -> list[dict[str, object]]:
     try:
-        return await runtime_risk_decisions(limit=200)
+        return await runtime_risk_decisions(
+            limit=200,
+            prefer_latest_artifact=True,
+        )
     except RuntimeRiskDecisionsUnavailable:
         return []
 

@@ -148,6 +148,45 @@ def test_orchestrator_repairs_live_slices_in_closed_market_when_required(
     assert plan["execution_blocking_lane_count"] == 2
 
 
+def test_live_trade_lane_ignores_stale_config_window_when_market_is_closed(
+    tmp_path: Path,
+) -> None:
+    config = RefreshBatchConfig(
+        repo_root=tmp_path,
+        output_root=tmp_path / "results",
+        start=date(2026, 5, 1),
+        end=date(2026, 5, 15),
+        datasets=("stock_trades", "prices_daily"),
+        tickers=("AAPL", "MSFT"),
+        market_data_provider="massive",
+        massive_credentials_present=True,
+        stock_trades_start=date(2026, 5, 15),
+        stock_trades_end=date(2026, 5, 15),
+    )
+
+    plan = build_massive_orchestration_plan(
+        config,
+        session=classify_market_session(datetime(2026, 5, 24, 10, 0, tzinfo=EASTERN)),
+        extraction_decisions=(
+            ExtractionDecision(
+                "stock_trades",
+                "incremental",
+                "stale local config should not control operational live slices",
+                tickers=("AAPL", "MSFT"),
+                start=date(2026, 5, 15),
+                end=date(2026, 5, 15),
+            ),
+        ),
+        runtime_lanes=("buy_sell_pressure", "market_flow_trend"),
+    )
+
+    live_lane = _lane(plan, "massive_live_trade_slices")
+    assert live_lane["batch_action"] == "run_now"
+    assert live_lane["start"] == "2026-05-22"
+    assert live_lane["end"] == "2026-05-22"
+    assert live_lane["window_label"] == "2026-05-22"
+
+
 def test_live_trade_lanes_target_active_universe_not_full_depth_gap_subset(
     tmp_path: Path,
 ) -> None:

@@ -27,6 +27,7 @@ from agency.views._shared import (
     _label_text,
     _list_field,
     _mapping_field,
+    _mapping_list_field_or_empty,
     _percent,
     _runtime_payload_key,
     _source_health_origin_label,
@@ -54,14 +55,15 @@ async def risk_context() -> dict[str, object]:
     )
     reports = _active_cycle_reports(raw_reports)
     policy = await load_active_portfolio_policy()
+    data_load_status = load_data_load_status(
+        source_health_rows=data_sources,
+        source_health_origin=_source_health_origin_label(data_sources),
+    )
     readiness = build_live_readiness(
         source_health=data_sources,
         selection_reports=reports,
         risk_decisions=[],
-    )
-    data_load_status = load_data_load_status(
-        source_health_rows=data_sources,
-        source_health_origin=_source_health_origin_label(data_sources),
+        lane_states=_mapping_list_field_or_empty(data_load_status, "lane_states"),
     )
     review_states = _human_review_index(
         await human_review_events_for_reports(reports, readiness)

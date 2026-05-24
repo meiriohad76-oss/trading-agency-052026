@@ -340,7 +340,11 @@ def _selected_stock_trade_progress(
         _lane_progress_path(status_path, "massive_premarket_trade_slices"),
         _stock_trade_progress_path(status_path),
     ]
-    rows = [(path, _json_mapping(path)) for path in candidates]
+    rows = [
+        (path, payload)
+        for path, payload in ((path, _json_mapping(path)) for path in candidates)
+        if not _running_trade_progress_lacks_window(path, payload)
+    ]
     running = [
         (path, payload)
         for path, payload in rows
@@ -362,6 +366,30 @@ def _selected_stock_trade_progress(
     if live_manifest:
         return candidates[0], {}
     return candidates[0], {}
+
+
+def _running_trade_progress_lacks_window(
+    path: Path,
+    progress: Mapping[str, object],
+) -> bool:
+    if str(progress.get("state") or "").lower() != "running":
+        return False
+    if path.name not in {
+        "massive_live_trade_slices-progress.json",
+        "massive_premarket_trade_slices-progress.json",
+        STOCK_TRADES_PROGRESS_FILENAME,
+    }:
+        return False
+    return not _progress_has_window(progress)
+
+
+def _progress_has_window(progress: Mapping[str, object]) -> bool:
+    start = _text_value(progress.get("start"), "")
+    end = _text_value(progress.get("end"), "")
+    if start and end:
+        return True
+    window = _mapping(progress.get("window"))
+    return bool(_text_value(window.get("start"), "") and _text_value(window.get("end"), ""))
 
 
 def _running_stock_trade_backfill_progress(
@@ -429,9 +457,18 @@ def _massive_lane_progress_rows(status_path: Path) -> list[dict[str, object]]:
     for lane_id in MASSIVE_LANE_IDS:
         progress_path = _lane_progress_path(status_path, lane_id)
         progress = _json_mapping(progress_path)
+        if _running_trade_progress_lacks_window(progress_path, progress):
+            progress = {}
         if lane_id == "massive_live_trade_slices" and not progress:
             legacy_progress = _json_mapping(_stock_trade_progress_path(status_path))
-            if legacy_progress and not legacy_progress.get("lane_id"):
+            if (
+                legacy_progress
+                and not legacy_progress.get("lane_id")
+                and not _running_trade_progress_lacks_window(
+                    _stock_trade_progress_path(status_path),
+                    legacy_progress,
+                )
+            ):
                 progress = legacy_progress
                 progress_path = _stock_trade_progress_path(status_path)
         if lane_id == "massive_backtest_trade_tape":
@@ -511,9 +548,17 @@ def _massive_lane_state(
     now: datetime,
 ) -> str:
     progress_state = str(progress.get("state") or "").lower()
-    if progress_state in {"running", "failed", "blocked", "partial", "partial_usable", "stale"}:
+    if progress_state in {"running", "failed", "blocked", "stale"}:
         return progress_state
     manifest_status = _massive_lane_effective_manifest_status(manifest)
+    if (
+        progress_state in {"partial", "partial_usable", "complete", "ready"}
+        and manifest
+        and _massive_lane_manifest_stale(lane_id, manifest, now=now)
+    ):
+        return "stale"
+    if progress_state in {"partial", "partial_usable"}:
+        return progress_state
     if manifest_status in {"complete", "partial", "partial_usable", "failed", "blocked"}:
         if manifest_status in {"complete", "partial", "partial_usable"} and _massive_lane_manifest_stale(
             lane_id,

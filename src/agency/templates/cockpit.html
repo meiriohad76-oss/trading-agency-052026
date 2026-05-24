@@ -14,6 +14,7 @@
   data-cockpit-color-preset="{{ preferences.color_preset }}"
   data-cockpit-theme="{{ preferences.theme }}"
   data-cockpit-density="{{ preferences.density }}"
+  data-ux-feature="rich-ticker-detail"
   data-cockpit-ready="true"
 >
   <header class="cockpit-topline">
@@ -36,6 +37,7 @@
         data-cockpit-monitor-live-label="Receiving current monitor updates"
       >{{ monitor.label }}</span>
       <small>Monitor proof: {{ monitor.last_update }}</small>
+      <a class="button button-secondary" href="/command">Command</a>
       <button type="button" class="button button-secondary" data-cockpit-preferences-open>Preferences</button>
     </div>
   </header>
@@ -80,9 +82,13 @@
           <small>{{ gap.progress_label }} - {{ gap.recommended_action }}</small>
         </p>
       {% else %}
-        <p>No required lane gaps are reported for the current workflow.</p>
+        {% if data_state.lane_rows|default([], true) %}
+          <p>No required lane gaps are reported for the current workflow.</p>
+        {% else %}
+          <p>Lane-state proof is unavailable for this cockpit request.</p>
+        {% endif %}
       {% endfor %}
-      <button type="button" class="button button-secondary" data-cockpit-panel-target="universe">Open Lane State Board</button>
+      <button type="button" class="button button-secondary" data-cockpit-panel-target="universe">Review data sources</button>
     </div>
   </section>
 
@@ -276,17 +282,19 @@
               <strong class="cockpit-mono">{{ candidate.score_display|default("%.2f"|format(candidate.final_conviction|default(0, true)), true) }}</strong>
             </span>
             <span class="cockpit-evidence-cell">
-              {% for tier in candidate.evidence_tiers|default(["confirmed"], true) %}
+              {% for tier in candidate.evidence_tiers|default([], true) %}
                 <span class="evidence-tier evidence-tier-{{ tier }}">{{ tier }}</span>
+              {% else %}
+                <span class="evidence-tier evidence-tier-suppressed">not attached</span>
               {% endfor %}
-              <span>{{ candidate.evidence_line|default(candidate.evidence[0].text|default("Evidence available in audit.", true), true) }}</span>
+              <span>{{ candidate.evidence_line|default(candidate.evidence[0].text|default("No concrete evidence line is available in the current pack.", true), true) }}</span>
             </span>
             <span class="cockpit-risk-cell">
               <strong>{{ candidate.risk_status_label|default("Risk check", true) }}</strong>
-              <span>{{ candidate.risk_line|default("No major risk flag in current pack.", true) }}</span>
+              <span>{{ candidate.risk_line|default("Risk check did not attach a specific finding.", true) }}</span>
             </span>
             <span class="cockpit-status-cell">
-              <span class="status-pill status-pill-{% if candidate.actionable or candidate.reviewable %}pass{% else %}warn{% endif %}">{{ candidate.status_label|default("Ready for review", true) }}</span>
+              <span class="status-pill status-pill-{% if candidate.actionable or candidate.reviewable %}pass{% else %}warn{% endif %}">{{ candidate.status_label|default("Status not reported", true) }}</span>
               <span>{{ candidate.llm_label|default("LLM not run for this ticker", true) }}</span>
             </span>
           </button>
@@ -324,13 +332,13 @@
               <h3>{{ candidate.ticker }} evidence pack</h3>
               <ul class="cockpit-evidence-list">
                 {% for item in candidate.evidence %}
-                  <li><span class="evidence-tier evidence-tier-{{ item.tier|default('confirmed', true) }}">{{ item.tier|default('confirmed', true) }}</span> {{ item.source|default("Evidence", true) }}: {{ item.text|default("Evidence available in audit.", true) }}</li>
+                  <li><span class="evidence-tier evidence-tier-{{ item.tier|default('suppressed', true) }}">{{ item.tier|default('suppressed', true) }}</span> {{ item.source|default("Evidence", true) }}: {{ item.text|default("No concrete evidence line is available in the current pack.", true) }}</li>
                 {% endfor %}
               </ul>
             </div>
             <div>
               <h3>Risk and LLM</h3>
-              <p>{{ candidate.risk_line|default("No major risk flag in current pack.", true) }}</p>
+              <p>{{ candidate.risk_line|default("Risk check did not attach a specific finding.", true) }}</p>
               <p data-ticker-llm-rationale>{{ candidate.llm_rationale|default(candidate.llm_label|default("LLM not run for this ticker", true), true) }}</p>
               <p class="cockpit-mono">Det {{ "%.2f"|format(candidate.det_conviction|default(0, true)) }} / LLM {{ "%.2f"|format(candidate.llm_conviction|default(0, true)) }}</p>
             </div>
@@ -478,5 +486,5 @@
 {% endblock %}
 
 {% block extra_scripts %}
-  <script src="/static/cockpit.js?v=ux-v3-rich-ticker-detail-20260522-ux-v3-visible-20260523" defer></script>
+  <script src="/static/cockpit.js?v={{ static_version | default('ux-v3-all-dashboards-20260523') }}" defer></script>
 {% endblock %}

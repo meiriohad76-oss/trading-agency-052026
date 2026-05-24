@@ -399,6 +399,10 @@ async def review_evidence_packs(
     include_no_trade_with_evidence: bool = False,
 ) -> LlmReviewBatchResult:
     """Review the top ranked candidate evidence packs before final selection."""
+    review_limit = max(
+        0,
+        min(max_reviews, DEFAULT_AUTO_LLM_REVIEW_MAX_CANDIDATES),
+    )
     reviews_by_ticker: dict[str, dict[str, object]] = {}
     lifecycle_events: list[dict[str, object]] = []
     prompt_audits: list[dict[str, object]] = []
@@ -406,7 +410,8 @@ async def review_evidence_packs(
     _log_llm_review_event(
         "llm_review_start",
         candidate_count=len(evidence_packs),
-        max_reviews=max_reviews,
+        max_reviews=review_limit,
+        requested_max_reviews=max_reviews,
         model=str(getattr(provider, "model", provider.__class__.__name__)),
     )
     candidates = _ranked_review_candidates(
@@ -414,7 +419,7 @@ async def review_evidence_packs(
         include_no_trade_with_evidence=include_no_trade_with_evidence,
     )
     for candidate in candidates:
-        if len(reviewed_tickers) >= max_reviews:
+        if len(reviewed_tickers) >= review_limit:
             break
         result = await provider.review(candidate.pack, candidate.deterministic_decision)
         ticker = str(candidate.pack["ticker"]).upper()

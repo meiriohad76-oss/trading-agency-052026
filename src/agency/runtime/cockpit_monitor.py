@@ -52,7 +52,7 @@ def source_health_rows(
                 "state": state["state"],
                 "state_label": state["label"],
                 "last_pull": source_timestamp or "not reported",
-                "proof_timestamp": proof_timestamp or "not reported",
+                "proof_timestamp": proof_timestamp or source_timestamp or "not reported",
                 "source_timestamp": source_timestamp or "not reported",
                 "analysis_timestamp": analysis_timestamp or "not reported separately",
                 "coverage": _first_text(item.get("coverage_label"), default="coverage not reported"),

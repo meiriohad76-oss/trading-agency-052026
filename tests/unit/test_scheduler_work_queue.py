@@ -1543,6 +1543,223 @@ def test_scheduler_live_lane_command_skips_fresh_manifest_tickers(tmp_path: Path
     assert lane["command"][-2:] == ["--ticker", "MSFT"]
 
 
+def test_scheduler_ignores_running_progress_from_old_live_lane_window(
+    tmp_path: Path,
+) -> None:
+    tiers = build_ticker_tiers(active_universe=["AAPL", "MSFT"])
+    plan = _market_plan("closed_weekend", tickers=("AAPL", "MSFT"))
+    plan["massive_orchestrator"] = {
+        "provider": "massive",
+        "market_phase": "closed_weekend",
+        "lanes": [
+            {
+                "lane_id": "massive_live_trade_slices",
+                "label": "Live Trade Slices",
+                "purpose": "Keep latest Massive trade tape current.",
+                "dataset": "stock_trades",
+                "raw_source_dataset": "stock_trades",
+                "endpoint_family": "trades",
+                "acquisition_mode": "massive_api",
+                "command_profile": "stock_trades_live",
+                "batch_action": "run_now",
+                "priority": 100,
+                "cadence_minutes": 60,
+                "max_tickers_per_batch": 15,
+                "ticker_tier": "T0/T1/T2",
+                "start": "2026-05-22",
+                "end": "2026-05-22",
+                "freshness_requirement_seconds": 300,
+                "blocks_execution": True,
+                "request_budget_label": "bounded latest-print pages for active tiers",
+                "storage_manifest": str(tmp_path / "massive_live_trade_slices.json"),
+                "creates_massive_request": True,
+                "reason": "latest completed session needs coverage",
+            }
+        ],
+        "derived_signal_lanes": [],
+    }
+    progress = {
+        "massive_lanes": [
+            {
+                "lane_id": "massive_live_trade_slices",
+                "state": "running",
+                "start": "2026-05-15",
+                "end": "2026-05-15",
+            }
+        ],
+        "trade_pull": {
+            "lane_id": "massive_live_trade_slices",
+            "state": "running",
+            "start": "2026-05-15",
+            "end": "2026-05-15",
+        },
+    }
+
+    queue = build_scheduler_work_queue(
+        plan,
+        tiers=tiers,
+        data_refresh_progress=progress,
+        data_load_status={"state": "ready", "datasets": []},
+        source_health=_fresh_sources(),
+        broker={"connected": True, "checked_at": NOW.isoformat()},
+        now=datetime(2026, 5, 24, 14, 0, tzinfo=UTC),
+    )
+
+    lane = queue["massive_orchestrator"]["lanes"][0]
+    assert lane["status"] == "DUE_NOW"
+    assert lane["command"][lane["command"].index("--start") + 1] == "2026-05-22"
+    assert lane["command"][lane["command"].index("--end") + 1] == "2026-05-22"
+
+
+def test_scheduler_ignores_running_progress_without_live_lane_window(
+    tmp_path: Path,
+) -> None:
+    tiers = build_ticker_tiers(active_universe=["AAPL", "MSFT"])
+    plan = _market_plan("closed_weekend", tickers=("AAPL", "MSFT"))
+    plan["massive_orchestrator"] = {
+        "provider": "massive",
+        "market_phase": "closed_weekend",
+        "lanes": [
+            {
+                "lane_id": "massive_live_trade_slices",
+                "label": "Live Trade Slices",
+                "purpose": "Keep latest Massive trade tape current.",
+                "dataset": "stock_trades",
+                "raw_source_dataset": "stock_trades",
+                "endpoint_family": "trades",
+                "acquisition_mode": "massive_api",
+                "command_profile": "stock_trades_live",
+                "batch_action": "run_now",
+                "priority": 100,
+                "cadence_minutes": 60,
+                "max_tickers_per_batch": 15,
+                "ticker_tier": "T0/T1/T2",
+                "start": "2026-05-22",
+                "end": "2026-05-22",
+                "freshness_requirement_seconds": 300,
+                "blocks_execution": True,
+                "request_budget_label": "bounded latest-print pages for active tiers",
+                "storage_manifest": str(tmp_path / "massive_live_trade_slices.json"),
+                "creates_massive_request": True,
+                "reason": "latest completed session needs coverage",
+            }
+        ],
+        "derived_signal_lanes": [],
+    }
+    progress = {
+        "massive_lanes": [
+            {
+                "lane_id": "massive_live_trade_slices",
+                "state": "running",
+                "ticker_days_processed": 1,
+                "ticker_days_total": 2,
+            }
+        ],
+        "trade_pull": {
+            "lane_id": "massive_live_trade_slices",
+            "state": "running",
+            "ticker_days_processed": 1,
+            "ticker_days_total": 2,
+        },
+    }
+
+    queue = build_scheduler_work_queue(
+        plan,
+        tiers=tiers,
+        data_refresh_progress=progress,
+        data_load_status={"state": "ready", "datasets": []},
+        source_health=_fresh_sources(),
+        broker={"connected": True, "checked_at": NOW.isoformat()},
+        now=datetime(2026, 5, 24, 14, 0, tzinfo=UTC),
+    )
+
+    lane = queue["massive_orchestrator"]["lanes"][0]
+    assert lane["status"] == "DUE_NOW"
+    assert lane["command"][lane["command"].index("--start") + 1] == "2026-05-22"
+    assert lane["command"][lane["command"].index("--end") + 1] == "2026-05-22"
+
+
+def test_scheduler_does_not_repeat_live_lane_failed_tickers_same_window(
+    tmp_path: Path,
+) -> None:
+    manifest_path = tmp_path / "massive_live_trade_slices.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "lane_id": "massive_live_trade_slices",
+                "status": "partial",
+                "fetched_at": NOW.isoformat(),
+                "window": {"start": "2026-05-22", "end": "2026-05-22"},
+                "coverage_pct": 99,
+                "coverage": [
+                    {
+                        "ticker": "AAPL",
+                        "trade_date": "2026-05-22",
+                        "coverage_status": "partial",
+                        "downloaded_row_count": 1000,
+                        "pages_downloaded": 1,
+                        "order": "desc",
+                    },
+                    {
+                        "ticker": "HON",
+                        "trade_date": "2026-05-22",
+                        "coverage_status": "failed",
+                        "error": "provider returned no readable data",
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    tiers = build_ticker_tiers(active_universe=["AAPL", "HON"])
+    plan = _market_plan("closed_weekend", tickers=("AAPL", "HON"))
+    plan["massive_orchestrator"] = {
+        "provider": "massive",
+        "market_phase": "closed_weekend",
+        "lanes": [
+            {
+                "lane_id": "massive_live_trade_slices",
+                "label": "Live Trade Slices",
+                "purpose": "Keep latest Massive trade tape current.",
+                "dataset": "stock_trades",
+                "raw_source_dataset": "stock_trades",
+                "endpoint_family": "trades",
+                "acquisition_mode": "massive_api",
+                "command_profile": "stock_trades_live",
+                "batch_action": "run_now",
+                "priority": 100,
+                "cadence_minutes": 60,
+                "max_tickers_per_batch": 15,
+                "ticker_tier": "T0/T1/T2",
+                "start": "2026-05-22",
+                "end": "2026-05-22",
+                "freshness_requirement_seconds": 300,
+                "blocks_execution": True,
+                "request_budget_label": "bounded latest-print pages for active tiers",
+                "storage_manifest": str(manifest_path),
+                "creates_massive_request": True,
+                "reason": "latest completed session needs coverage",
+            }
+        ],
+        "derived_signal_lanes": [],
+    }
+
+    queue = build_scheduler_work_queue(
+        plan,
+        tiers=tiers,
+        data_load_status={"state": "ready", "datasets": []},
+        source_health=_fresh_sources(),
+        broker={"connected": True, "checked_at": NOW.isoformat()},
+        now=datetime(2026, 5, 24, 14, 0, tzinfo=UTC),
+    )
+
+    lane = queue["massive_orchestrator"]["lanes"][0]
+    assert lane["fresh_ticker_count"] == 1
+    assert lane["pending_ticker_count"] == 1
+    assert lane["status"] == "SKIPPED"
+    assert lane["command"] == []
+
+
 def test_scheduler_live_lane_uses_active_tier_when_plan_tickers_are_repair_subset(
     tmp_path: Path,
 ) -> None:

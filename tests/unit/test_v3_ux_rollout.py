@@ -25,6 +25,20 @@ V3_NON_COCKPIT_TEMPLATES = [
     name for name in V3_SCREEN_TEMPLATES if name != "cockpit.html"
 ]
 
+FORBIDDEN_V3_COPY = (
+    "ux-v3-visible-20260523",
+    "ux-v3-all-screens-20260522",
+    "ux-v3-review-readable-2-20260522",
+    "ux-v3-rich-ticker-detail-20260522",
+    "first-version",
+)
+
+DEFAULT_BRIEFING_SNIPPETS = (
+    "Start with the first action card",
+    "This screen must show current source proof",
+    "Pre-flight review",
+)
+
 
 def _template(name: str) -> str:
     return (TEMPLATE_ROOT / name).read_text(encoding="utf-8")
@@ -115,6 +129,20 @@ def test_every_non_cockpit_dashboard_declares_v3_identity_and_brief() -> None:
         assert "{% block workflow_phase %}" in html, name
         assert "{% block operator_focus %}" in html, name
         assert "{% block evidence_contract %}" in html, name
+
+
+def test_v3_templates_do_not_ship_stale_tokens_or_legacy_copy() -> None:
+    for name in V3_SCREEN_TEMPLATES:
+        html = _template(name)
+        for token in FORBIDDEN_V3_COPY:
+            assert token not in html, f"{name}: {token}"
+
+
+def test_every_non_cockpit_dashboard_briefing_is_route_specific() -> None:
+    for name in V3_NON_COCKPIT_TEMPLATES:
+        html = _template(name)
+        for snippet in DEFAULT_BRIEFING_SNIPPETS:
+            assert snippet not in html, f"{name}: {snippet}"
 
 
 def test_v3_css_defines_shared_briefing_and_data_health_treatment() -> None:

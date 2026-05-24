@@ -47,6 +47,7 @@ from agency.views._shared import (
     _lifecycle_events_for_reports,
     _mapping_field,
     _mapping_list_field,
+    _mapping_list_field_or_empty,
     _optional_float_field,
     _runtime_payload_key,
     _source_health_origin_label,
@@ -99,14 +100,15 @@ async def execution_preview_context(
     reports = _active_cycle_reports(raw_reports)
     policy = await load_active_portfolio_policy()
     broker_positions = _broker_positions(broker)
+    data_load_status = load_data_load_status(
+        source_health_rows=data_sources,
+        source_health_origin=_source_health_origin_label(data_sources),
+    )
     readiness = build_live_readiness(
         source_health=data_sources,
         selection_reports=reports,
         risk_decisions=[],
-    )
-    data_load_status = load_data_load_status(
-        source_health_rows=data_sources,
-        source_health_origin=_source_health_origin_label(data_sources),
+        lane_states=_mapping_list_field_or_empty(data_load_status, "lane_states"),
     )
     review_states = _human_review_index(
         await human_review_events_for_reports(reports, readiness)
@@ -811,7 +813,7 @@ def _execution_preview_row(
             isinstance(preview["quantity"], int | float)
             or isinstance(preview["notional"], int | float)
         )
-        and preview_submit_enabled
+        and preview["submit_enabled"] is True
         and human_approved
         and not execution_blocks_submit
     )

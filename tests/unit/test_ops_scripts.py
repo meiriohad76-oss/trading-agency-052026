@@ -12,6 +12,8 @@ import pytest
 from data_refresh.live_config import RefreshConfigOverrides
 from data_refresh.types import RefreshBatchConfig
 from live_runtime.summary import build_live_runtime_summary
+from news.consumption import load_consumed_news_ids, mark_news_consumed
+from news.storage import NEWS_COLUMNS
 from pit.manifest import DatasetName
 from pit_fixtures import member, write_manifest
 
@@ -107,6 +109,31 @@ def test_live_runtime_cycle_success_finalization_marks_consumed_news_once(
     assert ledger["items"]["news:aapl:1"]["ticker"] == "AAPL"
 
 
+def test_news_consumption_ledger_is_canonical_done_marker(tmp_path: Path) -> None:
+    ledger_path = tmp_path / "state" / "news_rss_consumed.json"
+
+    written = mark_news_consumed(
+        ledger_path,
+        cycle_id="cycle-news",
+        as_of="2026-05-22T00:00:00+00:00",
+        used_at="2026-05-22T13:30:00+00:00",
+        items=[
+            {
+                "ticker": "AAPL",
+                "source_ids": ["news:aapl:1", "news:aapl:1"],
+                "raw_source_ids": ["raw:aapl:1", "raw:aapl:1"],
+            }
+        ],
+    )
+
+    assert written == 1
+    assert load_consumed_news_ids(ledger_path) == {"news:aapl:1"}
+    payload = json.loads(ledger_path.read_text(encoding="utf-8"))
+    assert payload["items"]["news:aapl:1"]["raw_source_id"] == "raw:aapl:1"
+    assert "processed" not in NEWS_COLUMNS
+    assert "done" not in NEWS_COLUMNS
+
+
 def test_default_backup_path_uses_timestamped_postgres_directory() -> None:
     path = default_backup_path(datetime(2026, 5, 8, 10, 30, 5, tzinfo=UTC))
 
@@ -124,6 +151,32 @@ def test_market_aware_plan_args_include_stock_trade_order(
     args = plan_market_aware_refresh._parse_args()
 
     assert args.stock_trades_order == "desc"
+
+
+def test_market_aware_plan_args_include_news_resolution_settings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "plan_market_aware_refresh.py",
+            "--news-ticker-aliases",
+            "research/config/news-ticker-aliases.local.json",
+            "--news-resolve-generic-tickers",
+            "--news-resolution-min-confidence",
+            "0.82",
+            "--no-news-keep-unresolved-generic",
+        ],
+    )
+
+    args = plan_market_aware_refresh._parse_args()
+
+    assert args.news_ticker_aliases == Path(
+        "research/config/news-ticker-aliases.local.json"
+    )
+    assert args.news_resolve_generic_tickers is True
+    assert args.news_resolution_min_confidence == 0.82
+    assert args.news_keep_unresolved_generic is False
 
 
 def test_backup_command_targets_local_postgres_container() -> None:

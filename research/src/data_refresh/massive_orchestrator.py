@@ -738,6 +738,9 @@ def _lane_window(
     session: MarketSession,
     extraction_decision: ExtractionDecision | None,
 ) -> tuple[date | None, date | None]:
+    if policy.command_profile in {"stock_trades_live", "stock_trades_premarket"}:
+        target = _operational_trade_slice_date(session)
+        return target, target
     if extraction_decision is not None and (
         extraction_decision.start is not None or extraction_decision.end is not None
     ):
@@ -754,6 +757,12 @@ def _lane_window(
             return completed, completed
         return config.start, config.end
     return None, None
+
+
+def _operational_trade_slice_date(session: MarketSession) -> date:
+    if session.is_trading_day and session.phase != "overnight_before_pre_market":
+        return session.market_date
+    return previous_trading_day(session.market_date)
 
 
 def _disabled_reason(policy: MassiveRawLanePolicy, config: RefreshBatchConfig) -> str:

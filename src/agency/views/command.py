@@ -102,6 +102,7 @@ async def dashboard_context() -> dict[str, object]:
             source_health=data_sources,
             selection_reports=active_reports,
             risk_decisions=active_risk_decisions,
+            lane_states=_mapping_list_field_or_empty(data_load_status, "lane_states"),
         )
     )
     paper_status = await paper_review_status_from_runtime(
@@ -3091,11 +3092,16 @@ async def paper_review_status_context() -> dict[str, object]:
         cast(Sequence[Mapping[str, object]], risk_result),
         reports,
     )
+    data_load_status = load_data_load_status(
+        source_health_rows=data_sources,
+        source_health_origin=_source_health_origin_label(data_sources),
+    )
     readiness = readiness_view(
         build_live_readiness(
             source_health=data_sources,
             selection_reports=reports,
             risk_decisions=risk_decisions,
+            lane_states=_mapping_list_field_or_empty(data_load_status, "lane_states"),
         )
     )
     return await paper_review_status_from_runtime(
@@ -3135,6 +3141,7 @@ async def operational_readiness_context() -> dict[str, object]:
             source_health=data_sources,
             selection_reports=reports,
             risk_decisions=risk_decisions,
+            lane_states=_mapping_list_field_or_empty(data_load_status, "lane_states"),
         )
         paper_status = await paper_review_status_from_runtime(
             reports=reports,
@@ -3225,10 +3232,15 @@ async def scheduler_work_queue_raw_context() -> dict[str, object]:
     )
     reports = _active_cycle_reports(raw_reports)
     risk_decisions = _risk_decisions_for_reports(raw_risk_decisions, reports)
+    data_load_status = load_data_load_status(
+        source_health_rows=data_sources,
+        source_health_origin=_source_health_origin_label(data_sources),
+    )
     readiness = build_live_readiness(
         source_health=data_sources,
         selection_reports=reports,
         risk_decisions=risk_decisions,
+        lane_states=_mapping_list_field_or_empty(data_load_status, "lane_states"),
     )
     paper_status = await paper_review_status_from_runtime(
         reports=reports,
@@ -3240,10 +3252,7 @@ async def scheduler_work_queue_raw_context() -> dict[str, object]:
         review_queue=_mapping_list_field(paper_status, "queue"),
         source_health=data_sources,
         broker=broker,
-        data_load_status=load_data_load_status(
-            source_health_rows=data_sources,
-            source_health_origin=_source_health_origin_label(data_sources),
-        ),
+        data_load_status=data_load_status,
         data_refresh_progress=load_data_refresh_progress(),
     )
 
@@ -3491,7 +3500,7 @@ def _source_checked_age_seconds(source: Mapping[str, object]) -> int | None:
 def _readiness_status_class(verdict: str) -> str:
     if verdict == "ready_for_paper_validation":
         return "pass"
-    if verdict == "context_only_source_health":
+    if verdict in {"context_only_source_health", "context_only_lane_state"}:
         return "warn"
     return "block"
 

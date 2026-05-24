@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.parse import quote
 
 import pandas as pd
 import pytest
@@ -2609,6 +2610,44 @@ def test_full_live_readiness_view_humanizes_embedded_seconds() -> None:
     assert "28914s" not in str(scheduler_view["massive_orchestrator"]["detail"])
 
 
+def test_scheduler_work_queue_view_translates_refresh_needed_rows_for_users() -> None:
+    view = command_module.scheduler_work_queue_view(
+        {
+            "summary": {
+                "headline": "Some datasets are stale or warning.",
+                "counts": {"due_now": 0, "running": 0},
+            },
+            "ticker_tiers": {"tiers": {}},
+            "tradability": {
+                "status_label": "Context Only",
+                "status_class": "warn",
+                "detail": "Some datasets are stale or warning.",
+            },
+            "repair_plan": {"jobs": []},
+            "execution_freshness_gate": {"checks": []},
+            "scheduler_runtime": {"status_label": "Idle", "detail": "No job running."},
+            "massive_orchestrator": {"lanes": [], "derived_signal_lanes": []},
+            "jobs": [],
+            "next_jobs": [],
+            "stale_datasets": [
+                {
+                    "dataset": "prices_daily",
+                    "status": "STALE",
+                    "status_class": "warn",
+                    "reason": "Daily bars are stale.",
+                }
+            ],
+            "market_phase": "closed_weekend",
+        }
+    )
+
+    assert "stale" not in str(view["headline"]).lower()
+    assert "stale" not in str(view["tradability_detail"]).lower()
+    assert "stale" not in str(view["stale_rows"]).lower()
+    assert view["stale_rows"][0]["status"] == "needs refresh"
+    assert view["stale_rows"][0]["reason"] == "Daily bars need refresh."
+
+
 def test_scheduler_work_queue_view_splits_automation_gate_and_workload() -> None:
     view = command_module.scheduler_work_queue_view(
         {
@@ -4146,6 +4185,36 @@ def test_execution_preview_rows_require_current_human_approval_for_submit() -> N
     assert row["submit_blocker"] == "current human approval required"
 
 
+def test_execution_preview_rows_allow_order_intent_approval_while_execution_gate_closed() -> None:
+    preview = build_execution_preview(
+        _risk_decision(),
+        generated_at="2026-05-07T09:33:00Z",
+        policy=PortfolioPolicy(broker_submit_enabled=True),
+        account={"status": "ACTIVE", "equity": 100000.0, "buying_power": 100000.0},
+    ).preview
+    approval_key = (
+        str(preview["cycle_id"]),
+        str(preview["ticker"]),
+        str(preview["as_of"]),
+    )
+
+    rows = execution_preview_rows(
+        [preview],
+        approval_keys={approval_key},
+        execution_gate={
+            "ready": False,
+            "detail": "Massive Live Trade Slices data is still loading.",
+        },
+    )
+
+    row = rows[0]
+    assert row["preview_state"] == "READY"
+    assert row["human_approved"] is True
+    assert row["order_approval_available"] is True
+    assert row["submit_enabled"] is False
+    assert row["submit_blocker"] == "Massive Live Trade Slices data is still loading."
+
+
 def test_execution_preview_rows_show_filled_audit_state_and_disable_resubmit() -> None:
     preview = build_execution_preview(
         _risk_decision(),
@@ -4371,7 +4440,7 @@ def test_execution_preview_page_renders_operator_notice(
     assert "Broker is not connected; refresh Broker" in response.text
 
 
-def test_approve_execution_order_redirects_broker_failure_to_preview(
+def test_approve_execution_order_does_not_block_immediately_on_broker_failure(
     monkeypatch: MonkeyPatch,
 ) -> None:
     async def fake_broker() -> dict[str, object]:
@@ -4400,8 +4469,91 @@ def test_approve_execution_order_redirects_broker_failure_to_preview(
 
     assert response.status_code == HTTP_SEE_OTHER
     assert response.headers["location"].startswith("/execution-preview?execution_notice=")
-    assert "Broker+is+not+connected" in response.headers["location"]
+    assert "execution+preview+not+found" in response.headers["location"]
     assert response.headers["location"].endswith("#orderable-heading")
+
+
+def test_approve_execution_order_records_intent_while_execution_gate_closed(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    preview = build_execution_preview(
+        _risk_decision(),
+        generated_at="2026-05-07T09:33:00Z",
+        policy=PortfolioPolicy(broker_submit_enabled=True),
+        account={"status": "ACTIVE", "equity": 100000.0, "buying_power": 100000.0},
+    ).preview
+    recorded: list[dict[str, object]] = []
+
+    async def fake_broker() -> dict[str, object]:
+        return {
+            "connected": True,
+            "mode": "paper",
+            "checked_at": datetime.now(UTC).isoformat(),
+            "account": {"status": "ACTIVE"},
+            "positions": [],
+            "orders": [],
+        }
+
+    async def fake_sources() -> list[dict[str, object]]:
+        return _fresh_critical_execution_sources()
+
+    async def fake_context(**_kwargs: object) -> dict[str, object]:
+        return {
+            "execution_freshness_gate": {
+                "ready": False,
+                "detail": "Massive Live Trade Slices data is still loading.",
+            },
+            "preview_rows": [
+                {
+                    "cycle_id": preview["cycle_id"],
+                    "ticker": preview["ticker"],
+                    "as_of": preview["as_of"],
+                    "order_intent_hash": preview["order_intent_hash"],
+                    "order_approval_available": True,
+                    "preview": preview,
+                }
+            ],
+        }
+
+    @asynccontextmanager
+    async def fake_session() -> AsyncIterator[object]:
+        class Session:
+            async def commit(self) -> None:
+                recorded.append({"committed": True})
+
+        yield Session()
+
+    async def fake_record_event(_session: object, event: dict[str, object]) -> None:
+        recorded.append(event)
+
+    def fail_if_freshness_required(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("order intent approval must not require submit freshness")
+
+    monkeypatch.setattr(dashboard_module, "_fresh_broker_status_context", fake_broker)
+    monkeypatch.setattr(dashboard_module, "runtime_data_source_status", fake_sources)
+    monkeypatch.setattr(dashboard_module, "execution_preview_context", fake_context)
+    monkeypatch.setattr(
+        dashboard_module,
+        "_require_immediate_execution_freshness",
+        fail_if_freshness_required,
+    )
+    monkeypatch.setattr(dashboard_module, "get_session", fake_session)
+    monkeypatch.setattr(dashboard_module, "record_candidate_lifecycle_event", fake_record_event)
+
+    response = TestClient(create_app()).post(
+        "/execution-preview/orders/approve"
+        f"?cycle_id={preview['cycle_id']}&ticker={preview['ticker']}"
+        f"&as_of={quote(str(preview['as_of']))}"
+        f"&order_intent_hash={preview['order_intent_hash']}",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == HTTP_SEE_OTHER
+    assert response.headers["location"] == "/execution-preview#orderable-heading"
+    approval_events = [
+        event for event in recorded if event.get("event_type") == "ORDER_APPROVAL"
+    ]
+    assert len(approval_events) == 1
 
 
 def test_execution_preview_rows_do_not_label_pending_watch_as_research_approved() -> None:

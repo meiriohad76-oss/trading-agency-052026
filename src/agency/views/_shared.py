@@ -118,14 +118,16 @@ async def _dashboard_selection_reports(
                 return await runtime_selection_reports(
                     limit=limit,
                     validate_payloads=False,
+                    prefer_latest_artifact=True,
                 )
             return await runtime_selection_reports(
                 ticker=ticker,
                 limit=limit,
                 validate_payloads=False,
+                prefer_latest_artifact=True,
             )
         except TypeError as exc:
-            if "validate_payloads" not in str(exc):
+            if not _runtime_report_signature_fallback_allowed(exc):
                 raise
             if ticker is None:
                 return await runtime_selection_reports(limit=limit)
@@ -147,14 +149,16 @@ async def _dashboard_risk_decisions(
                 return await runtime_risk_decisions(
                     limit=limit,
                     validate_payloads=False,
+                    prefer_latest_artifact=True,
                 )
             return await runtime_risk_decisions(
                 ticker=ticker,
                 limit=limit,
                 validate_payloads=False,
+                prefer_latest_artifact=True,
             )
         except TypeError as exc:
-            if "validate_payloads" not in str(exc):
+            if not _runtime_report_signature_fallback_allowed(exc):
                 raise
             if ticker is None:
                 return await runtime_risk_decisions(limit=limit)
@@ -163,6 +167,11 @@ async def _dashboard_risk_decisions(
         if raise_on_unavailable:
             raise
         return []
+
+
+def _runtime_report_signature_fallback_allowed(exc: TypeError) -> bool:
+    text = str(exc)
+    return "validate_payloads" in text or "prefer_latest_artifact" in text
 
 async def _dashboard_candidate_timeline(
     *,
@@ -649,6 +658,17 @@ def _mapping_field(payload: Mapping[str, object], key: str) -> Mapping[str, obje
 
 def _mapping_list_field(payload: Mapping[str, object], key: str) -> list[Mapping[str, object]]:
     return [cast(Mapping[str, object], item) for item in _list_field(payload, key)]
+
+
+def _mapping_list_field_or_empty(
+    payload: Mapping[str, object],
+    key: str,
+) -> list[Mapping[str, object]]:
+    value = payload.get(key)
+    if not isinstance(value, list):
+        return []
+    return [cast(Mapping[str, object], item) for item in value if isinstance(item, Mapping)]
+
 
 def _optional_float_field(payload: Mapping[str, object], key: str) -> float | None:
     value = payload.get(key)

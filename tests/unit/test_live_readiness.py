@@ -36,6 +36,81 @@ def test_live_readiness_marks_stale_sources_context_only() -> None:
     assert summary["degraded_source_count"] == 1
 
 
+def test_live_readiness_blocks_on_provider_unavailable_lane_state() -> None:
+    summary = build_live_readiness(
+        source_health=[_source("sec-edgar", status="HEALTHY", freshness="FRESH")],
+        selection_reports=[_report("cycle-new", "AAPL", "WATCH")],
+        risk_decisions=[_risk("cycle-new", "AAPL", "WARN")],
+        lane_states=[
+            {
+                "lane_id": "massive_live_trade_slices",
+                "lane_kind": "raw_acquisition",
+                "blocker": True,
+                "status_class": "block",
+                "state": "provider_unavailable",
+                "operator_message": (
+                    "Massive Live Trade Slices provider is unavailable."
+                ),
+            }
+        ],
+    )
+
+    assert summary["ready"] is False
+    assert summary["verdict"] == "context_only_lane_state"
+    assert summary["blockers"][0]["kind"] == "raw_acquisition"
+    assert "unavailable" in str(summary["detail"])
+
+
+def test_live_readiness_treats_needs_refresh_lane_as_review_caution() -> None:
+    summary = build_live_readiness(
+        source_health=[_source("sec-edgar", status="HEALTHY", freshness="FRESH")],
+        selection_reports=[_report("cycle-new", "AAPL", "WATCH")],
+        risk_decisions=[_risk("cycle-new", "AAPL", "WARN")],
+        lane_states=[
+            {
+                "lane_id": "massive_live_trade_slices",
+                "lane_kind": "raw_acquisition",
+                "blocker": True,
+                "status_class": "block",
+                "state": "needs_refresh",
+                "operator_message": (
+                    "Massive Live Trade Slices analysis exists but needs refresh."
+                ),
+            }
+        ],
+    )
+
+    assert summary["ready"] is True
+    assert summary["verdict"] == "ready_for_paper_validation"
+    assert summary["lane_state_blocker_count"] == 0
+    assert summary["blockers"] == []
+
+
+def test_live_readiness_does_not_block_on_context_lane_waiting_for_analysis() -> None:
+    summary = build_live_readiness(
+        source_health=[_source("sec-edgar", status="HEALTHY", freshness="FRESH")],
+        selection_reports=[_report("cycle-new", "AAPL", "WATCH")],
+        risk_decisions=[_risk("cycle-new", "AAPL", "WARN")],
+        lane_states=[
+            {
+                "lane_id": "sector_momentum",
+                "lane_kind": "derived_signal",
+                "blocker": False,
+                "blocks_execution": False,
+                "state": "loaded_unanalyzed",
+                "operator_message": (
+                    "Sector Momentum source data exists, but the agent has not produced current analysis."
+                ),
+            }
+        ],
+    )
+
+    assert summary["ready"] is True
+    assert summary["verdict"] == "ready_for_paper_validation"
+    assert summary["lane_state_blocker_count"] == 0
+    assert summary["blockers"] == []
+
+
 def test_live_readiness_blocks_old_critical_source_health_even_if_marked_fresh() -> None:
     summary = build_live_readiness(
         source_health=[
@@ -57,6 +132,34 @@ def test_live_readiness_blocks_old_critical_source_health_even_if_marked_fresh()
     assert isinstance(blockers, list)
     assert blockers[0]["kind"] == "source_health"
     assert "checked_at" in str(blockers[0]["reason"])
+
+
+def test_live_readiness_accepts_old_critical_source_health_with_lane_proof() -> None:
+    summary = build_live_readiness(
+        source_health=[
+            _source(
+                "daily-market-bars",
+                status="HEALTHY",
+                freshness="FRESH",
+                checked_at="2000-01-01T00:00:00Z",
+            )
+        ],
+        selection_reports=[_report("cycle-new", "AAPL", "WATCH", source="daily-market-bars")],
+        risk_decisions=[_risk("cycle-new", "AAPL", "WARN")],
+        lane_states=[
+            {
+                "lane_id": "massive_daily_bars",
+                "lane_kind": "raw_acquisition",
+                "state": "ready_for_review",
+                "ready_for_review": True,
+                "blocker": False,
+            }
+        ],
+    )
+
+    assert summary["ready"] is True
+    assert summary["verdict"] == "ready_for_paper_validation"
+    assert summary["blockers"] == []
 
 
 def test_live_readiness_does_not_block_on_noncritical_source_staleness() -> None:
@@ -105,6 +208,23 @@ def test_live_readiness_prefers_live_pit_cycles() -> None:
     )
 
     assert summary["cycle_id"] == "live-pit-2025-12-31"
+    assert summary["ready"] is True
+
+
+def test_live_readiness_prefers_newer_full_active_cycle_over_old_live_pit() -> None:
+    summary = build_live_readiness(
+        source_health=[_source("sec-edgar", status="HEALTHY", freshness="FRESH")],
+        selection_reports=[
+            _report("live-pit-2026-05-19-20260519T124015Z", "MSFT", "WATCH"),
+            _report("full-active-refresh-20260524T0625Z", "AAPL", "WATCH"),
+        ],
+        risk_decisions=[
+            _risk("live-pit-2026-05-19-20260519T124015Z", "MSFT", "WARN"),
+            _risk("full-active-refresh-20260524T0625Z", "AAPL", "WARN"),
+        ],
+    )
+
+    assert summary["cycle_id"] == "full-active-refresh-20260524T0625Z"
     assert summary["ready"] is True
 
 

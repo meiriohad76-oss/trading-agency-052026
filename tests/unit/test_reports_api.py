@@ -62,6 +62,7 @@ def test_selection_reports_endpoint_skips_route_validation_for_speed(
     assert response.status_code == HTTP_OK
     assert response.json() == [{"ticker": "AAPL"}]
     assert observed["validate_payloads"] is False
+    assert observed["prefer_latest_artifact"] is True
 
 
 def test_non_operational_filter_uses_token_boundaries() -> None:
@@ -143,6 +144,48 @@ async def test_runtime_selection_reports_uses_latest_artifact_when_db_unavailabl
 
     assert [payload["ticker"] for payload in payloads] == ["AAPL"]
     assert payloads[0]["runtime_origin"] == "runtime_artifact_fallback"
+
+
+async def test_runtime_selection_reports_can_prefer_newer_runtime_artifact(
+    tmp_path: Path,
+) -> None:
+    async def reader(
+        session: object,
+        ticker: str | None,
+        limit: int,
+    ) -> list[dict[str, object]]:
+        del session, ticker, limit
+        return [
+            {
+                **_selection_report(),
+                "cycle_id": "live-pit-2026-05-19-20260519T124015Z",
+                "generated_at": "2026-05-19T12:40:15Z",
+            }
+        ]
+
+    artifact = tmp_path / "selection-reports.json"
+    artifact.write_text(
+        json.dumps(
+            [
+                {
+                    **_selection_report(),
+                    "cycle_id": "full-active-refresh-20260524T0625Z",
+                    "generated_at": "2026-05-24T06:26:28Z",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    payloads = await runtime_selection_reports(
+        session_provider=_fake_session_provider,
+        reader=reader,
+        artifact_root=tmp_path,
+        prefer_latest_artifact=True,
+    )
+
+    assert payloads[0]["cycle_id"] == "full-active-refresh-20260524T0625Z"
+    assert "runtime_origin" not in payloads[0]
 
 
 async def test_runtime_selection_reports_does_not_use_artifact_by_default(

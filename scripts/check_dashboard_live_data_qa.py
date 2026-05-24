@@ -33,6 +33,7 @@ FORBIDDEN_TERMS = (
     "Fallback Analysis",
     "Sample:",
     "recent mailbox sample",
+    "first-version",
     "demo",
     "mock",
     "fake",
@@ -63,6 +64,11 @@ FULL_READINESS_SCOPE = "full"
 REVIEW_SUBSET_READINESS_SCOPE = "review-subset"
 EXPECTED_V3_BUILD = "ux-v3-all-dashboards-20260523"
 COCKPIT_ROUTES = {"/", "/cockpit"}
+DEFAULT_BRIEFING_SNIPPETS = (
+    "Start with the first action card",
+    "This screen must show current source proof",
+    "Pre-flight review",
+)
 CONTEXT_DATA_WARNING_ITEMS = {
     "news_rss",
     "subscription_emails",
@@ -221,6 +227,11 @@ def main() -> int:
                                     and briefing.is_visible()
                                 )
                             )
+                            result["v3_briefing_text"] = (
+                                briefing.inner_text(timeout=BODY_TIMEOUT_MS)
+                                if bool(result["v3_universal_briefing"])
+                                else ""
+                            )
                             page.screenshot(
                                 path=str(output_dir / f"{viewport_name}-{name}.png"),
                                 full_page=False,
@@ -277,6 +288,7 @@ def _empty_result(viewport: str, route: str) -> dict[str, object]:
         "v3_screen_class": False,
         "v3_universal_briefing": False,
         "v3_briefing_visible": False,
+        "v3_briefing_text": "",
     }
 
 
@@ -319,6 +331,7 @@ def result_failed(row: Mapping[str, object]) -> bool:
         or not bool(row["v3_build_served"])
         or not bool(row["v3_screen_class"])
         or not bool(row["v3_universal_briefing"])
+        or _has_default_briefing_copy(row)
         or (
             _route_requires_v3_briefing(str(row["route"]))
             and not bool(row["v3_briefing_visible"])
@@ -338,6 +351,13 @@ def _has_valid_health_proof(row: Mapping[str, object]) -> bool:
 
 def _route_requires_v3_briefing(route: str) -> bool:
     return route not in COCKPIT_ROUTES
+
+
+def _has_default_briefing_copy(row: Mapping[str, object]) -> bool:
+    if not _route_requires_v3_briefing(str(row["route"])):
+        return False
+    text = str(row.get("v3_briefing_text") or "")
+    return any(snippet in text for snippet in DEFAULT_BRIEFING_SNIPPETS)
 
 
 def _forbidden_term_hits(text: str) -> list[str]:

@@ -94,6 +94,16 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--sec-form4-max-age-days", type=int)
     parser.add_argument("--sec-13f-max-age-days", type=int)
     parser.add_argument("--news-rss-max-age-minutes", type=int)
+    parser.add_argument("--news-ticker-aliases", type=Path)
+    parser.add_argument(
+        "--news-resolve-generic-tickers",
+        action=argparse.BooleanOptionalAction,
+    )
+    parser.add_argument("--news-resolution-min-confidence", type=float)
+    parser.add_argument(
+        "--news-keep-unresolved-generic",
+        action=argparse.BooleanOptionalAction,
+    )
     parser.add_argument("--subscription-email-max-age-minutes", type=int)
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     return parser.parse_args()

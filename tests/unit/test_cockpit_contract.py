@@ -230,6 +230,7 @@ def test_cockpit_source_rows_use_live_checked_at_as_health_proof() -> None:
     assert source["state"] == "ready"
     assert source["state_label"] == "Usable with proof timestamp"
     assert source["last_pull"] == "2026-05-22T13:19:42+00:00"
+    assert source["proof_timestamp"] == "2026-05-22T13:19:42+00:00"
     assert source["coverage"] == "168/168 tickers"
 
 

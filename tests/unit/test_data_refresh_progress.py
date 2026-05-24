@@ -260,14 +260,16 @@ def test_load_data_refresh_progress_includes_stock_trade_subprogress(
     )
     (tmp_path / "stock-trades-progress.json").write_text(
         json.dumps(
-            {
-                "state": "running",
-                "percent_complete": EXPECTED_STOCK_TRADE_PERCENT,
-                "ticker_days_completed": 1,
-                "ticker_days_total": 4,
-                "current_ticker": "AAPL",
-                "current_trade_date": "2026-05-12",
-                "current_pages_downloaded": 2,
+                {
+                    "state": "running",
+                    "percent_complete": EXPECTED_STOCK_TRADE_PERCENT,
+                    "ticker_days_completed": 1,
+                    "ticker_days_total": 4,
+                    "start": "2026-05-12",
+                    "end": "2026-05-12",
+                    "current_ticker": "AAPL",
+                    "current_trade_date": "2026-05-12",
+                    "current_pages_downloaded": 2,
                 "current_rows_downloaded": 100000,
                 "updated_at": "2026-05-12T12:00:00+00:00",
             }
@@ -404,12 +406,14 @@ def test_stock_trade_progress_exposes_pipeline_ready_tickers(
     )
     (tmp_path / "stock-trades-progress.json").write_text(
         json.dumps(
-            {
-                "state": "running",
-                "ticker_count": 2,
-                "pipeline_ready_tickers": ["AAPL"],
-                "pipeline_usable_tickers": ["AAPL", "MSFT"],
-                "pipeline_pending_tickers": ["MSFT"],
+                {
+                    "state": "running",
+                    "ticker_count": 2,
+                    "start": "2026-05-12",
+                    "end": "2026-05-12",
+                    "pipeline_ready_tickers": ["AAPL"],
+                    "pipeline_usable_tickers": ["AAPL", "MSFT"],
+                    "pipeline_pending_tickers": ["MSFT"],
                 "pipeline_ready_count": 1,
                 "pipeline_usable_count": 2,
                 "ticker_statuses": [
@@ -474,6 +478,8 @@ def test_data_refresh_progress_exposes_massive_lane_progress(
                 "ticker_days_total": 4,
                 "current_ticker": "AAPL",
                 "current_trade_date": "2026-05-12",
+                "start": "2026-05-12",
+                "end": "2026-05-12",
                 "updated_at": "2026-05-12T12:01:00+00:00",
             }
         ),
@@ -500,6 +506,63 @@ def test_data_refresh_progress_exposes_massive_lane_progress(
     assert lane["required_now"] is True
     assert lane["next_due_at"] == ""
     assert lane["analysis_state"] == "loading"
+
+
+def test_data_refresh_progress_ignores_legacy_live_progress_without_window(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lane_root = tmp_path / "massive_lanes"
+    lane_root.mkdir()
+    (lane_root / "massive_live_trade_slices.json").write_text(
+        json.dumps(
+            {
+                "lane_id": "massive_live_trade_slices",
+                "status": "partial",
+                "coverage_pct": 50,
+                "ticker_count": 2,
+                "row_count": 100,
+                "fetched_at": "2026-05-22T20:00:00+00:00",
+                "window": {"start": "2026-05-22", "end": "2026-05-22"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(progress_module, "DEFAULT_MASSIVE_LANE_MANIFEST_ROOT", lane_root)
+    status_path = tmp_path / "data-refresh-status.json"
+    status_path.write_text(
+        json.dumps(
+            {
+                "progress": {"state": "complete", "current_dataset": "prices_daily"},
+                "jobs": [{"dataset": "prices_daily", "status": "passed"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "stock-trades-progress.json").write_text(
+        json.dumps(
+            {
+                "state": "running",
+                "percent_complete": 25,
+                "ticker_days_processed": 1,
+                "ticker_days_total": 4,
+                "updated_at": "2026-05-24T12:00:00+00:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    progress = load_data_refresh_progress(status_path)
+    lane = next(
+        row
+        for row in progress["massive_lanes"]
+        if row["lane_id"] == "massive_live_trade_slices"
+    )
+
+    assert progress["trade_pull"]["state"] != "running"
+    assert lane["state"] == "partial"
+    assert lane["percent_complete"] == 50
+    assert lane["window_label"] == "2026-05-22"
 
 
 def test_trade_pull_summary_prefers_live_lane_over_newer_premarket_progress(
@@ -681,6 +744,55 @@ def test_data_refresh_progress_marks_stale_partial_usable_massive_lane_manifest(
                 "row_count": 1000,
                 "fetched_at": "2026-05-01T12:00:00+00:00",
                 "window": {"start": "2026-05-01", "end": "2026-05-01"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(progress_module, "DEFAULT_MASSIVE_LANE_MANIFEST_ROOT", lane_root)
+    status_path = tmp_path / "data-refresh-status.json"
+    status_path.write_text(json.dumps({"progress": {"state": "idle"}, "jobs": []}))
+
+    progress = load_data_refresh_progress(status_path)
+    lane = next(
+        row
+        for row in progress["massive_lanes"]
+        if row["lane_id"] == "massive_live_trade_slices"
+    )
+
+    assert lane["state"] == "stale"
+    assert lane["status_class"] == "block"
+    assert "freshness SLA" in str(lane["detail"])
+
+
+def test_data_refresh_progress_terminal_progress_does_not_mask_stale_manifest(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lane_root = tmp_path / "massive_lanes"
+    lane_root.mkdir()
+    (lane_root / "massive_live_trade_slices.json").write_text(
+        json.dumps(
+            {
+                "lane_id": "massive_live_trade_slices",
+                "status": "partial_usable",
+                "coverage_pct": 100,
+                "ticker_count": 2,
+                "row_count": 1000,
+                "fetched_at": "2026-05-01T12:00:00+00:00",
+                "window": {"start": "2026-05-01", "end": "2026-05-01"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "massive_live_trade_slices-progress.json").write_text(
+        json.dumps(
+            {
+                "lane_id": "massive_live_trade_slices",
+                "state": "partial_usable",
+                "percent_complete": 100,
+                "updated_at": "2026-05-01T12:01:00+00:00",
+                "start": "2026-05-01",
+                "end": "2026-05-01",
             }
         ),
         encoding="utf-8",

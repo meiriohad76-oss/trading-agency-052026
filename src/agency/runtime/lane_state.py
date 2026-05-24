@@ -27,6 +27,10 @@ RAW_LANE_REQUIREMENTS = {
     "unusual_trade_activity": ("massive_live_trade_slices",),
     "pre_market_unusual_activity": ("massive_premarket_trade_slices",),
     "market_flow_trend": ("massive_live_trade_slices",),
+    "backtest_feature_builder": ("massive_daily_bars", "massive_backtest_trade_tape"),
+    "sector_momentum": ("massive_daily_bars",),
+    "options_flow": ("massive_options_flow",),
+    "options_anomaly": ("massive_options_flow",),
 }
 
 LOADING_STATES = {"loading", "pending", "planned", "running"}
@@ -110,6 +114,32 @@ def lane_state_blockers(
     ]
 
 
+def lane_state_review_blockers(
+    lane_states: Sequence[Mapping[str, object]],
+) -> list[dict[str, object]]:
+    review_blocking_states = {"loading", "loaded_unanalyzed", "provider_unavailable"}
+    return [
+        {
+            "kind": str(row.get("lane_kind") or "lane_state"),
+            "item": str(row.get("lane_id") or "unknown"),
+            "reason": str(
+                row.get("operator_message")
+                or row.get("recommended_action")
+                or "Lane is not ready for review."
+            ),
+            "status_class": str(row.get("status_class") or "block"),
+        }
+        for row in lane_states
+        if row.get("required_now") is not False
+        and (
+            row.get("blocker") is True
+            or row.get("blocks_execution") is True
+        )
+        and str(row.get("state") or "") in review_blocking_states
+        and row.get("ready_for_review") is not True
+    ]
+
+
 def _raw_lane_state(
     row: Mapping[str, object],
     *,
@@ -123,6 +153,7 @@ def _raw_lane_state(
     raw_state = _state_text(row)
     source_row = source_by_name.get(_source_for_raw_lane(lane_id), {})
     state = _raw_state(row, raw_state, required_now=required_now, blocks_execution=blocks_execution)
+    latest_as_of = _text(row.get("latest_as_of") or row.get("fetched_at"), "")
     return _state_payload(
         lane_id=lane_id,
         lane_kind="raw_acquisition",
@@ -136,8 +167,8 @@ def _raw_lane_state(
         required_now=required_now,
         blocks_execution=blocks_execution,
         analysis_state=_analysis_state_for_state(state, raw=True),
-        latest_as_of=_text(row.get("latest_as_of") or row.get("fetched_at"), ""),
-        checked_at=now.isoformat(),
+        latest_as_of=latest_as_of,
+        checked_at=_proof_timestamp(row, source_row, fallback=latest_as_of),
         freshness_seconds=_int_or_none(row.get("freshness_seconds")),
         eta_seconds=_int(row.get("eta_seconds"), 0),
         eta_label=_text(row.get("eta_label"), "not available"),
@@ -148,6 +179,8 @@ def _raw_lane_state(
         source_freshness=_text(source_row.get("freshness") or row.get("source_freshness"), ""),
         detail=_text(row.get("detail"), ""),
         original_status_class=_text(row.get("status_class"), ""),
+        window_label=_text(row.get("window_label"), ""),
+        manifest_path=_text(row.get("manifest_path"), ""),
     )
 
 
@@ -166,6 +199,12 @@ def _derived_lane_state(
     required_now = _bool(row.get("required_now"), True)
     blocks_execution = _bool(row.get("blocks_execution"), lane_id in DERIVED_EXECUTION_LANES)
     state = _derived_state(row, dataset, source_row, required_now=required_now)
+    latest_as_of = _text(
+        row.get("latest_as_of")
+        or dataset.get("max_as_of")
+        or dataset.get("source_last_success_at"),
+        "",
+    )
     return _state_payload(
         lane_id=lane_id,
         lane_kind="derived_signal",
@@ -176,13 +215,8 @@ def _derived_lane_state(
         required_now=required_now,
         blocks_execution=blocks_execution,
         analysis_state=_text(row.get("analysis_state"), _analysis_state_for_state(state)),
-        latest_as_of=_text(
-            row.get("latest_as_of")
-            or dataset.get("max_as_of")
-            or dataset.get("source_last_success_at"),
-            "",
-        ),
-        checked_at=now.isoformat(),
+        latest_as_of=latest_as_of,
+        checked_at=_proof_timestamp(row, source_row, dataset, fallback=latest_as_of),
         freshness_seconds=_int_or_none(row.get("freshness_seconds")),
         eta_seconds=_int(row.get("eta_seconds"), 0),
         eta_label=_text(row.get("eta_label"), "not available"),
@@ -201,6 +235,8 @@ def _derived_lane_state(
         ),
         detail=_text(row.get("detail"), ""),
         original_status_class=_text(row.get("status_class"), ""),
+        window_label=_text(row.get("window_label"), ""),
+        manifest_path=_text(row.get("manifest_path"), ""),
     )
 
 
@@ -294,6 +330,8 @@ def _state_payload(
     source_freshness: str,
     detail: str,
     original_status_class: str,
+    window_label: str,
+    manifest_path: str,
 ) -> dict[str, object]:
     blocker = blocks_execution and required_now and state in {
         "loading",
@@ -342,6 +380,8 @@ def _state_payload(
         "reason_code": reason_code,
         "source_status": source_status or "UNKNOWN",
         "source_freshness": source_freshness or "UNKNOWN",
+        "window_label": window_label or "not recorded",
+        "manifest_path": manifest_path or "not recorded",
     }
 
 
@@ -498,6 +538,26 @@ def _derived_progress_label(row: Mapping[str, object]) -> str:
     if expected is None:
         return f"{produced} row(s)"
     return f"{produced}/{expected} row(s)"
+
+
+def _proof_timestamp(
+    *rows: Mapping[str, object],
+    fallback: str = "",
+) -> str:
+    for row in rows:
+        for key in (
+            "checked_at",
+            "fetched_at",
+            "latest_checked_at",
+            "last_success_at",
+            "source_last_success_at",
+            "updated_at",
+            "generated_at",
+        ):
+            value = _text(row.get(key), "")
+            if value:
+                return value
+    return fallback
 
 
 def _source_for_raw_lane(lane_id: str) -> str:

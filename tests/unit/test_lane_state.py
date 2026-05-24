@@ -42,6 +42,62 @@ def test_lane_states_report_raw_lane_running() -> None:
     assert "still loading" in str(lane["operator_message"])
 
 
+def test_lane_states_use_lane_proof_timestamp_not_request_time() -> None:
+    proof_time = "2026-05-22T13:26:00+00:00"
+    states = build_lane_states(
+        data_refresh={
+            "massive_lanes": [
+                {
+                    "lane_id": "massive_live_trade_slices",
+                    "label": "Massive Live Trade Slices",
+                    "state": "partial_usable",
+                    "status_class": "warn",
+                    "required_now": True,
+                    "blocks_execution": True,
+                    "fetched_at": proof_time,
+                    "latest_as_of": "2026-05-22 13:25:00 UTC",
+                }
+            ]
+        },
+        dataset_rows=[],
+        lane_rows=[],
+        source_health_rows=[],
+        now=NOW,
+    )
+
+    lane = _lane(states, "massive_live_trade_slices")
+    assert lane["checked_at"] == proof_time
+    assert lane["checked_at"] != NOW.isoformat()
+
+
+def test_lane_states_include_window_and_manifest_proof_for_raw_lanes() -> None:
+    states = build_lane_states(
+        data_refresh={
+            "massive_lanes": [
+                {
+                    "lane_id": "massive_live_trade_slices",
+                    "label": "Massive Live Trade Slices",
+                    "state": "ready",
+                    "status_class": "pass",
+                    "required_now": True,
+                    "blocks_execution": True,
+                    "latest_as_of": "2026-05-22 13:25:00 UTC",
+                    "window_label": "2026-05-22",
+                    "manifest_path": "research/data/manifests/massive_lanes/massive_live_trade_slices.json",
+                }
+            ]
+        },
+        dataset_rows=[],
+        lane_rows=[],
+        source_health_rows=[],
+        now=NOW,
+    )
+
+    lane = _lane(states, "massive_live_trade_slices")
+    assert lane["window_label"] == "2026-05-22"
+    assert str(lane["manifest_path"]).endswith("massive_live_trade_slices.json")
+
+
 def test_lane_states_report_raw_ready_but_derived_not_analyzed() -> None:
     states = build_lane_states(
         data_refresh={
@@ -95,6 +151,39 @@ def test_lane_states_report_raw_ready_but_derived_not_analyzed() -> None:
     assert lane["ready_for_review"] is False
     assert lane["ready_for_paper_execution"] is False
     assert "Run the Technical Analysis agent" in str(lane["recommended_action"])
+
+
+def test_lane_states_cover_massive_orchestrator_derived_requirements() -> None:
+    states = build_lane_states(
+        data_refresh={"massive_lanes": []},
+        dataset_rows=[],
+        lane_rows=[
+            {
+                "lane": "backtest_feature_builder",
+                "source_dataset": "stock_trades",
+                "analysis_state": "analyzed_current",
+                "produced_count": 1,
+                "expected_count": 1,
+            },
+            {
+                "lane": "options_flow",
+                "source_dataset": "options_chains",
+                "analysis_state": "analyzed_current",
+                "produced_count": 1,
+                "expected_count": 1,
+            },
+        ],
+        source_health_rows=[],
+        now=NOW,
+    )
+
+    assert _lane(states, "backtest_feature_builder")["raw_lanes_required"] == [
+        "massive_daily_bars",
+        "massive_backtest_trade_tape",
+    ]
+    assert _lane(states, "options_flow")["raw_lanes_required"] == [
+        "massive_options_flow"
+    ]
 
 
 def test_lane_states_treat_partial_raw_lane_as_review_usable() -> None:

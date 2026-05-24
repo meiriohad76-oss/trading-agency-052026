@@ -887,15 +887,11 @@ async def approve_execution_order(
             _fresh_broker_status_context(),
             runtime_data_source_status(),
         )
-        _require_immediate_execution_freshness(broker, data_sources)
         context = await execution_preview_context(
             broker=broker,
             data_sources=data_sources,
             validate_contracts=True,
         )
-        gate = _mapping_field(context, "execution_freshness_gate")
-        if gate["ready"] is not True:
-            raise HTTPException(status_code=409, detail=str(gate["detail"]))
         row = row_from_execution_context(
             context,
             cycle_id=cycle_id,

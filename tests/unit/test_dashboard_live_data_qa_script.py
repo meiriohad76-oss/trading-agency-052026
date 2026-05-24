@@ -6,6 +6,20 @@ from scripts import check_dashboard_live_data_qa as qa
 from scripts.check_dashboard_live_data_qa import _empty_result, result_failed
 
 QA_SCRIPT = Path("scripts/check_dashboard_live_data_qa.py")
+EXPECTED_QA_ROUTES = {
+    "/",
+    "/command",
+    "/signals",
+    "/market-regime",
+    "/final-selection",
+    "/risk",
+    "/execution-preview",
+    "/portfolio-monitor",
+    "/learning",
+    "/audit",
+    "/policy",
+    "/candidates/NVDA",
+}
 
 
 def _ready_payload_for(url: str):
@@ -40,6 +54,7 @@ def test_dashboard_live_data_qa_result_passes_with_health_rows() -> None:
     row["v3_screen_class"] = True
     row["v3_universal_briefing"] = True
     row["v3_briefing_visible"] = True
+    row["v3_briefing_text"] = "Signal evidence. Inspect lane support. Signal rows include proof."
 
     assert result_failed(row) is False
 
@@ -52,6 +67,7 @@ def test_dashboard_live_data_qa_accepts_cockpit_lane_state_as_root_health_proof(
     row["v3_screen_class"] = True
     row["v3_universal_briefing"] = True
     row["v3_briefing_visible"] = False
+    row["v3_briefing_text"] = ""
 
     assert result_failed(row) is False
 
@@ -64,6 +80,7 @@ def test_dashboard_live_data_qa_rejects_cockpit_lane_state_on_non_cockpit_route(
     row["v3_screen_class"] = True
     row["v3_universal_briefing"] = True
     row["v3_briefing_visible"] = True
+    row["v3_briefing_text"] = "Signal evidence. Inspect lane support. Signal rows include proof."
 
     assert result_failed(row) is True
 
@@ -77,7 +94,24 @@ def test_dashboard_live_data_qa_cockpit_lane_probe_accepts_row_count_progress() 
 
 def test_dashboard_live_data_qa_checks_cockpit_root_and_command_route() -> None:
     assert qa.PAGES[0] == "/"
-    assert "/command" in qa.PAGES
+    assert set(qa.PAGES) == EXPECTED_QA_ROUTES
+
+
+def test_dashboard_live_data_qa_fails_on_default_v3_briefing_copy() -> None:
+    row = _empty_result("desktop", "/risk")
+    row["health_visible"] = True
+    row["health_panel_count"] = 1
+    row["health_rows_count"] = 2
+    row["v3_build_served"] = True
+    row["v3_screen_class"] = True
+    row["v3_universal_briefing"] = True
+    row["v3_briefing_visible"] = True
+    row["v3_briefing_text"] = (
+        "BLUF Risk Operator move Pre-flight review Evidence "
+        "This screen must show current source proof"
+    )
+
+    assert result_failed(row) is True
 
 
 def test_dashboard_live_data_qa_result_fails_on_page_error() -> None:

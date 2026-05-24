@@ -623,7 +623,7 @@ def _candidate_rows(
             item.get("risk_detail"),
             item.get("risk_reason"),
             item.get("blocker"),
-            default="No major risk flag in current pack.",
+            default="Risk check did not attach a specific finding.",
         )
         score_display = f"{final_conviction:.2f}"
         rows.append(
@@ -695,7 +695,10 @@ def _candidate_rows(
                 "evidence_hard_value": _first_metric(evidence_line),
                 "risk_line": risk_text,
                 "risk_hard_value": _first_metric(risk_text),
-                "risk_status_label": _first_text(item.get("risk_status_label"), default="No major risk flag"),
+                "risk_status_label": _first_text(
+                    item.get("risk_status_label"),
+                    default="Risk proof not attached",
+                ),
                 "order_preview": _first_text(
                     preview.get("notional_label"),
                     preview.get("order_value_label"),

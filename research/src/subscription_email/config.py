@@ -61,17 +61,35 @@ def load_subscription_email_config(path: Path, *, repo_root: Path) -> Subscripti
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise TypeError("subscription email config must be a JSON object")
+    follow_article_links = _boolean(payload, "follow_article_links", False)
+    enabled_services = _strings(payload, "enabled_services")
+    article_login_preflight_services = _strings(
+        payload,
+        "article_login_preflight_services",
+    )
+    require_login_preflight = _boolean(
+        payload,
+        "article_login_preflight_required",
+        False,
+    )
+    if follow_article_links and "seeking_alpha" in enabled_services:
+        require_login_preflight = True
+        if "seeking_alpha" not in article_login_preflight_services:
+            article_login_preflight_services = (
+                *article_login_preflight_services,
+                "seeking_alpha",
+            )
     config = SubscriptionEmailConfig(
         mode=_string(payload, "mode", "local_eml"),
         input_path=_path(payload, "input_path", repo_root=repo_root),
-        enabled_services=_strings(payload, "enabled_services"),
+        enabled_services=enabled_services,
         allowed_sender_domains=_domains(payload, "allowed_sender_domains"),
         tickers=tuple(ticker.upper() for ticker in _strings(payload, "tickers")),
         lookback_days=_integer(payload, "lookback_days", 30),
         unmatched_ticker_policy=_string(payload, "unmatched_ticker_policy", "manual_review"),
         mailbox_label=_optional_string(payload, "mailbox_label"),
         token_path=_optional_path(payload, "token_path", repo_root=repo_root),
-        follow_article_links=_boolean(payload, "follow_article_links", False),
+        follow_article_links=follow_article_links,
         article_link_domains=_domains(payload, "article_link_domains"),
         article_max_links_per_email=_integer(payload, "article_max_links_per_email", 1),
         article_max_total_per_run=_integer(payload, "article_max_total_per_run", 5),
@@ -91,15 +109,8 @@ def load_subscription_email_config(path: Path, *, repo_root: Path) -> Subscripti
         article_browser_channel=_string(payload, "article_browser_channel", "chrome"),
         article_browser_headless=_boolean(payload, "article_browser_headless", True),
         article_browser_cdp_url=_optional_string(payload, "article_browser_cdp_url"),
-        article_login_preflight_required=_boolean(
-            payload,
-            "article_login_preflight_required",
-            False,
-        ),
-        article_login_preflight_services=_strings(
-            payload,
-            "article_login_preflight_services",
-        ),
+        article_login_preflight_required=require_login_preflight,
+        article_login_preflight_services=article_login_preflight_services,
         article_cache_ttl_hours=_integer(payload, "article_cache_ttl_hours", 168),
         article_llm_analysis_enabled=_boolean(payload, "article_llm_analysis_enabled", False),
         article_llm_model=_string(payload, "article_llm_model", "gpt-4.1-mini"),

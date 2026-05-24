@@ -755,33 +755,73 @@ def _trade_pull_running(
     progress: Mapping[str, object],
     *,
     lane_id: str | None = None,
+    row: Mapping[str, object] | None = None,
 ) -> bool:
     trade_pull = _mapping(progress.get("trade_pull"))
     if lane_id:
         lane_rows = _mapping_rows(progress, "massive_lanes")
         if lane_rows:
             return any(
-                str(row.get("lane_id") or "") == lane_id
-                and str(row.get("state") or "").lower() == "running"
-                for row in lane_rows
+                str(lane_row.get("lane_id") or "") == lane_id
+                and str(lane_row.get("state") or "").lower() == "running"
+                and _progress_window_matches_lane(row, lane_row)
+                for lane_row in lane_rows
             )
         running_lane = str(trade_pull.get("lane_id") or "")
         if running_lane and running_lane != lane_id:
             return False
-    return (
+    running = (
         progress.get("state") == "running"
         and str(progress.get("current_dataset")) in {"stock_trades", "stock-trades"}
     ) or trade_pull.get("state") == "running"
+    if not running:
+        return False
+    return _progress_window_matches_lane(row, trade_pull) if row is not None else True
 
 
-def _massive_lane_progress_running(progress: Mapping[str, object], lane_id: str) -> bool:
+def _massive_lane_progress_running(
+    progress: Mapping[str, object],
+    lane_id: str,
+    row: Mapping[str, object] | None = None,
+) -> bool:
     if not lane_id:
         return False
-    for row in _mapping_rows(progress, "massive_lanes"):
-        if str(row.get("lane_id") or "") != lane_id:
+    for lane_row in _mapping_rows(progress, "massive_lanes"):
+        if str(lane_row.get("lane_id") or "") != lane_id:
             continue
-        return str(row.get("state") or "").lower() == "running"
+        return (
+            str(lane_row.get("state") or "").lower() == "running"
+            and _progress_window_matches_lane(row, lane_row)
+        )
     return False
+
+
+def _progress_window_matches_lane(
+    lane_row: Mapping[str, object] | None,
+    progress_row: Mapping[str, object],
+) -> bool:
+    if lane_row is None:
+        return True
+    expected_start = _row_date_text(lane_row.get("start"))
+    expected_end = _row_date_text(lane_row.get("end")) or expected_start
+    if not expected_start or not expected_end:
+        return True
+    actual_start = _progress_date_text(progress_row.get("start"))
+    actual_end = _progress_date_text(progress_row.get("end")) or actual_start
+    if not actual_start or not actual_end:
+        window = _mapping(progress_row.get("window"))
+        actual_start = _progress_date_text(window.get("start"))
+        actual_end = _progress_date_text(window.get("end")) or actual_start
+    if not actual_start or not actual_end:
+        return False
+    return actual_start == expected_start and actual_end == expected_end
+
+
+def _progress_date_text(value: object) -> str:
+    if not isinstance(value, str):
+        return ""
+    text = value.strip()
+    return text[:10] if len(text) >= 10 else text
 
 
 def _repair_job(
@@ -1329,6 +1369,7 @@ def _massive_lane_row(
         row,
         tickers=tickers,
         fresh_tickers=fresh_tickers,
+        failed_tickers=_failed_massive_lane_tickers(row, manifest),
         status=status,
     )
     if (
@@ -1444,6 +1485,7 @@ def _command_scope_tickers(
     *,
     tickers: Sequence[str],
     fresh_tickers: set[str],
+    failed_tickers: set[str] | None = None,
     status: str,
 ) -> list[str]:
     if status not in {"DUE_NOW", "RUNNING"}:
@@ -1457,7 +1499,12 @@ def _command_scope_tickers(
         return list(tickers)
     if profile == "prices_daily" and str(row.get("batch_action") or "") != "skip":
         return list(tickers)
-    pending = [ticker for ticker in tickers if ticker not in fresh_tickers]
+    attempted_failures = set() if failed_tickers is None else failed_tickers
+    pending = [
+        ticker
+        for ticker in tickers
+        if ticker not in fresh_tickers and ticker not in attempted_failures
+    ]
     if pending:
         return pending
     return []
@@ -1522,6 +1569,29 @@ def _fresh_massive_lane_tickers(
             continue
         fresh.add(ticker)
     return fresh
+
+
+def _failed_massive_lane_tickers(
+    row: Mapping[str, object],
+    manifest: Mapping[str, object],
+) -> set[str]:
+    if str(row.get("command_profile") or "") not in {
+        "stock_trades_live",
+        "stock_trades_premarket",
+    }:
+        return set()
+    if not manifest or not _manifest_window_matches_row(row, manifest):
+        return set()
+    failed: set[str] = set()
+    for item in _sequence(manifest.get("coverage")):
+        coverage = _mapping(item)
+        status = str(coverage.get("coverage_status") or coverage.get("status") or "").lower()
+        if status != "failed":
+            continue
+        ticker = str(coverage.get("ticker") or "").upper().strip()
+        if ticker:
+            failed.add(ticker)
+    return failed
 
 
 def _fresh_daily_bar_lane_tickers(
@@ -1655,15 +1725,15 @@ def _massive_lane_status(
     if action == "ready":
         return "READY"
     if action == "run_now":
-        if _massive_lane_progress_running(progress, lane_id):
+        if _massive_lane_progress_running(progress, lane_id, row):
             return "RUNNING"
         current_dataset = str(progress.get("current_dataset") or "")
         if current_dataset in {dataset, dataset.replace("_", "-")}:
             if dataset != "stock_trades" or not lane_id:
                 return "RUNNING"
-            if _trade_pull_running(progress, lane_id=lane_id):
+            if _trade_pull_running(progress, lane_id=lane_id, row=row):
                 return "RUNNING"
-        if dataset == "stock_trades" and _trade_pull_running(progress, lane_id=lane_id):
+        if dataset == "stock_trades" and _trade_pull_running(progress, lane_id=lane_id, row=row):
             return "RUNNING"
         return "DUE_NOW"
     return "WAITING"
@@ -1678,7 +1748,7 @@ def _local_derivation_lane_status(
 ) -> str:
     del now
     lane_id = str(row.get("lane_id") or "")
-    if _massive_lane_progress_running(progress, lane_id):
+    if _massive_lane_progress_running(progress, lane_id, row):
         return "RUNNING"
     if str(row.get("command_profile") or "") not in LOCAL_DERIVATION_COMMAND_PROFILES:
         return "READY_FROM_RAW"
