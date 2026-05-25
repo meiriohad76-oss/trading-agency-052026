@@ -3393,6 +3393,22 @@ def test_data_refresh_progress_view_explains_running_support_refresh() -> None:
     assert "does not block paper orders" in view["refresh_impact"]["detail"]
 
 
+def test_data_refresh_progress_view_hides_raw_stale_state_from_dom() -> None:
+    view = data_refresh_progress_view(
+        {
+            "state": "stale",
+            "status_label": "Stale",
+            "status_class": "block",
+            "percent_complete": 25,
+            "current_dataset": "prices_daily",
+        }
+    )
+
+    assert view["display_status_label"] == "Refresh monitor needs restart"
+    assert view["display_state"] == "needs_refresh"
+    assert "stale" not in str(view["display_state"]).lower()
+
+
 def test_data_refresh_progress_view_translates_massive_lane_progress() -> None:
     view = data_refresh_progress_view(
         {

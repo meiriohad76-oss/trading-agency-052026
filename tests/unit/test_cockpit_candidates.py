@@ -562,6 +562,52 @@ async def test_cached_cockpit_context_coalesces_concurrent_requests(monkeypatch)
     assert calls["count"] == 1
 
 
+async def test_warm_cockpit_context_cache_primes_first_runtime_request(monkeypatch) -> None:
+    calls = {"count": 0}
+    cockpit_module._cockpit_context_cache.clear()
+    cockpit_module._cockpit_context_inflight.clear()
+
+    async def fake_cockpit_context(**_kwargs: object) -> dict[str, object]:
+        calls["count"] += 1
+        return {"build": calls["count"]}
+
+    monkeypatch.setattr(cockpit_module, "cockpit_context", fake_cockpit_context)
+
+    warmed = await cockpit_module.warm_cockpit_context_cache()
+    context = await cockpit_module.cached_cockpit_context()
+
+    assert warmed is True
+    assert context == {"build": 1}
+    assert calls["count"] == 1
+
+
+async def test_expired_cockpit_cache_serves_last_context_while_refreshing(monkeypatch) -> None:
+    calls = {"count": 0}
+    now = {"value": 1000.0}
+    cockpit_module._cockpit_context_cache.clear()
+    cockpit_module._cockpit_context_inflight.clear()
+    cockpit_module._cockpit_context_cache[(None, None)] = (
+        now["value"] - cockpit_module.COCKPIT_CONTEXT_CACHE_SECONDS - 1.0,
+        {"build": "last-proven"},
+    )
+
+    async def fake_cockpit_context(**_kwargs: object) -> dict[str, object]:
+        calls["count"] += 1
+        return {"build": "fresh"}
+
+    monkeypatch.setattr(cockpit_module, "monotonic", lambda: now["value"])
+    monkeypatch.setattr(cockpit_module, "cockpit_context", fake_cockpit_context)
+
+    context = await cockpit_module.cached_cockpit_context()
+    await cockpit_module.asyncio.sleep(0)
+    await cockpit_module.asyncio.sleep(0)
+    refreshed = await cockpit_module.cached_cockpit_context()
+
+    assert context == {"build": "last-proven"}
+    assert refreshed == {"build": "fresh"}
+    assert calls["count"] == 1
+
+
 def test_approved_watch_candidate_uses_ready_execution_preview_as_orderable() -> None:
     sources = _sample_sources()
     sources["dashboard"]["review_queue"] = [  # type: ignore[index]

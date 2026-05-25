@@ -63,6 +63,15 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
             state="disabled",
             detail=reason,
         )
+    try:
+        from agency.views.cockpit import warm_cockpit_context_cache
+
+        if await warm_cockpit_context_cache():
+            print("[cockpit] context cache warmed", flush=True)
+        else:
+            print("[cockpit] context cache warmup skipped after timeout or error", flush=True)
+    except Exception as exc:  # pragma: no cover - startup guardrail
+        print(f"[cockpit] context cache warmup failed: {exc}", flush=True)
     yield
     if scheduler is not None:
         scheduler.shutdown(wait=False)

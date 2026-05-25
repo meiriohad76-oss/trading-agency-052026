@@ -34,6 +34,8 @@ DEFAULT_OPTIONAL_CONTEXT_TIMEOUT_SECONDS = 1.0
 DEFAULT_REQUIRED_CONTEXT_TIMEOUT_SECONDS = 8.0
 DEFAULT_SOURCE_LOAD_TIMEOUT_SECONDS = 1.5
 COCKPIT_CONTEXT_CACHE_SECONDS = 2.0
+COCKPIT_CONTEXT_MAX_STALE_SECONDS = 120.0
+COCKPIT_CONTEXT_WARM_TIMEOUT_SECONDS = 45.0
 COCKPIT_DATA_HEALTH_DATASETS = (
     "prices_daily",
     "stock_trades",
@@ -50,6 +52,19 @@ _cockpit_context_cache: dict[CockpitContextCacheKey, tuple[float, dict[str, obje
 _cockpit_context_inflight: dict[CockpitContextCacheKey, asyncio.Task[dict[str, object]]] = {}
 
 
+async def warm_cockpit_context_cache(
+    *,
+    timeout_seconds: float = COCKPIT_CONTEXT_WARM_TIMEOUT_SECONDS,
+) -> bool:
+    """Prime the cockpit cache so the first operator/API request is responsive."""
+
+    try:
+        await asyncio.wait_for(cached_cockpit_context(), timeout=timeout_seconds)
+    except Exception:
+        return False
+    return True
+
+
 async def cached_cockpit_context(
     *,
     qa_scenario: str | None = None,
@@ -61,7 +76,15 @@ async def cached_cockpit_context(
     cached = _cockpit_context_cache.get(key)
     if cached is not None:
         cached_at, context = cached
-        if monotonic() - cached_at <= COCKPIT_CONTEXT_CACHE_SECONDS:
+        cache_age = monotonic() - cached_at
+        if cache_age <= COCKPIT_CONTEXT_CACHE_SECONDS:
+            return deepcopy(context)
+        if cache_age <= COCKPIT_CONTEXT_MAX_STALE_SECONDS:
+            _refresh_cockpit_context_cache_in_background(
+                key,
+                qa_scenario=qa_scenario,
+                qa_scenarios_enabled=qa_scenarios_enabled,
+            )
             return deepcopy(context)
         _cockpit_context_cache.pop(key, None)
     task = _cockpit_context_inflight.get(key)
@@ -83,6 +106,40 @@ async def cached_cockpit_context(
         _cockpit_context_inflight.pop(key, None)
     _cockpit_context_cache[key] = (monotonic(), deepcopy(context))
     return deepcopy(context)
+
+
+def _refresh_cockpit_context_cache_in_background(
+    key: CockpitContextCacheKey,
+    *,
+    qa_scenario: str | None,
+    qa_scenarios_enabled: bool | None,
+) -> None:
+    task = _cockpit_context_inflight.get(key)
+    if task is not None and not task.done():
+        return
+    task = asyncio.create_task(
+        cockpit_context(
+            qa_scenario=qa_scenario,
+            qa_scenarios_enabled=qa_scenarios_enabled,
+        )
+    )
+    _cockpit_context_inflight[key] = task
+    task.add_done_callback(lambda completed: _store_cockpit_context_refresh(key, completed))
+
+
+def _store_cockpit_context_refresh(
+    key: CockpitContextCacheKey,
+    task: asyncio.Task[dict[str, object]],
+) -> None:
+    try:
+        context = task.result()
+    except BaseException:
+        if _cockpit_context_inflight.get(key) is task:
+            _cockpit_context_inflight.pop(key, None)
+        return
+    if _cockpit_context_inflight.get(key) is task:
+        _cockpit_context_inflight.pop(key, None)
+    _cockpit_context_cache[key] = (monotonic(), deepcopy(context))
 
 
 async def cockpit_context(

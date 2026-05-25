@@ -626,6 +626,8 @@ def _data_refresh_display_status_class(
 
 
 def _data_refresh_display_state(state: str, scope: str) -> str:
+    if state == "stale":
+        return "needs_refresh"
     if state in {"failed", "blocked"} and scope in {"support", "repair"}:
         return f"{state}_{scope}"
     return state
