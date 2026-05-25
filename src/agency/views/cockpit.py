@@ -7,23 +7,33 @@ import os
 import re
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import suppress
+from copy import deepcopy
+from time import monotonic
 from typing import cast
 
+from agency.api.health import runtime_data_source_status
 from agency.runtime.cockpit_monitor import (
     monitor_events_from_scheduler,
     monitor_status_from_scheduler,
     source_health_rows,
 )
 from agency.runtime.ticker_reference import load_ticker_reference_index
-from agency.views._shared import dashboard_data_health
+from agency.views._shared import (
+    _dashboard_selection_reports,
+    dashboard_data_health,
+    live_runtime_source_health_rows,
+)
+from agency.views.execution import execution_preview_context
+from agency.views.market_regime import broker_status_context
 
 TRADE_ACTIONS = {"BUY", "SELL", "SHORT", "COVER"}
 MAX_COCKPIT_CANDIDATES = 25
 QA_SCENARIOS = {"normal", "no-actionable", "outage", "submitted"}
 DEFAULT_SECTOR_LABEL = "Reference lane not loaded"
-DEFAULT_OPTIONAL_CONTEXT_TIMEOUT_SECONDS = 4.0
+DEFAULT_OPTIONAL_CONTEXT_TIMEOUT_SECONDS = 1.0
 DEFAULT_REQUIRED_CONTEXT_TIMEOUT_SECONDS = 12.0
 DEFAULT_SOURCE_LOAD_TIMEOUT_SECONDS = 1.5
+COCKPIT_CONTEXT_CACHE_SECONDS = 2.0
 COCKPIT_DATA_HEALTH_DATASETS = (
     "prices_daily",
     "stock_trades",
@@ -35,6 +45,44 @@ COCKPIT_DATA_HEALTH_DATASETS = (
 )
 
 ContextBuilder = Callable[[], Awaitable[dict[str, object]]]
+CockpitContextCacheKey = tuple[str | None, bool | None]
+_cockpit_context_cache: dict[CockpitContextCacheKey, tuple[float, dict[str, object]]] = {}
+_cockpit_context_inflight: dict[CockpitContextCacheKey, asyncio.Task[dict[str, object]]] = {}
+
+
+async def cached_cockpit_context(
+    *,
+    qa_scenario: str | None = None,
+    qa_scenarios_enabled: bool | None = None,
+) -> dict[str, object]:
+    """Coalesce concurrent cockpit route/API reads without hiding live changes."""
+
+    key = (qa_scenario, qa_scenarios_enabled)
+    cached = _cockpit_context_cache.get(key)
+    if cached is not None:
+        cached_at, context = cached
+        if monotonic() - cached_at <= COCKPIT_CONTEXT_CACHE_SECONDS:
+            return deepcopy(context)
+        _cockpit_context_cache.pop(key, None)
+    task = _cockpit_context_inflight.get(key)
+    if task is None or task.done():
+        task = asyncio.create_task(
+            cockpit_context(
+                qa_scenario=qa_scenario,
+                qa_scenarios_enabled=qa_scenarios_enabled,
+            )
+        )
+        _cockpit_context_inflight[key] = task
+    try:
+        context = await task
+    except Exception:
+        if _cockpit_context_inflight.get(key) is task:
+            _cockpit_context_inflight.pop(key, None)
+        raise
+    if _cockpit_context_inflight.get(key) is task:
+        _cockpit_context_inflight.pop(key, None)
+    _cockpit_context_cache[key] = (monotonic(), deepcopy(context))
+    return deepcopy(context)
 
 
 async def cockpit_context(
@@ -51,7 +99,6 @@ async def cockpit_context(
         paper_review_status_context,
         source_status_rows,
     )
-    from agency.views.execution import execution_preview_context
     from agency.views.portfolio import portfolio_monitor_context
 
     optional_timeout = _optional_context_timeout_seconds()
@@ -64,7 +111,7 @@ async def cockpit_context(
         ),
         _source_context(
             "execution",
-            execution_preview_context,
+            _cockpit_execution_preview_context,
             timeout_seconds=optional_timeout,
         ),
         _source_context(
@@ -125,6 +172,19 @@ async def cockpit_context(
     return context if candidates else retry_context
 
 
+async def _cockpit_execution_preview_context() -> dict[str, object]:
+    reports, data_sources, broker = await asyncio.gather(
+        _dashboard_selection_reports(limit=MAX_COCKPIT_CANDIDATES),
+        live_runtime_source_health_rows(runtime_data_source_status),
+        broker_status_context(use_cache=True, allow_live_read=False),
+    )
+    return await execution_preview_context(
+        raw_reports=reports,
+        data_sources=data_sources,
+        broker=broker,
+    )
+
+
 async def _source_context(
     name: str,
     builder: ContextBuilder,
@@ -133,10 +193,12 @@ async def _source_context(
 ) -> dict[str, object]:
     """Load a non-critical cockpit section without freezing the first screen."""
 
-    task = asyncio.create_task(asyncio.to_thread(_run_context_builder, builder))
+    task = asyncio.create_task(builder())
     done, _pending = await asyncio.wait({task}, timeout=timeout_seconds)
     if task not in done:
-        task.add_done_callback(_consume_context_task_result)
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
         return _delayed_context(name, timeout_seconds=timeout_seconds)
     try:
         return task.result()
@@ -147,10 +209,6 @@ async def _source_context(
 def _consume_context_task_result(task: asyncio.Task[dict[str, object]]) -> None:
     with suppress(BaseException):
         task.result()
-
-
-def _run_context_builder(builder: ContextBuilder) -> dict[str, object]:
-    return asyncio.run(builder())
 
 
 def _optional_context_timeout_seconds() -> float:

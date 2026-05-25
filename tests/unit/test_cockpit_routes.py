@@ -101,6 +101,9 @@ def _client(monkeypatch: MonkeyPatch) -> TestClient:
         return _context()
 
     monkeypatch.setattr(dashboard_module, "cockpit_context", fake_cockpit_context)
+    monkeypatch.setattr(dashboard_module, "cached_cockpit_context", fake_cockpit_context)
+    cockpit_view._cockpit_context_cache.clear()
+    cockpit_view._cockpit_context_inflight.clear()
     return TestClient(create_app())
 
 
@@ -304,13 +307,13 @@ async def test_cockpit_context_does_not_block_on_slow_optional_sections(
         }
 
     async def slow_optional_context() -> dict[str, object]:
-        time.sleep(0.25)
+        await asyncio.sleep(0.25)
         return {}
 
     monkeypatch.setenv("AGENCY_COCKPIT_OPTIONAL_CONTEXT_TIMEOUT_SECONDS", "0.02")
     monkeypatch.setattr(command_view, "dashboard_context", fake_dashboard_context)
     monkeypatch.setattr(command_view, "paper_review_status_context", fake_paper_review_status_context)
-    monkeypatch.setattr(execution_view, "execution_preview_context", slow_optional_context)
+    monkeypatch.setattr(cockpit_view, "_cockpit_execution_preview_context", slow_optional_context)
     monkeypatch.setattr(portfolio_view, "portfolio_monitor_context", slow_optional_context)
 
     start = time.perf_counter()

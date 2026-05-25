@@ -30,6 +30,18 @@ ROUTE_BUDGETS: dict[str, dict[str, object]] = {
         "kind": "first-byte",
         "seconds": COCKPIT_ROOT_FIRST_BYTE_BUDGET_SECONDS,
     },
+    "/cockpit": {
+        "label": "V3 cockpit page",
+        "metric": "first_byte_seconds",
+        "kind": "first-byte",
+        "seconds": COCKPIT_ROOT_FIRST_BYTE_BUDGET_SECONDS,
+    },
+    "/api/cockpit": {
+        "label": "V3 cockpit API",
+        "metric": "total_seconds",
+        "kind": "total",
+        "seconds": COCKPIT_ROOT_FIRST_BYTE_BUDGET_SECONDS,
+    },
 }
 
 
@@ -56,14 +68,18 @@ def check_runtime(
     health_result = fetch_json(base_url, "/health")
     reports_result = fetch_json(base_url, "/reports/selection")
     decisions_result = fetch_json(base_url, "/risk/decisions")
+    cockpit_api_result = fetch_json(base_url, "/api/cockpit")
     metrics_result = fetch_text(base_url, "/metrics")
     dashboard_result = fetch_text(base_url, "/")
+    cockpit_result = fetch_text(base_url, "/cockpit")
     route_timings = {
         "/health": _route_timing("/health", health_result),
         "/reports/selection": _route_timing("/reports/selection", reports_result),
         "/risk/decisions": _route_timing("/risk/decisions", decisions_result),
+        "/api/cockpit": _route_timing("/api/cockpit", cockpit_api_result),
         "/metrics": _route_timing("/metrics", metrics_result),
         "/": _route_timing("/", dashboard_result),
+        "/cockpit": _route_timing("/cockpit", cockpit_result),
     }
     _enforce_route_budgets(route_timings)
     health = _payload(health_result)

@@ -2463,8 +2463,8 @@ def _paper_review_row(
     human_review_event: Mapping[str, object] | None,
 ) -> dict[str, object]:
     candidate = _candidate_row(report)
-    deterministic = _mapping_field(report, "deterministic")
-    llm_review = _mapping_field(report, "llm_review")
+    deterministic = _optional_mapping_field(report, "deterministic")
+    llm_review = _optional_mapping_field(report, "llm_review")
     evidence_pack = _mapping_field(report, "evidence_pack")
     data_quality = _mapping_field(evidence_pack, "data_quality")
     decision = "PENDING"
@@ -2537,6 +2537,11 @@ def _candidate_row(report: Mapping[str, object]) -> dict[str, object]:
         "as_of_label": _format_timestamp_label(report["as_of"]),
         "risk_flag_count": _risk_flag_count(report),
     }
+
+
+def _optional_mapping_field(payload: Mapping[str, object], key: str) -> Mapping[str, object]:
+    value = payload.get(key)
+    return value if isinstance(value, Mapping) else {}
 
 def _candidate_review_redirect_url(*, ticker: str, decision: str) -> str:
     if decision.upper() == "APPROVE":

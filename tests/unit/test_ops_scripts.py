@@ -312,6 +312,8 @@ def test_check_local_runtime_records_route_budget_timings() -> None:
             payload = {"status": "ok"}
         elif path in {"/reports/selection", "/risk/decisions"}:
             payload = [{"ticker": "AAPL"}]
+        elif path == "/api/cockpit":
+            payload = {"candidates": [{"ticker": "AAPL"}]}
         else:
             raise AssertionError(path)
         return _timed_payload(path=path, payload=payload)
@@ -324,6 +326,8 @@ def test_check_local_runtime_records_route_budget_timings() -> None:
             )
         if path == "/":
             return _timed_payload(path=path, payload="<html>Command</html>")
+        if path == "/cockpit":
+            return _timed_payload(path=path, payload="<html>Cockpit</html>")
         raise AssertionError(path)
 
     summary = local_runtime.check_runtime(
@@ -338,6 +342,10 @@ def test_check_local_runtime_records_route_budget_timings() -> None:
     assert timings["/reports/selection"]["budget_metric"] == "total_seconds"
     assert timings["/"]["budget_seconds"] == 12.0
     assert timings["/"]["budget_metric"] == "first_byte_seconds"
+    assert timings["/cockpit"]["budget_seconds"] == 12.0
+    assert timings["/cockpit"]["budget_metric"] == "first_byte_seconds"
+    assert timings["/api/cockpit"]["budget_seconds"] == 12.0
+    assert timings["/api/cockpit"]["budget_metric"] == "total_seconds"
 
 
 def test_check_local_runtime_fails_slow_selection_reports_route() -> None:
@@ -352,6 +360,8 @@ def test_check_local_runtime_fails_slow_selection_reports_route() -> None:
             return _timed_payload(path=path, payload={"status": "ok"})
         if path == "/risk/decisions":
             return _timed_payload(path=path, payload=[{"ticker": "AAPL"}])
+        if path == "/api/cockpit":
+            return _timed_payload(path=path, payload={"candidates": []})
         raise AssertionError(path)
 
     def fake_fetch_text(_base_url: str, path: str) -> dict[str, object]:
@@ -362,6 +372,8 @@ def test_check_local_runtime_fails_slow_selection_reports_route() -> None:
             )
         if path == "/":
             return _timed_payload(path=path, payload="<html>Command</html>")
+        if path == "/cockpit":
+            return _timed_payload(path=path, payload="<html>Cockpit</html>")
         raise AssertionError(path)
 
     with pytest.raises(RuntimeError, match="Selection reports route exceeded 5.0s"):
@@ -381,6 +393,8 @@ def test_check_local_runtime_fails_slow_cockpit_root_first_byte() -> None:
             return _timed_payload(path=path, payload=[{"ticker": "AAPL"}])
         if path == "/risk/decisions":
             return _timed_payload(path=path, payload=[{"ticker": "AAPL"}])
+        if path == "/api/cockpit":
+            return _timed_payload(path=path, payload={"candidates": []})
         raise AssertionError(path)
 
     def fake_fetch_text(_base_url: str, path: str) -> dict[str, object]:
@@ -395,9 +409,48 @@ def test_check_local_runtime_fails_slow_cockpit_root_first_byte() -> None:
                 payload="<html>Command</html>",
                 first_byte_seconds=12.2,
             )
+        if path == "/cockpit":
+            return _timed_payload(path=path, payload="<html>Cockpit</html>")
         raise AssertionError(path)
 
     with pytest.raises(RuntimeError, match="V3 cockpit root route exceeded 12.0s"):
+        local_runtime.check_runtime(
+            min_selection_reports=1,
+            min_risk_decisions=1,
+            timed_fetch_json=fake_fetch_json,
+            timed_fetch_text=fake_fetch_text,
+        )
+
+
+def test_check_local_runtime_fails_slow_cockpit_api_total_time() -> None:
+    def fake_fetch_json(_base_url: str, path: str) -> dict[str, object]:
+        if path == "/health":
+            return _timed_payload(path=path, payload={"status": "ok"})
+        if path == "/reports/selection":
+            return _timed_payload(path=path, payload=[{"ticker": "AAPL"}])
+        if path == "/risk/decisions":
+            return _timed_payload(path=path, payload=[{"ticker": "AAPL"}])
+        if path == "/api/cockpit":
+            return _timed_payload(
+                path=path,
+                payload={"candidates": [{"ticker": "AAPL"}]},
+                total_seconds=12.5,
+            )
+        raise AssertionError(path)
+
+    def fake_fetch_text(_base_url: str, path: str) -> dict[str, object]:
+        if path == "/metrics":
+            return _timed_payload(
+                path=path,
+                payload="# HELP demo Demo\nagency_source_health_total 2\n",
+            )
+        if path == "/":
+            return _timed_payload(path=path, payload="<html>Command</html>")
+        if path == "/cockpit":
+            return _timed_payload(path=path, payload="<html>Cockpit</html>")
+        raise AssertionError(path)
+
+    with pytest.raises(RuntimeError, match="V3 cockpit API route exceeded 12.0s"):
         local_runtime.check_runtime(
             min_selection_reports=1,
             min_risk_decisions=1,

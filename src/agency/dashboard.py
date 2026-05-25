@@ -76,6 +76,7 @@ from agency.views.candidates import (  # noqa: F401
     timeline_rows,
 )
 from agency.views.cockpit import (  # noqa: F401
+    cached_cockpit_context,
     cockpit_audit_payload,
     cockpit_context,
     cockpit_cycle_payload,
@@ -182,7 +183,7 @@ async def _cockpit_response(request: Request) -> Response:
     return templates.TemplateResponse(
         request,
         "cockpit.html",
-        await cockpit_context(
+        await cached_cockpit_context(
             qa_scenario=qa_scenario,
             qa_scenarios_enabled=qa_enabled,
         ),
@@ -191,18 +192,18 @@ async def _cockpit_response(request: Request) -> Response:
 
 @router.get("/api/cockpit")
 async def cockpit_api() -> dict[str, object]:
-    return safe_cockpit_api_payload(await cockpit_context())
+    return safe_cockpit_api_payload(await cached_cockpit_context())
 
 
 @router.get("/api/cycle")
 async def cockpit_cycle_api() -> dict[str, object]:
-    return cockpit_cycle_payload(await cockpit_context())
+    return cockpit_cycle_payload(await cached_cockpit_context())
 
 
 @router.get("/api/audit/{ticker}")
 async def cockpit_audit_api(ticker: str) -> dict[str, object]:
     try:
-        return cockpit_audit_payload(await cockpit_context(), ticker)
+        return cockpit_audit_payload(await cached_cockpit_context(), ticker)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import agency.views.cockpit as cockpit_module
 from agency.views.cockpit import (
@@ -330,7 +331,7 @@ async def test_cockpit_context_retries_paper_review_when_first_queue_is_empty(
 
     monkeypatch.setattr("agency.views.command.dashboard_context", fake_dashboard_context)
     monkeypatch.setattr("agency.views.command.paper_review_status_context", fake_paper_review_status_context)
-    monkeypatch.setattr("agency.views.execution.execution_preview_context", fake_execution_preview_context)
+    monkeypatch.setattr(cockpit_module, "_cockpit_execution_preview_context", fake_execution_preview_context)
     monkeypatch.setattr("agency.views.portfolio.portfolio_monitor_context", fake_portfolio_monitor_context)
 
     context = await cockpit_module.cockpit_context()
@@ -415,7 +416,7 @@ async def test_cockpit_context_retries_when_dashboard_queue_is_partial(
 
     monkeypatch.setattr("agency.views.command.dashboard_context", fake_dashboard_context)
     monkeypatch.setattr("agency.views.command.paper_review_status_context", fake_paper_review_status_context)
-    monkeypatch.setattr("agency.views.execution.execution_preview_context", fake_execution_preview_context)
+    monkeypatch.setattr(cockpit_module, "_cockpit_execution_preview_context", fake_execution_preview_context)
     monkeypatch.setattr("agency.views.portfolio.portfolio_monitor_context", fake_portfolio_monitor_context)
 
     context = await cockpit_module.cockpit_context()
@@ -424,6 +425,133 @@ async def test_cockpit_context_retries_when_dashboard_queue_is_partial(
     assert len(context["candidates"]) == 20
     assert context["candidates"][0]["ticker"] == "T00"
     assert context["scenario"]["headline"] == "20 candidates are ready for research review."
+
+
+async def test_cockpit_execution_context_limits_reports_and_supplies_dependencies(
+    monkeypatch,
+) -> None:
+    captured: dict[str, Any] = {}
+    reports = [{"ticker": f"T{index:02d}"} for index in range(30)]
+    data_sources = [{"dataset": "prices_daily", "status": "READY"}]
+    broker = {
+        "connected": True,
+        "mode": "paper",
+        "account": {"equity": 100000.0},
+        "positions": [],
+        "orders": [],
+    }
+
+    async def fake_dashboard_selection_reports(*, limit: int) -> list[dict[str, object]]:
+        captured["limit"] = limit
+        return reports[:limit]
+
+    async def fake_live_runtime_source_health_rows(_reader: object) -> list[dict[str, object]]:
+        return data_sources
+
+    async def fake_broker_status_context(**kwargs: object) -> dict[str, object]:
+        captured["broker_kwargs"] = kwargs
+        return broker
+
+    async def fake_execution_preview_context(**kwargs: object) -> dict[str, object]:
+        captured["execution_kwargs"] = kwargs
+        return {"preview_rows": [{"ticker": "T00"}]}
+
+    monkeypatch.setattr(
+        cockpit_module,
+        "_dashboard_selection_reports",
+        fake_dashboard_selection_reports,
+    )
+    monkeypatch.setattr(
+        cockpit_module,
+        "live_runtime_source_health_rows",
+        fake_live_runtime_source_health_rows,
+    )
+    monkeypatch.setattr(
+        cockpit_module,
+        "broker_status_context",
+        fake_broker_status_context,
+    )
+    monkeypatch.setattr(
+        cockpit_module,
+        "execution_preview_context",
+        fake_execution_preview_context,
+    )
+
+    context = await cockpit_module._cockpit_execution_preview_context()
+
+    assert context["preview_rows"] == [{"ticker": "T00"}]
+    assert captured["limit"] == cockpit_module.MAX_COCKPIT_CANDIDATES
+    assert captured["broker_kwargs"] == {"use_cache": True, "allow_live_read": False}
+    assert captured["execution_kwargs"] == {
+        "raw_reports": reports[: cockpit_module.MAX_COCKPIT_CANDIDATES],
+        "data_sources": data_sources,
+        "broker": broker,
+    }
+
+
+async def test_cockpit_source_context_runs_builder_on_current_event_loop() -> None:
+    current_loop = id(cockpit_module.asyncio.get_running_loop())
+
+    async def builder() -> dict[str, object]:
+        return {"loop_id": id(cockpit_module.asyncio.get_running_loop())}
+
+    context = await cockpit_module._source_context(
+        "execution",
+        builder,
+        timeout_seconds=1.0,
+    )
+
+    assert context["loop_id"] == current_loop
+
+
+async def test_cockpit_source_context_cancels_timed_out_builder() -> None:
+    cancelled = cockpit_module.asyncio.Event()
+
+    async def builder() -> dict[str, object]:
+        try:
+            await cockpit_module.asyncio.sleep(5)
+        except cockpit_module.asyncio.CancelledError:
+            cancelled.set()
+            raise
+        return {"status": "finished"}
+
+    context = await cockpit_module._source_context(
+        "execution",
+        builder,
+        timeout_seconds=0.01,
+    )
+
+    assert context["context_status"]["status"] == "delayed"  # type: ignore[index]
+    await cockpit_module.asyncio.wait_for(cancelled.wait(), timeout=0.5)
+
+
+def test_cockpit_optional_context_timeout_defaults_to_fast_first_screen(
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv("AGENCY_COCKPIT_OPTIONAL_CONTEXT_TIMEOUT_SECONDS", raising=False)
+
+    assert cockpit_module._optional_context_timeout_seconds() == 1.0
+
+
+async def test_cached_cockpit_context_coalesces_concurrent_requests(monkeypatch) -> None:
+    calls = {"count": 0}
+    cockpit_module._cockpit_context_cache.clear()
+    cockpit_module._cockpit_context_inflight.clear()
+
+    async def fake_cockpit_context(**_kwargs: object) -> dict[str, object]:
+        calls["count"] += 1
+        await cockpit_module.asyncio.sleep(0.01)
+        return {"build": calls["count"]}
+
+    monkeypatch.setattr(cockpit_module, "cockpit_context", fake_cockpit_context)
+
+    first, second = await cockpit_module.asyncio.gather(
+        cockpit_module.cached_cockpit_context(),
+        cockpit_module.cached_cockpit_context(),
+    )
+
+    assert first == second == {"build": 1}
+    assert calls["count"] == 1
 
 
 def test_approved_watch_candidate_uses_ready_execution_preview_as_orderable() -> None:
