@@ -2463,6 +2463,8 @@ def _paper_review_row(
     human_review_event: Mapping[str, object] | None,
 ) -> dict[str, object]:
     candidate = _candidate_row(report)
+    deterministic = _mapping_field(report, "deterministic")
+    llm_review = _mapping_field(report, "llm_review")
     evidence_pack = _mapping_field(report, "evidence_pack")
     data_quality = _mapping_field(evidence_pack, "data_quality")
     decision = "PENDING"
@@ -2478,6 +2480,12 @@ def _paper_review_row(
     caution = _review_caution(report, risk_decision)
     return {
         **candidate,
+        "company": str(report.get("company") or report.get("name") or candidate["ticker"]),
+        "sector": str(report.get("sector") or ""),
+        "final_conviction": _float_field(report, "final_conviction"),
+        "deterministic": dict(deterministic),
+        "llm_review": dict(llm_review),
+        "evidence_hash": str(report.get("evidence_hash") or ""),
         "cycle_id": str(report["cycle_id"]),
         "candidate_href": f"/candidates/{ticker}",
         "risk_href": "/risk",

@@ -7,6 +7,7 @@ from agency.views.cockpit import (
     cockpit_context_from_sources,
     cockpit_ticker_detail_payload_from_context,
 )
+from agency.views.command import paper_review_queue
 from tests.unit.test_cockpit_contract import _sample_sources
 
 TEMPLATE = Path("src/agency/templates/cockpit.html")
@@ -62,6 +63,138 @@ def test_candidate_row_missing_evidence_and_risk_uses_neutral_copy() -> None:
     assert row["evidence_line"] == "No concrete evidence line is available in the current pack."
     assert row["risk_line"] == "Risk check did not attach a specific finding."
     assert row["risk_status_label"] == "Risk proof not attached"
+
+
+def test_candidate_row_uses_nested_selection_report_scores_and_llm_review() -> None:
+    sources = _sample_sources()
+    sources["dashboard"]["review_queue"] = [  # type: ignore[index]
+        {
+            "ticker": "NEST",
+            "final_action": "WATCH",
+            "final_conviction": 0.73,
+            "deterministic": {
+                "action": "WATCH",
+                "score": 0.73,
+                "conviction": 0.73,
+            },
+            "llm_review": {
+                "action": "AGREE",
+                "confidence": 0.68,
+                "rationale": "LLM agrees because abnormal volume and pressure corroborate.",
+            },
+            "policy_gates": [{"name": "freshness", "status": "PASS", "reason": "fresh"}],
+            "evidence_pack": {
+                "data_quality": {
+                    "source_count": 4,
+                    "confirmed_signal_count": 2,
+                    "freshness": "FRESH",
+                }
+            },
+            "cycle_id": "cycle-live-20260522-1530",
+            "as_of": "2026-05-22T15:28:00+00:00",
+        }
+    ]
+
+    context = cockpit_context_from_sources(sources)
+    row = context["candidates"][0]
+
+    assert row["det_conviction"] == 0.73
+    assert row["llm_conviction"] == 0.68
+    assert row["llm_label"] == "LLM agrees"
+    assert row["llm_rationale"] == "LLM agrees because abnormal volume and pressure corroborate."
+
+
+def test_paper_review_queue_preserves_selection_scores_for_cockpit() -> None:
+    sources = _sample_sources()
+    report = {
+        "ticker": "PRES",
+        "cycle_id": "cycle-live-20260522-1530",
+        "as_of": "2026-05-22T15:28:00+00:00",
+        "generated_at": "2026-05-22T15:29:00+00:00",
+        "final_action": "WATCH",
+        "final_conviction": 0.74,
+        "deterministic": {
+            "action": "WATCH",
+            "score": 0.74,
+            "conviction": 0.74,
+        },
+        "llm_review": {
+            "action": "NO_REVIEW",
+            "confidence": 0.0,
+            "rationale": "LLM review is not enabled for this run.",
+        },
+        "policy_gates": [{"name": "freshness", "status": "PASS", "reason": "fresh"}],
+        "risk_flags": [],
+        "evidence_pack": {
+            "data_quality": {
+                "source_count": 5,
+                "confirmed_signal_count": 2,
+                "freshness": "FRESH",
+            }
+        },
+    }
+    queue = paper_review_queue(
+        [report],
+        [],
+        {"cycle_id": "cycle-live-20260522-1530"},
+    )
+    sources["dashboard"]["review_queue"] = queue  # type: ignore[index]
+
+    context = cockpit_context_from_sources(sources)
+    row = context["candidates"][0]
+
+    assert row["det_conviction"] == 0.74
+    assert row["llm_conviction"] == 0.0
+    assert row["llm_label"] == "LLM disabled for this run"
+    assert row["llm_rationale"] == "LLM review is not enabled for this run."
+
+
+def test_candidate_row_uses_reference_missing_copy_when_sector_is_absent() -> None:
+    sources = _sample_sources()
+    sources["dashboard"]["review_queue"] = [  # type: ignore[index]
+        {
+            "ticker": "NOSEC",
+            "company": "No Sector Inc.",
+            "final_action": "WATCH",
+            "final_score": 0.61,
+            "risk_status_label": "PASS",
+            "is_reviewable": True,
+            "cycle_id": "cycle-live-20260522-1530",
+            "as_of": "2026-05-22T15:28:00+00:00",
+        }
+    ]
+
+    context = cockpit_context_from_sources(sources)
+    row = context["candidates"][0]
+
+    assert row["sector"] == "Reference lane not loaded"
+
+
+def test_candidate_row_uses_cached_ticker_reference_metadata() -> None:
+    sources = _sample_sources()
+    sources["dashboard"]["review_queue"] = [  # type: ignore[index]
+        {
+            "ticker": "REF",
+            "final_action": "WATCH",
+            "final_score": 0.61,
+            "risk_status_label": "PASS",
+            "is_reviewable": True,
+            "cycle_id": "cycle-live-20260522-1530",
+            "as_of": "2026-05-22T15:28:00+00:00",
+        }
+    ]
+    sources["dashboard"]["ticker_reference"] = {  # type: ignore[index]
+        "REF": {
+            "name": "Reference Corp",
+            "sector": "Semiconductors and related devices",
+        }
+    }
+
+    context = cockpit_context_from_sources(sources)
+    row = context["candidates"][0]
+
+    assert row["name"] == "Reference Corp"
+    assert row["sector"] == "Semiconductors and related devices"
 
 
 def test_candidate_row_uses_conviction_dial_and_mono_score() -> None:

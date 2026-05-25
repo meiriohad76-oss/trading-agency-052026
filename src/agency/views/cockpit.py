@@ -14,11 +14,13 @@ from agency.runtime.cockpit_monitor import (
     monitor_status_from_scheduler,
     source_health_rows,
 )
+from agency.runtime.ticker_reference import load_ticker_reference_index
 from agency.views._shared import dashboard_data_health
 
 TRADE_ACTIONS = {"BUY", "SELL", "SHORT", "COVER"}
 MAX_COCKPIT_CANDIDATES = 25
 QA_SCENARIOS = {"normal", "no-actionable", "outage", "submitted"}
+DEFAULT_SECTOR_LABEL = "Reference lane not loaded"
 DEFAULT_OPTIONAL_CONTEXT_TIMEOUT_SECONDS = 4.0
 DEFAULT_REQUIRED_CONTEXT_TIMEOUT_SECONDS = 12.0
 DEFAULT_SOURCE_LOAD_TIMEOUT_SECONDS = 1.5
@@ -83,6 +85,7 @@ async def cockpit_context(
         source_status_rows_builder=source_status_rows,
     )
     dashboard = _dashboard_with_paper_review(dashboard, paper_review)
+    dashboard = _dashboard_with_ticker_reference(dashboard)
     context = cockpit_context_from_sources(
         {
             "dashboard": dashboard,
@@ -104,6 +107,7 @@ async def cockpit_context(
     # operator's primary workflow.
     paper_review = await paper_review_status_context()
     dashboard = _dashboard_with_paper_review(dashboard, paper_review)
+    dashboard = _dashboard_with_ticker_reference(dashboard)
     retry_context = cockpit_context_from_sources(
         {
             "dashboard": dashboard,
@@ -230,6 +234,15 @@ def _dashboard_with_paper_review(
         "review_queue": queue,
         "review_progress": _mapping(paper_review.get("progress")),
     }
+
+
+def _dashboard_with_ticker_reference(dashboard: Mapping[str, object]) -> dict[str, object]:
+    if _mapping(dashboard.get("ticker_reference")):
+        return dict(dashboard)
+    reference = load_ticker_reference_index()
+    if not reference:
+        return dict(dashboard)
+    return {**dict(dashboard), "ticker_reference": reference}
 
 
 async def _dashboard_with_cockpit_data_proof(
@@ -674,11 +687,15 @@ def _candidate_rows(
     execution: Mapping[str, object],
 ) -> list[dict[str, object]]:
     source_rows = _list(dashboard.get("review_queue")) or _list(dashboard.get("candidates"))
+    reference_index = _ticker_reference_index(dashboard.get("ticker_reference"))
     previews = {_first_text(_mapping(row).get("ticker")): _mapping(row) for row in _list(execution.get("preview_rows"))}
     rows: list[dict[str, object]] = []
     for raw_index, raw in enumerate(source_rows, start=1):
         item = _mapping(raw)
+        deterministic = _mapping(item.get("deterministic"))
+        llm_review = _mapping(item.get("llm_review"))
         ticker = _first_text(item.get("ticker"), default=f"ROW{raw_index}")
+        reference = _mapping(reference_index.get(ticker.upper()))
         action = _first_text(item.get("final_action"), item.get("action"), default="WATCH").upper()
         risk_label = _first_text(
             item.get("risk_status_label"),
@@ -723,12 +740,33 @@ def _candidate_rows(
             {
                 "rank": raw_index,
                 "ticker": ticker,
-                "name": _first_text(item.get("company"), item.get("name"), default=ticker),
-                "sector": _first_text(item.get("sector"), default="Sector not reported"),
+                "name": _first_text(
+                    item.get("company"),
+                    item.get("name"),
+                    reference.get("company"),
+                    reference.get("name"),
+                    default=ticker,
+                ),
+                "sector": _first_text(
+                    item.get("sector"),
+                    reference.get("sector"),
+                    reference.get("industry"),
+                    reference.get("sic_description"),
+                    default=DEFAULT_SECTOR_LABEL,
+                ),
                 "direction": "short" if (preview_side or action) in {"SELL", "SHORT", "COVER"} else "long",
-                "det_conviction": _score(item.get("det_conviction"), item.get("deterministic_score_label")),
+                "det_conviction": _score(
+                    item.get("det_conviction"),
+                    item.get("deterministic_conviction"),
+                    deterministic.get("conviction"),
+                    item.get("deterministic_score_label"),
+                    deterministic.get("score"),
+                ),
                 "llm_conviction": _score(
                     item.get("llm_conviction"),
+                    item.get("llm_confidence"),
+                    item.get("llm_confidence_pct"),
+                    llm_review.get("confidence"),
                     item.get("llm_score_label"),
                     preview.get("llm_confidence_pct"),
                 ),
@@ -736,12 +774,14 @@ def _candidate_rows(
                     item.get("llm_status_label"),
                     preview.get("llm_status_label"),
                     preview.get("llm_action"),
+                    _llm_review_status_label(llm_review),
                     default="",
                 ),
                 "llm_rationale": _first_text(
                     item.get("llm_rationale"),
                     item.get("llm_summary"),
                     preview.get("llm_rationale"),
+                    llm_review.get("rationale"),
                     item.get("llm_status_label"),
                     default="LLM not run for this ticker",
                 ),
@@ -819,6 +859,42 @@ def _candidate_rows(
                 else "LLM not run for this ticker"
             )
     return sorted_rows
+
+
+def _llm_review_status_label(review: Mapping[str, object]) -> str:
+    action = _first_text(review.get("action")).upper()
+    rationale = _first_text(review.get("rationale")).lower()
+    if not action:
+        return ""
+    if action == "AGREE":
+        return "LLM agrees"
+    if action == "DISAGREE":
+        return "LLM disagrees"
+    if action == "NEEDS_MORE_EVIDENCE":
+        return "LLM needs more evidence"
+    if action == "NO_REVIEW":
+        if "not enabled" in rationale or "disabled" in rationale:
+            return "LLM disabled for this run"
+        return "LLM not run automatically"
+    return f"LLM {action.replace('_', ' ').title()}"
+
+
+def _ticker_reference_index(value: object) -> dict[str, Mapping[str, object]]:
+    if isinstance(value, Mapping):
+        return {
+            str(ticker).upper(): _mapping(row)
+            for ticker, row in value.items()
+            if str(ticker).strip() and _mapping(row)
+        }
+    if isinstance(value, list | tuple):
+        rows: dict[str, Mapping[str, object]] = {}
+        for row in value:
+            item = _mapping(row)
+            ticker = _first_text(item.get("ticker")).upper()
+            if ticker:
+                rows[ticker] = item
+        return rows
+    return {}
 
 
 def _position_rows(portfolio: Mapping[str, object]) -> list[dict[str, object]]:

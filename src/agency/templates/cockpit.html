@@ -275,7 +275,7 @@
             <span class="cockpit-rank cockpit-mono">{{ "%02d"|format(candidate.rank|default(loop.index, true)) }}</span>
             <span class="cockpit-identity">
               <strong>{{ candidate.ticker }}</strong>
-              <small>{{ candidate.name|default(candidate.ticker, true) }} - {{ candidate.sector|default("Sector not reported", true) }}</small>
+              <small>{{ candidate.name|default(candidate.ticker, true) }} - {{ candidate.sector|default("Reference lane not loaded", true) }}</small>
             </span>
             <span class="cockpit-conviction" data-conviction-dial>
               <span class="cockpit-mini-dial"><span class="cockpit-arc-needle" style="--needle: {{ candidate.conviction_dial_degrees|default(0, true) }}deg"></span></span>

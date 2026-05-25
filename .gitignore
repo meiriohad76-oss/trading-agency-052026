@@ -22,6 +22,8 @@ research/data/portfolio-high-water-marks.json
 research/data/raw/subscription_emails/**
 research/data/raw/**
 !research/data/raw/.gitkeep
+research/data/reference/**
+!research/data/reference/.gitkeep
 *.monitor-state.json
 *monitor-state.json
 .subscription-email-monitor.json
