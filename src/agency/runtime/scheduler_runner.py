@@ -593,6 +593,217 @@ def run_manual_massive_lane_refresh(
     }
 
 
+def run_manual_dataset_refresh(
+    dataset: str,
+    *,
+    queue_provider: Callable[[], Mapping[str, object]] | None = None,
+    runner: Callable[[list[str]], subprocess.CompletedProcess[str]] | None = None,
+) -> dict[str, object]:
+    """Run one non-Massive dataset refresh when the scheduler policy exposes it."""
+    from agency.runtime import scheduler_status
+
+    requested_dataset = str(dataset).strip()
+    if not requested_dataset:
+        return _record_manual_dataset_refresh_refused(
+            "unknown",
+            "Manual dataset refresh was not started because no dataset was provided.",
+            recorder=scheduler_status.record_scheduler_runtime_status,
+        )
+    if _WORK_QUEUE_TICK_RUNNING:
+        return _record_manual_dataset_refresh_refused(
+            requested_dataset,
+            (
+                "Manual dataset refresh was not started because the automatic "
+                "scheduler tick is already running. Wait for the current command "
+                "to finish."
+            ),
+            recorder=scheduler_status.record_scheduler_runtime_status,
+        )
+    try:
+        queue = dict(queue_provider() if queue_provider is not None else _manual_lane_queue())
+    except Exception as exc:
+        return _record_manual_dataset_refresh_refused(
+            requested_dataset,
+            f"Manual dataset refresh could not load the scheduler work queue: {exc}",
+            recorder=scheduler_status.record_scheduler_runtime_status,
+        )
+
+    job = _manual_dataset_job(queue, requested_dataset)
+    if job is None:
+        return _record_manual_dataset_refresh_refused(
+            requested_dataset,
+            (
+                f"Manual dataset refresh was not started because {requested_dataset} "
+                "is not in the current scheduler job plan."
+            ),
+            recorder=scheduler_status.record_scheduler_runtime_status,
+        )
+
+    status = str(job.get("status") or "").upper()
+    command = _string_list(job.get("command"))
+    if status != "DUE_NOW" or not command:
+        label = _manual_job_label(job)
+        reason = str(job.get("reason") or "No job reason recorded.")
+        return _record_manual_dataset_refresh_refused(
+            requested_dataset,
+            (
+                f"Manual dataset refresh for {label} was not started because the "
+                f"current trade-aware policy marks it {status or 'UNKNOWN'} and "
+                f"does not expose a runnable command. {reason}"
+            ),
+            job=job,
+            recorder=scheduler_status.record_scheduler_runtime_status,
+        )
+
+    run_command = runner or _run_queue_command
+    started_at = datetime.now(UTC)
+    previous_status = scheduler_status.load_scheduler_runtime_status()
+    job_id = str(job.get("job_id") or f"dataset:{requested_dataset}")
+    label = _manual_job_label(job)
+    active_command = {
+        "job_id": job_id,
+        "kind": str(job.get("kind") or "dataset"),
+        "name": label,
+        "dataset": requested_dataset,
+        "manual": True,
+        "started_at": started_at.isoformat(),
+    }
+    scheduler_status.record_scheduler_runtime_status(
+        state="running",
+        detail=f"Manual dataset refresh is running {label}.",
+        job_count=1,
+        extra={
+            "tick_state": "running",
+            "last_tick_started_at": started_at.isoformat(),
+            "expected_tick_timeout_seconds": COMMAND_TIMEOUT_SECONDS,
+            "active_command": active_command,
+            "manual_dataset_refresh": {
+                "dataset": requested_dataset,
+                "job_id": job_id,
+                "label": label,
+                "status": "running",
+                "policy_status": status,
+                "started_at": started_at.isoformat(),
+            },
+        },
+    )
+
+    try:
+        result = run_command(command)
+    except Exception as exc:
+        result = subprocess.CompletedProcess(
+            command,
+            1,
+            stdout="",
+            stderr=f"Manual dataset refresh command failed before completion: {exc}",
+        )
+
+    finished_at = datetime.now(UTC)
+    command_result = {
+        "job_id": job_id,
+        "kind": str(job.get("kind") or "dataset"),
+        "name": label,
+        "dataset": requested_dataset,
+        "exit_code": result.returncode,
+        "duration_seconds": int((finished_at - started_at).total_seconds()),
+        "ticker_count": len(_tickers_from_command(command)),
+        "stdout_tail": (result.stdout or "")[-500:],
+        "stderr_tail": (result.stderr or "")[-500:],
+        "manual": True,
+    }
+    errors = [] if result.returncode == 0 else [f"{job_id}: exit {result.returncode}"]
+    state = "idle" if result.returncode == 0 else "error"
+    manual_status = "completed" if result.returncode == 0 else "failed"
+    detail = (
+        f"Manual dataset refresh for {label} completed."
+        if result.returncode == 0
+        else f"Manual dataset refresh for {label} failed with exit {result.returncode}."
+    )
+    job_last_success_at = _job_last_success_map(previous_status)
+    if result.returncode == 0:
+        job_last_success_at[job_id] = finished_at.isoformat()
+    scheduler_status.record_scheduler_runtime_status(
+        state=state,
+        detail=detail,
+        job_count=1,
+        extra={
+            "tick_state": "idle",
+            "last_tick_started_at": started_at.isoformat(),
+            "last_tick_finished_at": finished_at.isoformat(),
+            "expected_tick_timeout_seconds": COMMAND_TIMEOUT_SECONDS,
+            "active_command": None,
+            "last_tick_command_count": 1,
+            "last_tick_errors": errors,
+            "last_tick_commands": [command_result],
+            "job_last_success_at": job_last_success_at,
+            "manual_dataset_refresh": {
+                "dataset": requested_dataset,
+                "job_id": job_id,
+                "label": label,
+                "status": manual_status,
+                "policy_status": status,
+                "exit_code": result.returncode,
+                "started_at": started_at.isoformat(),
+                "finished_at": finished_at.isoformat(),
+            },
+        },
+    )
+    return {
+        "state": manual_status,
+        "dataset": requested_dataset,
+        "job_id": job_id,
+        "exit_code": result.returncode,
+        "detail": detail,
+    }
+
+
+def launch_subscription_email_login_refresh() -> dict[str, object]:
+    """Open a visible local shell for the login-gated email/article refresh."""
+    from agency.runtime import scheduler_status
+
+    command = _subscription_email_login_refresh_shell_command()
+    creationflags = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
+    try:
+        process = subprocess.Popen(  # noqa: S603 - local operator-launched tool.
+            command,
+            cwd=str(REPO_ROOT),
+            creationflags=creationflags,
+        )
+    except Exception as exc:
+        detail = f"Could not open the subscription email login refresh window: {exc}"
+        scheduler_status.record_scheduler_runtime_status(
+            state="idle",
+            detail=detail,
+            job_count=0,
+            extra={
+                "manual_subscription_email_login_refresh": {
+                    "status": "failed_to_start",
+                    "reason": detail,
+                }
+            },
+        )
+        return {"state": "failed_to_start", "detail": detail}
+
+    detail = (
+        "Opened a visible subscription email login refresh window. Complete the "
+        "provider login there, confirm the prompt, and the email/article agent "
+        "will continue in that window."
+    )
+    scheduler_status.record_scheduler_runtime_status(
+        state="idle",
+        detail=detail,
+        job_count=1,
+        extra={
+            "manual_subscription_email_login_refresh": {
+                "status": "started",
+                "process_id": process.pid,
+                "dataset": "subscription_emails",
+            }
+        },
+    )
+    return {"state": "started", "process_id": process.pid, "detail": detail}
+
+
 def _manual_lane_queue() -> Mapping[str, object]:
     live_queue = _load_live_scheduler_work_queue()
     if live_queue is not None:
@@ -651,6 +862,18 @@ def _manual_massive_lane(
     return None
 
 
+def _manual_dataset_job(
+    queue: Mapping[str, object],
+    dataset: str,
+) -> dict[str, object] | None:
+    for row in _mapping_rows(queue.get("jobs")):
+        if str(row.get("kind") or "") != "dataset":
+            continue
+        if dataset in {str(row.get("dataset") or ""), str(row.get("name") or "")}:
+            return row
+    return None
+
+
 def _manual_lane_label(lane: Mapping[str, object]) -> str:
     return str(
         lane.get("label")
@@ -658,6 +881,11 @@ def _manual_lane_label(lane: Mapping[str, object]) -> str:
         or lane.get("name")
         or "Massive lane"
     )
+
+
+def _manual_job_label(job: Mapping[str, object]) -> str:
+    name = str(job.get("label") or job.get("name") or job.get("dataset") or "dataset")
+    return name.replace("_", " ").title()
 
 
 def _record_manual_lane_refresh_refused(
@@ -691,6 +919,66 @@ def _record_manual_lane_refresh_refused(
         "detail": detail,
         "policy_status": policy_status,
     }
+
+
+def _record_manual_dataset_refresh_refused(
+    dataset: str,
+    detail: str,
+    *,
+    recorder: Callable[..., dict[str, object]],
+    job: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    policy_status = str(job.get("status") or "UNKNOWN") if job else "UNKNOWN"
+    recorder(
+        state="idle",
+        detail=detail,
+        job_count=0,
+        extra={
+            "tick_state": "idle",
+            "active_command": None,
+            "manual_dataset_refresh": {
+                "dataset": dataset,
+                "job_id": str(job.get("job_id") or f"dataset:{dataset}") if job else f"dataset:{dataset}",
+                "label": _manual_job_label(job or {"dataset": dataset}),
+                "status": "refused",
+                "policy_status": policy_status,
+                "reason": detail,
+            },
+        },
+    )
+    return {
+        "state": "refused",
+        "dataset": dataset,
+        "detail": detail,
+        "policy_status": policy_status,
+    }
+
+
+def _subscription_email_login_refresh_shell_command() -> list[str]:
+    repo = str(REPO_ROOT).replace("'", "''")
+    script = (
+        "$ErrorActionPreference = 'Stop'; "
+        f"Set-Location -LiteralPath '{repo}'; "
+        ".\\.venv\\Scripts\\python research\\scripts\\import_subscription_emails.py "
+        "--config research\\config\\subscription-email.local.json "
+        "--max-emails 10 "
+        "--max-article-links 10 "
+        "--enable-article-llm-analysis "
+        "--require-article-login "
+        "--article-login-service seeking_alpha; "
+        "Write-Host ''; "
+        "Write-Host 'Subscription email refresh finished. Press Enter to close.'; "
+        "Read-Host"
+    )
+    return [
+        "powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-NoExit",
+        "-Command",
+        script,
+    ]
 
 
 def _next_command_for_tick(
@@ -852,6 +1140,7 @@ def _runtime_cycle_command(*, tickers: list[str] | None = None) -> list[str]:
         output_root,
     ]
     command.append("--enable-llm-review" if _scheduler_enable_llm_review() else "--no-enable-llm-review")
+    command.extend(["--llm-review-max-candidates", "10"])
     should_persist = RUNTIME_CYCLE_PERSIST and not scoped_tickers
     if should_persist:
         command.append("--persist")

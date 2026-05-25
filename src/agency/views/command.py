@@ -60,6 +60,46 @@ LIVE_CRITICAL_SCHEDULER_SIGNALS = {
     "technical_analysis",
     "unusual_trade_activity",
 }
+SCHEDULER_DATASET_REFRESH_ACTIONS = {
+    "news_rss": {
+        "url": "/scheduler/datasets/news_rss/refresh",
+        "label": "Refresh RSS/news",
+        "detail": "Runs only the RSS/news refresh job if the scheduler policy marks it due.",
+    },
+    "subscription_emails": {
+        "url": "/scheduler/subscription-emails/login-refresh",
+        "label": "Open email login refresh",
+        "detail": (
+            "Opens a visible local refresh window so the operator can log in to "
+            "Seeking Alpha before article links are opened."
+        ),
+    },
+    "sec_company_facts": {
+        "url": "/scheduler/datasets/sec_company_facts/refresh",
+        "label": "Refresh SEC facts",
+        "detail": "Runs only the SEC company-facts refresh if the scheduler policy marks it due.",
+    },
+    "sec_form4": {
+        "url": "/scheduler/datasets/sec_form4/refresh",
+        "label": "Refresh Form 4",
+        "detail": "Runs only the SEC Form 4 refresh if the scheduler policy marks it due.",
+    },
+    "sec_13f": {
+        "url": "/scheduler/datasets/sec_13f/refresh",
+        "label": "Refresh 13F",
+        "detail": "Runs only the SEC 13F refresh if the scheduler policy marks it due.",
+    },
+    "prices_daily": {
+        "url": "/scheduler/massive-lanes/massive_daily_bars/refresh",
+        "label": "Refresh daily bars",
+        "detail": "Runs the Massive daily-bars lane under the trade-aware lane policy.",
+    },
+    "stock_trades": {
+        "url": "/scheduler/massive-lanes/massive_live_trade_slices/refresh",
+        "label": "Refresh live trades",
+        "detail": "Runs the Massive live-trade-slices lane under the trade-aware lane policy.",
+    },
+}
 
 
 class RuntimeRowsUnavailable(RuntimeError):
@@ -1804,7 +1844,10 @@ def scheduler_work_queue_view(status: Mapping[str, object]) -> dict[str, object]
     view["runtime"] = scheduler_runtime
     view["job_rows"] = _mapping_list_field(view, "jobs")[:10]
     view["next_job_rows"] = _mapping_list_field(view, "next_jobs")
-    view["stale_rows"] = _mapping_list_field(view, "stale_datasets")[:8]
+    view["stale_rows"] = [
+        _scheduler_dataset_review_row(row)
+        for row in _mapping_list_field(view, "stale_datasets")[:8]
+    ]
     raw_massive_lane_rows = _mapping_list_field(massive_orchestrator, "lanes")
     massive_lane_rows = _massive_lane_view_rows(raw_massive_lane_rows)
     raw_massive_signal_rows = _mapping_list_field(
@@ -1839,6 +1882,20 @@ def scheduler_work_queue_view(status: Mapping[str, object]) -> dict[str, object]
         for key in ("T0", "T1", "T2", "T3")
         if key in tiers
     ]
+    return view
+
+
+def _scheduler_dataset_review_row(row: Mapping[str, object]) -> dict[str, object]:
+    view = dict(row)
+    dataset = str(view.get("dataset") or view.get("name") or "").strip()
+    action = SCHEDULER_DATASET_REFRESH_ACTIONS.get(dataset, {})
+    view["refresh_action_url"] = str(action.get("url") or "")
+    view["refresh_button_label"] = str(action.get("label") or "Open scheduler")
+    view["refresh_action_detail"] = str(
+        action.get("detail")
+        or "Open Command at the scheduler and use the lane policy controls."
+    )
+    view["refresh_enabled"] = bool(view["refresh_action_url"])
     return view
 
 

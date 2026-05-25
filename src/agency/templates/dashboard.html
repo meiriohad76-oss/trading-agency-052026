@@ -1054,6 +1054,11 @@
                   <span class="tag tag-{{ row.status_class }}">{{ row.status }}</span>
                   <strong>{{ row.dataset | replace("_", " ") | title }}</strong>
                   <span>{{ row.reason }}</span>
+                  {% if row.refresh_action_url %}
+                    <form class="inline-actions" method="post" action="{{ row.refresh_action_url }}" title="{{ row.refresh_action_detail }}">
+                      <button class="mini-button" type="submit">{{ row.refresh_button_label }}</button>
+                    </form>
+                  {% endif %}
                 </div>
                 {% else %}
                 <p class="empty-block">No scheduler dataset rows currently need refresh.</p>

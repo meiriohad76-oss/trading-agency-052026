@@ -2689,6 +2689,50 @@ def test_scheduler_work_queue_view_translates_refresh_needed_rows_for_users() ->
     assert view["stale_rows"][0]["reason"] == "Daily bars need refresh."
 
 
+def test_scheduler_work_queue_view_exposes_context_refresh_actions() -> None:
+    view = command_module.scheduler_work_queue_view(
+        {
+            "summary": {
+                "headline": "Context data needs attention.",
+                "counts": {"due_now": 0, "running": 0},
+            },
+            "ticker_tiers": {"tiers": {}},
+            "tradability": {
+                "status_label": "Tradable",
+                "status_class": "pass",
+                "detail": "Core execution lanes are ready.",
+            },
+            "repair_plan": {"jobs": []},
+            "execution_freshness_gate": {"checks": []},
+            "scheduler_runtime": {"status_label": "Idle", "detail": "No job running."},
+            "massive_orchestrator": {"lanes": [], "derived_signal_lanes": []},
+            "jobs": [],
+            "next_jobs": [],
+            "stale_datasets": [
+                {
+                    "dataset": "news_rss",
+                    "status": "WARNING",
+                    "status_class": "warn",
+                    "reason": "RSS/news source needs attention.",
+                },
+                {
+                    "dataset": "subscription_emails",
+                    "status": "WARNING",
+                    "status_class": "warn",
+                    "reason": "Subscription email thesis needs login confirmation.",
+                },
+            ],
+            "market_phase": "regular_market",
+        }
+    )
+
+    news, email = view["stale_rows"]
+    assert news["refresh_action_url"] == "/scheduler/datasets/news_rss/refresh"
+    assert news["refresh_button_label"] == "Refresh RSS/news"
+    assert email["refresh_action_url"] == "/scheduler/subscription-emails/login-refresh"
+    assert email["refresh_button_label"] == "Open email login refresh"
+
+
 def test_scheduler_work_queue_view_splits_automation_gate_and_workload() -> None:
     view = command_module.scheduler_work_queue_view(
         {
@@ -2951,6 +2995,52 @@ def test_manual_massive_lane_refresh_endpoint_schedules_background_task(
     assert response.status_code == HTTP_SEE_OTHER
     assert response.headers["location"] == "/#scheduler-heading"
     assert calls == [("massive_live_trade_slices", {})]
+
+
+def test_manual_dataset_refresh_endpoint_schedules_background_task(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    def fake_refresh(dataset: str, **kwargs: object) -> dict[str, object]:
+        calls.append(dataset)
+        return {"state": "completed", "dataset": dataset}
+
+    monkeypatch.setattr(dashboard_module, "run_manual_dataset_refresh", fake_refresh)
+
+    response = TestClient(create_app()).post(
+        "/scheduler/datasets/news_rss/refresh",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == HTTP_SEE_OTHER
+    assert response.headers["location"] == "/#scheduler-heading"
+    assert calls == ["news_rss"]
+
+
+def test_subscription_email_login_refresh_endpoint_opens_interactive_flow(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    def fake_launch(**kwargs: object) -> dict[str, object]:
+        calls.append(kwargs)
+        return {"state": "started"}
+
+    monkeypatch.setattr(
+        dashboard_module,
+        "launch_subscription_email_login_refresh",
+        fake_launch,
+    )
+
+    response = TestClient(create_app()).post(
+        "/scheduler/subscription-emails/login-refresh",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == HTTP_SEE_OTHER
+    assert response.headers["location"] == "/#scheduler-heading"
+    assert calls == [{}]
 
 
 def test_execution_preview_page_exposes_daily_bars_refresh_when_gate_blocks(

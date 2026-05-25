@@ -467,6 +467,20 @@ def test_runtime_cycle_command_loads_llm_toggle_from_env_file_after_import(
     assert "--no-enable-llm-review" not in command
 
 
+def test_runtime_cycle_command_caps_automatic_llm_review_to_top_ten(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    (tmp_path / ".env").write_text("AGENCY_ENABLE_LLM_REVIEW=true\n", encoding="utf-8")
+    monkeypatch.setattr(scheduler_runner, "REPO_ROOT", tmp_path)
+    monkeypatch.delenv("AGENCY_ENABLE_LLM_REVIEW", raising=False)
+    monkeypatch.delenv("AGENCY_SCHEDULER_ENABLE_LLM_REVIEW", raising=False)
+
+    command = scheduler_runner._runtime_cycle_command(tickers=[])
+
+    assert command[command.index("--llm-review-max-candidates") + 1] == "10"
+
+
 def test_scheduler_uses_memory_jobs_by_default_even_with_database_url() -> None:
     scheduler = scheduler_runner.build_scheduler("sqlite:///:memory:")
 
