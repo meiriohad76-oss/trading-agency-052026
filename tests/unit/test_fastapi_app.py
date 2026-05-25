@@ -3156,6 +3156,39 @@ def test_source_status_rows_do_not_pass_old_health_snapshots() -> None:
     assert rows[0]["status_class"] == "block"
 
 
+def test_source_status_rows_explain_refresh_needed_without_raw_stale_label() -> None:
+    source = _source_health("rss-news")
+    source["status"] = "STALE"
+    source["freshness"] = "STALE"
+
+    rows = source_status_rows([source])
+
+    assert rows[0]["status"] == "Needs refresh"
+    assert rows[0]["freshness"] == "Needs refresh"
+    assert rows[0]["raw_status"] == "STALE"
+    assert rows[0]["raw_freshness"] == "STALE"
+
+
+def test_active_refresh_value_explains_stale_monitor_as_needing_attention() -> None:
+    active_refresh = {
+        "state": "stale",
+        "current_dataset": "stock_trades",
+        "eta_label": "not available",
+    }
+
+    assert command_module._active_refresh_value(active_refresh) == "Refresh needs attention"
+    assert "needs attention" in command_module._active_refresh_detail(active_refresh, "stale")
+    assert "state stale" not in command_module._active_refresh_detail(active_refresh, "stale")
+
+
+def test_massive_lane_refresh_scope_keeps_lane_scope_separate_from_next_batch() -> None:
+    label = command_module._massive_lane_refresh_scope_label(
+        {"ticker_count": 168, "command_ticker_count": 2}
+    )
+
+    assert label == "168 planned ticker(s); next safe batch 2 ticker(s)"
+
+
 def test_source_health_kpi_distinguishes_unavailable_from_health_proof_refresh() -> None:
     view = command_module.data_load_status_view(
         {
@@ -5071,6 +5104,82 @@ def test_submit_execution_order_requires_persisted_order_approval_when_env_bypas
     assert response.json()["detail"] == "hash-bound order approval required"
 
 
+def test_submit_execution_order_requires_final_operator_submit_phrase(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    broker_calls: list[str] = []
+
+    async def fake_broker() -> dict[str, object]:
+        return {
+            "connected": True,
+            "mode": "paper",
+            "checked_at": datetime.now(UTC).isoformat(),
+            "account": {"status": "ACTIVE", "equity": 100000.0, "buying_power": 100000.0},
+            "positions": [],
+            "orders": [],
+        }
+
+    async def fake_sources() -> list[dict[str, object]]:
+        return _fresh_critical_execution_sources()
+
+    async def fake_context(**_kwargs: object) -> dict[str, object]:
+        return {
+            "execution_freshness_gate": {"ready": True, "detail": "fresh"},
+            "preview_rows": [
+                {
+                    "cycle_id": "cycle-1",
+                    "ticker": "AAPL",
+                    "as_of": "2026-05-07T09:30:00Z",
+                    "side": "BUY",
+                    "quantity": None,
+                    "notional": 1000.0,
+                    "time_in_force": "DAY",
+                    "order_intent_hash": "a" * 64,
+                    "order_approved": True,
+                    "submit_enabled": True,
+                    "submit_blocker": "ready",
+                    "preview": {
+                        "cycle_id": "cycle-1",
+                        "ticker": "AAPL",
+                        "as_of": "2026-05-07T09:30:00Z",
+                        "order_intent_hash": "a" * 64,
+                        "order_intent_version": "0.1.0",
+                    },
+                }
+            ],
+        }
+
+    class FakeClient:
+        def __init__(self, _config: object) -> None:
+            broker_calls.append("init")
+
+        async def submit_order(self, _payload: object) -> dict[str, object]:
+            broker_calls.append("submit")
+            raise AssertionError("broker submit must not run without final operator phrase")
+
+    monkeypatch.setenv("AGENCY_ALPACA_BROKER_ENABLED", "true")
+    monkeypatch.setenv("AGENCY_BROKER_SUBMIT_ENABLED", "true")
+    monkeypatch.setenv("ALPACA_API_KEY", "key")
+    monkeypatch.setenv("ALPACA_SECRET_KEY", "secret")
+    monkeypatch.setattr(dashboard_module, "_fresh_broker_status_context", fake_broker)
+    monkeypatch.setattr(dashboard_module, "runtime_data_source_status", fake_sources)
+    monkeypatch.setattr(dashboard_module, "execution_preview_context", fake_context)
+    monkeypatch.setattr(dashboard_module, "AlpacaBrokerClient", FakeClient)
+
+    response = TestClient(create_app()).post(
+        "/execution-preview/orders"
+        "?cycle_id=cycle-1&ticker=AAPL&as_of=2026-05-07T09%3A30%3A00Z"
+        f"&order_intent_hash={'a' * 64}",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == (
+        "Final paper-submit confirmation phrase is required."
+    )
+    assert broker_calls == []
+
+
 def test_submit_execution_order_records_intent_before_broker_submit(
     monkeypatch: MonkeyPatch,
 ) -> None:
@@ -5172,6 +5281,10 @@ def test_submit_execution_order_records_intent_before_broker_submit(
         "/execution-preview/orders"
         "?cycle_id=cycle-1&ticker=AAPL&as_of=2026-05-07T09%3A30%3A00Z"
         f"&order_intent_hash={'a' * 64}",
+        data={
+            "submit_gate_armed": "true",
+            "operator_phrase": "submit paper orders",
+        },
         follow_redirects=False,
     )
 
@@ -5407,6 +5520,10 @@ def test_submit_execution_order_allows_closed_market_latest_session_sources(
         "/execution-preview/orders"
         "?cycle_id=cycle-1&ticker=AAPL&as_of=2026-05-07T09%3A30%3A00Z"
         f"&order_intent_hash={'a' * 64}",
+        data={
+            "submit_gate_armed": "true",
+            "operator_phrase": "submit paper orders",
+        },
         follow_redirects=False,
     )
 
@@ -5524,6 +5641,10 @@ def test_submit_execution_order_rechecks_freshness_before_broker_submit(
         "/execution-preview/orders"
         "?cycle_id=cycle-1&ticker=AAPL&as_of=2026-05-07T09%3A30%3A00Z"
         f"&order_intent_hash={'a' * 64}",
+        data={
+            "submit_gate_armed": "true",
+            "operator_phrase": "submit paper orders",
+        },
         follow_redirects=False,
     )
 
@@ -5749,6 +5870,10 @@ def test_submit_execution_order_reports_post_submit_audit_failure_without_retry_
         "/execution-preview/orders"
         "?cycle_id=cycle-1&ticker=AAPL&as_of=2026-05-07T09%3A30%3A00Z"
         f"&order_intent_hash={'a' * 64}",
+        data={
+            "submit_gate_armed": "true",
+            "operator_phrase": "submit paper orders",
+        },
         follow_redirects=False,
     )
 

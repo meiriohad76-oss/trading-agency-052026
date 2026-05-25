@@ -126,6 +126,7 @@ def build_runtime_signals(
                 score=score,
                 provenance=_provenance(config, manifest, generated_at=generated_at),
                 confidence=config.confidence,
+                actionability=_signal_actionability_override(lane, score, config),
             )
             for ticker, score in sorted(filtered_scores.items())
         )
@@ -136,6 +137,27 @@ def _live_signal_loader(config: RuntimeLaneConfig, loader: Any) -> Any:
     if config.dataset != DatasetName.STOCK_TRADES:
         return loader
     return _LiveStockTradeLoader(loader)
+
+
+def _signal_actionability_override(
+    lane: str,
+    score: float,
+    config: RuntimeLaneConfig,
+) -> str | None:
+    if (
+        config.dataset == DatasetName.STOCK_TRADES
+        and lane
+        in {
+            "block_trade_pressure",
+            "buy_sell_pressure",
+            "market_flow_trend",
+            "pre_market_unusual_activity",
+            "unusual_trade_activity",
+        }
+        and abs(score) <= 1e-12
+    ):
+        return "CONTEXT_ONLY"
+    return None
 
 
 class _LiveNewsConsumptionLoader:

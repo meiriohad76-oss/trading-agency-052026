@@ -88,7 +88,9 @@
                   <small>{{ source.note }}</small>
                   <small>{{ source.next_action }}</small>
                   {% if source.refresh_action.url %}
-                    <a class="button button-secondary" href="{{ source.refresh_action.url }}">{{ source.refresh_action.label }}</a>
+                    <form class="inline-action-form" method="post" action="{{ source.refresh_action.url }}">
+                      <button class="button button-secondary" type="submit">{{ source.refresh_action.label }}</button>
+                    </form>
                   {% endif %}
                 </span>
               </article>

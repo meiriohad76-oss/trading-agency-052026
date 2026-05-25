@@ -146,10 +146,12 @@ def test_source_state_does_not_treat_generic_access_text_as_unavailable() -> Non
 
 def test_refreshable_lane_has_refresh_action() -> None:
     context = cockpit_context_from_sources(_sources())
+    html = PANELS.read_text(encoding="utf-8")
 
     source = context["sources"][0]
     assert source["refresh_action"]["label"] == "Refresh lane"
     assert source["refresh_action"]["url"] == "/scheduler/massive-lanes/massive_live_trade_slices/refresh"
+    assert 'method="post" action="{{ source.refresh_action.url }}"' in html
 
 
 def test_live_indicator_requires_recent_monitor_update() -> None:

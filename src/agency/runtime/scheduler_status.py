@@ -105,7 +105,17 @@ def _with_stale_tick_guard(
     if started_at is None:
         return status
     if finished_at is not None and finished_at >= started_at:
-        status.setdefault("tick_state", "idle")
+        stale_active_command = status.get("active_command") is not None
+        status["tick_state"] = "idle"
+        status["active_command"] = None
+        if str(status.get("state") or "") == "running":
+            status["state"] = "idle"
+            status["status_label"] = _status_label("idle")
+            status["status_class"] = _status_class("idle")
+            if stale_active_command:
+                status["detail"] = (
+                    "Automatic lane refresh tick finished; no scheduler command is active."
+                )
         return status
     age_seconds = int((now - started_at).total_seconds())
     status["last_tick_age_seconds"] = age_seconds

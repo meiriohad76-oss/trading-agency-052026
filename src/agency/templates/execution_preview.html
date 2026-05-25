@@ -283,8 +283,8 @@
       {% endif %}
     </div>
     <div class="bulk-action-bar">
-      <button class="mini-button action-approve" type="button" disabled>Submit all ready orders</button>
-      <span class="microcopy">Bulk submit stays disabled until every ready row has current research approval, hash-bound order approval, and an open paper broker gate.</span>
+      <span class="mini-button action-approve primary-action-disabled">Submit each ready order from its card</span>
+      <span class="microcopy">Paper submission is intentionally one order at a time: each card must have current research approval, hash-bound order approval, and the final confirmation phrase.</span>
     </div>
     <div class="review-card-list execution-card-list" aria-label="Immediate execution follow-up cards">
       {% for row in orderable_rows %}

@@ -266,6 +266,24 @@ def test_cockpit_derived_values_are_not_hardcoded() -> None:
     assert context["account"]["ready_to_trade"] == "1/3"
 
 
+def test_cockpit_account_panel_does_not_invent_missing_broker_or_policy_values() -> None:
+    sources = _sample_sources()
+    sources["market"]["broker"] = {}  # type: ignore[index]
+    sources["dashboard"]["broker_status"] = {}  # type: ignore[index]
+    sources["dashboard"]["policy_summary"] = {}  # type: ignore[index]
+    sources["portfolio"]["summary"] = {}  # type: ignore[index]
+
+    context = cockpit_context_from_sources(sources)
+    account = context["account"]
+
+    assert account["equity_reported"] is False
+    assert account["policy_reported"] is False
+    assert account["buying_power_label"] == "not reported"
+    assert account["gross_cap_label"] == "not reported"
+    assert account["cash_cap_label"] == "not reported"
+    assert account["largest_name_cap_label"] == "not reported"
+
+
 def test_cockpit_source_counts_are_internally_consistent() -> None:
     sources = _sample_sources()
     dashboard = sources["dashboard"]

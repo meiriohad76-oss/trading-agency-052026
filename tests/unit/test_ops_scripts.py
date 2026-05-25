@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 import importlib
 import json
+import os
+import subprocess
 import sys
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -242,6 +244,23 @@ def test_start_dev_restarts_existing_trading_agency_server() -> None:
     assert "Stop-Process -Id $process.ProcessId" in script
     assert "Existing Trading Agency server process" in script
     assert "Trading Agency is already running" not in script
+
+
+def test_agency_app_imports_without_external_pythonpath() -> None:
+    env = os.environ.copy()
+    env.pop("PYTHONPATH", None)
+
+    result = subprocess.run(
+        [sys.executable, "-c", "import agency.app"],
+        cwd=Path.cwd(),
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
 
 
 def test_legacy_direct_local_app_entrypoint_removed() -> None:

@@ -146,7 +146,7 @@
       </div>
       <p>Gross Exposure</p>
       <strong class="cockpit-mono" data-capacity-gross-post>{{ "%.1f"|format(account.gross_post_trade|default(0, true)) }}%</strong>
-      <small>Now {{ "%.1f"|format(account.gross_exposure|default(0, true)) }}% / cap {{ "%.0f"|format(account.gross_cap|default(0, true)) }}%</small>
+      <small>Now {{ "%.1f"|format(account.gross_exposure|default(0, true)) }}% / cap {{ account.gross_cap_label|default("not reported", true) }}</small>
     </article>
     <article class="cockpit-arc-gauge">
       <span class="cockpit-whymark info-tip" data-cockpit-tip="cash-reserve-threshold" title="Cash reserve shows how much cash remains against the policy floor after staged orders.">?</span>
@@ -155,7 +155,7 @@
       </div>
       <p>Cash Reserve</p>
       <strong class="cockpit-mono" data-capacity-cash>{{ "%.1f"|format(account.cash_available|default(0, true)) }}%</strong>
-      <small>Floor {{ "%.0f"|format(account.cash_cap|default(0, true)) }}%</small>
+      <small>Floor {{ account.cash_cap_label|default("not reported", true) }}</small>
     </article>
     <article class="cockpit-arc-gauge">
       <span class="cockpit-whymark info-tip" data-cockpit-tip="concentration-threshold" title="Concentration compares the largest single-name exposure to the policy cap.">?</span>
@@ -164,12 +164,12 @@
       </div>
       <p>Concentration</p>
       <strong class="cockpit-mono" data-capacity-concentration>{{ "%.1f"|format(account.largest_name|default(0, true)) }}%</strong>
-      <small>Cap {{ "%.0f"|format(account.largest_name_cap|default(0, true)) }}%</small>
+      <small>Cap {{ account.largest_name_cap_label|default("not reported", true) }}</small>
     </article>
     <div class="cockpit-readout-stack">
       <div class="cockpit-segment-readout">
         <span>Buying Power</span>
-        <strong class="cockpit-mono">${{ "%.0f"|format(account.buying_power|default(0, true)) }}</strong>
+        <strong class="cockpit-mono">{{ account.buying_power_label|default("not reported", true) }}</strong>
       </div>
       <div class="cockpit-segment-readout">
         <span>Ready to Trade</span>
@@ -375,12 +375,12 @@
       <div class="callout callout-warn">{{ account.capacity_warning }}</div>
     {% endif %}
     <div class="cockpit-capacity-grid">
-      <article><span>Gross after staged orders</span><strong class="cockpit-mono" data-capacity-gross-post>{{ "%.1f"|format(account.gross_post_trade|default(0, true)) }}%</strong><small>Rule cap {{ "%.1f"|format(account.gross_cap|default(0, true)) }}%</small></article>
+      <article><span>Gross after staged orders</span><strong class="cockpit-mono" data-capacity-gross-post>{{ "%.1f"|format(account.gross_post_trade|default(0, true)) }}%</strong><small>Rule cap {{ account.gross_cap_label|default("not reported", true) }}</small></article>
       <article>
         <span class="cockpit-whymark info-tip" data-cockpit-tip="sector-exposure-threshold" title="Sector exposure compares the largest sector exposure to the deployed policy cap.">?</span>
         <span>Largest sector</span><strong class="cockpit-mono" data-capacity-sector>{{ "%.1f"|format(account.sector_exposure|default(0, true)) }}%</strong><small>Rule cap {{ "%.1f"|format(account.sector_cap|default(0, true)) }}%</small>
       </article>
-      <article><span>Cash reserve</span><strong class="cockpit-mono" data-capacity-cash>{{ "%.1f"|format(account.cash_available|default(0, true)) }}%</strong><small>Rule floor {{ "%.1f"|format(account.cash_cap|default(0, true)) }}%</small></article>
+      <article><span>Cash reserve</span><strong class="cockpit-mono" data-capacity-cash>{{ "%.1f"|format(account.cash_available|default(0, true)) }}%</strong><small>Rule floor {{ account.cash_cap_label|default("not reported", true) }}</small></article>
     </div>
     <div class="cockpit-position-table">
       {% for position in positions %}

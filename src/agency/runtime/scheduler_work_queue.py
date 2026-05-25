@@ -1183,7 +1183,7 @@ def _tradability(
         detail = "One or more market-moving data jobs are due; refresh before new orders."
     elif stale_datasets and data_load_status.get("review_operational_ready") is not True:
         state = "context_only"
-        detail = "Some datasets are stale or warning; keep decisions in review mode."
+        detail = "Some datasets need refresh or attention; keep decisions in review mode."
     else:
         state = "tradable"
         if _execution_gate_has_unconfirmed_broker_warning(execution_gate):

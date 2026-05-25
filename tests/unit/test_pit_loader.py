@@ -470,6 +470,63 @@ def test_stock_trade_activity_frames_use_stock_relative_block_thresholds(tmp_pat
     assert by_ticker["MSFT"]["focus_trade_count"] == 0
 
 
+def test_stock_trade_activity_frames_preserve_complete_zero_trade_ticker(
+    tmp_path: Path,
+) -> None:
+    parquet_root = tmp_path / "parquet"
+    manifest_root = tmp_path / "manifests"
+    trade_root = parquet_root / "stock_trades"
+    trade_path = trade_root / "ticker=AAPL" / "year=2026" / "trades.parquet"
+    trade_path.parent.mkdir(parents=True)
+    manifest_root.mkdir()
+    pl.DataFrame(
+        [stock_trade("AAPL", date(2026, 5, 6), date(2026, 5, 6), "a1")]
+    ).write_parquet(trade_path)
+    (trade_root / "_coverage.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "0.1.0",
+                "ticker_days": {
+                    "AAPL|2026-05-06": {
+                        "ticker": "AAPL",
+                        "trade_date": "2026-05-06",
+                        "coverage_status": "complete",
+                    },
+                    "BK|2026-05-06": {
+                        "ticker": "BK",
+                        "trade_date": "2026-05-06",
+                        "coverage_status": "complete",
+                        "downloaded_row_count": 0,
+                        "rows_written": 0,
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    write_manifest(manifest_root, DatasetName.STOCK_TRADES, "stock_trades", row_count=1)
+    loader = PITLoader(
+        parquet_root=parquet_root,
+        manifest_root=manifest_root,
+        today=lambda: date(2026, 5, 7),
+    )
+
+    total, daily = loader.stock_trade_activity_frames(
+        ["AAPL", "BK"],
+        date(2026, 5, 6),
+        lookback_days=1,
+    )
+    by_ticker = {row["ticker"]: row for row in total.to_dicts()}
+
+    assert set(by_ticker) == {"AAPL", "BK"}
+    assert by_ticker["BK"]["trade_count"] == 0
+    assert by_ticker["BK"]["total_volume"] == 0.0
+    assert by_ticker["BK"]["total_notional"] == 0.0
+    assert by_ticker["BK"]["net_volume_pressure"] == 0.0
+    assert by_ticker["BK"]["net_notional_pressure"] == 0.0
+    assert "BK" not in daily.get_column("ticker").to_list()
+
+
 def test_stock_trades_reject_missing_requested_coverage_rows(tmp_path: Path) -> None:
     parquet_root = tmp_path / "parquet"
     manifest_root = tmp_path / "manifests"

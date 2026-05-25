@@ -42,6 +42,22 @@ def test_market_flow_feature_frame_exposes_robust_activity_anomaly_metadata() ->
     assert row["market_flow_trend_participation"] > 0.0
 
 
+def test_market_flow_feature_frame_preserves_verified_zero_activity_ticker() -> None:
+    frame = market_flow_feature_frame(START, {"AAPL", "BK"}, _ZeroActivityLoader())
+    by_ticker = frame.set_index("ticker")
+
+    assert set(by_ticker.index) == {"AAPL", "BK"}
+    assert by_ticker.loc["BK", "trade_count"] == 0
+    assert by_ticker.loc["BK", "total_volume"] == 0.0
+    assert by_ticker.loc["BK", "total_notional"] == 0.0
+    assert by_ticker.loc["BK", "buy_sell_pressure"] == 0.0
+    assert by_ticker.loc["BK", "block_trade_pressure"] == 0.0
+    assert by_ticker.loc["BK", "unusual_trade_activity"] == 0.0
+    assert by_ticker.loc["BK", "pre_market_unusual_activity"] == 0.0
+    assert by_ticker.loc["BK", "market_flow_trend"] == 0.0
+    assert by_ticker.loc["BK", "activity_anomaly_band"] == "normal"
+
+
 def test_market_flow_worker_writes_calibration_artifacts(tmp_path: Path) -> None:
     result = run_market_flow_worker(
         config=MarketFlowWorkerConfig(
@@ -160,6 +176,83 @@ class _ActivityAnomalyLoader:
             rows.extend(_flow_trade("AAPL", prior_day, 10_000.0, 100.0, 1) for _ in range(3))
             rows.extend(_flow_trade("AAPL", as_of, 10_000.0, 100.0, 1) for _ in range(9))
         return pl.DataFrame(rows)
+
+
+class _ZeroActivityLoader:
+    def stock_trade_activity_frames(
+        self,
+        tickers: list[str],
+        as_of: date,
+        lookback_days: int,
+    ) -> tuple[pl.DataFrame, pl.DataFrame]:
+        del lookback_days
+        total_rows: list[dict[str, object]] = []
+        daily_rows: list[dict[str, object]] = []
+        if "AAPL" in tickers:
+            total_rows.append(
+                {
+                    "ticker": "AAPL",
+                    "trade_count": 1,
+                    "total_volume": 100.0,
+                    "total_notional": 10_000.0,
+                    "signed_volume": 100.0,
+                    "signed_notional": 10_000.0,
+                    "net_volume_pressure": 1.0,
+                    "net_notional_pressure": 1.0,
+                    "pre_market_volume": 0.0,
+                    "pre_market_signed_volume": 0.0,
+                    "focus_trade_count": 0,
+                    "absolute_block_count": 0,
+                    "relative_block_count": 0,
+                    "block_count": 0,
+                    "off_exchange_count": 0,
+                    "block_notional_threshold": 1_000_000.0,
+                    "block_size_threshold": 10_000.0,
+                    "focus_notional": 0.0,
+                    "signed_focus_notional": 0.0,
+                }
+            )
+            daily_rows.append(
+                {
+                    "ticker": "AAPL",
+                    "date": as_of,
+                    "trade_count": 1,
+                    "notional": 10_000.0,
+                    "volume": 100.0,
+                    "signed_notional": 10_000.0,
+                    "net_notional_pressure": 1.0,
+                    "pre_market_count": 0,
+                    "pre_market_notional": 0.0,
+                    "pre_market_volume": 0.0,
+                    "pre_market_signed_notional": 0.0,
+                    "pre_market_pressure": 0.0,
+                }
+            )
+        if "BK" in tickers:
+            total_rows.append(
+                {
+                    "ticker": "BK",
+                    "trade_count": 0,
+                    "total_volume": 0.0,
+                    "total_notional": 0.0,
+                    "signed_volume": 0.0,
+                    "signed_notional": 0.0,
+                    "net_volume_pressure": 0.0,
+                    "net_notional_pressure": 0.0,
+                    "pre_market_volume": 0.0,
+                    "pre_market_signed_volume": 0.0,
+                    "focus_trade_count": 0,
+                    "absolute_block_count": 0,
+                    "relative_block_count": 0,
+                    "block_count": 0,
+                    "off_exchange_count": 0,
+                    "block_notional_threshold": 1_000_000.0,
+                    "block_size_threshold": 10_000.0,
+                    "focus_notional": 0.0,
+                    "signed_focus_notional": 0.0,
+                }
+            )
+        return pl.DataFrame(total_rows), pl.DataFrame(daily_rows)
 
 
 def _flow_trade(

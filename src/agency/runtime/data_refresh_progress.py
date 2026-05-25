@@ -506,10 +506,7 @@ def _massive_lane_progress_rows(status_path: Path) -> list[dict[str, object]]:
                 "eta_seconds": lane_eta_seconds,
                 "eta_label": _massive_lane_eta_label(state, lane_eta_seconds),
                 "progress_label": _massive_lane_progress_label(progress, manifest),
-                "ticker_count": _int_value(
-                    progress.get("ticker_count"),
-                    _int_value(manifest.get("ticker_count"), 0),
-                ),
+                "ticker_count": _massive_lane_ticker_count(state, progress, manifest),
                 "row_count": _int_value(manifest.get("row_count"), 0),
                 "row_count_label": _count_label(_int_value(manifest.get("row_count"), 0)),
                 "manifest_status": _text_value(manifest.get("status"), "missing"),
@@ -559,14 +556,14 @@ def _massive_lane_state(
         return "stale"
     if progress_state in {"partial", "partial_usable"}:
         return progress_state
-    if manifest_status in {"complete", "partial", "partial_usable", "failed", "blocked"}:
+    if manifest_status in {"ready", "complete", "partial", "partial_usable", "failed", "blocked"}:
         if manifest_status in {"complete", "partial", "partial_usable"} and _massive_lane_manifest_stale(
             lane_id,
             manifest,
             now=now,
         ):
             return "stale"
-        return "ready" if manifest_status == "complete" else manifest_status
+        return "ready" if manifest_status in {"ready", "complete"} else manifest_status
     return "missing_manifest"
 
 
@@ -577,10 +574,12 @@ def _massive_lane_percent(
 ) -> int:
     if state == "running":
         return max(1, min(_int_value(progress.get("percent_complete"), 0), 99))
-    if progress.get("percent_complete") is not None:
-        return max(0, min(_int_value(progress.get("percent_complete"), 0), 100))
     if state == "ready":
         return 100
+    if manifest:
+        return max(0, min(_int_value(manifest.get("coverage_pct"), 0), 100))
+    if progress.get("percent_complete") is not None:
+        return max(0, min(_int_value(progress.get("percent_complete"), 0), 100))
     return max(0, min(_int_value(manifest.get("coverage_pct"), 0), 100))
 
 
@@ -617,12 +616,26 @@ def _massive_lane_progress_label(
 ) -> str:
     total = _int_value(progress.get("ticker_days_total"), 0)
     processed = _int_value(progress.get("ticker_days_processed"), 0)
-    if total:
+    if str(progress.get("state") or "").lower() == "running" and total:
         return _ticker_progress_label(processed, total)
     coverage = _int_value(manifest.get("coverage_pct"), 0)
     if manifest:
         return f"{coverage}% manifest coverage"
+    if total:
+        return _ticker_progress_label(processed, total)
     return "not tracked"
+
+
+def _massive_lane_ticker_count(
+    state: str,
+    progress: Mapping[str, object],
+    manifest: Mapping[str, object],
+) -> int:
+    if state == "running":
+        return _int_value(progress.get("ticker_count"), _int_value(manifest.get("ticker_count"), 0))
+    if manifest:
+        return _int_value(manifest.get("ticker_count"), 0)
+    return _int_value(progress.get("ticker_count"), 0)
 
 
 def _massive_lane_eta_seconds(
@@ -832,11 +845,16 @@ def _massive_lane_manifest_has_incomplete_coverage(manifest: Mapping[str, object
         return False
     return any(
         not isinstance(row, Mapping)
-        or str(row.get("coverage_status") or row.get("status") or "").lower() != "complete"
-        or row.get("complete") is False
+        or not _massive_lane_coverage_row_complete(row)
         or row.get("row_count_verified") is False
         for row in coverage
     )
+
+
+def _massive_lane_coverage_row_complete(row: Mapping[str, object]) -> bool:
+    if row.get("complete") is True:
+        return True
+    return str(row.get("coverage_status") or row.get("status") or "").lower() == "complete"
 
 
 def _massive_lane_manifest_has_usable_rows(manifest: Mapping[str, object]) -> bool:

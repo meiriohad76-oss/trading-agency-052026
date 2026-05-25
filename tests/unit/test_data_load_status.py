@@ -664,6 +664,103 @@ def test_data_load_status_does_not_count_zero_row_live_trade_slice_as_usable(
     assert status["market_flow_summary"]["missing_or_failed_ticker_count"] == 1
 
 
+def test_data_load_status_counts_verified_zero_print_live_trade_slice_as_usable(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    paths = _fixtures(tmp_path, monkeypatch)
+    pd.DataFrame(
+        [
+            _member("AAPL", date(2019, 1, 1), None),
+            _member("BK", date(2019, 1, 1), None),
+        ]
+    ).to_parquet(paths["universe"], index=False)
+    _write_manifest(
+        paths["manifest_root"],
+        "prices_daily",
+        row_count=20,
+        tickers=["AAPL", "BK"],
+    )
+    _write_manifest(
+        paths["manifest_root"],
+        "stock_trades",
+        row_count=100,
+        tickers=["AAPL", "BK"],
+    )
+    _write_massive_lane_manifest(
+        paths["manifest_root"],
+        lane_id="massive_daily_bars",
+        dataset="prices_daily",
+        source_manifest="prices_daily.json",
+        tickers=["AAPL", "BK"],
+        fetched_at="2026-05-11T15:00:00+00:00",
+        coverage=[
+            {"ticker": "AAPL", "coverage_status": "complete", "complete": True},
+            {"ticker": "BK", "coverage_status": "complete", "complete": True},
+        ],
+    )
+    _write_massive_lane_manifest(
+        paths["manifest_root"],
+        lane_id="massive_live_trade_slices",
+        tickers=["AAPL", "BK"],
+        fetched_at="2026-05-11T15:00:00+00:00",
+        coverage=[
+            {
+                "ticker": "AAPL",
+                "coverage_status": "partial",
+                "downloaded_row_count": 1000,
+                "pages_downloaded": 1,
+                "order": "desc",
+            },
+            {
+                "ticker": "BK",
+                "coverage_status": "complete",
+                "complete": True,
+                "downloaded_row_count": 0,
+                "rows_written": 0,
+                "last_page_results_count": 0,
+                "pages_downloaded": 1,
+                "order": "desc",
+                "row_count_verified": True,
+            },
+        ],
+    )
+    _write_runtime_summary(
+        paths["runtime_summary"],
+        {
+            "abnormal_volume": 2,
+            "technical_analysis": 2,
+            "buy_sell_pressure": 2,
+            "block_trade_pressure": 2,
+            "unusual_trade_activity": 2,
+            "pre_market_unusual_activity": 2,
+            "market_flow_trend": 2,
+        },
+    )
+    _write_source_health(
+        paths["source_health"],
+        [_source("daily-market-bars", freshness="FRESH", status="HEALTHY")],
+    )
+
+    status = load_data_load_status(
+        config_path=paths["config"],
+        universe_path=paths["universe"],
+        manifest_root=paths["manifest_root"],
+        parquet_root=paths["parquet_root"],
+        runtime_summary_path=paths["runtime_summary"],
+        source_health_path=paths["source_health"],
+        now=datetime(2026, 5, 11, 15, 2, tzinfo=UTC),
+    )
+
+    stock_trades = _dataset(status, "stock_trades")
+    assert stock_trades["source_status"] == "HEALTHY"
+    assert stock_trades["source_freshness"] == "FRESH"
+    assert stock_trades["usable_ticker_count"] == 2
+    assert stock_trades["partial_ticker_count"] == 0
+    assert status["market_flow_summary"]["source_usable_ticker_count"] == 2
+    assert status["market_flow_summary"]["missing_or_failed_ticker_count"] == 0
+
+
 def test_data_load_status_prefers_massive_live_slice_lane_for_stock_trade_readiness(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,

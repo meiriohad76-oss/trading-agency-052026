@@ -672,6 +672,33 @@ def test_scheduler_tradability_uses_lane_states_for_execution_blockers() -> None
     assert queue["stale_datasets"][0]["dataset"] == "massive_live_trade_slices"
 
 
+def test_scheduler_tradability_warning_wording_does_not_expose_stale_label() -> None:
+    queue = build_scheduler_work_queue(
+        _market_plan("regular_market"),
+        tiers=build_ticker_tiers(active_universe=["AAPL", "MSFT"]),
+        data_load_status={
+            "state": "attention",
+            "review_operational_ready": False,
+            "datasets": [
+                {
+                    "dataset": "news",
+                    "status": "warning",
+                    "status_label": "Analysis exists but needs refresh",
+                    "detail": "News analysis exists but needs refresh.",
+                }
+            ],
+        },
+        source_health=_fresh_sources(),
+        broker={"connected": True, "mode": "paper", "checked_at": NOW.isoformat()},
+        now=NOW,
+    )
+
+    detail = str(queue["tradability"]["detail"]).lower()
+    assert queue["tradability"]["state"] == "context_only"
+    assert "need refresh or attention" in detail
+    assert "stale" not in detail
+
+
 def test_scheduler_queue_explains_pending_broker_without_claiming_it_is_fresh() -> None:
     queue = build_scheduler_work_queue(
         _market_plan("regular_market"),

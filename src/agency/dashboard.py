@@ -952,6 +952,7 @@ async def approve_execution_order(
 
 @router.post("/execution-preview/orders")
 async def submit_execution_order(
+    request: Request,
     cycle_id: str,
     ticker: str,
     as_of: str,
@@ -992,6 +993,12 @@ async def submit_execution_order(
         raise HTTPException(status_code=403, detail="hash-bound order approval required")
     if row["submit_enabled"] is not True:
         raise HTTPException(status_code=400, detail=str(row["submit_blocker"]))
+    submit_gate_armed, operator_phrase = await _paper_submit_confirmation(request)
+    if submit_gate_armed is not True or operator_phrase.strip().lower() != "submit paper orders":
+        raise HTTPException(
+            status_code=400,
+            detail="Final paper-submit confirmation phrase is required.",
+        )
     order_payload: dict[str, object] | None = None
     order_submitted = False
     try:
@@ -1043,6 +1050,14 @@ async def submit_execution_order(
             detail="order intent or submission audit persistence failed",
         ) from exc
     return RedirectResponse(url="/execution-preview", status_code=303)
+
+
+async def _paper_submit_confirmation(request: Request) -> tuple[bool, str]:
+    body = await request.body()
+    values = parse_qs(body.decode("utf-8", errors="replace"), keep_blank_values=True)
+    armed_value = str(next(iter(values.get("submit_gate_armed", [""])), ""))
+    phrase = str(next(iter(values.get("operator_phrase", [""])), ""))
+    return armed_value.strip().lower() in {"1", "true", "yes", "on"}, phrase
 
 
 async def _fresh_broker_status_context() -> dict[str, object]:

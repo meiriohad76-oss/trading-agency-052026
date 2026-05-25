@@ -780,6 +780,133 @@ def test_trade_pull_summary_distinguishes_stored_scope_from_latest_batch(
     )
 
 
+def test_massive_lane_row_prefers_manifest_scope_after_terminal_repair_batch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lane_root = tmp_path / "massive_lanes"
+    lane_root.mkdir()
+    (lane_root / "massive_live_trade_slices.json").write_text(
+        json.dumps(
+            {
+                "lane_id": "massive_live_trade_slices",
+                "status": "partial",
+                "coverage_pct": 99,
+                "ticker_count": 168,
+                "row_count": 27_101,
+                "fetched_at": "2026-05-24T06:28:20+00:00",
+                "window": {"start": "2026-05-22", "end": "2026-05-22"},
+                "issues": [
+                    {"ticker": "HON", "trade_date": "2026-05-22"},
+                    {"ticker": "SNDK", "trade_date": "2026-05-22"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "massive_live_trade_slices-progress.json").write_text(
+        json.dumps(
+            {
+                "lane_id": "massive_live_trade_slices",
+                "state": "partial",
+                "ticker_count": 2,
+                "ticker_days_processed": 2,
+                "ticker_days_total": 2,
+                "percent_complete": 100,
+                "updated_at": "2026-05-24T06:28:20+00:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(progress_module, "DEFAULT_MASSIVE_LANE_MANIFEST_ROOT", lane_root)
+    status_path = tmp_path / "data-refresh-status.json"
+    status_path.write_text(json.dumps({"progress": {"state": "idle"}, "jobs": []}))
+
+    progress = load_data_refresh_progress(status_path)
+    lane = next(
+        row
+        for row in progress["massive_lanes"]
+        if row["lane_id"] == "massive_live_trade_slices"
+    )
+
+    assert lane["ticker_count"] == 168
+    assert lane["percent_complete"] == 99
+    assert lane["progress_label"] == "99% manifest coverage"
+
+
+def test_complete_daily_bar_manifest_with_latest_available_row_stays_ready(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lane_root = tmp_path / "massive_lanes"
+    lane_root.mkdir()
+    (lane_root / "massive_daily_bars.json").write_text(
+        json.dumps(
+            {
+                "lane_id": "massive_daily_bars",
+                "status": "complete",
+                "coverage_pct": 100,
+                "complete_coverage_pct": 100,
+                "ticker_count": 2,
+                "row_count": 1,
+                "fetched_at": "2026-05-22T22:00:00+00:00",
+                "window": {"start": "2026-05-22", "end": "2026-05-22"},
+                "coverage": [
+                    {"ticker": "AAPL", "coverage_status": "complete", "complete": True},
+                    {
+                        "ticker": "BK",
+                        "coverage_status": "latest_available",
+                        "complete": True,
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(progress_module, "DEFAULT_MASSIVE_LANE_MANIFEST_ROOT", lane_root)
+    status_path = tmp_path / "data-refresh-status.json"
+    status_path.write_text(json.dumps({"progress": {"state": "idle"}, "jobs": []}))
+
+    progress = load_data_refresh_progress(status_path)
+    lane = next(row for row in progress["massive_lanes"] if row["lane_id"] == "massive_daily_bars")
+
+    assert lane["state"] == "ready"
+    assert lane["status_label"] == "Lane Ready"
+    assert "downgraded" not in str(lane["detail"])
+
+
+def test_reference_manifest_ready_status_is_not_reported_missing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lane_root = tmp_path / "massive_lanes"
+    lane_root.mkdir()
+    (lane_root / "massive_reference.json").write_text(
+        json.dumps(
+            {
+                "lane_id": "massive_reference",
+                "status": "ready",
+                "coverage_pct": 100,
+                "ticker_count": 20,
+                "row_count": 20,
+                "fetched_at": "2026-05-24T19:03:45+00:00",
+                "window": {"start": "2026-05-24", "end": "2026-05-24"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(progress_module, "DEFAULT_MASSIVE_LANE_MANIFEST_ROOT", lane_root)
+    status_path = tmp_path / "data-refresh-status.json"
+    status_path.write_text(json.dumps({"progress": {"state": "idle"}, "jobs": []}))
+
+    progress = load_data_refresh_progress(status_path)
+    lane = next(row for row in progress["massive_lanes"] if row["lane_id"] == "massive_reference")
+
+    assert lane["state"] == "ready"
+    assert lane["status_label"] == "Lane Ready"
+    assert lane["analysis_state"] == "analyzed_current"
+
+
 def test_data_refresh_progress_exposes_every_declared_massive_lane(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

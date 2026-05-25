@@ -31,7 +31,7 @@ MAX_COCKPIT_CANDIDATES = 25
 QA_SCENARIOS = {"normal", "no-actionable", "outage", "submitted"}
 DEFAULT_SECTOR_LABEL = "Reference lane not loaded"
 DEFAULT_OPTIONAL_CONTEXT_TIMEOUT_SECONDS = 1.0
-DEFAULT_REQUIRED_CONTEXT_TIMEOUT_SECONDS = 12.0
+DEFAULT_REQUIRED_CONTEXT_TIMEOUT_SECONDS = 8.0
 DEFAULT_SOURCE_LOAD_TIMEOUT_SECONDS = 1.5
 COCKPIT_CONTEXT_CACHE_SECONDS = 2.0
 COCKPIT_DATA_HEALTH_DATASETS = (
@@ -1005,40 +1005,72 @@ def _account_section(
         broker.get("gross_exposure_pct"),
         portfolio_summary.get("gross_exposure_pct"),
     )
-    equity = _float(account.get("equity"), portfolio_summary.get("equity"), fallback=100000.0)
+    equity_reported = _number_reported(account.get("equity"), portfolio_summary.get("equity"))
+    equity = _float(account.get("equity"), portfolio_summary.get("equity"), fallback=0.0)
     staged_notional = _staged_order_notional(execution)
     staged_exposure_pct = staged_notional / equity * 100 if equity > 0 else 0.0
     gross_post_trade = round(gross_exposure + staged_exposure_pct, 1)
-    gross_cap = _float(policy.get("max_gross_exposure_pct"), fallback=100.0)
+    gross_cap_reported = _number_reported(policy.get("max_gross_exposure_pct"))
+    cash_cap_reported = _number_reported(policy.get("cash_reserve_pct"))
+    sector_cap_reported = _number_reported(policy.get("max_sector_exposure_pct"))
+    largest_name_cap_reported = _number_reported(policy.get("largest_name_cap_pct"))
+    open_orders_cap_reported = _number_reported(policy.get("max_open_orders"))
+    gross_cap = _float(policy.get("max_gross_exposure_pct"), fallback=0.0)
     capacity_warning = ""
-    if gross_post_trade > gross_cap:
+    if gross_cap_reported and gross_cap > 0 and gross_post_trade > gross_cap:
         capacity_warning = (
             f"Gross exposure would be {gross_post_trade:.1f}% versus the {gross_cap:.1f}% cap. "
             "Reduce staged buys or close exposure before clearance."
         )
     cash_available = _float(portfolio_summary.get("cash_reserve_pct"), fallback=0.0)
-    cash_cap = _float(policy.get("cash_reserve_pct"), fallback=10.0)
+    cash_cap = _float(policy.get("cash_reserve_pct"), fallback=0.0)
     sector_exposure = _float(portfolio_summary.get("sector_exposure_pct"), fallback=0.0)
-    sector_cap = _float(policy.get("max_sector_exposure_pct"), fallback=35.0)
+    sector_cap = _float(policy.get("max_sector_exposure_pct"), fallback=0.0)
     largest_name = _float(portfolio_summary.get("largest_name_pct"), fallback=0.0)
-    largest_name_cap = _float(policy.get("largest_name_cap_pct"), fallback=25.0)
+    largest_name_cap = _float(policy.get("largest_name_cap_pct"), fallback=0.0)
+    buying_power_reported = _number_reported(account.get("buying_power"))
+    buying_power = _float(account.get("buying_power"))
     return {
+        "equity_reported": equity_reported,
+        "policy_reported": any(
+            (
+                gross_cap_reported,
+                cash_cap_reported,
+                sector_cap_reported,
+                largest_name_cap_reported,
+                open_orders_cap_reported,
+            )
+        ),
         "gross_exposure": gross_exposure,
         "gross_post_trade": gross_post_trade,
         "gross_cap": gross_cap,
+        "gross_cap_label": _percent_label(gross_cap, reported=gross_cap_reported, decimals=0),
         "gross_needle_degrees": _gauge_degrees(gross_post_trade, gross_cap),
         "cash_available": cash_available,
         "cash_cap": cash_cap,
+        "cash_cap_label": _percent_label(cash_cap, reported=cash_cap_reported, decimals=0),
         "cash_needle_degrees": _gauge_degrees(cash_available, cash_cap),
         "sector_exposure": sector_exposure,
         "sector_cap": sector_cap,
+        "sector_cap_label": _percent_label(sector_cap, reported=sector_cap_reported, decimals=0),
         "sector_needle_degrees": _gauge_degrees(sector_exposure, sector_cap),
         "largest_name": largest_name,
         "largest_name_cap": largest_name_cap,
+        "largest_name_cap_label": _percent_label(
+            largest_name_cap,
+            reported=largest_name_cap_reported,
+            decimals=0,
+        ),
         "concentration_needle_degrees": _gauge_degrees(largest_name, largest_name_cap),
         "open_orders": _int(broker.get("open_order_count"), fallback=len(_list(broker.get("orders")))),
-        "open_orders_cap": _int(policy.get("max_open_orders"), fallback=10),
-        "buying_power": _float(account.get("buying_power")),
+        "open_orders_cap": _int(policy.get("max_open_orders"), fallback=0),
+        "open_orders_cap_label": (
+            str(_int(policy.get("max_open_orders"), fallback=0))
+            if open_orders_cap_reported
+            else "not reported"
+        ),
+        "buying_power": buying_power,
+        "buying_power_label": _money_label(buying_power, reported=buying_power_reported),
         "week_pnl": _float(portfolio_summary.get("week_pnl_pct"), fallback=0.0),
         "week_target": _float(policy.get("weekly_target_pct"), fallback=0.0),
         "ready_to_trade": f"{orderable_count}/{candidate_count}",
@@ -2000,6 +2032,36 @@ def _source_health_detail(item: Mapping[str, object]) -> str:
 
 def _money_value(*values: object) -> float:
     return _float(*values, fallback=0.0)
+
+
+def _number_reported(*values: object) -> bool:
+    for value in values:
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, int | float):
+            return True
+        if isinstance(value, str):
+            text = value.replace("$", "").replace(",", "").replace("%", "").strip()
+            if not text:
+                continue
+            try:
+                float(text)
+            except ValueError:
+                continue
+            return True
+    return False
+
+
+def _percent_label(value: float, *, reported: bool, decimals: int = 1) -> str:
+    if not reported:
+        return "not reported"
+    return f"{value:.{decimals}f}%"
+
+
+def _money_label(value: float, *, reported: bool) -> str:
+    if not reported:
+        return "not reported"
+    return f"${value:,.0f}"
 
 
 def _staged_order_notional(execution: Mapping[str, object]) -> float:

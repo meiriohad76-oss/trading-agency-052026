@@ -533,6 +533,14 @@ def test_cockpit_optional_context_timeout_defaults_to_fast_first_screen(
     assert cockpit_module._optional_context_timeout_seconds() == 1.0
 
 
+def test_cockpit_required_context_timeout_defaults_below_route_budget(
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv("AGENCY_COCKPIT_REQUIRED_CONTEXT_TIMEOUT_SECONDS", raising=False)
+
+    assert cockpit_module._required_context_timeout_seconds() <= 8.0
+
+
 async def test_cached_cockpit_context_coalesces_concurrent_requests(monkeypatch) -> None:
     calls = {"count": 0}
     cockpit_module._cockpit_context_cache.clear()

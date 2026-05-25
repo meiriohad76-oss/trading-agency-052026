@@ -766,6 +766,29 @@ def test_write_stock_trade_frame_returns_newly_persisted_row_count(tmp_path: Pat
     assert len(persisted) == 1
 
 
+def test_write_stock_trade_frame_quarantines_corrupt_existing_partition(
+    tmp_path: Path,
+) -> None:
+    frame = normalize_massive_trades(
+        "hon",
+        pd.DataFrame([_raw("1", 100.0, 100, "2026-05-06T13:31:00Z")]),
+        fetched_at=FETCHED_AT,
+        source_url="https://api.polygon.io/v3/trades/HON",
+    )
+    trade_root = tmp_path / "stock_trades"
+    partition = trade_root / "ticker=HON" / "year=2026" / "trades.parquet"
+    partition.parent.mkdir(parents=True)
+    partition.write_text("not parquet", encoding="utf-8")
+
+    rows_written = write_stock_trade_frame(trade_root, frame)
+    persisted = pd.read_parquet(partition)
+    quarantined = list(partition.parent.glob("trades.parquet.corrupt-*"))
+
+    assert rows_written == 1
+    assert persisted["ticker"].to_list() == ["HON"]
+    assert len(quarantined) == 1
+
+
 def test_massive_trade_params_use_new_york_trade_date_window() -> None:
     params = _params(
         datetime(2026, 5, 6, tzinfo=UTC).date(),

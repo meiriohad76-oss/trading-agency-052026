@@ -478,8 +478,19 @@ class PITLoader:
             end=as_of,
             allow_partial_coverage=allow_partial_coverage,
         )
+        zero_activity_tickers = self._covered_zero_stock_trade_tickers(
+            manifest.path,
+            tickers=tickers,
+            start=start,
+            end=as_of,
+        )
         files = self._stock_trade_partition_files(manifest.path, tickers, start, as_of)
         if not files:
+            if zero_activity_tickers:
+                return (
+                    self._zero_stock_trade_total_activity(zero_activity_tickers),
+                    self._empty_stock_trade_daily_activity(),
+                )
             raise DataNotAvailableAt(dataset.value, as_of, "no stock trade partitions matched")
         try:
             schema = pl.scan_parquet(files[0]).collect_schema()
@@ -567,6 +578,15 @@ class PITLoader:
         except Exception as exc:
             reason = f"could not summarize stock trade partitions under {manifest.path}"
             raise DataNotAvailableAt(dataset.value, as_of, reason) from exc
+        observed_tickers = set(total.get_column("ticker").to_list()) if not total.is_empty() else set()
+        missing_zero_tickers = [
+            ticker for ticker in zero_activity_tickers if ticker not in observed_tickers
+        ]
+        if missing_zero_tickers:
+            total = pl.concat(
+                [total, self._zero_stock_trade_total_activity(missing_zero_tickers)],
+                how="vertical_relaxed",
+            ).sort("ticker")
         if total.is_empty():
             raise DataNotAvailableAt(dataset.value, as_of, "no stock trade rows matched")
         return total, daily
@@ -670,6 +690,91 @@ class PITLoader:
                 if path.is_file():
                     files.append(str(path))
         return files
+
+    @staticmethod
+    def _covered_zero_stock_trade_tickers(
+        root: Path,
+        *,
+        tickers: list[str],
+        start: date,
+        end: date,
+    ) -> list[str]:
+        coverage = load_stock_trade_coverage_metadata(root)
+        zero_tickers: list[str] = []
+        for ticker in tickers:
+            current = start
+            seen_days = 0
+            zero_days = 0
+            while current <= end:
+                if current.weekday() >= 5:
+                    current += timedelta(days=1)
+                    continue
+                seen_days += 1
+                row = coverage.get(coverage_key(ticker, current))
+                if row is not None and PITLoader._stock_trade_complete_zero_row(row):
+                    zero_days += 1
+                current += timedelta(days=1)
+            if seen_days > 0 and zero_days == seen_days:
+                zero_tickers.append(ticker)
+        return zero_tickers
+
+    @staticmethod
+    def _stock_trade_complete_zero_row(row: Mapping[str, object]) -> bool:
+        if str(row.get("coverage_status")).lower() != "complete":
+            return False
+        row_count_keys = ("downloaded_row_count", "row_count", "rows_written")
+        reported_counts = [row.get(key) for key in row_count_keys if key in row]
+        if not reported_counts:
+            return False
+        return all(PITLoader._positive_int(value) == 0 for value in reported_counts)
+
+    @staticmethod
+    def _zero_stock_trade_total_activity(tickers: list[str]) -> pl.DataFrame:
+        return pl.DataFrame(
+            [
+                {
+                    "ticker": ticker,
+                    "trade_count": 0,
+                    "total_volume": 0.0,
+                    "total_notional": 0.0,
+                    "signed_volume": 0.0,
+                    "signed_notional": 0.0,
+                    "pre_market_volume": 0.0,
+                    "pre_market_signed_volume": 0.0,
+                    "focus_trade_count": 0,
+                    "absolute_block_count": 0,
+                    "relative_block_count": 0,
+                    "block_count": 0,
+                    "off_exchange_count": 0,
+                    "block_notional_threshold": 0.0,
+                    "block_size_threshold": 0.0,
+                    "focus_notional": 0.0,
+                    "signed_focus_notional": 0.0,
+                    "net_volume_pressure": 0.0,
+                    "net_notional_pressure": 0.0,
+                }
+                for ticker in sorted(tickers)
+            ]
+        )
+
+    @staticmethod
+    def _empty_stock_trade_daily_activity() -> pl.DataFrame:
+        return pl.DataFrame(
+            schema={
+                "ticker": pl.Utf8,
+                "trade_count": pl.UInt32,
+                "notional": pl.Float64,
+                "volume": pl.Float64,
+                "signed_notional": pl.Float64,
+                "pre_market_count": pl.UInt32,
+                "pre_market_notional": pl.Float64,
+                "pre_market_volume": pl.Float64,
+                "pre_market_signed_notional": pl.Float64,
+                "date": pl.Date,
+                "net_notional_pressure": pl.Float64,
+                "pre_market_pressure": pl.Float64,
+            }
+        )
 
     @staticmethod
     def _ensure_complete_stock_trade_coverage(

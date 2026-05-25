@@ -405,17 +405,29 @@ async def _rows_from_live_runtime(
 
 
 def source_status_rows(sources: Sequence[Mapping[str, object]]) -> list[dict[str, object]]:
-    return [
-        {
-            "source": str(source["source"]),
-            "status": str(source["status"]),
-            "freshness": str(source["freshness"]),
-            "reliability_pct": round(_float_field(source, "reliability_score") * 100),
-            "status_class": _source_status_class(source),
-            "checked_at": str(source["checked_at"]),
-        }
-        for source in sources
-    ]
+    rows: list[dict[str, object]] = []
+    for source in sources:
+        raw_status = str(source["status"])
+        raw_freshness = str(source["freshness"])
+        rows.append(
+            {
+                "source": str(source["source"]),
+                "status": _source_operator_status(raw_status),
+                "freshness": _source_operator_status(raw_freshness),
+                "raw_status": raw_status,
+                "raw_freshness": raw_freshness,
+                "reliability_pct": round(_float_field(source, "reliability_score") * 100),
+                "status_class": _source_status_class(source),
+                "checked_at": str(source["checked_at"]),
+            }
+        )
+    return rows
+
+
+def _source_operator_status(value: str) -> str:
+    if value.upper() == "STALE":
+        return "Needs refresh"
+    return _operator_text(value)
 
 def readiness_view(summary: Mapping[str, object]) -> dict[str, object]:
     view = dict(summary)
@@ -2263,9 +2275,11 @@ def _massive_lane_refresh_scope_label(row: Mapping[str, object]) -> str:
         row,
         "batch_ticker_count",
     )
-    if batch_count:
-        return f"{batch_count} ticker(s) in the next safe batch"
     ticker_count = _optional_int(row, "ticker_count")
+    if ticker_count and batch_count:
+        return f"{ticker_count} planned ticker(s); next safe batch {batch_count} ticker(s)"
+    if batch_count:
+        return f"next safe batch {batch_count} ticker(s)"
     if ticker_count:
         return f"{ticker_count} planned ticker(s)"
     return "lane-level scope only"
@@ -2999,6 +3013,8 @@ def _active_refresh_value(active_refresh: Mapping[str, object]) -> str:
         return "Refresh running"
     if state in {"failed", "blocked"}:
         return "Refresh failed"
+    if state == "stale":
+        return "Refresh needs attention"
     return "No active refresh"
 
 
@@ -3012,6 +3028,8 @@ def _active_refresh_detail(active_refresh: Mapping[str, object], refresh_state: 
         return f"{dataset} running · ETA {eta} · support lane · review can continue."
     if value == "Live-critical loading":
         return f"{dataset} running · ETA {eta} · live-critical lane may gate execution."
+    if value == "Refresh needs attention":
+        return f"{dataset} refresh monitor needs attention; ETA {eta}."
     return f"ETA {eta}; state {refresh_state}."
 
 

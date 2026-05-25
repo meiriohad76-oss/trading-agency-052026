@@ -3091,9 +3091,13 @@ def _stock_trade_live_coverage_row_usable(row: Mapping[str, object]) -> bool:
 
 def _stock_trade_live_coverage_row_complete(row: Mapping[str, object]) -> bool:
     status = str(row.get("coverage_status") or row.get("status") or "").lower()
-    return (
-        row.get("complete") is True or status == "complete"
-    ) and row.get("row_count_verified") is not False and _stock_trade_live_row_has_prints(row)
+    if not (row.get("complete") is True or status == "complete"):
+        return False
+    if row.get("row_count_verified") is False:
+        return False
+    if _stock_trade_live_row_has_prints(row):
+        return True
+    return row.get("row_count_verified") is True and _stock_trade_live_row_has_zero_prints(row)
 
 
 def _stock_trade_live_row_has_prints(row: Mapping[str, object]) -> bool:
@@ -3106,6 +3110,17 @@ def _stock_trade_live_row_has_prints(row: Mapping[str, object]) -> bool:
     if not any(field in row for field in count_fields):
         return True
     return max(_int_value(row.get(field)) for field in count_fields) > 0
+
+
+def _stock_trade_live_row_has_zero_prints(row: Mapping[str, object]) -> bool:
+    count_fields = (
+        "downloaded_row_count",
+        "rows_written",
+        "last_page_results_count",
+        "row_count",
+    )
+    present = [field for field in count_fields if field in row]
+    return bool(present) and max(_int_value(row.get(field)) for field in present) == 0
 
 
 def _stock_trade_live_coverage_row_fresh(

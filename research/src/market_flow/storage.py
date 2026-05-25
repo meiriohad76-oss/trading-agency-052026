@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+import pyarrow.lib as pa_lib
 
 STOCK_TRADE_COLUMNS = [
     "ticker",
@@ -66,9 +67,13 @@ def write_stock_trade_frame(root: Path, frame: pd.DataFrame) -> int:
         output = group[STOCK_TRADE_COLUMNS].copy()
         previous_count = 0
         if path.exists():
-            existing = pd.read_parquet(path)
-            previous_count = len(existing)
-            output = pd.concat([existing, output], ignore_index=True)
+            try:
+                existing = pd.read_parquet(path)
+            except (pa_lib.ArrowException, ValueError):
+                _quarantine_corrupt_partition(path)
+            else:
+                previous_count = len(existing)
+                output = pd.concat([existing, output], ignore_index=True)
         output = (
             output.drop_duplicates(subset=["source_id"], keep="last")
             .sort_values(["ticker", "trade_ts", "sequence_number", "source_id"])
@@ -77,6 +82,17 @@ def write_stock_trade_frame(root: Path, frame: pd.DataFrame) -> int:
         output.to_parquet(path, engine="pyarrow", compression="snappy", index=False)
         written += max(0, len(output) - previous_count)
     return written
+
+
+def _quarantine_corrupt_partition(path: Path) -> Path:
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
+    target = path.with_name(f"{path.name}.corrupt-{stamp}")
+    counter = 1
+    while target.exists():
+        target = path.with_name(f"{path.name}.corrupt-{stamp}-{counter}")
+        counter += 1
+    path.replace(target)
+    return target
 
 
 def write_manifest(

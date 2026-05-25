@@ -117,7 +117,7 @@ def test_risk_and_execution_templates_show_llm_and_order_workflow_status() -> No
     assert "paper-mode-card" in execution_html
     assert "LLM status" in execution_html
     assert "llm_conflict" in execution_html
-    assert "Submit all ready orders" in execution_html
+    assert "Submit each ready order from its card" in execution_html
     assert "Submitted paper order" in execution_html
 
 

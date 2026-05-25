@@ -54,3 +54,38 @@ def test_scheduler_runtime_status_uses_expected_tick_timeout(tmp_path, monkeypat
 
     assert status["tick_state"] == "running"
     assert status["status_class"] == "pass"
+
+
+def test_scheduler_runtime_status_clears_active_command_after_finished_tick(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    path = tmp_path / "scheduler.json"
+    now = datetime(2026, 5, 15, 18, 0, tzinfo=UTC)
+    started_at = now - timedelta(minutes=2)
+    finished_at = now - timedelta(minutes=1)
+    scheduler_status.record_scheduler_runtime_status(
+        state="running",
+        detail="Automatic lane refresh is running sec_company_facts.",
+        extra={
+            "last_tick_started_at": started_at.isoformat(),
+            "last_tick_finished_at": finished_at.isoformat(),
+            "tick_state": "running",
+            "active_command": {
+                "job_id": "dataset:sec_company_facts",
+                "kind": "dataset",
+                "name": "sec_company_facts",
+                "started_at": started_at.isoformat(),
+            },
+        },
+        now=started_at,
+        path=path,
+    )
+    monkeypatch.setattr(scheduler_status, "_RUNTIME_STATUS", None)
+
+    status = scheduler_status.load_scheduler_runtime_status(now=now, path=path)
+
+    assert status["state"] == "idle"
+    assert status["tick_state"] == "idle"
+    assert status["status_label"] == "Idle"
+    assert status["active_command"] is None

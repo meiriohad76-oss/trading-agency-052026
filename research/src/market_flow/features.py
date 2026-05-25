@@ -104,8 +104,6 @@ def market_flow_feature_frame(
         ticker = str(total["ticker"])
         total_volume = float(total["total_volume"])
         total_notional = float(total["total_notional"])
-        if total_volume <= 0.0 or total_notional <= 0.0:
-            continue
         ticker_daily = daily_by_ticker.get(ticker, pd.DataFrame())
         pre_market_volume = float(total["pre_market_volume"])
         pre_market_signed_volume = float(total["pre_market_signed_volume"])
@@ -119,8 +117,10 @@ def market_flow_feature_frame(
         activity_metadata = _activity_anomaly_metadata(ticker_daily)
         trend_participation = _market_flow_trend_participation(ticker_daily)
         buy_sell_pressure = (
-            normalized_config.net_notional_weight * float(total["net_notional_pressure"])
-            + normalized_config.net_volume_weight * float(total["net_volume_pressure"])
+            normalized_config.net_notional_weight
+            * _float_from_row(total, "net_notional_pressure")
+            + normalized_config.net_volume_weight
+            * _float_from_row(total, "net_volume_pressure")
             + normalized_config.pre_market_weight
             * _ratio(pre_market_signed_volume, pre_market_volume)
             * min(1.0, _ratio(pre_market_volume, total_volume) * 4.0)
@@ -134,8 +134,8 @@ def market_flow_feature_frame(
                 "trade_count": int(total["trade_count"]),
                 "total_volume": total_volume,
                 "total_notional": total_notional,
-                "net_volume_pressure": float(total["net_volume_pressure"]),
-                "net_notional_pressure": float(total["net_notional_pressure"]),
+                "net_volume_pressure": _float_from_row(total, "net_volume_pressure"),
+                "net_notional_pressure": _float_from_row(total, "net_notional_pressure"),
                 "pre_market_volume": pre_market_volume,
                 "pre_market_volume_share": _ratio(pre_market_volume, total_volume),
                 "pre_market_net_pressure": _ratio(pre_market_signed_volume, pre_market_volume),
