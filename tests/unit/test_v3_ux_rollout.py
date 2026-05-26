@@ -44,6 +44,10 @@ def _template(name: str) -> str:
     return (TEMPLATE_ROOT / name).read_text(encoding="utf-8")
 
 
+def _css_block(css: str, selector: str) -> str:
+    return css.split(selector, 1)[1].split("}", 1)[0]
+
+
 def test_shared_base_declares_v3_operating_shell() -> None:
     html = BASE.read_text(encoding="utf-8")
 
@@ -179,6 +183,21 @@ def test_v3_css_owns_primary_body_components() -> None:
 
     for selector in required_selectors:
         assert selector in css, selector
+
+
+def test_v3_shared_buttons_are_centered_readable_and_link_safe() -> None:
+    css = (STATIC_ROOT / "v3-screens.css").read_text(encoding="utf-8")
+
+    button_block = _css_block(css, ".v3-app .primary-action,\n.v3-app .secondary-action,\n.v3-app .mini-button,\n.v3-app .button")
+    secondary_block = _css_block(css, ".v3-app .secondary-action,\n.v3-app .button-secondary")
+
+    assert "display: inline-flex" in button_block
+    assert "align-items: center" in button_block
+    assert "justify-content: center" in button_block
+    assert "text-align: center" in button_block
+    assert "text-decoration: none" in button_block
+    assert "color: var(--v3-text)" in secondary_block
+    assert "background: var(--v3-surface-2)" in secondary_block
 
 
 def test_v3_templates_do_not_ship_inline_form_styles() -> None:

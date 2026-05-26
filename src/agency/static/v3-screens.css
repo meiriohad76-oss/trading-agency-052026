@@ -371,10 +371,15 @@ html[data-ux-version="v3"] body {
 .v3-app .secondary-action,
 .v3-app .mini-button,
 .v3-app .button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-height: 44px;
   border-radius: 4px;
   font-weight: 800;
   letter-spacing: 0;
+  text-align: center;
+  text-decoration: none;
 }
 
 .v3-app .primary-action,
