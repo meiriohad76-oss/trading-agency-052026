@@ -18,7 +18,13 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from news.puller import _normalize, _resolve_rows  # noqa: E402
 from news.storage import _with_schema_defaults, write_manifest  # noqa: E402
-from news.ticker_resolution import TickerAlias, TickerResolutionRegistry  # noqa: E402
+from news.ticker_resolution import (  # noqa: E402
+    TickerAlias,
+    TickerResolutionRegistry,
+    aliases_from_reference_details,
+)
+
+DEFAULT_REFERENCE_DETAILS_PATH = ROOT / "research" / "data" / "reference" / "massive_ticker_details.json"
 
 
 @dataclass(frozen=True)
@@ -44,6 +50,7 @@ def main(argv: list[str] | None = None) -> int:
         output_path=args.output,
         manifest_path=args.manifest,
         ticker_aliases_path=args.ticker_aliases,
+        reference_details_path=args.reference_details,
         tickers=tuple(args.ticker),
         min_confidence=args.min_confidence,
         dry_run=args.dry_run,
@@ -61,10 +68,11 @@ def repair_existing_news_rss(
     tickers: tuple[str, ...],
     min_confidence: float,
     dry_run: bool,
+    reference_details_path: Path | None = DEFAULT_REFERENCE_DETAILS_PATH,
     clock: Callable[[], datetime] | None = None,
 ) -> NewsRssRepairSummary:
     fetched_at = (clock or (lambda: datetime.now(UTC)))()
-    registry = _ticker_registry(ticker_aliases_path, tickers)
+    registry = _ticker_registry(ticker_aliases_path, reference_details_path, tickers)
     source = _with_schema_defaults(pd.read_parquet(input_path))
     repaired_rows: list[pd.DataFrame] = []
     preserved_rows: list[dict[str, object]] = []
@@ -132,6 +140,15 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--manifest", required=True, type=Path)
     parser.add_argument("--ticker-aliases", type=Path)
+    parser.add_argument(
+        "--reference-details",
+        type=Path,
+        default=DEFAULT_REFERENCE_DETAILS_PATH,
+        help=(
+            "Massive reference details JSON used to derive conservative company-name "
+            "aliases for active tickers."
+        ),
+    )
     parser.add_argument("--ticker", action="append", default=[])
     parser.add_argument("--min-confidence", type=float, default=0.70)
     parser.add_argument("--dry-run", action="store_true")
@@ -140,6 +157,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
 
 def _ticker_registry(
     aliases_path: Path | None,
+    reference_details_path: Path | None,
     tickers: tuple[str, ...],
 ) -> TickerResolutionRegistry:
     aliases: list[TickerAlias] = []
@@ -150,6 +168,13 @@ def _ticker_registry(
         if "ambiguous_symbols" in payload:
             ambiguous_symbols = [str(item) for item in payload["ambiguous_symbols"]]
     active_tickers = {ticker.upper() for ticker in tickers}
+    if reference_details_path is not None:
+        aliases.extend(
+            aliases_from_reference_details(
+                reference_details_path,
+                active_tickers=active_tickers,
+            )
+        )
     if not active_tickers:
         active_tickers.update(alias.ticker for alias in aliases)
     return TickerResolutionRegistry(

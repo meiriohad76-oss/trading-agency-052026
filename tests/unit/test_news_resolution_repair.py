@@ -60,6 +60,54 @@ def test_resolve_existing_news_rss_updates_unresolved_generic_rows(tmp_path: Pat
     assert unresolved["raw_source_id"] == "rss-raw:global"
 
 
+def test_resolve_existing_news_rss_uses_massive_reference_names(tmp_path: Path) -> None:
+    input_path = tmp_path / "input.parquet"
+    output_path = tmp_path / "resolved.parquet"
+    manifest_path = tmp_path / "resolved.json"
+    reference_path = tmp_path / "massive_ticker_details.json"
+    reference_path.write_text(
+        json.dumps(
+            {
+                "rows": [
+                    {
+                        "ticker": "PLTR",
+                        "name": "Palantir Technologies Inc. Class A Common Stock",
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    _write_input(
+        input_path,
+        [
+            _news_row(
+                title="Palantir announces new AI platform contract",
+                url="https://example.test/palantir-ai",
+                source_id="rss-raw:palantir",
+            ),
+        ],
+    )
+
+    repair_existing_news_rss(
+        input_path=input_path,
+        output_path=output_path,
+        manifest_path=manifest_path,
+        ticker_aliases_path=None,
+        reference_details_path=reference_path,
+        tickers=("PLTR",),
+        min_confidence=0.7,
+        dry_run=False,
+        clock=lambda: FETCHED_AT,
+    )
+
+    frame = pd.read_parquet(output_path)
+    row = frame.iloc[0]
+    assert row["ticker"] == "PLTR"
+    assert row["ticker_match_method"] == "brand_alias"
+    assert row["matched_text"] == "Palantir"
+
+
 def test_resolve_existing_news_rss_is_idempotent(tmp_path: Path) -> None:
     input_path = tmp_path / "input.parquet"
     first_output = tmp_path / "resolved-1.parquet"

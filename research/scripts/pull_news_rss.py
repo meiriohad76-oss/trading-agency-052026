@@ -18,7 +18,13 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from news.puller import pull_rss_feeds  # noqa: E402
 from news.rss import FeedSpec  # noqa: E402
-from news.ticker_resolution import TickerAlias, TickerResolutionRegistry  # noqa: E402
+from news.ticker_resolution import (  # noqa: E402
+    TickerAlias,
+    TickerResolutionRegistry,
+    aliases_from_reference_details,
+)
+
+DEFAULT_REFERENCE_DETAILS_PATH = ROOT / "research" / "data" / "reference" / "massive_ticker_details.json"
 
 
 def main() -> None:
@@ -51,6 +57,12 @@ def main() -> None:
         help="JSON alias registry for generic RSS ticker resolution.",
     )
     parser.add_argument(
+        "--reference-details",
+        type=Path,
+        default=DEFAULT_REFERENCE_DETAILS_PATH,
+        help="Massive reference details JSON used to derive conservative company-name aliases.",
+    )
+    parser.add_argument(
         "--universe-path",
         type=Path,
         help="Parquet/CSV/JSON universe file with a ticker column.",
@@ -79,7 +91,12 @@ def main() -> None:
     )
     args = parser.parse_args()
     feeds = [_feed_spec(value) for value in args.feed]
-    registry = _ticker_registry(args.ticker_aliases, args.ticker, args.universe_path)
+    registry = _ticker_registry(
+        args.ticker_aliases,
+        args.reference_details,
+        args.ticker,
+        args.universe_path,
+    )
     summary = asyncio.run(
         pull_rss_feeds(
             feeds=feeds,
@@ -106,6 +123,7 @@ def _feed_spec(value: str) -> FeedSpec:
 
 def _ticker_registry(
     aliases_path: Path | None,
+    reference_details_path: Path | None,
     tickers: list[str],
     universe_path: Path | None,
 ) -> TickerResolutionRegistry:
@@ -121,6 +139,13 @@ def _ticker_registry(
         active_tickers.update(_read_universe_tickers(universe_path))
     if not active_tickers:
         active_tickers.update(alias.ticker for alias in aliases)
+    if reference_details_path is not None:
+        aliases.extend(
+            aliases_from_reference_details(
+                reference_details_path,
+                active_tickers=active_tickers,
+            )
+        )
     return TickerResolutionRegistry(
         aliases=aliases,
         active_tickers=active_tickers,

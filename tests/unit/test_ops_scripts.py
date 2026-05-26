@@ -413,7 +413,9 @@ def test_start_dev_restarts_existing_trading_agency_server() -> None:
 
     assert "Stop-ExistingTradingAgencyServers" in script
     assert "Get-CimInstance Win32_Process" in script
-    assert "uvicorn agency\\.app:app" in script
+    assert "agency\\.app:(app|create_app)" in script
+    assert "agency\\.app:create_app" in script
+    assert "--factory" in script
     assert "run_local_app\\.py" in script
     assert "Stop-Process -Id $process.ProcessId" in script
     assert "Existing Trading Agency server process" in script
@@ -455,7 +457,9 @@ def test_start_local_runtime_restarts_existing_trading_agency_server() -> None:
 
     assert "Stop-ExistingTradingAgencyServers" in script
     assert "Get-CimInstance Win32_Process" in script
-    assert "uvicorn agency\\.app:app" in script
+    assert "agency\\.app:(app|create_app)" in script
+    assert "agency\\.app:create_app" in script
+    assert "--factory" in script
     assert "run_local_app\\.py" in script
     assert "Stop-Process -Id $process.ProcessId" in script
     assert "Local runtime is already running" not in script

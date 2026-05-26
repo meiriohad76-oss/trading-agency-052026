@@ -14,7 +14,7 @@ FETCHED_AT = datetime(2026, 5, 8, 14, 0, tzinfo=UTC)
 
 def test_context_manifests_have_operational_stale_windows(tmp_path: Path) -> None:
     cases = [
-        ("news.json", write_news_manifest, tmp_path / "news.parquet", timedelta(minutes=60)),
+        ("news.json", write_news_manifest, tmp_path / "news.parquet", timedelta(minutes=30)),
         ("options.json", write_options_manifest, tmp_path / "options", timedelta(minutes=30)),
         (
             "subscription.json",

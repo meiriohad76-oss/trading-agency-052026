@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Mapping, Sequence
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -32,6 +33,13 @@ DEFAULT_SOURCE_HEALTH_PATH = (
 )
 DEFAULT_NEWS_CONSUMPTION_LEDGER_PATH = (
     REPO_ROOT / "research" / "data" / "state" / "news_rss_consumed.json"
+)
+DEFAULT_SUBSCRIPTION_EMAIL_SUMMARY_PATH = (
+    REPO_ROOT
+    / "research"
+    / "results"
+    / "latest-subscription-emails"
+    / "subscription-email-ingest.json"
 )
 
 CORE_DATASETS = ("prices_daily", "stock_trades")
@@ -178,6 +186,7 @@ def load_data_load_status(
     current = now or datetime.now(UTC)
     news_manifest = _read_json_object(manifest_dir / "news_rss.json")
     news_resolved_source_ids = _news_resolved_source_ids(news_manifest, parquet_dir)
+    subscription_email_summary = _read_json_object(DEFAULT_SUBSCRIPTION_EMAIL_SUMMARY_PATH)
     if source_health_rows is None:
         source_health = _read_json_list(source_file)
         source_origin = (
@@ -233,6 +242,7 @@ def load_data_load_status(
         dynamic_as_of=config_path is None,
         news_consumption_ledger_path=news_ledger_file,
         news_resolved_source_ids=news_resolved_source_ids,
+        subscription_email_summary=subscription_email_summary,
     )
     lane_rows = _lane_rows(
         runtime_summary=runtime_summary,
@@ -347,6 +357,7 @@ def _dataset_rows(
     dynamic_as_of: bool,
     news_consumption_ledger_path: Path,
     news_resolved_source_ids: set[str] | None,
+    subscription_email_summary: Mapping[str, object],
 ) -> list[dict[str, object]]:
     configured = set(_strings(config, "datasets"))
     datasets = [
@@ -526,6 +537,7 @@ def _dataset_rows(
                     daily_bar_lane=daily_bar_lane,
                     news_consumption_ledger_path=news_consumption_ledger_path,
                     news_resolved_source_ids=news_resolved_source_ids,
+                    subscription_email_summary=subscription_email_summary,
                 ),
             }
         )
@@ -999,6 +1011,10 @@ def _news_resolution_summary(
     current_source_ids: set[str] | None = None,
 ) -> dict[str, object]:
     resolved = _int_value(manifest.get("resolved_row_count"))
+    feed_ticker = _int_value(manifest.get("feed_ticker_row_count"))
+    ticker_linked = _int_value(manifest.get("ticker_linked_row_count"))
+    if ticker_linked == 0 and feed_ticker == 0:
+        ticker_linked = resolved
     unresolved = _int_value(manifest.get("unresolved_row_count"))
     ambiguous = _int_value(manifest.get("ambiguous_row_count"))
     ticker_count = _int_value(manifest.get("ticker_count"))
@@ -1012,10 +1028,12 @@ def _news_resolution_summary(
     consumed_for_current_manifest = (
         consumed if current_source_ids is not None else min(consumed, resolved)
     )
-    unused_resolved = max(0, resolved - consumed_for_current_manifest)
+    unused_resolved = max(0, ticker_linked - consumed_for_current_manifest)
     return {
         "row_count": row_count,
         "resolved_row_count": resolved,
+        "feed_ticker_row_count": feed_ticker,
+        "ticker_linked_row_count": ticker_linked,
         "unresolved_row_count": unresolved,
         "ambiguous_row_count": ambiguous,
         "consumed_row_count": consumed_for_current_manifest,
@@ -1025,7 +1043,8 @@ def _news_resolution_summary(
         "fetched_at": str(manifest.get("fetched_at") or "not recorded"),
         "has_resolution_metadata": has_metadata,
         "coverage_label": (
-            f"{resolved} resolved / {unresolved} unresolved / {ambiguous} ambiguous"
+            f"{ticker_linked} ticker-linked / {resolved} generic-resolved / "
+            f"{feed_ticker} feed-tagged / {unresolved} unresolved / {ambiguous} ambiguous"
             if has_metadata
             else "resolution coverage not recorded"
         ),
@@ -1053,6 +1072,8 @@ def _dataset_news_resolution_fields(
     )
     return {
         "resolved_row_count": summary["resolved_row_count"],
+        "feed_ticker_row_count": summary["feed_ticker_row_count"],
+        "ticker_linked_row_count": summary["ticker_linked_row_count"],
         "unresolved_row_count": summary["unresolved_row_count"],
         "ambiguous_row_count": summary["ambiguous_row_count"],
         "consumed_row_count": summary["consumed_row_count"],
@@ -1097,6 +1118,8 @@ def _news_resolution_detail(
     )
     row_count = _int_value(summary["row_count"])
     resolved = _int_value(summary["resolved_row_count"])
+    feed_ticker = _int_value(summary["feed_ticker_row_count"])
+    ticker_linked = _int_value(summary["ticker_linked_row_count"])
     unresolved = _int_value(summary["unresolved_row_count"])
     ambiguous = _int_value(summary["ambiguous_row_count"])
     ticker_count = _int_value(summary["resolved_ticker_count"])
@@ -1110,18 +1133,19 @@ def _news_resolution_detail(
             "recorded in this manifest yet; refresh news with the current RSS "
             "resolver to show resolved, unresolved, and ambiguous counts."
         )
-    if row_count > 0 and resolved == 0:
+    if row_count > 0 and ticker_linked == 0:
         return (
             "No ticker-resolved RSS rows are ready. Generic RSS headlines were "
             "fetched, but none passed ticker resolution; refresh news with ticker "
             "aliases or review the alias registry."
         )
     return (
-        f"RSS/news has {resolved} ticker-resolved RSS row(s), {unresolved} "
-        f"unresolved generic row(s), and {ambiguous} ambiguous row(s) across "
-        f"{ticker_count} ticker(s). Last RSS fetch: {fetched_at}. Minimum "
-        f"match confidence is {confidence:.2f}. Single-use ledger: {unused} "
-        f"resolved row(s) remain unused; {consumed} already used by prior live cycle(s)."
+        f"RSS/news has {ticker_linked} ticker-linked row(s): {feed_ticker} came "
+        f"from ticker-specific feeds and {resolved} came from generic headline "
+        f"resolution. {unresolved} generic row(s) remain unresolved and {ambiguous} "
+        f"row(s) are ambiguous across {ticker_count} ticker(s). Last RSS fetch: "
+        f"{fetched_at}. Minimum match confidence is {confidence:.2f}. Single-use ledger: {unused} "
+        f"ticker-linked row(s) remain unused; {consumed} already used by prior live cycle(s)."
     )
 
 
@@ -1406,12 +1430,17 @@ def _dataset_detail(
     daily_bar_lane: Mapping[str, object],
     news_consumption_ledger_path: Path | None = None,
     news_resolved_source_ids: set[str] | None = None,
+    subscription_email_summary: Mapping[str, object] | None = None,
 ) -> str:
     if not health:
         return (
             f"{DATASET_LABELS[dataset]} has no source-health row; run a live runtime "
             "cycle to verify freshness."
         )
+    if dataset == "subscription_emails":
+        login_detail = _subscription_email_login_detail(subscription_email_summary or {})
+        if login_detail:
+            return login_detail
     source_state = _source_issue_status(health, now=now)
     if source_state != "ready":
         return (
@@ -1534,6 +1563,26 @@ def _dataset_detail(
         return f"{DATASET_LABELS[dataset]} loaded; ticker coverage is not a row-by-row requirement."
     freshness = str(health.get("freshness") or "UNKNOWN")
     return f"{DATASET_LABELS[dataset]} available; source freshness {freshness}."
+
+
+def _subscription_email_login_detail(summary: Mapping[str, object]) -> str | None:
+    if str(summary.get("verdict") or "") != "needs_article_login":
+        return None
+    linked = _mapping(summary.get("linked_content"))
+    processed = _int_value(summary.get("processed_emails"))
+    event_rows = _int_value(summary.get("event_rows"))
+    login_required = _int_value(linked.get("login_required"))
+    succeeded = _int_value(linked.get("succeeded"))
+    fetched_at = str(summary.get("fetched_at") or "not recorded")
+    return (
+        "Subscription email article analysis needs operator login before protected "
+        "Seeking Alpha links can be opened. "
+        f"Latest ingest: {processed} email(s), {event_rows} event row(s), "
+        f"{login_required} protected article link(s) required login, and "
+        f"{succeeded} article fetch(es) succeeded. Last email fetch: {fetched_at}. "
+        "Click Open email login refresh; the app opens a visible browser/session, "
+        "waits for login confirmation, then continues the email/article agent."
+    )
 
 
 def _lane_detail(
@@ -1956,11 +2005,11 @@ def _source_detail(row: Mapping[str, object], *, now: datetime) -> str:
     status = str(row.get("status") or "UNKNOWN")
     detail = row.get("detail")
     if isinstance(detail, str) and detail.strip():
-        return detail
+        return _operator_health_text(detail)
     last_success = str(row.get("last_success_at") or "not recorded")
     checked_at = _parse_datetime(row.get("checked_at"))
     if checked_at is None:
-        return (
+        return _operator_health_text(
             f"{source} is {status} with {freshness} freshness; checked_at is missing, "
             "so current health is unverified."
         )
@@ -1971,11 +2020,37 @@ def _source_detail(row: Mapping[str, object], *, now: datetime) -> str:
         checked_at=checked_at,
         now=now,
     ):
-        return (
+        return _operator_health_text(
             f"{source} is {status} with {freshness} freshness; source-health row is "
             f"{age_seconds}s old; last success {last_success}."
         )
-    return f"{source} is {status} with {freshness} freshness; last success {last_success}."
+    return _operator_health_text(
+        f"{source} is {status} with {freshness} freshness; last success {last_success}."
+    )
+
+
+def _operator_health_text(value: object) -> str:
+    text = str(value or "")
+    replacements = (
+        (r"\bSTALE\s*/\s*STALE\b", "needs refresh"),
+        (r"\bSTALE\s*/\s*UNKNOWN\b", "needs refresh"),
+        (r"\bis\s+STALE\s+with\s+STALE\s+freshness\b", "needs refresh"),
+        (r"\bstatus\s+STALE\b", "status needs refresh"),
+        (r"\bfreshness\s+STALE\b", "freshness needs refresh"),
+        (r"\bwith\s+STALE\s+freshness\b", "with data that needs refresh"),
+        (r"\bis\s+STALE\b", "needs refresh"),
+        (r"\bsource[- ]health row is\b", "health proof is"),
+        (r"\bis stale\b", "needs refresh"),
+        (r"\bare stale\b", "need refresh"),
+        (r"\bstale source\b", "source needing refresh"),
+        (r"\bstale data\b", "data needing refresh"),
+        (r"\bdata stale\b", "data needs refresh"),
+        (r"\bstale\b", "needs refresh"),
+    )
+    cleaned = text
+    for pattern, replacement in replacements:
+        cleaned = re.sub(pattern, replacement, cleaned, flags=re.IGNORECASE)
+    return re.sub(r"\bis\s+needs refresh\b", "needs refresh", cleaned, flags=re.IGNORECASE)
 
 
 def _source_max_age_seconds(row: Mapping[str, object]) -> int:

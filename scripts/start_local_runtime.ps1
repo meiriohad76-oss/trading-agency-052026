@@ -18,13 +18,14 @@ function Get-TradingAgencyServerProcesses {
     param([int]$Port)
 
     $repoPattern = [regex]::Escape($RepoRoot)
-    $appPattern = "uvicorn agency\.app:app"
+    $appPattern = "uvicorn\s+agency\.app:(app|create_app)"
+    $factoryPattern = "agency\.app:create_app.*--factory"
     $legacyPattern = "run_local_app\.py"
     $portPattern = "--port\s+$Port(\s|$)"
     Get-CimInstance Win32_Process |
         Where-Object {
             $_.CommandLine -and
-            (($_.CommandLine -match $appPattern -and $_.CommandLine -match $portPattern) -or $_.CommandLine -match $legacyPattern) -and
+            (($_.CommandLine -match $appPattern -and $_.CommandLine -match $portPattern) -or ($_.CommandLine -match $factoryPattern -and $_.CommandLine -match $portPattern) -or $_.CommandLine -match $legacyPattern) -and
             ($_.CommandLine -match $repoPattern -or $_.CommandLine -match "\\.venv\\Scripts\\python")
         }
 }

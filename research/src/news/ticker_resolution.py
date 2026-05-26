@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from pathlib import Path
 
 DEFAULT_AMBIGUOUS_SYMBOLS = frozenset(
     {
@@ -35,6 +37,16 @@ _EXCHANGE_SYMBOL_PATTERN = re.compile(
     r"\b((?:NASDAQ|NYSE|NYSEARCA|AMEX|ARCA|OTC|CBOE):\s*([A-Z][A-Z0-9.]{0,9}))\b"
 )
 _PAREN_SYMBOL_PATTERN = re.compile(r"\(([A-Z][A-Z0-9.]{0,9})\)")
+_COMMON_STOCK_SUFFIX_PATTERN = re.compile(
+    r"\b(class\s+[a-z]|common\s+stock|american\s+depositary\s+shares?|"
+    r"depositary\s+shares?|ordinary\s+shares?|ads|adr)\b",
+    re.IGNORECASE,
+)
+_LEGAL_SUFFIX_PATTERN = re.compile(
+    r"\b(incorporated|inc|corporation|corp|company|co|plc|ltd|limited|"
+    r"holdings?|holding|technologies|technology)\b\.?",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -138,6 +150,45 @@ class ResolvedNewsRow:
         row["related_tickers"] = ",".join(self.related_tickers)
         row["raw_feed_ticker"] = self.raw.get("ticker")
         return row
+
+
+def aliases_from_reference_details(
+    path: Path,
+    *,
+    active_tickers: set[str] | frozenset[str] | tuple[str, ...] = (),
+) -> tuple[TickerAlias, ...]:
+    """Build conservative ticker aliases from locally stored Massive reference details."""
+    if not path.is_file():
+        return ()
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return ()
+    rows = payload.get("rows") if isinstance(payload, Mapping) else None
+    if not isinstance(rows, list):
+        return ()
+    active = {str(ticker).upper() for ticker in active_tickers if str(ticker).strip()}
+    aliases: list[TickerAlias] = []
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        ticker = _clean_text(row.get("ticker"))
+        name = _clean_text(row.get("name"))
+        if ticker is None or name is None:
+            continue
+        ticker = ticker.upper()
+        if active and ticker not in active:
+            continue
+        brand = _brand_alias_from_company_name(name)
+        aliases.append(
+            TickerAlias(
+                ticker=ticker,
+                legal_names=(name,),
+                brand_aliases=(brand,) if brand else (),
+                allow_plain_brand=_plain_brand_is_safe(brand),
+            )
+        )
+    return tuple(aliases)
 
 
 def resolve_news_row(
@@ -330,6 +381,28 @@ def _clean_text(value: object) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _brand_alias_from_company_name(name: str) -> str | None:
+    cleaned = _COMMON_STOCK_SUFFIX_PATTERN.sub(" ", name)
+    cleaned = _LEGAL_SUFFIX_PATTERN.sub(" ", cleaned)
+    cleaned = re.sub(r"[^A-Za-z0-9&'. -]+", " ", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" ,.-")
+    if not cleaned:
+        return None
+    words = cleaned.split()
+    if len(words) > 3:
+        cleaned = " ".join(words[:3])
+    return cleaned or None
+
+
+def _plain_brand_is_safe(brand: str | None) -> bool:
+    if brand is None:
+        return False
+    normalized = brand.upper().replace(".", "")
+    if len(normalized) < 4:
+        return False
+    return normalized not in DEFAULT_AMBIGUOUS_SYMBOLS
 
 
 def _normalize_cik(value: str | None) -> str | None:

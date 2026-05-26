@@ -34,7 +34,7 @@ NEWS_COLUMNS = [
     "raw_feed_ticker",
     "raw_source_id",
 ]
-NEWS_RSS_STALE_AFTER = timedelta(minutes=60)
+NEWS_RSS_STALE_AFTER = timedelta(minutes=30)
 
 
 def write_news_frame(path: Path, frame: pd.DataFrame) -> int:
@@ -71,6 +71,8 @@ def write_manifest(
         "schema_version": 2,
         "row_count": stats["row_count"],
         "resolved_row_count": stats["resolved_row_count"],
+        "feed_ticker_row_count": stats["feed_ticker_row_count"],
+        "ticker_linked_row_count": stats["ticker_linked_row_count"],
         "unresolved_row_count": stats["unresolved_row_count"],
         "ambiguous_row_count": stats["ambiguous_row_count"],
         "ticker_count": stats["ticker_count"],
@@ -90,6 +92,8 @@ def _stats(path: Path) -> dict[str, int | str]:
         return {
             "row_count": 0,
             "resolved_row_count": 0,
+            "feed_ticker_row_count": 0,
+            "ticker_linked_row_count": 0,
             "unresolved_row_count": 0,
             "ambiguous_row_count": 0,
             "ticker_count": 0,
@@ -102,9 +106,13 @@ def _stats(path: Path) -> dict[str, int | str]:
     status = frame["ticker_match_status"].fillna("")
     tickers = frame["ticker"].dropna().astype(str)
     tickers = tickers[tickers.str.strip() != ""]
+    resolved = int((status == "resolved").sum())
+    feed_ticker = int((status == "feed_ticker").sum())
     return {
         "row_count": len(frame),
-        "resolved_row_count": int((status == "resolved").sum()),
+        "resolved_row_count": resolved,
+        "feed_ticker_row_count": feed_ticker,
+        "ticker_linked_row_count": resolved + feed_ticker,
         "unresolved_row_count": int((status == "unresolved").sum()),
         "ambiguous_row_count": int((status == "ambiguous").sum()),
         "ticker_count": int(tickers.str.upper().nunique()),

@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from pytest import MonkeyPatch
 
 import agency.api.health as health_module
+import agency.runtime.data_load_status as data_load_status_module
 from agency.app import create_app
 from agency.runtime.data_load_status import load_data_load_status
 
@@ -139,8 +140,12 @@ def test_data_load_status_reports_news_resolution_coverage(
     assert news["unresolved_row_count"] == 2
     assert news["ambiguous_row_count"] == 1
     assert news["resolved_ticker_count"] == 4
-    assert "6 ticker-resolved RSS row(s)" in str(news["detail"])
-    assert status["news_resolution"]["coverage_label"] == "6 resolved / 2 unresolved / 1 ambiguous"
+    assert "6 ticker-linked row(s)" in str(news["detail"])
+    assert "6 came from generic headline resolution" in str(news["detail"])
+    assert (
+        status["news_resolution"]["coverage_label"]
+        == "6 ticker-linked / 6 generic-resolved / 0 feed-tagged / 2 unresolved / 1 ambiguous"
+    )
 
 
 def test_data_load_status_reports_news_consumption_ledger(
@@ -1654,7 +1659,9 @@ def test_data_load_status_blocks_stale_critical_source_health(
     assert status["ready"] is False
     assert _dataset(status, "stock_trades")["status"] == "blocked"
     assert _lane(status, "buy_sell_pressure")["status"] == "blocked"
-    assert "STALE freshness" in str(_lane(status, "market_flow_trend")["detail"])
+    market_flow_detail = str(_lane(status, "market_flow_trend")["detail"])
+    assert "stale" not in market_flow_detail.lower()
+    assert "needs refresh" in market_flow_detail
     source_summary = status["source_summary"]
     assert isinstance(source_summary, dict)
     assert source_summary["critical_blocker_count"] == 1
@@ -1749,9 +1756,9 @@ def test_data_load_status_blocks_old_critical_source_health_row(
 
     assert status["state"] == "blocked"
     assert _dataset(status, "prices_daily")["status"] == "blocked"
-    assert "source-health row is 3600s old" in str(
-        _dataset(status, "prices_daily")["detail"]
-    )
+    daily_detail = str(_dataset(status, "prices_daily")["detail"])
+    assert "source-health row" not in daily_detail
+    assert "health proof is 3600s old" in daily_detail
 
 
 def test_data_load_status_uses_fresh_massive_daily_lane_manifest(
@@ -2914,6 +2921,54 @@ def test_data_load_status_uses_context_manifests_as_source_health_proof(
     assert status["tradable_ready"] is True
 
 
+def test_subscription_email_detail_prompts_operator_login_when_articles_need_sa(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    paths = _fixtures(tmp_path, monkeypatch)
+    summary_path = tmp_path / "subscription-email-ingest.json"
+    summary_path.write_text(
+        json.dumps(
+            {
+                "verdict": "needs_article_login",
+                "fetched_at": "2026-05-19T10:10:28+00:00",
+                "processed_emails": 10,
+                "event_rows": 42,
+                "linked_content": {"login_required": 10, "succeeded": 0},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        data_load_status_module,
+        "DEFAULT_SUBSCRIPTION_EMAIL_SUMMARY_PATH",
+        summary_path,
+    )
+    _write_manifest(
+        paths["manifest_root"],
+        "subscription_emails",
+        row_count=645,
+        fetched_at="2026-05-19T10:10:28+00:00",
+        stale_after="2026-05-19T14:10:28+00:00",
+    )
+
+    status = load_data_load_status(
+        config_path=paths["config"],
+        universe_path=paths["universe"],
+        manifest_root=paths["manifest_root"],
+        parquet_root=paths["parquet_root"],
+        runtime_summary_path=paths["runtime_summary"],
+        source_health_path=paths["source_health"],
+        now=datetime(2026, 5, 19, 15, 0, tzinfo=UTC),
+    )
+
+    detail = str(_dataset(status, "subscription_emails")["detail"])
+    assert "operator login" in detail
+    assert "10 protected article link(s) required login" in detail
+    assert "Click Open email login refresh" in detail
+    assert "stale" not in detail.lower()
+
+
 def test_data_load_status_blocks_stale_health_monitor_rows(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
@@ -3033,6 +3088,47 @@ def test_premarket_lane_blocks_during_premarket_when_raw_lane_is_stale(
     source_summary = status["source_summary"]
     assert isinstance(source_summary, dict)
     assert source_summary["critical_blocker_count"] == 1
+
+
+def test_data_load_status_operator_copy_avoids_raw_stale_wording(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    paths = _fixtures(tmp_path, monkeypatch)
+    _write_ready_core_market_lanes(paths)
+    _write_massive_lane_manifest(
+        paths["manifest_root"],
+        lane_id="massive_live_trade_slices",
+        tickers=["AAPL", "MSFT"],
+        fetched_at="2026-05-11T14:00:00+00:00",
+        coverage=[
+            {"ticker": "AAPL", "coverage_status": "complete", "complete": True},
+            {"ticker": "MSFT", "coverage_status": "complete", "complete": True},
+        ],
+    )
+
+    status = load_data_load_status(
+        config_path=paths["config"],
+        universe_path=paths["universe"],
+        manifest_root=paths["manifest_root"],
+        parquet_root=paths["parquet_root"],
+        runtime_summary_path=paths["runtime_summary"],
+        source_health_path=paths["source_health"],
+        now=datetime(2026, 5, 11, 15, 2, tzinfo=UTC),
+    )
+
+    displayed_text = " ".join(
+            [
+                str(status["detail"]),
+            *[str(row["detail"]) for row in status["datasets"]],
+            *[str(row["detail"]) for row in status["freshness_rows"]],
+            *[str(issue["reason"]) for issue in status["blockers"]],
+            *[str(issue["reason"]) for issue in status["warnings"]],
+        ]
+    )
+    assert "stale" not in displayed_text.lower()
+    assert "is needs refresh" not in displayed_text.lower()
+    assert "needs refresh" in displayed_text.lower()
 
 
 def _fixtures(tmp_path: Path, monkeypatch: MonkeyPatch) -> dict[str, Path]:

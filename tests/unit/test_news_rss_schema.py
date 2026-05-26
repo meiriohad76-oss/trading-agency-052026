@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
@@ -55,10 +55,28 @@ def test_manifest_schema_version_2_includes_resolution_stats(tmp_path: Path) -> 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert manifest["schema_version"] == NEWS_RSS_SCHEMA_VERSION
     assert manifest["resolved_row_count"] == 0
+    assert manifest["feed_ticker_row_count"] == 1
+    assert manifest["ticker_linked_row_count"] == 1
     assert manifest["unresolved_row_count"] == 1
     assert manifest["ambiguous_row_count"] == 0
     assert manifest["ticker_count"] == 1
     assert manifest["resolution_min_confidence"] == RESOLUTION_MIN_CONFIDENCE
+
+
+def test_news_manifest_uses_thirty_minute_operational_freshness(tmp_path: Path) -> None:
+    parquet_path = tmp_path / "news_rss.parquet"
+    manifest_path = tmp_path / "news_rss.json"
+    write_news_frame(parquet_path, _legacy_frame())
+
+    write_manifest(
+        manifest_path,
+        parquet_path,
+        fetched_at=FETCHED_AT,
+        resolution_min_confidence=RESOLUTION_MIN_CONFIDENCE,
+    )
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert datetime.fromisoformat(manifest["stale_after"]) == FETCHED_AT + timedelta(minutes=30)
 
 
 def _legacy_frame(
