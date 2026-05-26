@@ -14,7 +14,7 @@
 
 {% block content %}
   <p class="breadcrumb-row">
-    <a class="text-link" href="/final-selection">Back to candidates</a>
+    <a class="text-link" href="{{ candidate_return.href }}">{{ candidate_return.label }}</a>
   </p>
 
   {% if review.can_record %}
@@ -30,14 +30,14 @@
       <a class="mini-button action-approve" href="#paper-review-heading">Review Caution</a>
       {% else %}
       <form method="post" action="{{ review.approve_action }}">
-        <button class="mini-button action-approve" type="submit"><span aria-hidden="true">&#10003;</span> Approve</button>
+        <button class="mini-button action-approve" type="submit"><span aria-hidden="true">&#10003;</span> Approve research for {{ ticker }}</button>
       </form>
       {% endif %}
       <form method="post" action="{{ review.defer_action }}">
-        <button class="mini-button action-defer" type="submit"><span aria-hidden="true">||</span> Defer</button>
+        <button class="mini-button action-defer" type="submit"><span aria-hidden="true">||</span> Defer {{ ticker }} review</button>
       </form>
       <form method="post" action="{{ review.reject_action }}">
-        <button class="mini-button danger-button action-reject" type="submit"><span aria-hidden="true">&times;</span> Reject</button>
+        <button class="mini-button danger-button action-reject" type="submit"><span aria-hidden="true">&times;</span> Reject {{ ticker }} candidate</button>
       </form>
     </span>
     <a class="text-link" href="#paper-review-heading">Jump to review</a>
@@ -372,13 +372,13 @@
           I acknowledge this caution and approve this as research/watch-list only.
         </label>
         {% endif %}
-        <button class="mini-button action-approve" type="submit"><span aria-hidden="true">&#10003;</span> Approve Research</button>
+        <button class="mini-button action-approve" type="submit"><span aria-hidden="true">&#10003;</span> Approve research for {{ ticker }}</button>
       </form>
       <form method="post" action="{{ review.defer_action }}">
-        <button class="mini-button action-defer" type="submit"><span aria-hidden="true">||</span> Defer</button>
+        <button class="mini-button action-defer" type="submit"><span aria-hidden="true">||</span> Defer {{ ticker }} review</button>
       </form>
       <form method="post" action="{{ review.reject_action }}">
-        <button class="mini-button danger-button action-reject" type="submit"><span aria-hidden="true">&times;</span> Reject</button>
+        <button class="mini-button danger-button action-reject" type="submit"><span aria-hidden="true">&times;</span> Reject {{ ticker }} candidate</button>
       </form>
     </span>
     {% if review.decision == "Approve" %}

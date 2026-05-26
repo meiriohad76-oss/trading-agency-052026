@@ -1761,28 +1761,28 @@ def _qa_scenario(state: str, context: Mapping[str, object]) -> dict[str, object]
         scenario = {
             "state": "outage",
             "headline": "Selection is paused because critical data is unavailable.",
-            "detail": "QA scenario only. Refresh actions are disabled as readiness proof.",
+            "detail": "Training scenario only. Refresh actions are disabled as readiness proof.",
             "engine_cards": _engine_cards([_mapping(item) for item in _list(context.get("engines"))][:2]),
-            "retry_label": "QA retry countdown",
-            "last_good_cycle_label": "Last good cycle proof: QA fixture",
+            "retry_label": "Training retry countdown",
+            "last_good_cycle_label": "Last good cycle proof: training scenario",
             "candidate_controls_enabled": False,
         }
     elif state == "submitted":
         submitted_orders = [
             {
-                "ticker": "QA",
+                "ticker": "SCENARIO",
                 "side": "BUY",
                 "qty": 1.0,
                 "limit_price": 0.0,
                 "notional": 0.0,
-                "broker_order_id": "QA scenario only",
+                "broker_order_id": "training scenario only",
                 "state": "SUBMITTED",
             }
         ]
         scenario = {
             "state": "submitted",
             "headline": "1 paper orders were transmitted for this cycle.",
-            "detail": "QA scenario only. Broker evidence is simulated by the scenario shell.",
+            "detail": "Training scenario only. Broker evidence is simulated by the scenario shell.",
             "submitted_orders": submitted_orders,
             "submitted_total_notional": 0.0,
             "candidate_controls_enabled": False,
@@ -1791,12 +1791,12 @@ def _qa_scenario(state: str, context: Mapping[str, object]) -> dict[str, object]
         scenario = {
             "state": "no-actionable",
             "headline": "Nothing actionable today. The agent already filtered the universe.",
-            "detail": "QA scenario only. Review calm empty-state behavior.",
+            "detail": "Training scenario only. Review calm empty-state behavior.",
             "skip_to_portfolio_label": "Skip to Portfolio",
             "closest_candidates": _closest_candidate_rows(
                 [_mapping(item) for item in _list(context.get("candidates"))]
             ),
-            "agent_note": "QA scenario only. The production funnel is not being judged by this state.",
+            "agent_note": "Training scenario only. The production funnel is not being judged by this state.",
             "candidate_controls_enabled": False,
         }
     else:
@@ -1804,7 +1804,7 @@ def _qa_scenario(state: str, context: Mapping[str, object]) -> dict[str, object]
         scenario = {
             "state": "normal",
             "headline": f"{actionable} trades ready. Approve what you want to ship today.",
-            "detail": "QA scenario only. This page is not operational evidence.",
+            "detail": "Training scenario only. This page is not operational evidence.",
             "candidate_controls_enabled": True,
         }
     scenario["qa_override"] = True

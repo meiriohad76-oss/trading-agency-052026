@@ -69,6 +69,180 @@ def test_live_runtime_cycle_default_output_root_is_canonical_latest(
     assert args.output_root == live_runtime_cycle_script.CANONICAL_RUNTIME_OUTPUT_ROOT
 
 
+def test_user_process_audit_accepts_focused_execution_contract() -> None:
+    audit = importlib.import_module("scripts.check_user_process_flow_audit")
+    html = """
+    <html data-ux-build="ux-v3-all-dashboards-20260523">
+      <body class="v3-app v3-screen-clearance">
+        <section data-v3-universal-briefing>BLUF</section>
+        <section data-selected-ticker="PLTR">
+          <h2>PLTR Follow-Up</h2>
+          <article id="focused-preview-PLTR">PLTR research approval is recorded.</article>
+        </section>
+        <section id="execution-followup-heading">Generic list</section>
+      </body>
+    </html>
+    """
+
+    assert audit.audit_execution_focus_html("PLTR", html) == []
+
+def test_user_process_audit_accepts_focused_final_selection_contract() -> None:
+    audit = importlib.import_module("scripts.check_user_process_flow_audit")
+    html = """
+    <html data-ux-build="ux-v3-all-dashboards-20260523">
+      <body class="v3-app v3-screen-final">
+        <section data-v3-universal-briefing>BLUF</section>
+        <article id="candidate-PLTR">Approve research for PLTR</article>
+        <article id="candidate-AAPL">Approve research for AAPL</article>
+      </body>
+    </html>
+    """
+
+    assert audit.audit_final_selection_focus_html("PLTR", html) == []
+
+
+def test_user_process_audit_flags_no_reviewable_candidates() -> None:
+    audit = importlib.import_module("scripts.check_user_process_flow_audit")
+
+    results = audit.audit_process_state([], {"queue": []}, "No final selection reports yet")
+
+    failures = results[0]["failures"]
+    assert any(failure["code"] == "execution_preview_has_no_rows" for failure in failures)
+    assert any(failure["code"] == "no_reviewable_candidates" for failure in failures)
+
+
+def test_user_process_audit_requires_submit_ready_form() -> None:
+    audit = importlib.import_module("scripts.check_user_process_flow_audit")
+
+    failures = audit.audit_execution_api_alignment(
+        "PLTR",
+        "<html>PLTR is ready for paper submission.</html>",
+        {
+            "ticker": "PLTR",
+            "submit_enabled": True,
+            "approval_label": "Order approved",
+            "paper_promotion_reasons": [],
+        },
+    )
+
+    assert any(failure["code"] == "submit_ready_action_missing" for failure in failures)
+
+
+def test_user_process_audit_detects_buried_execution_focus() -> None:
+    audit = importlib.import_module("scripts.check_user_process_flow_audit")
+    html = """
+    <html data-ux-build="ux-v3-all-dashboards-20260523">
+      <body class="v3-app v3-screen-clearance">
+        <section data-v3-universal-briefing>BLUF</section>
+        <section id="execution-followup-heading">Generic list</section>
+        <section data-selected-ticker="PLTR">
+          <h2>PLTR Follow-Up</h2>
+          <article id="focused-preview-PLTR">PLTR research approval is recorded.</article>
+        </section>
+      </body>
+    </html>
+    """
+
+    failures = audit.audit_execution_focus_html("PLTR", html)
+
+    assert any(failure["code"] == "execution_focus_buried" for failure in failures)
+
+
+def test_user_process_audit_flags_old_ux_residue() -> None:
+    audit = importlib.import_module("scripts.check_user_process_flow_audit")
+
+    hits = audit.forbidden_ux_hits("This stale monkey fixture should never be user-facing.")
+
+    assert {hit["term"] for hit in hits} == {"stale", "monkey", "fixture"}
+
+
+def test_user_process_audit_flags_route_budget_exceeded() -> None:
+    audit = importlib.import_module("scripts.check_user_process_flow_audit")
+    result = audit.FetchResult("/candidates/PLTR", 200, _v3_html(), 6.4)
+
+    audited = audit.audit_html_route(
+        result,
+        route="/candidates/PLTR",
+        ticker="PLTR",
+        route_budget_seconds=5.0,
+    )
+
+    assert audited["elapsed_seconds"] == 6.4
+    assert any(
+        failure["code"] == "route_budget_exceeded"
+        for failure in audited["failures"]
+    )
+
+
+def test_user_process_audit_flags_unavailable_execution_status_payload() -> None:
+    audit = importlib.import_module("scripts.check_user_process_flow_audit")
+
+    result = audit.audit_execution_status_payload(
+        {"available": False, "status_code": 0, "error": "connection reset"},
+        [],
+    )
+
+    failures = result["failures"]
+    assert any(
+        failure["code"] == "execution_status_unavailable"
+        and "connection reset" in failure["detail"]
+        for failure in failures
+    )
+
+
+def test_user_process_audit_fetch_text_closes_live_http_connection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    audit = importlib.import_module("scripts.check_user_process_flow_audit")
+    seen_headers: dict[str, str] = {}
+
+    class FakeResponse:
+        status = 200
+
+        def __enter__(self) -> FakeResponse:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return b"ok"
+
+    def fake_urlopen(request: object, timeout: int) -> FakeResponse:
+        assert timeout == 9
+        seen_headers.update(dict(request.header_items()))
+        return FakeResponse()
+
+    monkeypatch.setattr(audit, "urlopen", fake_urlopen)
+
+    result = audit.fetch_text("http://example.test", "/signals", 9)
+
+    assert result.status_code == 200
+    assert seen_headers["Connection"] == "close"
+
+
+def test_user_process_audit_samples_candidate_pages_from_review_queue_first() -> None:
+    audit = importlib.import_module("scripts.check_user_process_flow_audit")
+
+    selected = audit.candidate_route_sample_tickers(
+        ["AAPL", "MSFT", "NVDA", "PLTR"],
+        ["PLTR", "AAPL"],
+        sample_size=3,
+    )
+
+    assert selected == ["PLTR", "AAPL", "MSFT"]
+
+
+def _v3_html() -> str:
+    return """
+    <html data-ux-build="ux-v3-all-dashboards-20260523">
+      <body class="v3-app">
+        <section data-v3-universal-briefing>BLUF</section>
+      </body>
+    </html>
+    """
+
+
 def test_live_runtime_cycle_success_finalization_marks_consumed_news_once(
     tmp_path: Path,
 ) -> None:

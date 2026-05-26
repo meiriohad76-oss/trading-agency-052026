@@ -30,7 +30,10 @@ from agency.views._shared import (
 )
 
 
-async def final_selection_context() -> dict[str, object]:
+async def final_selection_context(
+    *,
+    focus_ticker: str | None = None,
+) -> dict[str, object]:
     reports = await _dashboard_selection_reports(limit=FINAL_SELECTION_REPORT_LIMIT)
     cycle_id = _latest_selection_cycle_id(reports)
     cycle_reports = _selection_reports_for_cycle(reports, cycle_id)
@@ -57,6 +60,11 @@ async def final_selection_context() -> dict[str, object]:
     ]
     trace_rows = [row for row in rows if not _is_actionable_candidate(row)]
     data_load_status = await live_dashboard_data_load_status()
+    normalized_focus_ticker = str(focus_ticker or "").strip().upper()
+    focused_final_selection = final_selection_focus_context(
+        rows,
+        normalized_focus_ticker,
+    )
     return {
         "data_health": dashboard_data_health(
             "Final selection dashboard",
@@ -78,11 +86,68 @@ async def final_selection_context() -> dict[str, object]:
         "no_trade_rows": no_trade_rows,
         "blocked_rows": blocked_rows,
         "trace_rows": trace_rows,
+        "focused_ticker": normalized_focus_ticker,
+        "focused_final_selection": focused_final_selection,
         "summary": final_selection_summary(
             rows,
             all_report_count=len(reports),
             cycle_id=cycle_id,
         ),
+    }
+
+def final_selection_focus_context(
+    rows: Sequence[Mapping[str, object]],
+    ticker: str | None,
+) -> dict[str, object]:
+    normalized = str(ticker or "").strip().upper()
+    if not normalized:
+        return {
+            "requested": False,
+            "ticker": "",
+            "found": False,
+            "rows": [],
+            "headline": "",
+            "detail": "",
+            "next_step": "",
+            "status_label": "",
+            "status_class": "neutral",
+        }
+    focused_rows = [
+        dict(row)
+        for row in rows
+        if str(row.get("ticker") or "").strip().upper() == normalized
+    ]
+    if focused_rows:
+        first = focused_rows[0]
+        action = str(first.get("action") or "candidate")
+        review = str(first.get("human_review_decision") or "Pending")
+        return {
+            "requested": True,
+            "ticker": normalized,
+            "found": True,
+            "rows": focused_rows,
+            "headline": f"{normalized} candidate is ready for review",
+            "detail": (
+                f"{normalized} is in the latest final-selection cycle as {action}. "
+                f"Human review state: {review}."
+            ),
+            "next_step": str(first.get("review_next_step") or "Review the evidence and choose an action."),
+            "status_label": str(first.get("gate_status") or "Review"),
+            "status_class": str(first.get("action_class") or "neutral"),
+        }
+    return {
+        "requested": True,
+        "ticker": normalized,
+        "found": False,
+        "rows": [],
+        "headline": f"{normalized} candidate is not in the latest final-selection cycle",
+        "detail": (
+            f"{normalized} is not currently staged in the final-selection queue. "
+            "Open the execution follow-up or run a fresh candidate cycle before reviewing it here."
+        ),
+        "next_step": "Stay with the selected ticker by opening its execution follow-up, or show the full candidate queue.",
+        "status_label": "Not in current queue",
+        "status_class": "warn",
     }
 
 def final_selection_rows(
@@ -236,18 +301,21 @@ def _final_selection_row(
             cycle_id=cycle_id,
             as_of=str(report["as_of"]),
             decision="APPROVE",
+            return_to="final-selection",
         ),
         "defer_review_action": _review_action_url(
             ticker=ticker,
             cycle_id=cycle_id,
             as_of=str(report["as_of"]),
             decision="DEFER",
+            return_to="final-selection",
         ),
         "reject_review_action": _review_action_url(
             ticker=ticker,
             cycle_id=cycle_id,
             as_of=str(report["as_of"]),
             decision="REJECT",
+            return_to="final-selection",
         ),
     }
 

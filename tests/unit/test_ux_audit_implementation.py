@@ -31,6 +31,18 @@ def test_final_selection_surfaces_actionable_decision_before_details() -> None:
     assert "technical-provenance" in html
 
 
+def test_final_selection_preserves_ticker_focus_and_action_labels() -> None:
+    html = _template("final_selection.html")
+
+    assert "focused_final_selection" in html
+    assert "Show full candidate queue" in html
+    assert 'id="candidate-{{ row.ticker }}"' in html
+    assert 'href="/candidates/{{ row.ticker }}?from=final-selection#candidate-{{ row.ticker }}"' in html
+    assert "Approve research for {{ row.ticker }}" in html
+    assert "Defer {{ row.ticker }} review" in html
+    assert "Reject {{ row.ticker }} candidate" in html
+
+
 def test_final_selection_shows_readable_provenance_and_cycle_ids() -> None:
     html = _template("final_selection.html")
     css = STYLE_PATH.read_text(encoding="utf-8")
@@ -72,7 +84,8 @@ def test_command_dashboard_has_queue_cta_and_collapsed_diagnostics() -> None:
 def test_candidate_detail_prioritizes_decision_and_collapses_technical_detail() -> None:
     html = _template("candidate_detail.html")
 
-    assert "Back to candidates" in html
+    assert "candidate_return.label" in html
+    assert "candidate_return.href" in html
     assert "decision-hero-recommendation" in html
     assert "llm-summary-panel" in html
     assert "LLM Recommendation" in html
@@ -96,7 +109,8 @@ def test_portfolio_monitor_contains_exit_recommendation_workflow() -> None:
     assert "Go to Candidates" in html
     assert "Exit Recommendations" in html
     assert "exposure_freed_label" in html
-    assert "Confirm exit" in html
+    assert "Review exit plan for {{ position.ticker }}" in html
+    assert 'href="/execution-preview?ticker={{ position.ticker }}#focused-preview-{{ position.ticker }}"' in html
     assert "Portfolio within policy - no exits needed" in html
     assert "Execution Preview" in html
     assert "pnl-value" in html
@@ -126,6 +140,9 @@ def test_execution_preview_paper_cards_are_readable() -> None:
     css = STYLE_PATH.read_text(encoding="utf-8")
 
     assert "execution-preview-card paper-mode-card" in execution_html
+    assert "review_only_rows[:8]" in execution_html
+    assert "blocked_rows[:25]" in execution_html
+    assert "Open ticker-specific review" in execution_html
     assert "execution-review-status" in execution_html
     assert "execution-metric-value" in execution_html
     assert "execution-blocker-list" in execution_html
@@ -152,6 +169,8 @@ def test_data_health_panel_uses_actionable_user_copy_not_internal_telemetry() ->
     assert "row.why_it_matters" in html
     assert "data_health.action_buttons" in html
     assert "button" in html
+    assert "data_health.lane_state_rows" in html
+    assert "Extraction lane states" in html
 
 
 def test_operator_data_health_copy_does_not_use_stale_wording() -> None:

@@ -76,6 +76,28 @@
         {% endfor %}
       </div>
       {% endif %}
+      {% if data_health.lane_state_rows %}
+      <div class="data-health-lane-state-strip" aria-label="Extraction lane states">
+        {% for lane in data_health.lane_state_rows %}
+        <article class="data-health-lane-state data-health-row-{{ lane.status_class }}" title="{{ lane.tooltip }}">
+          <div>
+            <span class="metric-label">Lane</span>
+            <strong>{{ lane.name }}</strong>
+          </div>
+          <span class="tag tag-{{ lane.status_class }}">{{ lane.status_label }}</span>
+          <div>
+            <span class="metric-label">Progress</span>
+            <strong>{{ lane.progress_label }}</strong>
+          </div>
+          <div>
+            <span class="metric-label">Latest proof</span>
+            <strong>{{ lane.latest_as_of }}</strong>
+          </div>
+          <p>{{ lane.recommended_action }}</p>
+        </article>
+        {% endfor %}
+      </div>
+      {% endif %}
       <div class="data-health-list">
         {% for row in data_health.rows %}
         <article class="data-health-row data-health-row-{{ row.status_class }}" title="{{ row.tooltip }}">

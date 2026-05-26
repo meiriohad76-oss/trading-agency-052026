@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi import APIRouter, Request
 from fastapi.responses import Response
 from fastapi.templating import Jinja2Templates
+from markupsafe import Markup
 
 from agency.api.audit import (
     runtime_agent_runs,
@@ -15,10 +16,25 @@ from agency.api.audit import (
     runtime_prompt_audits,
     runtime_risk_snapshots,
 )
-from agency.views._shared import dashboard_data_health, live_dashboard_data_load_status
+from agency.views._shared import (
+    _operator_text,
+    dashboard_data_health,
+    live_dashboard_data_load_status,
+)
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent / "templates"))
+
+
+def _operator_template_finalize(value: object) -> object:
+    if isinstance(value, Markup):
+        return value
+    if isinstance(value, str):
+        return _operator_text(value)
+    return value
+
+
+templates.env.finalize = _operator_template_finalize
 
 
 @router.get("/audit")

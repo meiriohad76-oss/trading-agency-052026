@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import Mapping, Sequence
 from contextlib import suppress
 from datetime import UTC, datetime
@@ -11,6 +12,7 @@ from data_refresh.market_calendar import classify_market_session
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
+from markupsafe import Markup
 from sqlalchemy.exc import SQLAlchemyError
 
 from agency.api.health import runtime_data_source_status
@@ -56,6 +58,7 @@ from agency.views._shared import (
     _env_bool_text,
     _mapping_field,
     _matching_payload,
+    _operator_text,
     _optional_float_field,
     _runtime_payload_key,
     dashboard_data_health,
@@ -115,12 +118,14 @@ from agency.views.execution import (  # noqa: F401
     _record_order_submission_intent,
     _record_submitted_order,
     execution_preview_context,
+    execution_preview_focus_context,
     execution_preview_order_row,
     execution_preview_rows,
     row_from_execution_context,
 )
 from agency.views.final_selection import (  # noqa: F401
     final_selection_context,
+    final_selection_focus_context,
     final_selection_rows,
     final_selection_summary,
 )
@@ -147,6 +152,29 @@ from agency.views.signals import (  # noqa: F401
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent / "templates"))
+
+
+def _operator_template_finalize(value: object) -> object:
+    if isinstance(value, Markup):
+        return value
+    if isinstance(value, str):
+        return _operator_text(value)
+    return value
+
+
+templates.env.finalize = _operator_template_finalize
+EXECUTION_PREVIEW_ROUTE_CACHE_TTL_SECONDS = 60.0
+FINAL_SELECTION_ROUTE_CACHE_TTL_SECONDS = 60.0
+_execution_preview_route_cache: dict[str, object] = {
+    "expires_at": 0.0,
+    "context": None,
+    "builder_id": 0,
+}
+_final_selection_route_cache: dict[str, object] = {
+    "expires_at": 0.0,
+    "context": None,
+    "builder_id": 0,
+}
 BROKER_RECONCILIATION_TERMINAL_STATUSES = {
     "FILLED",
     "CANCELED",
@@ -435,7 +463,7 @@ async def paper_review_status() -> dict[str, object]:
 
 @router.get("/status/execution-preview")
 async def execution_preview_status() -> dict[str, object]:
-    return _execution_preview_status_payload(await execution_preview_context())
+    return _execution_preview_status_payload(await _execution_preview_route_base_context())
 
 
 @router.get("/status/operational-readiness")
@@ -490,10 +518,16 @@ async def refresh_subscription_email_with_login(
 
 @router.get("/candidates/{ticker}")
 async def candidate_detail(request: Request, ticker: str) -> Response:
+    audit_mode = str(request.query_params.get("audit") or "").strip().lower()
+    return_source = str(request.query_params.get("from") or "").strip().lower()
     return templates.TemplateResponse(
         request,
         "candidate_detail.html",
-        await candidate_detail_context(ticker),
+        await candidate_detail_context(
+            ticker,
+            include_rich_signal_evidence=audit_mode != "light",
+            return_source=return_source,
+        ),
     )
 
 
@@ -507,6 +541,7 @@ async def record_candidate_review(
     review_reason: str | None = None,
     notes: str | None = None,
     caution_acknowledged: bool = False,
+    return_to: str | None = None,
 ) -> Response:
     report_hash = await _selection_report_hash_for_review(
         cycle_id=cycle_id,
@@ -600,8 +635,13 @@ async def record_candidate_review(
                 status_code=503,
                 detail="review persistence unavailable",
             ) from write_error
+    _clear_execution_preview_route_cache()
     return RedirectResponse(
-        url=_candidate_review_redirect_url(ticker=ticker, decision=decision),
+        url=_candidate_review_redirect_url(
+            ticker=ticker,
+            decision=decision,
+            return_to=return_to,
+        ),
         status_code=303,
     )
 
@@ -672,11 +712,67 @@ async def run_candidate_llm_review(request: Request, ticker: str) -> Response:
 
 @router.get("/final-selection")
 async def final_selection(request: Request) -> Response:
+    focus_ticker = str(request.query_params.get("ticker") or "").strip().upper()
     return templates.TemplateResponse(
         request,
         "final_selection.html",
-        await final_selection_context(),
+        await _final_selection_route_context(focus_ticker=focus_ticker or None),
     )
+
+
+async def _final_selection_route_context(
+    *,
+    focus_ticker: str | None,
+) -> dict[str, object]:
+    if not focus_ticker:
+        context = await final_selection_context()
+        _store_final_selection_route_cache(context)
+        return context
+    context = await _final_selection_route_base_context(focus_ticker=focus_ticker)
+    context["focused_ticker"] = focus_ticker
+    rows_value = context.get("final_rows")
+    final_rows = rows_value if isinstance(rows_value, list) else []
+    context["focused_final_selection"] = final_selection_focus_context(
+        final_rows,
+        focus_ticker,
+    )
+    return context
+
+
+async def _final_selection_route_base_context(
+    *,
+    focus_ticker: str | None = None,
+) -> dict[str, object]:
+    cached = _final_selection_route_cache.get("context")
+    expires_at = _final_selection_route_cache.get("expires_at", 0.0)
+    builder_id = id(final_selection_context)
+    if (
+        isinstance(cached, dict)
+        and isinstance(expires_at, float)
+        and expires_at > time.monotonic()
+        and _final_selection_route_cache.get("builder_id") == builder_id
+    ):
+        return dict(cached)
+    context = await final_selection_context(focus_ticker=focus_ticker)
+    _store_final_selection_route_cache(context)
+    return context
+
+
+def _store_final_selection_route_cache(context: Mapping[str, object]) -> None:
+    cached_context = dict(context)
+    cached_context["focused_ticker"] = ""
+    cached_context["focused_final_selection"] = final_selection_focus_context([], None)
+    _final_selection_route_cache["context"] = cached_context
+    _final_selection_route_cache["expires_at"] = (
+        time.monotonic() + FINAL_SELECTION_ROUTE_CACHE_TTL_SECONDS
+    )
+    _final_selection_route_cache["builder_id"] = id(final_selection_context)
+
+
+def _clear_final_selection_route_cache() -> None:
+    _final_selection_route_cache["context"] = None
+    _final_selection_route_cache["expires_at"] = 0.0
+    _final_selection_route_cache["builder_id"] = 0
 
 
 @router.post("/execution-preview/operator-advance")
@@ -728,8 +824,11 @@ async def record_operator_manual_advance(
                 status_code=503,
                 detail="operator manual advance could not be persisted",
             ) from write_error
+    _clear_execution_preview_route_cache()
+    normalized_ticker = ticker.upper()
+    query = urlencode({"ticker": normalized_ticker})
     return RedirectResponse(
-        url="/execution-preview#execution-followup-heading",
+        url=f"/execution-preview?{query}#focused-preview-{normalized_ticker}",
         status_code=303,
     )
 
@@ -745,7 +844,8 @@ async def risk(request: Request) -> Response:
 
 @router.get("/execution-preview")
 async def execution_preview(request: Request) -> Response:
-    context = await execution_preview_context()
+    focus_ticker = str(request.query_params.get("ticker") or "").strip().upper()
+    context = await _execution_preview_route_context(focus_ticker=focus_ticker or None)
     notice = _execution_notice_from_request(request)
     if notice is not None:
         context["execution_notice"] = notice
@@ -754,6 +854,54 @@ async def execution_preview(request: Request) -> Response:
         "execution_preview.html",
         context,
     )
+
+
+async def _execution_preview_route_context(
+    *,
+    focus_ticker: str | None,
+) -> dict[str, object]:
+    if not focus_ticker:
+        context = await execution_preview_context()
+        _store_execution_preview_route_cache(context)
+        return context
+    context = await _execution_preview_route_base_context()
+    rows_value = context.get("preview_rows")
+    preview_rows = rows_value if isinstance(rows_value, list) else []
+    context["focused_execution"] = execution_preview_focus_context(
+        preview_rows,
+        focus_ticker,
+    )
+    return context
+
+
+async def _execution_preview_route_base_context() -> dict[str, object]:
+    cached = _execution_preview_route_cache.get("context")
+    expires_at = _execution_preview_route_cache.get("expires_at", 0.0)
+    builder_id = id(execution_preview_context)
+    if (
+        isinstance(cached, dict)
+        and isinstance(expires_at, float)
+        and expires_at > time.monotonic()
+        and _execution_preview_route_cache.get("builder_id") == builder_id
+    ):
+        return dict(cached)
+    context = await execution_preview_context()
+    _store_execution_preview_route_cache(context)
+    return context
+
+
+def _store_execution_preview_route_cache(context: Mapping[str, object]) -> None:
+    _execution_preview_route_cache["context"] = dict(context)
+    _execution_preview_route_cache["expires_at"] = (
+        time.monotonic() + EXECUTION_PREVIEW_ROUTE_CACHE_TTL_SECONDS
+    )
+    _execution_preview_route_cache["builder_id"] = id(execution_preview_context)
+
+
+def _clear_execution_preview_route_cache() -> None:
+    _execution_preview_route_cache["context"] = None
+    _execution_preview_route_cache["expires_at"] = 0.0
+    _execution_preview_route_cache["builder_id"] = 0
 
 
 def _execution_preview_status_payload(
@@ -800,14 +948,14 @@ def _execution_preview_status_payload(
         "blocked_count": _status_int(summary, "blocked_count"),
         "disabled_count": _status_int(summary, "disabled_count"),
         "submit_gate_open": submit_gate_open,
-        "submit_gate_label": str(summary.get("submit_gate_label") or "Unknown"),
-        "headline": str(summary.get("headline") or ""),
-        "detail": str(summary.get("detail") or ""),
+        "submit_gate_label": _operator_text(summary.get("submit_gate_label") or "Unknown"),
+        "headline": _operator_text(summary.get("headline") or ""),
+        "detail": _operator_text(summary.get("detail") or ""),
         "freshness_gate": {
             "ready": freshness.get("ready") is True,
-            "status_label": str(freshness.get("status_label") or "Unknown"),
+            "status_label": _operator_text(freshness.get("status_label") or "Unknown"),
             "status_class": str(freshness.get("status_class") or "neutral"),
-            "detail": str(freshness.get("detail") or ""),
+            "detail": _operator_text(freshness.get("detail") or ""),
         },
         "rows": rows,
         "blockers": blockers[:20],
@@ -821,36 +969,36 @@ def _execution_preview_status_row(row: dict[str, object]) -> dict[str, object]:
         "cycle_id": str(row.get("cycle_id") or ""),
         "ticker": str(row.get("ticker") or "").upper(),
         "as_of": str(row.get("as_of") or ""),
-        "preview_state": str(row.get("preview_state") or ""),
+        "preview_state": _operator_text(row.get("preview_state") or ""),
         "side": str(row.get("side") or "NONE"),
-        "risk_decision": str(row.get("risk_decision") or ""),
+        "risk_decision": _operator_text(row.get("risk_decision") or ""),
         "submit_enabled": row.get("submit_enabled") is True,
         "order_approval_available": row.get("order_approval_available") is True,
-        "submit_blocker": str(row.get("submit_blocker") or ""),
-        "paper_promotion_status_label": str(
+        "submit_blocker": _operator_text(row.get("submit_blocker") or ""),
+        "paper_promotion_status_label": _operator_text(
             row.get("paper_promotion_status_label") or ""
         ),
         "paper_promotion_reasons": [
-            str(reason)
+            _operator_text(reason)
             for reason in paper_promotion_reasons
             if reason is not None
         ],
         "order_intent_hash_label": str(row.get("order_intent_hash_label") or ""),
-        "order_value_label": str(row.get("order_value_label") or ""),
-        "approval_label": str(row.get("approval_label") or ""),
+        "order_value_label": _operator_text(row.get("order_value_label") or ""),
+        "approval_label": _operator_text(row.get("approval_label") or ""),
         "execution_state": str(row.get("execution_state") or "NONE"),
-        "execution_status_label": str(row.get("execution_status_label") or ""),
+        "execution_status_label": _operator_text(row.get("execution_status_label") or ""),
         "execution_status_class": str(row.get("execution_status_class") or "neutral"),
-        "execution_reason": str(row.get("execution_reason") or ""),
+        "execution_reason": _operator_text(row.get("execution_reason") or ""),
         "execution_event_time": str(row.get("execution_event_time") or ""),
         "execution_event_time_label": str(row.get("execution_event_time_label") or ""),
         "client_order_id": str(row.get("client_order_id") or ""),
         "filled_qty": row.get("filled_qty"),
         "filled_avg_price": row.get("filled_avg_price"),
-        "submission_confirmation_label": str(
+        "submission_confirmation_label": _operator_text(
             row.get("submission_confirmation_label") or ""
         ),
-        "next_step": str(row.get("next_step") or ""),
+        "next_step": _operator_text(row.get("next_step") or ""),
     }
 
 
@@ -859,7 +1007,9 @@ def _execution_preview_blocker(row: dict[str, object]) -> dict[str, object]:
     first_reason = ""
     if isinstance(reasons, list) and reasons:
         first_reason = str(reasons[0])
-    reason = first_reason or str(row.get("submit_blocker") or row.get("next_step") or "")
+    reason = _operator_text(
+        first_reason or str(row.get("submit_blocker") or row.get("next_step") or "")
+    )
     return {
         "ticker": row["ticker"],
         "state": row["preview_state"],
@@ -910,19 +1060,20 @@ def _execution_preview_notice_redirect(
     detail: str,
     *,
     status_class: str = "warn",
+    ticker: str | None = None,
     anchor: str = "orderable-heading",
 ) -> RedirectResponse:
     message = detail.strip() or "Execution action could not be completed."
-    query = urlencode(
-        {
-            "execution_notice": message[:500],
-            "execution_notice_class": status_class,
-        }
-    )
-    return RedirectResponse(
-        url=f"/execution-preview?{query}#{anchor}",
-        status_code=303,
-    )
+    query_values = {
+        "execution_notice": message[:500],
+        "execution_notice_class": status_class,
+    }
+    normalized_ticker = str(ticker or "").strip().upper()
+    if normalized_ticker:
+        query_values["ticker"] = normalized_ticker
+        anchor = f"focused-preview-{normalized_ticker}"
+    query = urlencode(query_values)
+    return RedirectResponse(url=f"/execution-preview?{query}#{anchor}", status_code=303)
 
 
 @router.post("/execution-preview/orders/approve")
@@ -970,8 +1121,14 @@ async def approve_execution_order(
                 detail="order approval could not be persisted",
             ) from exc
     except HTTPException as exc:
-        return _execution_preview_notice_redirect(str(exc.detail))
-    return RedirectResponse(url="/execution-preview#orderable-heading", status_code=303)
+        return _execution_preview_notice_redirect(str(exc.detail), ticker=ticker)
+    _clear_execution_preview_route_cache()
+    normalized_ticker = ticker.upper()
+    query = urlencode({"ticker": normalized_ticker})
+    return RedirectResponse(
+        url=f"/execution-preview?{query}#focused-preview-{normalized_ticker}",
+        status_code=303,
+    )
 
 
 @router.post("/execution-preview/orders")
@@ -982,16 +1139,20 @@ async def submit_execution_order(
     as_of: str,
     order_intent_hash: str,
 ) -> Response:
+    normalized_ticker = ticker.upper()
     if not _env_bool_text("AGENCY_ALPACA_BROKER_ENABLED"):
-        raise HTTPException(status_code=403, detail="Alpaca broker is disabled")
+        return _execution_preview_notice_redirect("Alpaca broker is disabled", ticker=normalized_ticker)
     policy = await load_active_portfolio_policy()
     if not policy.broker_submit_enabled:
-        raise HTTPException(status_code=403, detail="broker submission is disabled")
+        return _execution_preview_notice_redirect("broker submission is disabled", ticker=normalized_ticker)
     broker, data_sources = await asyncio.gather(
         _fresh_broker_status_context(),
         runtime_data_source_status(),
     )
-    _require_immediate_execution_freshness(broker, data_sources)
+    try:
+        _require_immediate_execution_freshness(broker, data_sources)
+    except HTTPException as exc:
+        return _execution_preview_notice_redirect(str(exc.detail), ticker=normalized_ticker)
     context = await execution_preview_context(
         broker=broker,
         data_sources=data_sources,
@@ -999,7 +1160,7 @@ async def submit_execution_order(
     )
     gate = _mapping_field(context, "execution_freshness_gate")
     if gate["ready"] is not True:
-        raise HTTPException(status_code=409, detail=str(gate["detail"]))
+        return _execution_preview_notice_redirect(str(gate["detail"]), ticker=normalized_ticker)
     row = row_from_execution_context(
         context,
         cycle_id=cycle_id,
@@ -1007,21 +1168,24 @@ async def submit_execution_order(
         as_of=as_of,
     )
     if row is None:
-        raise HTTPException(status_code=404, detail="execution preview not found")
+        return _execution_preview_notice_redirect("execution preview not found", ticker=normalized_ticker)
     if str(row["order_intent_hash"]) != order_intent_hash:
-        raise HTTPException(
-            status_code=409,
-            detail="order intent changed; refresh and approve again",
+        return _execution_preview_notice_redirect(
+            "order intent changed; refresh and approve again",
+            ticker=normalized_ticker,
         )
     if row["order_approved"] is not True:
-        raise HTTPException(status_code=403, detail="hash-bound order approval required")
+        return _execution_preview_notice_redirect(
+            "hash-bound order approval required",
+            ticker=normalized_ticker,
+        )
     if row["submit_enabled"] is not True:
-        raise HTTPException(status_code=400, detail=str(row["submit_blocker"]))
+        return _execution_preview_notice_redirect(str(row["submit_blocker"]), ticker=normalized_ticker)
     submit_gate_armed, operator_phrase = await _paper_submit_confirmation(request)
     if submit_gate_armed is not True or operator_phrase.strip().lower() != "submit paper orders":
-        raise HTTPException(
-            status_code=400,
-            detail="Final paper-submit confirmation phrase is required.",
+        return _execution_preview_notice_redirect(
+            "Final paper-submit confirmation phrase is required.",
+            ticker=normalized_ticker,
         )
     order_payload: dict[str, object] | None = None
     order_submitted = False
@@ -1052,28 +1216,36 @@ async def submit_execution_order(
             with suppress(MissingDatabaseConfigurationError, OSError, SQLAlchemyError):
                 await _record_failed_order_submission(row, order_payload, str(exc))
         if order_submitted:
-            raise HTTPException(
-                status_code=202,
-                detail=(
+            return _execution_preview_notice_redirect(
+                (
                     "paper order was submitted, but broker reconciliation failed; "
                     "verify Alpaca before retrying"
                 ),
-            ) from exc
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except (MissingDatabaseConfigurationError, OSError, SQLAlchemyError) as exc:
+                status_class="warn",
+                ticker=normalized_ticker,
+            )
+        return _execution_preview_notice_redirect(str(exc), status_class="block", ticker=normalized_ticker)
+    except (MissingDatabaseConfigurationError, OSError, SQLAlchemyError):
         if order_submitted:
-            raise HTTPException(
-                status_code=202,
-                detail=(
+            return _execution_preview_notice_redirect(
+                (
                     "paper order was submitted, but execution audit persistence failed; "
                     "verify Alpaca before retrying"
                 ),
-            ) from exc
-        raise HTTPException(
-            status_code=503,
-            detail="order intent or submission audit persistence failed",
-        ) from exc
-    return RedirectResponse(url="/execution-preview", status_code=303)
+                status_class="warn",
+                ticker=normalized_ticker,
+            )
+        return _execution_preview_notice_redirect(
+            "order intent or submission audit persistence failed",
+            status_class="block",
+            ticker=normalized_ticker,
+        )
+    _clear_execution_preview_route_cache()
+    query = urlencode({"ticker": normalized_ticker})
+    return RedirectResponse(
+        url=f"/execution-preview?{query}#focused-preview-{normalized_ticker}",
+        status_code=303,
+    )
 
 
 async def _paper_submit_confirmation(request: Request) -> tuple[bool, str]:

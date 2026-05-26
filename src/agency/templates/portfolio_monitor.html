@@ -142,7 +142,7 @@
         <p class="card-reason">{{ position.exit_reason }}</p>
         <p class="card-next-step">{{ position.downstream_effect }}</p>
         <div class="portfolio-exit-actions" aria-label="Portfolio exit decision">
-          <a class="mini-button action-reject" href="/execution-preview">Confirm exit plan</a>
+          <a class="mini-button action-reject" href="/execution-preview?ticker={{ position.ticker }}#focused-preview-{{ position.ticker }}">Review exit plan for {{ position.ticker }}</a>
           <a class="mini-button action-defer" href="#positions-heading">Keep for now</a>
         </div>
       </article>

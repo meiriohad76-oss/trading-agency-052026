@@ -13,10 +13,14 @@
 {% block evidence_contract %}Each candidate shows conviction, source count, LLM status, policy gate, and freshness proof before action buttons.{% endblock %}
 
 {% macro selection_card(row) %}
-  <article class="selection-row selection-row-{{ row.gate_status | lower }}">
+  <article
+    id="candidate-{{ row.ticker }}"
+    class="selection-row selection-row-{{ row.gate_status | lower }}{% if focused_ticker == row.ticker %} selection-row-focused{% endif %}"
+    data-candidate-ticker="{{ row.ticker }}"
+  >
     <div class="selection-main">
       <div>
-        <a class="selection-ticker" href="/candidates/{{ row.ticker }}">{{ row.ticker }}</a>
+        <a class="selection-ticker" href="/candidates/{{ row.ticker }}?from=final-selection#candidate-{{ row.ticker }}">{{ row.ticker }}</a>
         <span class="tag tag-{{ row.action_class }}">{{ row.action }}</span>
         <span class="tag tag-{{ row.gate_status | lower }}">{{ row.gate_status }}</span>
       </div>
@@ -78,21 +82,21 @@
             <span>I acknowledge this caution and approve this as research/watch-list only.</span>
           </label>
           {% endif %}
-          <button class="mini-button action-approve" type="submit">Approve</button>
+          <button class="mini-button action-approve" type="submit">Approve research for {{ row.ticker }}</button>
         </form>
         <form method="post" action="{{ row.defer_review_action }}">
-          <button class="mini-button action-defer" type="submit">Defer</button>
+          <button class="mini-button action-defer" type="submit">Defer {{ row.ticker }} review</button>
         </form>
         <form method="post" action="{{ row.reject_review_action }}">
-          <button class="mini-button danger-button action-reject" type="submit">Reject</button>
+          <button class="mini-button danger-button action-reject" type="submit">Reject {{ row.ticker }} candidate</button>
         </form>
       </span>
       {% else %}
       <span class="tag tag-{{ row.human_review_class }}">{{ row.human_review_decision }}</span>
       {% endif %}
       <span class="inline-links">
-        <a class="text-link" href="/candidates/{{ row.ticker }}">Deep dive</a>
-        <a class="text-link" href="/candidates/{{ row.ticker }}#technical-heading">audit &gt;</a>
+        <a class="text-link" href="/candidates/{{ row.ticker }}?from=final-selection#candidate-{{ row.ticker }}">Deep dive</a>
+        <a class="text-link" href="/candidates/{{ row.ticker }}?from=final-selection#technical-heading">audit &gt;</a>
       </span>
     </div>
     <details class="details-panel compact-details technical-provenance shared-disclosure">
@@ -221,6 +225,57 @@
     </article>
   </section>
 
+  {% if focused_final_selection and focused_final_selection.requested %}
+  <section
+    class="panel focused-final-selection-panel"
+    aria-labelledby="focused-final-selection-heading"
+    data-selected-ticker="{{ focused_final_selection.ticker }}"
+  >
+    <div class="section-heading">
+      <div>
+        <h2 id="focused-final-selection-heading">{{ focused_final_selection.ticker }} Candidate Focus</h2>
+        <p class="section-subtitle">{{ focused_final_selection.detail }}</p>
+      </div>
+      <span class="tag tag-{{ focused_final_selection.status_class }}">{{ focused_final_selection.status_label }}</span>
+    </div>
+    <div class="next-action final-selection-focus-action" aria-label="Selected candidate next step">
+      <div class="next-action-step" aria-hidden="true">Now</div>
+      <div class="next-action-copy">
+        <p class="eyebrow">Selected ticker</p>
+        <h2>{{ focused_final_selection.headline }}</h2>
+        <p>{{ focused_final_selection.next_step }}</p>
+      </div>
+    </div>
+    {% if focused_final_selection.found %}
+    <div class="selection-list selection-list-focused">
+      {% for row in focused_final_selection.rows %}
+        {{ selection_card(row) }}
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="empty-block">
+      {{ focused_final_selection.headline }}. Open its execution follow-up, refresh the current cycle, or return to the full candidate queue.
+    </p>
+    <div class="inline-links">
+      <a class="text-link" href="/execution-preview?ticker={{ focused_final_selection.ticker }}#focused-preview-{{ focused_final_selection.ticker }}">Open execution follow-up for {{ focused_final_selection.ticker }}</a>
+      <a class="text-link" href="/command">Back to Command</a>
+    </div>
+    {% endif %}
+  </section>
+
+  {{ data_health_panel(data_health) }}
+
+  <section class="panel focused-final-selection-nav" aria-label="Focused final selection navigation">
+    <div class="section-heading">
+      <div>
+        <h2>Stay With {{ focused_final_selection.ticker }}</h2>
+        <p class="section-subtitle">This focused view hides the full candidate queue so the selected ticker stays in front.</p>
+      </div>
+      <a class="mini-button" href="/final-selection">Show full candidate queue</a>
+    </div>
+  </section>
+  {% else %}
+
   <section class="panel" aria-labelledby="final-heading" data-empty-copy="No final selection reports yet">
     <div class="section-heading">
       <div>
@@ -284,4 +339,5 @@
       </div>
     </details>
   </section>
+  {% endif %}
 {% endblock %}

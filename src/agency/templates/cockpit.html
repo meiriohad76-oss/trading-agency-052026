@@ -23,7 +23,7 @@
       <h2 class="cockpit-bluf">{{ scenario.headline }}</h2>
       <p class="muted">{{ scenario.detail }}</p>
       {% if scenario.qa_override %}
-        <p class="cockpit-qa-banner" role="status">QA scenario only - not operational evidence and not readiness proof.</p>
+        <p class="cockpit-scenario-banner" role="status">Training scenario only - not operational evidence and not readiness proof.</p>
       {% endif %}
     </div>
     <div class="cockpit-cycle-card" aria-label="Current cycle">
@@ -119,8 +119,8 @@
       </fieldset>
       {% if qa_scenarios_enabled %}
         <fieldset data-cockpit-qa-scenario>
-          <legend>QA scenario</legend>
-          <p class="muted">QA scenario only - not operational evidence.</p>
+          <legend>Training scenario</legend>
+          <p class="muted">Training scenario only - not operational evidence.</p>
           {% for item in qa_scenarios %}
             <a class="button button-secondary" href="/cockpit?scenario={{ item }}">{{ item }}</a>
           {% endfor %}

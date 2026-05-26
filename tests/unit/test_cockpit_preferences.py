@@ -117,7 +117,8 @@ def test_qa_scenario_override_banner_marks_non_operational() -> None:
     assert context["qa_scenarios_enabled"] is True
     assert context["scenario"]["state"] == "outage"
     assert context["scenario"]["qa_override"] is True
-    assert "QA scenario only" in html
+    assert "Training scenario only" in html
+    assert "QA scenario only" not in html
     assert "not operational evidence" in html
     assert "data-cockpit-qa-scenario" in html
 

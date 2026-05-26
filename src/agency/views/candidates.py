@@ -5,6 +5,7 @@ import asyncio
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from pathlib import Path
+from time import monotonic
 from typing import Any, cast
 from urllib.parse import urlencode, urlsplit
 
@@ -61,32 +62,65 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 NEWS_CONSUMPTION_LEDGER_PATH = (
     REPO_ROOT / "research" / "data" / "state" / "news_rss_consumed.json"
 )
+CANDIDATE_AUDIT_LIGHT_STATUS_CACHE_SECONDS = 60.0
+_candidate_audit_light_status_cache: tuple[float, dict[str, object]] | None = None
 
 
-async def candidate_detail_context(ticker: str) -> dict[str, object]:
+async def candidate_detail_context(
+    ticker: str,
+    *,
+    include_rich_signal_evidence: bool = True,
+    return_source: str | None = None,
+) -> dict[str, object]:
     from agency.views.market_regime import broker_status_context
     normalized_ticker = ticker.upper()
-    reports, timeline, risk_decisions, broker = await asyncio.gather(
-        _dashboard_selection_reports(ticker=normalized_ticker, limit=5),
-        _dashboard_candidate_timeline(ticker=normalized_ticker, limit=25),
-        _dashboard_risk_decisions(ticker=normalized_ticker, limit=5),
-        broker_status_context(),
+    if include_rich_signal_evidence:
+        reports, timeline, risk_decisions, broker = await asyncio.gather(
+            _dashboard_selection_reports(ticker=normalized_ticker, limit=5),
+            _dashboard_candidate_timeline(ticker=normalized_ticker, limit=25),
+            _dashboard_risk_decisions(ticker=normalized_ticker, limit=5),
+            broker_status_context(),
+        )
+    else:
+        reports, timeline, risk_decisions = await asyncio.gather(
+            _dashboard_selection_reports(ticker=normalized_ticker, limit=1),
+            _dashboard_candidate_timeline(ticker=normalized_ticker, limit=5),
+            _dashboard_risk_decisions(ticker=normalized_ticker, limit=1),
+        )
+        broker = {"positions": [], "orders": [], "connected": False}
+    report_rows = candidate_detail_report_rows(
+        reports,
+        review_events=timeline,
+        include_rich_signal_evidence=include_rich_signal_evidence,
     )
-    report_rows = candidate_detail_report_rows(reports, review_events=timeline)
     latest_report = report_rows[0] if report_rows else None
     latest_raw_report = _matching_payload(reports, latest_report)
     latest_risk_decision = _matching_payload(risk_decisions, latest_report)
-    email_evidence = candidate_email_evidence(normalized_ticker)
-    email_evidence = candidate_email_evidence_with_judgement(
-        normalized_ticker,
-        email_evidence,
-        latest_report,
+    if include_rich_signal_evidence:
+        email_evidence = candidate_email_evidence(normalized_ticker)
+        email_evidence = candidate_email_evidence_with_judgement(
+            normalized_ticker,
+            email_evidence,
+            latest_report,
+        )
+        news_evidence = candidate_news_evidence(normalized_ticker)
+    else:
+        email_evidence = _candidate_email_evidence_audit_placeholder(normalized_ticker)
+        news_evidence = _candidate_news_evidence_audit_placeholder(normalized_ticker)
+    review = candidate_review_summary(
+        report_rows,
+        timeline,
+        risk_decisions=risk_decisions,
+        return_source=return_source,
     )
-    news_evidence = candidate_news_evidence(normalized_ticker)
-    review = candidate_review_summary(report_rows, timeline, risk_decisions=risk_decisions)
-    data_load_status = await live_dashboard_data_load_status()
+    data_load_status = (
+        await live_dashboard_data_load_status()
+        if include_rich_signal_evidence
+        else await _candidate_audit_light_data_load_status()
+    )
     return {
         "ticker": normalized_ticker,
+        "candidate_return": _candidate_return_context(normalized_ticker, return_source),
         "decision_brief": candidate_decision_brief(
             normalized_ticker,
             latest_report,
@@ -122,6 +156,18 @@ async def candidate_detail_context(ticker: str) -> dict[str, object]:
         "summary": candidate_detail_summary(normalized_ticker, report_rows, timeline),
     }
 
+async def _candidate_audit_light_data_load_status() -> dict[str, object]:
+    global _candidate_audit_light_status_cache
+    cached = _candidate_audit_light_status_cache
+    now = monotonic()
+    if cached is not None:
+        cached_at, cached_status = cached
+        if now - cached_at <= CANDIDATE_AUDIT_LIGHT_STATUS_CACHE_SECONDS:
+            return dict(cached_status)
+    status = await live_dashboard_data_load_status()
+    _candidate_audit_light_status_cache = (now, dict(status))
+    return status
+
 def candidate_rows(reports: Sequence[Mapping[str, object]]) -> list[dict[str, object]]:
     return [_candidate_row(report) for report in reports]
 
@@ -129,6 +175,7 @@ def candidate_detail_report_rows(
     reports: Sequence[Mapping[str, object]],
     *,
     review_events: Sequence[Mapping[str, object]] = (),
+    include_rich_signal_evidence: bool = True,
 ) -> list[dict[str, object]]:
     from agency.views.final_selection import _candidate_detail_sort_key, _final_selection_row
     review_index = _human_review_index(review_events)
@@ -142,7 +189,7 @@ def candidate_detail_report_rows(
         ],
         key=_candidate_detail_sort_key,
     )
-    if rows:
+    if rows and include_rich_signal_evidence:
         rows[0] = _enrich_candidate_report_signals(rows[0])
     return rows
 
@@ -152,6 +199,65 @@ def _enrich_candidate_report_signals(row: Mapping[str, object]) -> dict[str, obj
         signal_rows = _mapping_rows(output, key)
         output[key] = enrich_signal_rows_with_evidence(signal_rows) if signal_rows else []
     return output
+
+def _candidate_email_evidence_audit_placeholder(ticker: str) -> dict[str, object]:
+    normalized = ticker.upper()
+    return {
+        "ticker": normalized,
+        "event_count": 0,
+        "feed_count": 0,
+        "analyzed_count": 0,
+        "status_counts": {},
+        "status_summary": "Skipped for light audit shell.",
+        "latest_at": "Skipped for light audit",
+        "direction_rows": [],
+        "direction_summary": "Skipped for light audit shell.",
+        "meaning": "Open the full candidate page for detailed content evidence.",
+        "service_summary": "Skipped for light audit",
+        "primary_takeaway": "Rich article/email evidence was skipped for the audit shell.",
+        "pipeline_summary": (
+            "The light audit shell verifies layout and navigation without reading "
+            "mailbox, article, or feed files."
+        ),
+        "quality_summary": (
+            "Evidence quality is not evaluated in the light audit shell. Open the "
+            "full candidate page to inspect article and email evidence."
+        ),
+        "insight_cards": [],
+        "rows": [],
+        "feed_rows": [],
+        "paired_rows": [],
+        "status_label": "Audit Shell",
+        "status_class": "neutral",
+        "detail": "Rich article/email evidence was skipped for the audit shell.",
+        "judgement_summary": (
+            "Article/email judgement is not run in the light audit shell."
+        ),
+    }
+
+def _candidate_news_evidence_audit_placeholder(ticker: str) -> dict[str, object]:
+    normalized = ticker.upper()
+    return {
+        "ticker": normalized,
+        "resolved_count": 0,
+        "used_count": 0,
+        "unused_resolved_count": 0,
+        "unresolved_context_count": 0,
+        "latest_at": "Skipped for light audit",
+        "status_label": "Audit Shell",
+        "status_class": "neutral",
+        "coverage_summary": (
+            "Rich RSS/news ticker evidence was skipped for the audit shell."
+        ),
+        "consumption_summary": (
+            "Single-use RSS/news consumption was not inspected in the light audit shell."
+        ),
+        "context_summary": (
+            "Open the full candidate page to inspect unresolved RSS/news context."
+        ),
+        "rows": [],
+        "context_rows": [],
+    }
 
 def candidate_detail_summary(
     ticker: str,
@@ -174,6 +280,7 @@ def candidate_review_summary(
     timeline: Sequence[Mapping[str, object]],
     *,
     risk_decisions: Sequence[Mapping[str, object]] = (),
+    return_source: str | None = None,
 ) -> dict[str, object]:
     if not reports:
         return {
@@ -220,18 +327,21 @@ def candidate_review_summary(
             cycle_id=cycle_id,
             as_of=as_of,
             decision="APPROVE",
+            return_to=return_source,
         ),
         "defer_action": _review_action_url(
             ticker=ticker,
             cycle_id=cycle_id,
             as_of=as_of,
             decision="DEFER",
+            return_to=return_source,
         ),
         "reject_action": _review_action_url(
             ticker=ticker,
             cycle_id=cycle_id,
             as_of=as_of,
             decision="REJECT",
+            return_to=return_source,
         ),
     }
 
@@ -2487,7 +2597,7 @@ def _paper_review_row(
         "llm_review": dict(llm_review),
         "evidence_hash": str(report.get("evidence_hash") or ""),
         "cycle_id": str(report["cycle_id"]),
-        "candidate_href": f"/candidates/{ticker}",
+        "candidate_href": f"/candidates/{ticker}?from=final-selection#candidate-{ticker}",
         "risk_href": "/risk",
         "final_selection_href": "/final-selection",
         "approve_review_action": _review_action_url(
@@ -2495,18 +2605,21 @@ def _paper_review_row(
             cycle_id=str(report["cycle_id"]),
             as_of=str(report["as_of"]),
             decision="APPROVE",
+            return_to="final-selection",
         ),
         "defer_review_action": _review_action_url(
             ticker=ticker,
             cycle_id=str(report["cycle_id"]),
             as_of=str(report["as_of"]),
             decision="DEFER",
+            return_to="final-selection",
         ),
         "reject_review_action": _review_action_url(
             ticker=ticker,
             cycle_id=str(report["cycle_id"]),
             as_of=str(report["as_of"]),
             decision="REJECT",
+            return_to="final-selection",
         ),
         "risk_decision": decision,
         "risk_class": decision_class,
@@ -2543,10 +2656,36 @@ def _optional_mapping_field(payload: Mapping[str, object], key: str) -> Mapping[
     value = payload.get(key)
     return value if isinstance(value, Mapping) else {}
 
-def _candidate_review_redirect_url(*, ticker: str, decision: str) -> str:
+def _candidate_return_context(ticker: str, return_source: str | None) -> dict[str, str]:
+    normalized_ticker = ticker.upper()
+    if str(return_source or "").strip().lower() == "execution-preview":
+        query = urlencode({"ticker": normalized_ticker})
+        return {
+            "label": "Back to execution review",
+            "href": f"/execution-preview?{query}#focused-preview-{normalized_ticker}",
+        }
+    return {
+        "label": "Back to candidates",
+        "href": f"/final-selection?ticker={normalized_ticker}#candidate-{normalized_ticker}",
+    }
+
+def _candidate_review_redirect_url(
+    *,
+    ticker: str,
+    decision: str,
+    return_to: str | None = None,
+) -> str:
+    normalized_ticker = ticker.upper()
     if decision.upper() == "APPROVE":
-        return "/execution-preview#execution-followup-heading"
-    return f"/candidates/{ticker.upper()}"
+        query = urlencode({"ticker": normalized_ticker})
+        return f"/execution-preview?{query}#focused-preview-{normalized_ticker}"
+    if str(return_to or "").strip().lower() == "final-selection":
+        query = urlencode({"ticker": normalized_ticker})
+        return f"/final-selection?{query}#candidate-{normalized_ticker}"
+    if str(return_to or "").strip().lower() == "execution-preview":
+        query = urlencode({"ticker": normalized_ticker})
+        return f"/execution-preview?{query}#focused-preview-{normalized_ticker}"
+    return f"/candidates/{normalized_ticker}"
 
 def _review_action_url(
     *,
@@ -2555,10 +2694,14 @@ def _review_action_url(
     as_of: str,
     decision: str,
     caution_acknowledged: bool = False,
+    return_to: str | None = None,
 ) -> str:
     query_values = {"cycle_id": cycle_id, "as_of": as_of, "decision": decision}
     if caution_acknowledged:
         query_values["caution_acknowledged"] = "true"
+    cleaned_return = str(return_to or "").strip().lower()
+    if cleaned_return in {"final-selection", "execution-preview"}:
+        query_values["return_to"] = cleaned_return
     query = urlencode(query_values)
     return f"/candidates/{ticker}/reviews?{query}"
 

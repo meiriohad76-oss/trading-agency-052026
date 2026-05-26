@@ -25,6 +25,7 @@ EMAIL_EVENTS_PATH = REPO_ROOT / "research" / "data" / "parquet" / "subscription_
 NEWS_RSS_PATH = REPO_ROOT / "research" / "data" / "parquet" / "news_rss.parquet"
 PRICES_DAILY_ROOT = REPO_ROOT / "research" / "data" / "parquet" / "prices_daily"
 ACTIONABLE_ACTIONS = {"BUY", "SELL", "SHORT", "COVER", "WATCH", "HOLD"}
+LOCAL_ARTIFACT_MERGE_EVENT_TYPES = {"HUMAN_REVIEW", "OPERATOR_MANUAL_ADVANCE"}
 OPEN_RISK_DECISIONS = {"ALLOW", "WARN"}
 DEGRADED_SOURCE_STATUSES = {"DEGRADED", "STALE", "UNAVAILABLE", "RATE_LIMITED"}
 DEGRADED_FRESHNESS = {"AGING", "STALE", "UNAVAILABLE"}
@@ -49,7 +50,7 @@ REFRESHABLE_DATASET_TO_LANE = {
 }
 FINAL_SELECTION_REPORT_LIMIT = 1000
 SIGNALS_REPORT_LIMIT = 300
-SIGNALS_RENDER_LIMIT = 50
+SIGNALS_RENDER_LIMIT = 30
 SIGNALS_CONTEXT_CACHE_SECONDS = 300.0
 BROKER_STATUS_CONTEXT_CACHE_SECONDS = 30.0
 MARKET_REGIME_CONTEXT_CACHE_SECONDS = 300.0
@@ -202,7 +203,7 @@ async def _lifecycle_events_for_reports(
         return []
     tickers = sorted(
         {
-            str(report["ticker"])
+            str(report["ticker"]).upper()
             for report in reports
             if report.get("cycle_id") == cycle_id
         }
@@ -210,6 +211,7 @@ async def _lifecycle_events_for_reports(
     if not tickers:
         return []
     limit = max(len(tickers) * limit_per_ticker, limit_per_ticker)
+    use_artifact_merge = event_type.upper() in LOCAL_ARTIFACT_MERGE_EVENT_TYPES
     try:
         async with get_session() as session:
             events = await asyncio.wait_for(
@@ -220,6 +222,11 @@ async def _lifecycle_events_for_reports(
                 ),
                 timeout=DASHBOARD_LIFECYCLE_QUERY_TIMEOUT_SECONDS,
             )
+            if use_artifact_merge:
+                events = _merge_lifecycle_events(
+                    events,
+                    runtime_lifecycle_event_artifacts(cycle_id=cycle_id, limit=limit),
+                )
     except (MissingDatabaseConfigurationError, SQLAlchemyError, RuntimeError, TimeoutError, TypeError, OSError):
         events = runtime_lifecycle_event_artifacts(cycle_id=cycle_id, limit=limit)
         if not events:
@@ -235,12 +242,48 @@ async def _lifecycle_events_for_reports(
             except (RuntimeError, TimeoutError, TypeError, OSError, SQLAlchemyError):
                 events = []
     ticker_set = set(tickers)
-    return [
+    filtered = [
         event
         for event in events
-        if event.get("event_type") == event_type
+        if str(event.get("event_type") or "").upper() == event_type.upper()
         and str(event.get("ticker", "")).upper() in ticker_set
     ]
+    return sorted(filtered, key=_lifecycle_event_sort_value, reverse=True)
+
+
+def _merge_lifecycle_events(
+    primary: Sequence[Mapping[str, object]],
+    fallback: Sequence[Mapping[str, object]],
+) -> list[dict[str, object]]:
+    merged: list[dict[str, object]] = []
+    seen: set[tuple[str, str, str, str, str]] = set()
+    for event in [*primary, *fallback]:
+        key = _lifecycle_event_identity(event)
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(dict(event))
+    return merged
+
+
+def _lifecycle_event_identity(event: Mapping[str, object]) -> tuple[str, str, str, str, str]:
+    payload = _mapping_field(event, "payload")
+    event_unique_id = str(event.get("event_id") or event.get("event_time") or "")
+    return (
+        event_unique_id,
+        str(event.get("cycle_id") or ""),
+        str(event.get("ticker") or "").upper(),
+        str(event.get("event_type") or "").upper(),
+        str(payload.get("as_of") or ""),
+    )
+
+
+def _lifecycle_event_sort_value(event: Mapping[str, object]) -> float:
+    for key in ("event_time", "generated_at", "checked_at", "as_of"):
+        timestamp = _parse_dashboard_timestamp(event.get(key))
+        if timestamp is not None:
+            return timestamp.timestamp()
+    return 0.0
 
 async def _timeline_lifecycle_events_for_reports(
     *,
@@ -465,7 +508,7 @@ def _is_human_review_event(event: Mapping[str, object]) -> bool:
 def _runtime_payload_key(payload: Mapping[str, object]) -> tuple[str, str, str]:
     return (
         str(payload.get("cycle_id", "")),
-        str(payload.get("ticker", "")),
+        str(payload.get("ticker", "")).upper(),
         str(payload.get("as_of", "")),
     )
 
@@ -487,7 +530,7 @@ def _human_review_key(event: Mapping[str, object]) -> tuple[str, str, str]:
         as_of = str(payload.get("as_of", ""))
     return (
         str(event.get("cycle_id", "")),
-        str(event.get("ticker", "")),
+        str(event.get("ticker", "")).upper(),
         as_of,
     )
 
@@ -756,6 +799,9 @@ def dashboard_data_health(
         key="lane",
         wanted=lanes,
     )
+    lane_state_rows = _data_health_lane_state_rows(
+        _optional_mapping_rows(status.get("lane_state_rows") or status.get("lane_states"))
+    )
     rows = _ordered_data_health_rows([
         _health_monitor_data_health_row(health_monitor),
         *_dashboard_dataset_health_rows(dataset_rows),
@@ -824,6 +870,7 @@ def dashboard_data_health(
         "overall_percent": overall_percent,
         "progress_style": f"width: {overall_percent}%",
         "rows": rows,
+        "lane_state_rows": lane_state_rows,
         "row_count": len(rows),
         "visible_row_count": len(rows),
         "hidden_row_count": 0,
@@ -1023,7 +1070,11 @@ def _operator_issue_state(
     )
 
     if kind == "Health monitor":
-        if "stale" in status_label or "older than" in detail_lc or status == "STALE":
+        if (
+            "stale" in status_label
+            or "older than" in detail_lc
+            or status in {"STALE", "CONTEXT_STALE"}
+        ):
             return "health_proof_needs_refresh"
         if status in {"MISSING", "UNAVAILABLE"} or any(
             token in status_label for token in ("missing", "unavailable", "unverified")
@@ -1264,6 +1315,53 @@ def _dashboard_lane_health_rows(
         }
         output.append(health_row)
     return output
+
+def _data_health_lane_state_rows(
+    rows: Sequence[Mapping[str, object]],
+    *,
+    limit: int = 12,
+) -> list[dict[str, object]]:
+    output: list[dict[str, object]] = []
+    for row in rows[:limit]:
+        lane_id = str(row.get("lane_id") or row.get("lane") or "unknown_lane")
+        name = str(row.get("name") or row.get("label") or lane_id.replace("_", " ").title())
+        status_class = str(row.get("status_class") or "neutral")
+        status_label = _operator_text(row.get("status_label"), default="Status not reported")
+        progress_label = _operator_text(row.get("progress_label"), default="not tracked")
+        detail = _operator_text(row.get("detail"), default="No lane-state detail reported.")
+        recommended_action = _operator_text(
+            row.get("recommended_action"),
+            default=_lane_state_recommended_action(status_label, progress_label),
+        )
+        output.append(
+            {
+                "lane_id": lane_id,
+                "name": name,
+                "status_label": status_label,
+                "status_class": status_class,
+                "progress_label": progress_label,
+                "latest_as_of": _format_timestamp_or_text(
+                    row.get("latest_as_of") or row.get("last_update") or row.get("as_of"),
+                    default="not recorded",
+                ),
+                "detail": detail,
+                "recommended_action": recommended_action,
+                "tooltip": f"{name}: {status_label}. {detail}",
+            }
+        )
+    return output
+
+def _lane_state_recommended_action(status_label: str, progress_label: str) -> str:
+    text = f"{status_label} {progress_label}".casefold()
+    if "still loading" in text or "running" in text:
+        return "Wait for this lane to finish or open the refresh queue for progress."
+    if "needs refresh" in text or "refresh" in text:
+        return "Refresh this lane, then rerun the affected agent cycle."
+    if "unavailable" in text or "failed" in text or "missing" in text:
+        return "Fix the provider or manifest issue before trusting this lane."
+    if "not required" in text:
+        return "No action required for the current workflow."
+    return "Continue normal review."
 
 def _health_monitor_data_health_row(monitor: Mapping[str, object]) -> dict[str, object]:
     row_count = _safe_int(monitor.get("row_count"))
@@ -1757,7 +1855,7 @@ def _data_health_state(
     data_unavailable = any(row.get("issue_state") == "data_unavailable" for row in data_rows)
     waiting_for_analysis = any(row.get("issue_state") == "waiting_for_analysis" for row in data_rows)
     refresh_recommended = any(row.get("issue_state") == "refresh_recommended" for row in data_rows)
-    if monitor_status == "stale":
+    if monitor_status in {"stale", "context_stale"}:
         return "health_proof_needs_refresh"
     if monitor_status in {"missing", "unavailable", "unverified"}:
         return "health_proof_unavailable"

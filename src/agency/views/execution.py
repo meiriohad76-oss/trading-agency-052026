@@ -48,6 +48,7 @@ from agency.views._shared import (
     _mapping_field,
     _mapping_list_field,
     _mapping_list_field_or_empty,
+    _operator_text,
     _optional_float_field,
     _runtime_payload_key,
     _source_health_origin_label,
@@ -74,6 +75,7 @@ async def execution_preview_context(
     data_sources: Sequence[Mapping[str, object]] | None = None,
     broker: Mapping[str, object] | None = None,
     validate_contracts: bool = False,
+    focus_ticker: str | None = None,
 ) -> dict[str, object]:
     from agency.views.command import human_review_events_for_reports
     from agency.views.market_regime import broker_status_context
@@ -197,6 +199,7 @@ async def execution_preview_context(
         promotion_evaluations=promotion_evaluations,
         execution_states=execution_states,
     )
+    focused_execution = execution_preview_focus_context(preview_rows, focus_ticker)
     leveraged_policy = LeveragedAlternativePolicy.from_env()
     leveraged_catalog = load_leveraged_etf_catalog()
     leveraged_reviews = [
@@ -248,6 +251,7 @@ async def execution_preview_context(
             ),
         ),
         "preview_rows": preview_rows,
+        "focused_execution": focused_execution,
         "orderable_rows": [row for row in preview_rows if row["preview_state"] == "READY"],
         "review_only_rows": [row for row in preview_rows if row["preview_state"] == "DISABLED"],
         "approved_review_only_rows": [
@@ -267,6 +271,150 @@ async def execution_preview_context(
         "freshness_gate": freshness_gate,
         "scheduler_tradability": _mapping_field(scheduler_gate, "tradability"),
     }
+
+
+def execution_preview_focus_context(
+    preview_rows: Sequence[Mapping[str, object]],
+    focus_ticker: str | None,
+) -> dict[str, object]:
+    normalized = str(focus_ticker or "").strip().upper()
+    if not normalized:
+        return {
+            "requested": False,
+            "ticker": "",
+            "found": False,
+            "rows": [],
+            "row": None,
+            "status_label": "",
+            "status_class": "neutral",
+            "headline": "",
+            "detail": "",
+            "next_step": "",
+        }
+    focused_rows = [
+        row
+        for row in preview_rows
+        if str(row.get("ticker") or "").upper() == normalized
+    ]
+    if not focused_rows:
+        return {
+            "requested": True,
+            "ticker": normalized,
+            "found": False,
+            "rows": [],
+            "row": None,
+            "status_label": "Not in latest preview",
+            "status_class": "warn",
+            "headline": f"{normalized} is not in the latest execution preview.",
+            "detail": (
+                "The agency did not find this ticker in the current execution-preview "
+                "artifact. Return to the candidate page or rerun the latest candidate cycle "
+                "before trying to advance it."
+            ),
+            "next_step": f"Open {normalized} candidate detail and refresh the latest review state.",
+        }
+    row = dict(focused_rows[0])
+    return {
+        "requested": True,
+        "ticker": normalized,
+        "found": True,
+        "rows": [row],
+        "row": row,
+        "status_label": _focused_execution_status_label(row),
+        "status_class": _focused_execution_status_class(row),
+        "headline": _focused_execution_headline(row),
+        "detail": _focused_execution_detail(row),
+        "next_step": _focused_execution_next_step(row),
+    }
+
+
+def _focused_execution_status_label(row: Mapping[str, object]) -> str:
+    if row.get("submit_enabled") is True:
+        return "Ready for paper submit"
+    if row.get("order_approval_available") is True and row.get("order_approved") is not True:
+        return "Order intent needs approval"
+    if row.get("operator_manual_advance_available") is True:
+        return "Manual advance available"
+    if row.get("human_approved") is True:
+        return "Research approved"
+    if row.get("research_approval_available") is True:
+        return "Research approval needed"
+    return str(row.get("submit_label") or row.get("preview_state") or "Needs review")
+
+
+def _focused_execution_status_class(row: Mapping[str, object]) -> str:
+    if row.get("submit_enabled") is True:
+        return "pass"
+    if row.get("operator_manual_advance_available") is True:
+        return "warn"
+    if row.get("human_approved") is True:
+        return "warn"
+    if row.get("research_approval_available") is True:
+        return "warn"
+    return str(row.get("state_class") or "neutral")
+
+
+def _focused_execution_headline(row: Mapping[str, object]) -> str:
+    ticker = str(row.get("ticker") or "This ticker")
+    if row.get("submit_enabled") is True:
+        return f"{ticker} is ready for paper submission."
+    if row.get("order_approval_available") is True and row.get("order_approved") is not True:
+        return f"{ticker} has a paper order intent waiting for approval."
+    if row.get("operator_manual_advance_available") is True:
+        primary_blocker = str(row.get("paper_promotion_primary_blocker") or "").strip()
+        return (
+            f"{ticker} can be manually advanced with caution"
+            f"{': ' + primary_blocker if primary_blocker else '.'}"
+        )
+    if row.get("human_approved") is True:
+        return f"{ticker} research approval is recorded."
+    if row.get("research_approval_available") is True:
+        return f"{ticker} needs research approval before portfolio sizing."
+    return f"{ticker} is selected for execution follow-up."
+
+
+def _focused_execution_detail(row: Mapping[str, object]) -> str:
+    ticker = str(row.get("ticker") or "This ticker")
+    if row.get("submit_enabled") is True:
+        return (
+            f"{ticker} passed the current paper-trading gates. Review the order hash, "
+            "then type the confirmation phrase from the selected card."
+        )
+    if row.get("order_approval_available") is True and row.get("order_approved") is not True:
+        return (
+            f"{ticker} has a sized paper intent. Approve the exact order intent first; "
+            "the submit button appears only if the broker and data gates still pass."
+        )
+    primary_blocker = str(row.get("paper_promotion_primary_blocker") or "").strip()
+    if row.get("operator_manual_advance_available") is True:
+        return (
+            f"{ticker} is approved as research, but policy still shows this caution: "
+            f"{primary_blocker or 'one promotion check did not pass'}. "
+            "Use the paper-only manual advance form only if you accept that caution."
+        )
+    if row.get("human_approved") is True:
+        return (
+            f"{ticker} is approved as research but is not orderable yet. "
+            f"Reason: {primary_blocker or row.get('reason') or row.get('next_step')}."
+        )
+    if row.get("research_approval_available") is True:
+        return (
+            f"{ticker} can be advanced to the portfolio manager only after you approve "
+            "the current research report."
+        )
+    return str(row.get("reason") or row.get("next_step") or "No execution detail is available.")
+
+
+def _focused_execution_next_step(row: Mapping[str, object]) -> str:
+    if row.get("submit_enabled") is True:
+        return "Final step: arm the paper submit gate on the selected card."
+    if row.get("order_approval_available") is True and row.get("order_approved") is not True:
+        return "Next step: approve the order intent on the selected card."
+    if row.get("operator_manual_advance_available") is True:
+        return "Next step: either wait for stronger evidence, refresh the relevant lanes, or use manual advance with caution."
+    if row.get("research_approval_available") is True:
+        return "Next step: approve research on the selected card."
+    return str(row.get("next_step") or "No next action is available in this cycle.")
 
 
 async def _execution_preview_broker_status_context(
@@ -795,7 +943,7 @@ def _execution_preview_row(
     execution_state: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     reasons = _string_list(preview, "reasons")
-    raw_reason = reasons[0] if reasons else "preview recorded"
+    raw_reason = _operator_text(reasons[0] if reasons else "preview recorded")
     caution = _execution_preview_caution(preview, raw_reason)
     preview_submit_enabled = preview["submit_enabled"] is True and submit_gate_ready
     effective_order_approved = order_approved and human_approved
@@ -926,7 +1074,7 @@ def _execution_preview_row(
             review_decision=review_decision,
         ),
         "llm_action": llm_action,
-        "llm_rationale": str(
+        "llm_rationale": _operator_text(
             preview.get("llm_rationale")
             or "No LLM rationale was attached to this preview; deterministic risk and portfolio gates are shown."
         ),
@@ -1457,7 +1605,7 @@ def _execution_reason_text(
         return _execution_order_intent(preview, raw_reason)
     if str(preview["preview_state"]) == "BLOCKED":
         return f"Risk blocked this paper order: {raw_reason}."
-    return raw_reason
+    return _operator_text(raw_reason)
 
 def _execution_approval_label(
     preview: Mapping[str, object],
@@ -1619,7 +1767,7 @@ def _execution_preview_caution(
     )
     return {
         "required": required,
-        "text": raw_reason if required else "",
+        "text": _operator_text(raw_reason) if required else "",
         "recommendation": recommendation,
     }
 
@@ -1635,7 +1783,7 @@ def _promotion_text(
     if value is None:
         return default
     text = " ".join(str(value).split())
-    return text or default
+    return _operator_text(text or default)
 
 
 def _promotion_status_label_for_card(
@@ -1656,7 +1804,7 @@ def _promotion_reasons(
     reasons = promotion_evaluation.get("reasons")
     if not isinstance(reasons, Sequence) or isinstance(reasons, str | bytes):
         return []
-    return [str(reason) for reason in reasons]
+    return [_operator_text(reason) for reason in reasons]
 
 
 def _operator_manual_advance_status_label(
@@ -1732,19 +1880,23 @@ def _promotion_check_rows(
         if not isinstance(check, Mapping):
             continue
         status = str(check.get("status") or "UNKNOWN").upper()
-        observed = _clean_text(check.get("observed"), default="not reported")
-        required = _clean_text(check.get("required"), default="policy requirement")
+        observed = _operator_text(_clean_text(check.get("observed"), default="not reported"))
+        required = _operator_text(
+            _clean_text(check.get("required"), default="policy requirement")
+        )
         rows.append(
             {
                 "name": _clean_text(check.get("name"), default="promotion_check"),
                 "label": _clean_text(check.get("label"), default="Promotion check"),
                 "status": status,
                 "status_class": _promotion_check_status_class(status),
-                "detail": _clean_text(check.get("detail"), default="No detail reported."),
+                "detail": _operator_text(
+                    _clean_text(check.get("detail"), default="No detail reported.")
+                ),
                 "observed": observed,
                 "required": required,
                 "value_detail": _clean_text(
-                    check.get("value_detail"),
+                    _operator_text(check.get("value_detail")),
                     default=f"{observed} / required {required}",
                 ),
             }

@@ -12,12 +12,15 @@
 {% block operator_focus %}Submit only after research approval, order-intent approval, and broker/readiness gates are open.{% endblock %}
 {% block evidence_contract %}Order hash, broker state, policy reasons, data freshness, and paper-only mode remain attached to each preview.{% endblock %}
 
-{% macro preview_card(row) %}
-  <article class="review-card execution-preview-card paper-mode-card review-card-{{ row.state_class }}">
+{% macro preview_card(row, card_id="") %}
+  <article
+    class="review-card execution-preview-card paper-mode-card review-card-{{ row.state_class }}"
+    {% if card_id %}id="{{ card_id }}"{% endif %}
+  >
     <div class="review-card-head">
       <div>
         <span>{{ row.preview_state }} / {{ row.order_intent }}</span>
-        <h3><a class="text-link" href="/candidates/{{ row.ticker }}">{{ row.ticker }}</a></h3>
+        <h3><a class="text-link" href="/candidates/{{ row.ticker }}?from=execution-preview#focused-preview-{{ row.ticker }}">{{ row.ticker }}</a></h3>
       </div>
       {% if row.research_approval_available and not row.caution_acknowledgement_required %}
       <form class="execution-card-action" method="post" action="{{ row.approve_research_action }}">
@@ -216,6 +219,55 @@
   </div>
   {% endif %}
 
+  {% if focused_execution and focused_execution.requested %}
+  <section
+    class="panel focused-execution-panel"
+    aria-labelledby="focused-execution-heading"
+    data-selected-ticker="{{ focused_execution.ticker }}"
+  >
+    <div class="section-heading">
+      <div>
+        <h2 id="focused-execution-heading">{{ focused_execution.ticker }} Follow-Up</h2>
+        <p class="section-subtitle">{{ focused_execution.detail }}</p>
+      </div>
+      <span class="tag tag-{{ focused_execution.status_class }}">{{ focused_execution.status_label }}</span>
+    </div>
+    <div class="next-action execution-focus-action" aria-label="Selected ticker next step">
+      <div class="next-action-step" aria-hidden="true">Now</div>
+      <div class="next-action-copy">
+        <p class="eyebrow">Selected ticker</p>
+        <h2>{{ focused_execution.headline }}</h2>
+        <p>{{ focused_execution.next_step }}</p>
+      </div>
+    </div>
+    {% if focused_execution.found %}
+    <div class="review-card-list execution-card-list" aria-label="Selected execution follow-up card">
+      {% for row in focused_execution.rows %}
+        {{ preview_card(row, "focused-preview-" ~ row.ticker) }}
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="empty-block">
+      {{ focused_execution.ticker }} is not present in the latest execution preview. Open the candidate detail page, refresh the current cycle, or return to the Command dashboard.
+    </p>
+    <div class="inline-links">
+      <a class="text-link" href="/candidates/{{ focused_execution.ticker }}?from=execution-preview#focused-preview-{{ focused_execution.ticker }}">Open candidate detail</a>
+      <a class="text-link" href="/command">Back to Command</a>
+    </div>
+    {% endif %}
+  </section>
+  <section class="panel focused-execution-nav" aria-label="Focused execution navigation">
+    <div class="section-heading">
+      <div>
+        <h2>Stay With {{ focused_execution.ticker }}</h2>
+        <p class="section-subtitle">This focused view hides the long execution queue so the selected ticker stays in front.</p>
+      </div>
+      <a class="mini-button" href="/execution-preview">Show full clearance list</a>
+    </div>
+  </section>
+  {% endif %}
+
+  {% if not (focused_execution and focused_execution.requested) %}
   <section class="panel llm-status-panel" aria-label="LLM status">
     <div class="section-heading">
       <div>
@@ -272,7 +324,7 @@
     <div class="section-heading">
       <div>
         <h2 id="execution-followup-title">Actionable Execution Follow-Up</h2>
-        <p class="section-subtitle">Start here after approving research. READY rows can move toward paper submission; approved WATCH/HOLD rows explain the exact blocker.</p>
+        <p class="section-subtitle">Start here after approving research. READY rows can move toward paper submission; approved WATCH/HOLD rows explain the exact blocker. Open ticker-specific review for full card detail.</p>
       </div>
       {% if orderable_rows %}
       <span class="tag tag-pass">{{ summary.ready_count }} ready</span>
@@ -290,11 +342,13 @@
       {% for row in orderable_rows %}
         {{ preview_card(row) }}
       {% endfor %}
-      {% for row in approved_review_only_rows %}
+      {% for row in approved_review_only_rows[:8] %}
         {{ preview_card(row) }}
       {% endfor %}
       {% if not orderable_rows and not approved_review_only_rows %}
       <p class="empty-block">No approved research row can become a paper order right now. Review-only rows remain below with their promotion blockers.</p>
+      {% elif approved_review_only_rows | length > 8 %}
+      <p class="empty-block">Showing 8 approved research follow-ups out of {{ approved_review_only_rows | length }}. Open a ticker-specific review from Command to keep one stock in focus.</p>
       {% endif %}
     </div>
   </section>
@@ -322,16 +376,19 @@
     <div class="section-heading">
       <div>
         <h2 id="research-only-heading">Research-Only Approvals</h2>
-        <p class="section-subtitle">WATCH/HOLD candidates. Approved rows stay visible here with the exact reason they did not become paper orders.</p>
+        <p class="section-subtitle">WATCH/HOLD candidates. This triage view shows the first 8 rows; open ticker-specific review for full evidence and actions.</p>
       </div>
       <span class="tag tag-warn">{{ review_only_rows | length }} review-only</span>
     </div>
     <div class="review-card-list execution-card-list" aria-label="Research-only execution cards">
-      {% for row in review_only_rows %}
+      {% for row in review_only_rows[:8] %}
         {{ preview_card(row) }}
       {% else %}
       <p class="empty-block">No review-only execution rows in this cycle.</p>
       {% endfor %}
+      {% if review_only_rows | length > 8 %}
+      <p class="empty-block">Showing 8 review-only rows out of {{ review_only_rows | length }}. Use Command or Candidates to focus a single ticker.</p>
+      {% endif %}
     </div>
   </section>
 
@@ -438,7 +495,7 @@
         <div class="review-card-head">
           <div>
             <span>{{ review.baseline.action }} / {{ review.baseline.conviction_pct }}% conviction</span>
-            <h3><a class="text-link" href="/candidates/{{ review.ticker }}">{{ review.ticker }}</a></h3>
+            <h3><a class="text-link" href="/candidates/{{ review.ticker }}?from=execution-preview#focused-preview-{{ review.ticker }}">{{ review.ticker }}</a></h3>
           </div>
           <span class="tag tag-{{ review.status_class }}">{{ review.status_label }}</span>
         </div>
@@ -499,9 +556,9 @@
             </tr>
           </thead>
           <tbody>
-            {% for row in blocked_rows %}
+            {% for row in blocked_rows[:25] %}
             <tr>
-              <td data-label="Ticker"><a class="text-link" href="/candidates/{{ row.ticker }}">{{ row.ticker }}</a></td>
+              <td data-label="Ticker"><a class="text-link" href="/candidates/{{ row.ticker }}?from=execution-preview#focused-preview-{{ row.ticker }}">{{ row.ticker }}</a></td>
               <td data-label="State"><span class="tag tag-{{ row.state_class }}">{{ row.preview_state }}</span></td>
               <td data-label="Side">{{ row.side }}</td>
               <td data-label="Risk">{{ row.risk_decision }}</td>
@@ -519,6 +576,9 @@
           </tbody>
         </table>
       </div>
+      {% if blocked_rows | length > 25 %}
+      <p class="empty-block">Showing 25 blocked/no-order rows out of {{ blocked_rows | length }}. Open ticker-specific review for one stock instead of scanning the full queue.</p>
+      {% endif %}
     </details>
   </section>
 
@@ -548,4 +608,5 @@
       </div>
     </div>
   </section>
+  {% endif %}
 {% endblock %}

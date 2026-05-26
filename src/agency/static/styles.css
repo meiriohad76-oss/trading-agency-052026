@@ -3198,6 +3198,35 @@ summary:focus-visible {
   gap: 10px;
 }
 
+.data-health-lane-state-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.data-health-lane-state {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border-soft);
+  border-left: 4px solid var(--info);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.data-health-lane-state strong,
+.data-health-lane-state p {
+  overflow-wrap: anywhere;
+}
+
+.data-health-lane-state p {
+  margin: 0;
+  color: var(--text-dim);
+  line-height: 1.45;
+}
+
 .data-health-row {
   display: grid;
   grid-template-columns: minmax(180px, 1fr) auto minmax(150px, 0.72fr) minmax(150px, 0.72fr);
@@ -4381,6 +4410,11 @@ table.signal-table {
   padding: 14px;
   border: 1px solid var(--border);
   border-left-width: 4px;
+}
+
+.selection-row-focused {
+  border-color: var(--focus, var(--accent));
+  box-shadow: 0 0 0 3px var(--focus-soft, rgba(37, 99, 235, 0.18));
 }
 
 .selection-row-pass {
@@ -6352,7 +6386,7 @@ table.signal-table {
   font-weight: 800;
 }
 
-.cockpit-qa-banner {
+.cockpit-scenario-banner {
   display: inline-block;
   margin: 8px 0 0;
   padding: 6px 10px;
