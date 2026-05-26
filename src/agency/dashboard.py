@@ -165,6 +165,7 @@ def _operator_template_finalize(value: object) -> object:
 templates.env.finalize = _operator_template_finalize
 EXECUTION_PREVIEW_ROUTE_CACHE_TTL_SECONDS = 60.0
 FINAL_SELECTION_ROUTE_CACHE_TTL_SECONDS = 60.0
+COMMAND_DASHBOARD_ROUTE_CACHE_TTL_SECONDS = 15.0
 _execution_preview_route_cache: dict[str, object] = {
     "expires_at": 0.0,
     "context": None,
@@ -175,6 +176,12 @@ _final_selection_route_cache: dict[str, object] = {
     "context": None,
     "builder_id": 0,
 }
+_command_dashboard_route_cache: dict[str, object] = {
+    "expires_at": 0.0,
+    "context": None,
+    "builder_id": 0,
+}
+_command_dashboard_route_cache_lock = asyncio.Lock()
 BROKER_RECONCILIATION_TERMINAL_STATUSES = {
     "FILLED",
     "CANCELED",
@@ -200,8 +207,54 @@ async def _command_dashboard_response(request: Request) -> Response:
     return templates.TemplateResponse(
         request,
         "dashboard.html",
-        await dashboard_context(),
+        await _command_dashboard_route_context(),
     )
+
+
+async def _command_dashboard_route_context() -> dict[str, object]:
+    cached = _command_dashboard_route_cache.get("context")
+    expires_at = _command_dashboard_route_cache.get("expires_at", 0.0)
+    builder_id = id(dashboard_context)
+    if (
+        isinstance(cached, dict)
+        and isinstance(expires_at, float)
+        and expires_at > time.monotonic()
+        and _command_dashboard_route_cache.get("builder_id") == builder_id
+    ):
+        return dict(cached)
+    async with _command_dashboard_route_cache_lock:
+        cached = _command_dashboard_route_cache.get("context")
+        expires_at = _command_dashboard_route_cache.get("expires_at", 0.0)
+        if (
+            isinstance(cached, dict)
+            and isinstance(expires_at, float)
+            and expires_at > time.monotonic()
+            and _command_dashboard_route_cache.get("builder_id") == builder_id
+        ):
+            return dict(cached)
+        context = await dashboard_context()
+        _store_command_dashboard_route_cache(context)
+        return dict(context)
+
+
+def _store_command_dashboard_route_cache(context: Mapping[str, object]) -> None:
+    _command_dashboard_route_cache["context"] = dict(context)
+    _command_dashboard_route_cache["expires_at"] = (
+        time.monotonic() + COMMAND_DASHBOARD_ROUTE_CACHE_TTL_SECONDS
+    )
+    _command_dashboard_route_cache["builder_id"] = id(dashboard_context)
+
+
+def _clear_command_dashboard_route_cache() -> None:
+    _command_dashboard_route_cache["context"] = None
+    _command_dashboard_route_cache["expires_at"] = 0.0
+    _command_dashboard_route_cache["builder_id"] = 0
+
+
+def _clear_operator_route_caches() -> None:
+    _clear_command_dashboard_route_cache()
+    _clear_execution_preview_route_cache()
+    _clear_final_selection_route_cache()
 
 
 @router.get("/cockpit")
@@ -635,7 +688,7 @@ async def record_candidate_review(
                 status_code=503,
                 detail="review persistence unavailable",
             ) from write_error
-    _clear_execution_preview_route_cache()
+    _clear_operator_route_caches()
     return RedirectResponse(
         url=_candidate_review_redirect_url(
             ticker=ticker,
@@ -743,6 +796,8 @@ async def _final_selection_route_base_context(
     *,
     focus_ticker: str | None = None,
 ) -> dict[str, object]:
+    if focus_ticker:
+        return await final_selection_context(focus_ticker=focus_ticker)
     cached = _final_selection_route_cache.get("context")
     expires_at = _final_selection_route_cache.get("expires_at", 0.0)
     builder_id = id(final_selection_context)
@@ -753,7 +808,7 @@ async def _final_selection_route_base_context(
         and _final_selection_route_cache.get("builder_id") == builder_id
     ):
         return dict(cached)
-    context = await final_selection_context(focus_ticker=focus_ticker)
+    context = await final_selection_context()
     _store_final_selection_route_cache(context)
     return context
 
@@ -824,7 +879,7 @@ async def record_operator_manual_advance(
                 status_code=503,
                 detail="operator manual advance could not be persisted",
             ) from write_error
-    _clear_execution_preview_route_cache()
+    _clear_operator_route_caches()
     normalized_ticker = ticker.upper()
     query = urlencode({"ticker": normalized_ticker})
     return RedirectResponse(
@@ -1122,7 +1177,7 @@ async def approve_execution_order(
             ) from exc
     except HTTPException as exc:
         return _execution_preview_notice_redirect(str(exc.detail), ticker=ticker)
-    _clear_execution_preview_route_cache()
+    _clear_operator_route_caches()
     normalized_ticker = ticker.upper()
     query = urlencode({"ticker": normalized_ticker})
     return RedirectResponse(
@@ -1240,7 +1295,7 @@ async def submit_execution_order(
             status_class="block",
             ticker=normalized_ticker,
         )
-    _clear_execution_preview_route_cache()
+    _clear_operator_route_caches()
     query = urlencode({"ticker": normalized_ticker})
     return RedirectResponse(
         url=f"/execution-preview?{query}#focused-preview-{normalized_ticker}",

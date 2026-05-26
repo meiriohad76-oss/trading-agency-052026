@@ -290,14 +290,17 @@
       </span>
     </div>
     <div class="selection-list">
-      {% for row in watch_rows %}
+      {% for row in watch_rows[:12] %}
         {{ selection_card(row) }}
       {% else %}
       <p class="empty-block">No WATCH candidates are eligible for human review in this cycle.</p>
       {% endfor %}
-      {% for row in actionable_rows if row.action != "WATCH" %}
+      {% for row in actionable_rows[:12] if row.action != "WATCH" %}
         {{ selection_card(row) }}
       {% endfor %}
+      {% if watch_rows | length > 12 or actionable_rows | length > 12 %}
+      <p class="empty-block">Showing the first 12 review rows. Open a ticker-specific candidate focus to inspect one stock without loading the full queue.</p>
+      {% endif %}
     </div>
   </section>
 
@@ -312,11 +315,14 @@
       <span class="tag tag-neutral">{{ no_trade_rows | length }} rows</span>
     </div>
     <div class="selection-list">
-      {% for row in no_trade_rows %}
+      {% for row in no_trade_rows[:12] %}
         {{ selection_card(row) }}
       {% else %}
       <p class="empty-block">No NO_TRADE rows in this cycle.</p>
       {% endfor %}
+      {% if no_trade_rows | length > 12 %}
+      <p class="empty-block">Showing 12 context-only rows out of {{ no_trade_rows | length }}. Use ticker focus for detailed traceability.</p>
+      {% endif %}
     </div>
   </section>
 
@@ -331,11 +337,14 @@
     <details class="details-panel shared-disclosure">
       <summary>Show details: blocked latest-cycle reports</summary>
       <div class="selection-list">
-        {% for row in blocked_rows %}
+        {% for row in blocked_rows[:20] %}
           {{ selection_card(row) }}
         {% else %}
         <p class="empty-block">No BLOCKED rows in this cycle.</p>
         {% endfor %}
+        {% if blocked_rows | length > 20 %}
+        <p class="empty-block">Showing 20 blocked rows out of {{ blocked_rows | length }}. Use ticker focus for detailed traceability.</p>
+        {% endif %}
       </div>
     </details>
   </section>

@@ -22,6 +22,7 @@ import agency.views._shared as shared_module
 import agency.views.candidates as candidates_module
 import agency.views.command as command_module
 import agency.views.execution as execution_module
+import agency.views.final_selection as final_selection_module
 import agency.views.market_regime as market_regime_module
 import agency.views.portfolio as portfolio_module
 import agency.views.signals as signals_module
@@ -861,6 +862,69 @@ def test_final_selection_review_actions_return_to_focused_queue() -> None:
 
     assert "return_to=final-selection" in action
     assert redirect == "/final-selection?ticker=PLTR#candidate-PLTR"
+
+
+async def test_final_selection_focused_routes_do_not_reuse_other_ticker_cache(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    calls: list[str | None] = []
+
+    async def fake_final_selection_context(
+        *,
+        focus_ticker: str | None = None,
+    ) -> dict[str, object]:
+        calls.append(focus_ticker)
+        ticker = str(focus_ticker or "FULL").upper()
+        return {
+            "final_rows": [
+                {
+                    "ticker": ticker,
+                    "action": "WATCH",
+                    "gate_status": "PASS",
+                    "human_review_decision": "Pending",
+                    "review_next_step": f"Review {ticker}.",
+                    "action_class": "pass",
+                }
+            ],
+            "focused_ticker": ticker if focus_ticker else "",
+            "focused_final_selection": {},
+        }
+
+    monkeypatch.setattr(dashboard_module, "final_selection_context", fake_final_selection_context)
+    dashboard_module._clear_final_selection_route_cache()
+
+    first = await dashboard_module._final_selection_route_context(focus_ticker="AAPL")
+    second = await dashboard_module._final_selection_route_context(focus_ticker="MSFT")
+
+    assert calls == ["AAPL", "MSFT"]
+    assert first["focused_final_selection"]["ticker"] == "AAPL"
+    assert first["focused_final_selection"]["found"] is True
+    assert second["focused_final_selection"]["ticker"] == "MSFT"
+    assert second["focused_final_selection"]["found"] is True
+
+
+async def test_command_dashboard_route_context_shares_inflight_build(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    calls = 0
+
+    async def fake_dashboard_context() -> dict[str, object]:
+        nonlocal calls
+        calls += 1
+        await asyncio.sleep(0.01)
+        return {"call": calls}
+
+    monkeypatch.setattr(dashboard_module, "dashboard_context", fake_dashboard_context)
+    dashboard_module._clear_command_dashboard_route_cache()
+
+    first, second = await asyncio.gather(
+        dashboard_module._command_dashboard_route_context(),
+        dashboard_module._command_dashboard_route_context(),
+    )
+
+    assert calls == 1
+    assert first == {"call": 1}
+    assert second == {"call": 1}
 
 
 def test_execution_status_row_uses_operator_refresh_language() -> None:
@@ -4317,6 +4381,77 @@ async def test_final_selection_context_prefers_latest_live_ready_cycle(
     assert [row["ticker"] for row in context["final_rows"]] == ["AAPL"]
     assert context["summary"]["cycle_id"] == "live-ready-current"
 
+async def test_final_selection_focus_context_only_enriches_requested_ticker(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    current_aapl = _selection_report_for_cycle(
+        "live-pit-current",
+        "AAPL",
+        "2026-05-07T09:31:00Z",
+    )
+    current_nvda = _selection_report_for_cycle(
+        "live-pit-current",
+        "NVDA",
+        "2026-05-07T09:31:00Z",
+    )
+    current_msft = _selection_report_for_cycle(
+        "live-pit-current",
+        "MSFT",
+        "2026-05-07T09:31:00Z",
+    )
+    seen: dict[str, object] = {}
+
+    async def fake_reports(
+        *,
+        limit: int = EXPECTED_FINAL_SELECTION_REPORT_LIMIT,
+    ) -> list[dict[str, object]]:
+        assert limit == EXPECTED_FINAL_SELECTION_REPORT_LIMIT
+        return [current_aapl, current_nvda, current_msft]
+
+    async def fake_lifecycle_events(
+        reports: Sequence[Mapping[str, object]],
+        _readiness: Mapping[str, object],
+        *,
+        event_type: str,
+        limit_per_ticker: int,
+    ) -> list[dict[str, object]]:
+        seen["lifecycle_tickers"] = [str(report["ticker"]) for report in reports]
+        seen["event_type"] = event_type
+        seen["limit_per_ticker"] = limit_per_ticker
+        return []
+
+    async def fake_risk_decisions(
+        *,
+        ticker: str | None = None,
+        limit: int = EXPECTED_FINAL_SELECTION_REPORT_LIMIT,
+        raise_on_unavailable: bool = False,
+    ) -> list[dict[str, object]]:
+        seen["risk_ticker"] = ticker
+        seen["risk_limit"] = limit
+        seen["raise_on_unavailable"] = raise_on_unavailable
+        return []
+
+    monkeypatch.setattr(shared_module, "runtime_selection_reports", fake_reports)
+    monkeypatch.setattr(
+        final_selection_module,
+        "_lifecycle_events_for_reports",
+        fake_lifecycle_events,
+    )
+    monkeypatch.setattr(
+        final_selection_module,
+        "_dashboard_risk_decisions",
+        fake_risk_decisions,
+    )
+
+    context = await final_selection_context(focus_ticker="nvda")
+
+    assert [row["ticker"] for row in context["final_rows"]] == ["NVDA"]
+    assert context["summary"]["report_count"] == 3
+    assert context["focused_final_selection"]["found"] is True
+    assert seen["lifecycle_tickers"] == ["NVDA"]
+    assert seen["risk_ticker"] == "NVDA"
+    assert seen["risk_limit"] == 1
+
 
 def test_final_selection_summary_names_latest_cycle_scope() -> None:
     summary = final_selection_summary(
@@ -6658,6 +6793,46 @@ def test_candidate_detail_report_rows_can_skip_rich_signal_reconstruction(
     assert reports
     assert reports[0]["ticker"] == "MSFT"
     assert reports[0]["actionable_signals"]
+
+
+async def test_candidate_detail_light_context_skips_timeline_and_risk_lookups(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    async def fake_reports(
+        *,
+        ticker: str | None = None,
+        limit: int = EXPECTED_FINAL_SELECTION_REPORT_LIMIT,
+    ) -> list[dict[str, object]]:
+        assert ticker == "MSFT"
+        assert limit == 1
+        return [_selection_report_with_signal_mix()]
+
+    async def forbidden_timeline(**_kwargs: object) -> list[dict[str, object]]:
+        raise AssertionError("light candidate audit should not query timeline")
+
+    async def forbidden_risk(**_kwargs: object) -> list[dict[str, object]]:
+        raise AssertionError("light candidate audit should not query risk decisions")
+
+    async def fake_data_load_status() -> dict[str, object]:
+        return {"state": "ready", "datasets": [], "lane_states": []}
+
+    monkeypatch.setattr(candidates_module, "_dashboard_selection_reports", fake_reports)
+    monkeypatch.setattr(candidates_module, "_dashboard_candidate_timeline", forbidden_timeline)
+    monkeypatch.setattr(candidates_module, "_dashboard_risk_decisions", forbidden_risk)
+    monkeypatch.setattr(
+        candidates_module,
+        "_candidate_audit_light_data_load_status",
+        fake_data_load_status,
+    )
+
+    context = await candidates_module.candidate_detail_context(
+        "msft",
+        include_rich_signal_evidence=False,
+    )
+
+    assert context["ticker"] == "MSFT"
+    assert context["timeline"] == []
+    assert context["review"]["can_record"] is True
 
 
 def test_candidate_signal_template_shows_hard_cards_for_all_signal_groups() -> None:

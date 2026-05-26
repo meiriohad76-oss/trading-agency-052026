@@ -481,6 +481,16 @@ def _massive_lane_progress_rows(status_path: Path) -> list[dict[str, object]]:
         manifest = _json_mapping(manifest_path)
         if (
             str(progress.get("state") or "").lower() == "running"
+            and _running_massive_lane_progress_is_orphaned(lane_id)
+        ):
+            progress = dict(progress)
+            progress["state"] = "stale"
+            progress["stale_reason"] = (
+                f"{MASSIVE_LANE_LABELS.get(lane_id, lane_id)} is marked running, "
+                "but no matching worker process is active on this host."
+            )
+        elif (
+            str(progress.get("state") or "").lower() == "running"
             and _status_file_stale(progress_path)
         ):
             progress = dict(progress)
@@ -734,6 +744,9 @@ def _massive_lane_detail(
         ticker = _text_value(progress.get("current_ticker"), "current ticker")
         trade_date = _text_value(progress.get("current_trade_date"), "current date")
         return f"{MASSIVE_LANE_LABELS.get(lane_id, lane_id)} is running on {ticker} for {trade_date}."
+    stale_reason = _text_value(progress.get("stale_reason"), "")
+    if state == "stale" and stale_reason:
+        return stale_reason
     if state == "stale" and manifest:
         age = _massive_lane_manifest_age_seconds(manifest, now=now)
         required = MASSIVE_LANE_FRESHNESS_SECONDS.get(lane_id)
@@ -760,6 +773,14 @@ def _massive_lane_detail(
         f"{MASSIVE_LANE_LABELS.get(lane_id, lane_id)} has no lane manifest yet "
         f"at {manifest_path}; lane health is not verified."
     )
+
+
+def _running_massive_lane_progress_is_orphaned(lane_id: str) -> bool:
+    process_lines = tuple(_active_process_command_lines())
+    if not process_lines:
+        return False
+    lane_needle = _normalise_process_text(lane_id)
+    return not any(lane_needle in _normalise_process_text(line) for line in process_lines)
 
 
 def _massive_lane_manifest_stale(

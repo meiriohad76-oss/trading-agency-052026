@@ -82,11 +82,9 @@ async def candidate_detail_context(
             broker_status_context(),
         )
     else:
-        reports, timeline, risk_decisions = await asyncio.gather(
-            _dashboard_selection_reports(ticker=normalized_ticker, limit=1),
-            _dashboard_candidate_timeline(ticker=normalized_ticker, limit=5),
-            _dashboard_risk_decisions(ticker=normalized_ticker, limit=1),
-        )
+        reports = await _dashboard_selection_reports(ticker=normalized_ticker, limit=1)
+        timeline = []
+        risk_decisions = []
         broker = {"positions": [], "orders": [], "connected": False}
     report_rows = candidate_detail_report_rows(
         reports,

@@ -398,6 +398,7 @@ def test_stock_trade_partial_progress_overrides_passed_batch_job(
         ),
         encoding="utf-8",
     )
+    _freeze_progress_time(monkeypatch, datetime(2026, 5, 23, 12, 0, tzinfo=UTC))
 
     progress = load_data_refresh_progress(status_path)
     trade_pull = progress["trade_pull"]
@@ -513,6 +514,14 @@ def test_data_refresh_progress_exposes_massive_lane_progress(
         ),
         encoding="utf-8",
     )
+    monkeypatch.setattr(
+        progress_module,
+        "_active_process_command_lines",
+        lambda: (
+            "python research/scripts/pull_massive_stock_trades.py "
+            "--lane-id massive_live_trade_slices",
+        ),
+    )
 
     progress = load_data_refresh_progress(status_path)
     lane = next(
@@ -534,6 +543,68 @@ def test_data_refresh_progress_exposes_massive_lane_progress(
     assert lane["required_now"] is True
     assert lane["next_due_at"] == ""
     assert lane["analysis_state"] == "loading"
+
+
+def test_data_refresh_progress_marks_orphaned_massive_lane_running_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lane_root = tmp_path / "massive_lanes"
+    lane_root.mkdir()
+    (lane_root / "massive_live_trade_slices.json").write_text(
+        json.dumps(
+            {
+                "lane_id": "massive_live_trade_slices",
+                "status": "partial",
+                "coverage_pct": 50,
+                "ticker_count": 2,
+                "row_count": 100,
+                "fetched_at": "2026-05-12T12:00:00+00:00",
+                "window": {"start": "2026-05-12", "end": "2026-05-12"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(progress_module, "DEFAULT_MASSIVE_LANE_MANIFEST_ROOT", lane_root)
+    monkeypatch.setattr(
+        progress_module,
+        "_active_process_command_lines",
+        lambda: ("python unrelated_worker.py",),
+    )
+    status_path = tmp_path / "data-refresh-status.json"
+    status_path.write_text(
+        json.dumps({"progress": {"state": "idle"}, "jobs": []}),
+        encoding="utf-8",
+    )
+    (tmp_path / "massive_live_trade_slices-progress.json").write_text(
+        json.dumps(
+            {
+                "lane_id": "massive_live_trade_slices",
+                "state": "running",
+                "percent_complete": 77,
+                "ticker_days_processed": 23,
+                "ticker_days_total": 30,
+                "current_ticker": "LOW",
+                "current_trade_date": "2026-05-26",
+                "start": "2026-05-26",
+                "end": "2026-05-26",
+                "updated_at": "2026-05-26T17:50:33+00:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    progress = load_data_refresh_progress(status_path)
+    lane = next(
+        row
+        for row in progress["massive_lanes"]
+        if row["lane_id"] == "massive_live_trade_slices"
+    )
+
+    assert lane["state"] == "stale"
+    assert lane["status_label"] == "Refresh Needed"
+    assert lane["analysis_state"] == "analyzed_needs_refresh"
+    assert "no matching worker process" in str(lane["detail"])
 
 
 def test_data_refresh_progress_ignores_legacy_live_progress_without_window(
@@ -579,6 +650,7 @@ def test_data_refresh_progress_ignores_legacy_live_progress_without_window(
         ),
         encoding="utf-8",
     )
+    _freeze_progress_time(monkeypatch, datetime(2026, 5, 23, 12, 0, tzinfo=UTC))
 
     progress = load_data_refresh_progress(status_path)
     lane = next(
@@ -629,6 +701,7 @@ def test_data_refresh_progress_preserves_massive_lane_string_issues(
     monkeypatch.setattr(progress_module, "DEFAULT_MASSIVE_LANE_MANIFEST_ROOT", lane_root)
     status_path = tmp_path / "data-refresh-status.json"
     status_path.write_text(json.dumps({"progress": {"state": "idle"}, "jobs": []}))
+    _freeze_progress_time(monkeypatch, datetime(2026, 5, 23, 12, 0, tzinfo=UTC))
 
     progress = load_data_refresh_progress(status_path)
     lane = next(
@@ -866,6 +939,7 @@ def test_complete_daily_bar_manifest_with_latest_available_row_stays_ready(
     monkeypatch.setattr(progress_module, "DEFAULT_MASSIVE_LANE_MANIFEST_ROOT", lane_root)
     status_path = tmp_path / "data-refresh-status.json"
     status_path.write_text(json.dumps({"progress": {"state": "idle"}, "jobs": []}))
+    _freeze_progress_time(monkeypatch, datetime(2026, 5, 23, 12, 0, tzinfo=UTC))
 
     progress = load_data_refresh_progress(status_path)
     lane = next(row for row in progress["massive_lanes"] if row["lane_id"] == "massive_daily_bars")

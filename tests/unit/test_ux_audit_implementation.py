@@ -36,6 +36,9 @@ def test_final_selection_preserves_ticker_focus_and_action_labels() -> None:
 
     assert "focused_final_selection" in html
     assert "Show full candidate queue" in html
+    assert "watch_rows[:12]" in html
+    assert "no_trade_rows[:12]" in html
+    assert "blocked_rows[:20]" in html
     assert 'id="candidate-{{ row.ticker }}"' in html
     assert 'href="/candidates/{{ row.ticker }}?from=final-selection#candidate-{{ row.ticker }}"' in html
     assert "Approve research for {{ row.ticker }}" in html

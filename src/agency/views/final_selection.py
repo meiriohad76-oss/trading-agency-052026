@@ -4,6 +4,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 
 from agency.views._shared import (
+    ACTIONABLE_ACTIONS,
     FINAL_SELECTION_REPORT_LIMIT,
     _dashboard_risk_decisions,
     _dashboard_selection_reports,
@@ -34,18 +35,31 @@ async def final_selection_context(
     *,
     focus_ticker: str | None = None,
 ) -> dict[str, object]:
+    normalized_focus_ticker = str(focus_ticker or "").strip().upper()
     reports = await _dashboard_selection_reports(limit=FINAL_SELECTION_REPORT_LIMIT)
     cycle_id = _latest_selection_cycle_id(reports)
     cycle_reports = _selection_reports_for_cycle(reports, cycle_id)
+    display_reports = (
+        [
+            report
+            for report in cycle_reports
+            if str(report.get("ticker") or "").strip().upper() == normalized_focus_ticker
+        ]
+        if normalized_focus_ticker
+        else cycle_reports
+    )
     review_events = await _lifecycle_events_for_reports(
-        cycle_reports,
+        display_reports,
         {"cycle_id": cycle_id},
         event_type="HUMAN_REVIEW",
         limit_per_ticker=1,
     )
-    risk_decisions = await _dashboard_risk_decisions(limit=len(cycle_reports) or 1)
+    risk_decisions = await _dashboard_risk_decisions(
+        ticker=normalized_focus_ticker or None,
+        limit=len(display_reports) or 1,
+    )
     rows = final_selection_rows(
-        cycle_reports,
+        display_reports,
         review_events=review_events,
         risk_decisions=risk_decisions,
     )
@@ -60,10 +74,22 @@ async def final_selection_context(
     ]
     trace_rows = [row for row in rows if not _is_actionable_candidate(row)]
     data_load_status = await live_dashboard_data_load_status()
-    normalized_focus_ticker = str(focus_ticker or "").strip().upper()
     focused_final_selection = final_selection_focus_context(
         rows,
         normalized_focus_ticker,
+    )
+    summary = (
+        final_selection_summary_from_reports(
+            cycle_reports,
+            all_report_count=len(reports),
+            cycle_id=cycle_id,
+        )
+        if normalized_focus_ticker
+        else final_selection_summary(
+            rows,
+            all_report_count=len(reports),
+            cycle_id=cycle_id,
+        )
     )
     return {
         "data_health": dashboard_data_health(
@@ -88,11 +114,7 @@ async def final_selection_context(
         "trace_rows": trace_rows,
         "focused_ticker": normalized_focus_ticker,
         "focused_final_selection": focused_final_selection,
-        "summary": final_selection_summary(
-            rows,
-            all_report_count=len(reports),
-            cycle_id=cycle_id,
-        ),
+        "summary": summary,
     }
 
 def final_selection_focus_context(
@@ -199,6 +221,56 @@ def final_selection_summary(
         "detail": _final_selection_detail(len(rows), historical_count, cycle_id),
         "scope_detail": _final_selection_scope_detail(historical_count, cycle_id),
     }
+
+def final_selection_summary_from_reports(
+    reports: Sequence[Mapping[str, object]],
+    *,
+    all_report_count: int | None = None,
+    cycle_id: str | None = None,
+) -> dict[str, object]:
+    total_report_count = len(reports) if all_report_count is None else all_report_count
+    historical_count = max(total_report_count - len(reports), 0)
+    actionable_count = sum(1 for report in reports if _report_is_actionable(report))
+    blocked_count = sum(1 for report in reports if _report_gate_status(report) == "BLOCK")
+    no_trade_count = sum(1 for report in reports if _report_action(report) == "NO_TRADE")
+    return {
+        "report_count": len(reports),
+        "all_report_count": total_report_count,
+        "selected_count": actionable_count,
+        "actionable_count": actionable_count,
+        "blocked_count": blocked_count,
+        "no_trade_count": no_trade_count,
+        "historical_count": historical_count,
+        "cycle_id": cycle_id or "None",
+        "cycle_label": _short_cycle_label(cycle_id),
+        "topbar_label": _final_selection_topbar(len(reports), cycle_id),
+        "headline": _final_selection_headline(len(reports), actionable_count),
+        "detail": _final_selection_detail(len(reports), historical_count, cycle_id),
+        "scope_detail": _final_selection_scope_detail(historical_count, cycle_id),
+    }
+
+def _report_action(report: Mapping[str, object]) -> str:
+    return str(report.get("final_action") or report.get("action") or "").strip().upper()
+
+def _report_gate_status(report: Mapping[str, object]) -> str:
+    gates = report.get("policy_gates")
+    if not isinstance(gates, Sequence) or isinstance(gates, str | bytes):
+        return "UNKNOWN"
+    statuses = [
+        str(gate.get("status") or "").strip().upper()
+        for gate in gates
+        if isinstance(gate, Mapping)
+    ]
+    if "BLOCK" in statuses:
+        return "BLOCK"
+    if "WARN" in statuses:
+        return "WARN"
+    if "PASS" in statuses:
+        return "PASS"
+    return "UNKNOWN"
+
+def _report_is_actionable(report: Mapping[str, object]) -> bool:
+    return _report_action(report) in ACTIONABLE_ACTIONS and _report_gate_status(report) != "BLOCK"
 
 def _final_selection_row(
     report: Mapping[str, object],
