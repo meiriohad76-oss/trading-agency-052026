@@ -3,6 +3,21 @@ from __future__ import annotations
 from dataclasses import dataclass
 from html.parser import HTMLParser
 
+READABLE_ARTICLE_MIN_CHARS = 500
+LOGIN_TITLE_MARKERS = (
+    "access to this page has been denied",
+    "before we continue",
+    "checking if the site connection is secure",
+    "confirm you are a human",
+    "log in",
+    "login",
+    "press & hold",
+    "press and hold",
+    "sign in",
+    "subscribe to continue",
+    "verify you are human",
+)
+
 
 @dataclass(frozen=True)
 class FetchedArticle:
@@ -16,6 +31,20 @@ def html_to_text(html: str) -> tuple[str | None, str]:
     parser = _ReadableHTMLParser()
     parser.feed(html)
     return parser.title, " ".join(" ".join(parser.parts).split())
+
+
+def looks_like_readable_article(
+    article: FetchedArticle,
+    *,
+    min_chars: int = READABLE_ARTICLE_MIN_CHARS,
+) -> bool:
+    if int(article.status_code) in {401, 403}:
+        return False
+    title = " ".join((article.title or "").split()).lower()
+    if not title or any(marker in title for marker in LOGIN_TITLE_MARKERS):
+        return False
+    text = " ".join(article.text.split())
+    return len(text) >= min_chars
 
 
 class _ReadableHTMLParser(HTMLParser):

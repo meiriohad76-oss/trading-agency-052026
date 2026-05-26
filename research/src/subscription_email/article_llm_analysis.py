@@ -25,9 +25,10 @@ OPENAI_API_KEY_ENV = "OPENAI_API_KEY"
 OPENAI_BASE_URL_ENV = "OPENAI_BASE_URL"
 OPENAI_ARTICLE_MODEL_ENV = "OPENAI_ARTICLE_ANALYSIS_MODEL"
 ARTICLE_LLM_ENABLED_ENV = "SUBSCRIPTION_EMAIL_LLM_ANALYSIS_ENABLED"
-DEFAULT_ARTICLE_MODEL = "gpt-4.1-mini"
+DEFAULT_ARTICLE_MODEL = "gpt-5-nano"
 PROMPT_CLASS = "subscription-email-article-analysis-v1"
 MAX_BODY_CONTEXT_CHARS = 1600
+MAX_ARTICLE_LLM_BODY_CHARS = 5_000
 MAX_TEXT_ITEM_CHARS = 360
 MAX_ITEMS = 6
 HTTP_BAD_REQUEST = 400
@@ -194,6 +195,7 @@ def _messages(
     config: SubscriptionEmailConfig,
     record: EmailRecord,
 ) -> list[dict[str, str]]:
+    article_text = _clip(page.text, _article_body_limit(config))
     prompt = {
         "task": PROMPT_CLASS,
         "guardrails": [
@@ -212,7 +214,9 @@ def _messages(
             "url_domain": urlsplit(page.url).netloc.lower(),
             "title": _clip(page.title or "", 240),
             "status_code": page.status_code,
-            "text": _clip(page.text, config.article_max_chars),
+            "text": article_text,
+            "body_characters_original": len(page.text),
+            "body_truncated": len(article_text) < len(page.text),
         },
         "required_response": {
             "direction": "BULLISH, BEARISH, or NEUTRAL for the focused ticker context",
@@ -237,6 +241,10 @@ def _messages(
         },
         {"role": "user", "content": json.dumps(prompt, ensure_ascii=True, sort_keys=True)},
     ]
+
+
+def _article_body_limit(config: SubscriptionEmailConfig) -> int:
+    return min(config.article_max_chars, MAX_ARTICLE_LLM_BODY_CHARS)
 
 
 def _chat_payload(

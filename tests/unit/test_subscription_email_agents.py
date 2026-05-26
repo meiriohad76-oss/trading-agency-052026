@@ -66,7 +66,7 @@ def test_subscription_email_config_parses_local_mode(tmp_path: Path) -> None:
     assert config.article_max_total_per_run == DEFAULT_ARTICLE_MAX_TOTAL_PER_RUN
     assert config.article_cache_ttl_hours == DEFAULT_ARTICLE_CACHE_TTL_HOURS
     assert config.article_llm_analysis_enabled is False
-    assert config.article_llm_model == "gpt-4.1-mini"
+    assert config.article_llm_model == "gpt-5-nano"
     assert config.mailbox_unseen_only is True
     assert config.mailbox_max_messages == DEFAULT_MAILBOX_MAX_MESSAGES
 
@@ -1616,6 +1616,66 @@ def test_article_llm_analyzer_calls_provider_with_article_context(
     assert analysis["direction"] == "BULLISH"
 
 
+def test_article_llm_analyzer_caps_article_context_to_portfolio_agent_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    long_text = "AAPL cloud services demand and bullish upgrade. " * 300
+    page = FetchedArticle(
+        url="https://seekingalpha.com/article/long-aapl",
+        status_code=200,
+        title="AAPL thesis",
+        text=long_text,
+    )
+    record = _record(
+        "seeking_alpha",
+        "AAPL: analyst article",
+        "Open this link: https://seekingalpha.com/article/long-aapl",
+    )
+    captured_payloads: list[dict[str, object]] = []
+
+    def fake_request(
+        _self: ArticleLlmAnalyzer,
+        messages: list[dict[str, str]],
+    ) -> dict[str, object]:
+        captured_payloads.append(json.loads(messages[1]["content"]))
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "direction": "BULLISH",
+                                "confidence": 0.78,
+                                "tickers": ["AAPL"],
+                                "thesis": "AAPL article supports the thesis.",
+                                "key_points": ["Services demand is constructive."],
+                                "catalysts": ["analyst_rating"],
+                                "risk_flags": [],
+                                "decision_use": "Use as AAPL-specific context only.",
+                                "signal_strength": "medium",
+                            }
+                        )
+                    }
+                }
+            ]
+        }
+
+    monkeypatch.setattr(ArticleLlmAnalyzer, "_request", fake_request)
+
+    ArticleLlmAnalyzer(
+        api_key="sk-" + ("a" * 32),
+        model="gpt-test",
+        enabled=True,
+    ).analyze(page, config=_config(), record=record)
+
+    assert captured_payloads
+    article_payload = captured_payloads[0]["article"]
+    assert isinstance(article_payload, dict)
+    assert 4_900 <= len(str(article_payload["text"])) <= 5_000
+    assert article_payload["body_characters_original"] == len(long_text)
+    assert article_payload["body_truncated"] is True
+
+
 def test_article_llm_analyzer_marks_missing_key_as_deterministic_fallback() -> None:
     page = FetchedArticle(
         url="https://seekingalpha.com/article/993",
@@ -1982,6 +2042,62 @@ def test_browser_article_session_detects_human_verification_gate() -> None:
     assert article_session._looks_like_login(article) is True
 
 
+def test_readable_seeking_alpha_article_wins_over_footer_login_markers() -> None:
+    article_text = (
+        "AAPL receives a bullish analyst upgrade after management raised revenue "
+        "guidance and described stronger services demand. "
+    ) * 6
+    article = FetchedArticle(
+        url="https://seekingalpha.com/article/readable-aapl",
+        status_code=200,
+        title="AAPL upgrade thesis",
+        text=(
+            f"{article_text} Footer: sign in to continue, enable javascript and "
+            "cookies, ad-blocker enabled."
+        ),
+    )
+
+    assert article_session._looks_like_login(article) is False
+    assert linked_content._login_gated_article(article) is False
+
+
+def test_browser_article_fetch_tolerates_navigation_timeout_when_content_is_readable() -> None:
+    class FakeNavigationTimeout(RuntimeError):
+        pass
+
+    class TimeoutPage:
+        url = "https://seekingalpha.com/article/timeout-aapl"
+
+        def goto(self, *_args: object, **_kwargs: object) -> object:
+            raise FakeNavigationTimeout("Page.goto: Timeout 15000ms exceeded")
+
+        def wait_for_timeout(self, _timeout: int) -> None:
+            return None
+
+        def content(self) -> str:
+            return (
+                "<html><title>AAPL upgrade thesis</title><article>"
+                + (
+                    "AAPL receives a bullish analyst upgrade after stronger demand "
+                    "and positive earnings guidance. "
+                )
+                * 6
+                + "</article><footer>sign in to continue</footer></html>"
+            )
+
+    article = article_session._fetch_page_article(
+        TimeoutPage(),
+        "https://seekingalpha.com/article/timeout-aapl",
+        timeout_seconds=EXPECTED_ARTICLE_TIMEOUT_SECONDS,
+        wait_seconds=1,
+    )
+
+    assert article.status_code == 0
+    assert article.title == "AAPL upgrade thesis"
+    assert "positive earnings guidance" in article.text
+    assert article_session._looks_like_login(article) is False
+
+
 def test_enrich_reuses_browser_session_across_paid_article_links(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -2148,7 +2264,7 @@ def test_interactive_login_preflight_opens_provider_in_attached_chrome(
     assert "activating" not in " ".join(messages).lower()
 
 
-def test_attached_chrome_preflight_requires_user_opened_cdp_browser(
+def test_attached_chrome_preflight_starts_dedicated_cdp_browser_when_missing(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2161,20 +2277,25 @@ def test_attached_chrome_preflight_requires_user_opened_cdp_browser(
         article_login_preflight_services=("seeking_alpha",),
     )
 
-    class FailingCdpRuntime:
-        def __init__(self) -> None:
+    class RecoveringCdpRuntime:
+        def __init__(self, browser: FakeCdpBrowser) -> None:
             self.chromium = self
+            self.browser = browser
             self.connected_urls: list[str] = []
             self.stopped = False
+            self.attempts = 0
 
-        def connect_over_cdp(self, url: str) -> object:
+        def connect_over_cdp(self, url: str) -> FakeCdpBrowser:
             self.connected_urls.append(url)
-            raise RuntimeError("connection refused")
+            self.attempts += 1
+            if self.attempts == 1:
+                raise RuntimeError("connection refused")
+            return self.browser
 
         def stop(self) -> None:
             self.stopped = True
 
-    runtime = FailingCdpRuntime()
+    runtime = RecoveringCdpRuntime(FakeCdpBrowser(FakeChromeContext()))
     started_urls: list[str] = []
     monkeypatch.setattr(
         article_session,
@@ -2187,19 +2308,23 @@ def test_attached_chrome_preflight_requires_user_opened_cdp_browser(
         lambda _config, first_login_url: started_urls.append(first_login_url),
     )
 
-    with pytest.raises(article_session.BrowserSessionUnavailableError, match="Chrome"):
-        article_session.ensure_interactive_article_login(
-            config,
-            verification_urls={
-                "seeking_alpha": "https://seekingalpha.com/article/aapl",
-            },
-            input_func=lambda _prompt: "",
-            output=lambda _message: None,
-        )
+    results = article_session.ensure_interactive_article_login(
+        config,
+        verification_urls={
+            "seeking_alpha": "https://seekingalpha.com/article/aapl",
+        },
+        input_func=lambda _prompt: "",
+        output=lambda _message: None,
+    )
 
-    assert runtime.connected_urls == ["http://127.0.0.1:9222"]
-    assert started_urls == []
+    assert runtime.connected_urls == [
+        "http://127.0.0.1:9222",
+        "http://127.0.0.1:9222",
+    ]
+    assert started_urls == ["https://seekingalpha.com/account/login"]
     assert runtime.stopped is True
+    assert len(results) == 1
+    assert results[0].confirmed is True
 
 
 def test_interactive_login_preflight_requires_verified_provider_session(

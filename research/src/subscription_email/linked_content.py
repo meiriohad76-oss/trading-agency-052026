@@ -27,7 +27,11 @@ from subscription_email.article_session import (
     fetch_with_browser_session,
     provider_for_url,
 )
-from subscription_email.article_types import FetchedArticle, html_to_text
+from subscription_email.article_types import (
+    FetchedArticle,
+    html_to_text,
+    looks_like_readable_article,
+)
 from subscription_email.config import SubscriptionEmailConfig
 from subscription_email.types import EmailRecord
 
@@ -629,6 +633,8 @@ def _usable_article(page: FetchedArticle) -> bool:
 def _login_gated_article(page: FetchedArticle) -> bool:
     if int(page.status_code) in {401, 403}:
         return True
+    if looks_like_readable_article(page):
+        return False
     text = " ".join(f"{page.title} {page.text}".split()).lower()
     login_markers = (
         "access to this page has been denied",

@@ -204,15 +204,16 @@ For deeper article reasoning, enable the article LLM layer:
 
 ```json
 "article_llm_analysis_enabled": true,
-"article_llm_model": "gpt-4.1-mini",
+"article_llm_model": "gpt-5-nano",
 "article_llm_timeout_seconds": 45
 ```
 
 The agent then sends each successfully opened article link, up to
 `article_max_total_per_run`, to OpenAI using `OPENAI_API_KEY`. It asks for a
 ticker-focused thesis, specific key points, catalyst tags, risk flags, direction,
-signal strength, and how the agency should use the article. The raw article text
-is not written to parquet, summaries, or cache.
+signal strength, and how the agency should use the article. The request body is
+capped at 5,000 article-text characters and records whether the body was
+truncated. The raw article text is not written to parquet, summaries, or cache.
 
 If OpenAI is unavailable, the link still falls back to deterministic article
 classification and the context source records that fallback. When LLM article

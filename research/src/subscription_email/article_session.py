@@ -14,7 +14,11 @@ from types import TracebackType
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
-from subscription_email.article_types import FetchedArticle, html_to_text
+from subscription_email.article_types import (
+    FetchedArticle,
+    html_to_text,
+    looks_like_readable_article,
+)
 from subscription_email.config import SubscriptionEmailConfig
 
 DEFAULT_STATE_DIR = Path("research/config/browser-sessions")
@@ -505,33 +509,62 @@ def _connect_or_start_cdp_browser(
     first_login_url: str,
     output: Callable[[str], None],
 ) -> Any:
-    del first_login_url
     try:
         return runtime.chromium.connect_over_cdp(str(config.cdp_url))
     except Exception as first_exc:
+        output(
+            f"Chrome DevTools was not reachable at {config.cdp_url}; opening a "
+            "dedicated article-login browser now."
+        )
+        try:
+            _start_cdp_browser(config, first_login_url)
+        except Exception as start_exc:
+            message = (
+                f"could not open the article-login browser for {config.cdp_url}; "
+                "start Chrome with remote debugging and retry the email agent"
+            )
+            raise BrowserSessionUnavailableError(message) from start_exc
+        deadline = time.monotonic() + CDP_CONNECT_RETRY_SECONDS
+        last_exc: Exception = first_exc
+        while time.monotonic() <= deadline:
+            try:
+                return runtime.chromium.connect_over_cdp(str(config.cdp_url))
+            except Exception as retry_exc:
+                last_exc = retry_exc
+                time.sleep(CDP_CONNECT_SLEEP_SECONDS)
         message = (
-            f"could not connect to Chrome DevTools at {config.cdp_url}; "
-            "open your normal logged-in Chrome with --remote-debugging-port=9222, "
-            "log in to the article provider there, then retry the email agent"
+            f"could not connect to Chrome DevTools at {config.cdp_url} after "
+            "opening the article-login browser; log in or clear the provider page, "
+            "then retry the email agent"
         )
         output(message)
-        raise BrowserSessionUnavailableError(message) from first_exc
+        raise BrowserSessionUnavailableError(message) from last_exc
 
 
 def _start_cdp_browser(config: BrowserSessionFetchConfig, first_login_url: str) -> None:
     executable = _browser_executable(config.browser_channel)
     user_data_dir = config.state_dir / "profiles" / "attached-chrome"
     user_data_dir.mkdir(parents=True, exist_ok=True)
-    subprocess.Popen(
-        [
-            executable,
-            f"--remote-debugging-port={_cdp_port(config.cdp_url)}",
-            f"--user-data-dir={user_data_dir}",
-            first_login_url,
-        ],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    command = [
+        executable,
+        f"--remote-debugging-port={_cdp_port(config.cdp_url)}",
+        "--remote-debugging-address=127.0.0.1",
+        f"--user-data-dir={user_data_dir}",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--new-window",
+        "--start-maximized",
+        first_login_url,
+    ]
+    kwargs: dict[str, object] = {
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+    }
+    if os.name == "nt":
+        kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+    else:
+        kwargs["start_new_session"] = True
+    subprocess.Popen(command, **kwargs)
 
 
 def _browser_executable(browser_channel: str) -> str:
@@ -741,8 +774,9 @@ def _fetch_with_playwright(
         )
         context = browser.new_context(storage_state=state_path.as_posix())
         page = context.new_page()
-        response = page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
-        page.wait_for_timeout(wait_seconds * 1000)
+        response = _goto_for_article_content(page, url, timeout_ms=timeout_ms)
+        with suppress(Exception):
+            page.wait_for_timeout(wait_seconds * 1000)
         article = _article_from_page(page, response)
         browser.close()
     return article
@@ -755,13 +789,29 @@ def _fetch_page_article(
     timeout_seconds: int,
     wait_seconds: int,
 ) -> FetchedArticle:
-    response = page.goto(
+    response = _goto_for_article_content(
+        page,
         url,
-        wait_until="domcontentloaded",
-        timeout=timeout_seconds * 1000,
+        timeout_ms=timeout_seconds * 1000,
     )
-    page.wait_for_timeout(wait_seconds * 1000)
+    with suppress(Exception):
+        page.wait_for_timeout(wait_seconds * 1000)
     return _article_from_page(page, response)
+
+
+def _goto_for_article_content(page: Any, url: str, *, timeout_ms: int) -> Any | None:
+    try:
+        return page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+    except Exception as exc:
+        if _is_navigation_timeout(exc):
+            return None
+        raise
+
+
+def _is_navigation_timeout(exc: Exception) -> bool:
+    error_name = exc.__class__.__name__.lower()
+    message = str(exc).lower()
+    return "timeout" in error_name and ("goto" in message or "navigation" in message)
 
 
 def _article_from_page(page: Any, response: Any | None) -> FetchedArticle:
@@ -777,6 +827,8 @@ def _article_from_page(page: Any, response: Any | None) -> FetchedArticle:
 def _looks_like_login(article: FetchedArticle) -> bool:
     if int(article.status_code) in {401, 403}:
         return True
+    if looks_like_readable_article(article):
+        return False
     text = " ".join(article.text.split()).lower()
     markers = (
         "access to this page has been denied",

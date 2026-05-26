@@ -44,7 +44,7 @@ class SubscriptionEmailConfig:
     article_login_preflight_confirmed: bool = False
     article_cache_ttl_hours: int = 168
     article_llm_analysis_enabled: bool = False
-    article_llm_model: str = "gpt-4.1-mini"
+    article_llm_model: str = "gpt-5-nano"
     article_llm_timeout_seconds: int = 45
     mailbox_host: str | None = None
     mailbox_port: int = 993
@@ -113,7 +113,7 @@ def load_subscription_email_config(path: Path, *, repo_root: Path) -> Subscripti
         article_login_preflight_services=article_login_preflight_services,
         article_cache_ttl_hours=_integer(payload, "article_cache_ttl_hours", 168),
         article_llm_analysis_enabled=_boolean(payload, "article_llm_analysis_enabled", False),
-        article_llm_model=_string(payload, "article_llm_model", "gpt-4.1-mini"),
+        article_llm_model=_string(payload, "article_llm_model", "gpt-5-nano"),
         article_llm_timeout_seconds=_integer(payload, "article_llm_timeout_seconds", 45),
         mailbox_host=_optional_string(payload, "mailbox_host"),
         mailbox_port=_integer(payload, "mailbox_port", 993),
