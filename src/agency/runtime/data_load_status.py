@@ -3583,8 +3583,8 @@ def _parse_date(value: object) -> date | None:
 def _effective_as_of(configured_as_of: date, *, now: datetime, dynamic: bool) -> date:
     if not dynamic:
         return configured_as_of
-    completed = _latest_completed_market_date(now)
-    return max(configured_as_of, completed)
+    del configured_as_of
+    return _latest_completed_market_date(now)
 
 
 def _latest_completed_market_date(now: datetime) -> date:
