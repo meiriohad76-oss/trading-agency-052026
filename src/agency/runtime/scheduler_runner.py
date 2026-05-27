@@ -1044,8 +1044,8 @@ def _portfolio_news_agent_shell_command(
     agency_python = _ps_quote(PYTHON)
     sync_script = (
         f"if ($exitCode -eq 0) {{ Set-Location -LiteralPath '{repo}'; "
-        f"& '{agency_python}' research\\scripts\\sync_portfolio_news_agent.py "
-        f"--agent-root '{agent_root_text}'; $exitCode = $LASTEXITCODE; }} "
+        f"& '{agency_python}' research\\scripts\\run_portfolio_news_agent_post_sync.py "
+        f"--agent-root '{agent_root_text}' --run-mini-cycles; $exitCode = $LASTEXITCODE; }} "
         if sync_after_success
         else ""
     )

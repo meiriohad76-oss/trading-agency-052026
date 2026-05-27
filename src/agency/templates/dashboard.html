@@ -101,6 +101,16 @@
     <div class="operator-briefing-actions">
       <p class="panel-note" data-email-current-action>{{ email_status.current_action_label|default("No article is being opened right now.", true) }}</p>
       <p class="panel-note" data-email-current-url>{{ email_status.current_article_url|default("No current article URL.", true) }}</p>
+      <p class="panel-note" data-email-affected-tickers>{{ email_status.affected_tickers_label|default("Affected tickers: none", true) }}</p>
+      <p class="panel-note" data-email-mini-cycle-status>{{ email_status.mini_cycle_status_label|default("No stock mini-analysis run recorded for this email sync.", true) }}</p>
+      <ul class="email-ticker-status-list" data-email-ticker-status-list {% if not email_status.mini_cycle_ticker_rows %}hidden{% endif %}>
+        {% for row in email_status.mini_cycle_ticker_rows %}
+        <li>
+          <strong>{{ row.ticker }}</strong>
+          <span class="tag tag-{{ row.status_class|default('neutral', true) }}">{{ row.status_label }}</span>
+        </li>
+        {% endfor %}
+      </ul>
       <p class="panel-note" data-email-next-action>{{ email_status.next_action|default("Run email/article analysis when subscription emails are needed for review.", true) }}</p>
       <form method="post" action="{{ email_status.refresh_action_url|default('/scheduler/subscription-emails/login-refresh', true) }}">
         <button class="mini-button data-health-action-button" type="submit">{{ email_status.refresh_button_label|default("Open Seeking Alpha login refresh", true) }}</button>

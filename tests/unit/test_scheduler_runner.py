@@ -49,7 +49,8 @@ def test_subscription_email_after_login_refresh_opens_articles_without_preflight
 
     assert "run_agent.py --once" in script
     assert "data\\agency_config.yaml" in script or "data/agency_config.yaml" in script
-    assert "sync_portfolio_news_agent.py" in script
+    assert "run_portfolio_news_agent_post_sync.py" in script
+    assert "--run-mini-cycles" in script
     assert "Portfolio News Agent email/article analysis finished" in script
     assert "import_subscription_emails.py" not in script
     assert "AGENCY_ARTICLE_LOGIN_DEDICATED_PROFILE" not in script

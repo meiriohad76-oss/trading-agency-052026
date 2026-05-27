@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
+from subprocess import CompletedProcess
 
 import pandas as pd
 
+from agency.runtime import portfolio_news_agent_bridge as bridge_module
+from agency.runtime.email_evidence_refresh import sync_email_evidence_and_run_mini_cycles
 from agency.runtime.portfolio_news_agent_bridge import (
     ensure_portfolio_news_agent_agency_config,
     export_portfolio_news_agent_events,
@@ -103,6 +107,53 @@ def test_portfolio_news_agent_status_explains_article_access_failures(
     assert "Analyze unread SA emails" in str(status["next_action"])
 
 
+def test_portfolio_news_agent_status_exposes_mini_cycle_progress(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    root = _agent_root(tmp_path)
+    _write_agent_config(root)
+    _write_agent_db(root / "data" / "portfolio_news.db")
+    status_path = tmp_path / "subscription-email-mini-cycle-status.json"
+    status_path.write_text(
+        json.dumps(
+            {
+                "state": "stock_analysis_updated",
+                "status_label": "Stock analysis updated",
+                "affected_tickers": ["ASML", "CVX"],
+                "detail": "Stock analysis updated. Affected tickers: ASML, CVX.",
+                "updated_at": "2026-05-27T12:10:00+00:00",
+                "ticker_statuses": [
+                    {
+                        "ticker": "ASML",
+                        "state": "updated",
+                        "status_label": "Stock analysis updated",
+                        "status_class": "pass",
+                    },
+                    {
+                        "ticker": "CVX",
+                        "state": "updated",
+                        "status_label": "Stock analysis updated",
+                        "status_class": "pass",
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(bridge_module, "DEFAULT_MINI_CYCLE_STATUS_PATH", status_path)
+
+    status = load_portfolio_news_agent_status(root=root, endpoint_checker=lambda _url: True)
+
+    assert status["affected_tickers"] == ["ASML", "CVX"]
+    assert status["affected_tickers_label"] == "Affected tickers: ASML, CVX"
+    assert status["mini_cycle_status_label"] == "Stock analysis updated"
+    assert status["current_action_label"] == (
+        "Stock analysis updated. Affected tickers: ASML, CVX."
+    )
+    assert status["mini_cycle_ticker_rows"][0]["ticker"] == "ASML"
+
+
 def test_agency_config_overlay_disables_telegram_without_mutating_user_config(
     tmp_path: Path,
 ) -> None:
@@ -152,6 +203,98 @@ def test_export_portfolio_news_agent_events_writes_subscription_email_dataset(
     assert row["source_refs"][0]["source_url"] == "https://seekingalpha.com/article/aapl"
     assert manifest_path.exists()
     assert (summary_root / "subscription-email-ingest.json").exists()
+
+
+def test_export_portfolio_news_agent_events_reports_new_affected_tickers(
+    tmp_path: Path,
+) -> None:
+    root = _agent_root(tmp_path)
+    _write_agent_config(root)
+    _write_agent_db(root / "data" / "portfolio_news.db")
+    parquet_path = tmp_path / "subscription_emails.parquet"
+    manifest_path = tmp_path / "subscription_emails.json"
+    summary_root = tmp_path / "summary"
+    export_portfolio_news_agent_events(
+        root=root,
+        parquet_path=parquet_path,
+        manifest_path=manifest_path,
+        summary_root=summary_root,
+    )
+    _add_agent_summary(
+        root / "data" / "portfolio_news.db",
+        article_id=2,
+        link_id=3,
+        symbol="MSFT",
+        headline="MSFT cloud growth accelerates",
+        summary="Azure demand accelerated.",
+    )
+
+    result = export_portfolio_news_agent_events(
+        root=root,
+        parquet_path=parquet_path,
+        manifest_path=manifest_path,
+        summary_root=summary_root,
+    )
+
+    assert result["status"] == "exported"
+    assert result["event_rows"] == 2
+    assert result["affected_tickers"] == ["MSFT"]
+    summary = json.loads((summary_root / "subscription-email-ingest.json").read_text())
+    assert summary["affected_tickers"] == ["MSFT"]
+
+
+def test_email_evidence_post_sync_runs_ticker_scoped_mini_cycles(
+    tmp_path: Path,
+) -> None:
+    root = _agent_root(tmp_path)
+    _write_agent_config(root)
+    _write_agent_db(root / "data" / "portfolio_news.db")
+    parquet_path = tmp_path / "subscription_emails.parquet"
+    manifest_path = tmp_path / "subscription_emails.json"
+    summary_root = tmp_path / "summary"
+    status_path = summary_root / "subscription-email-mini-cycle-status.json"
+    export_portfolio_news_agent_events(
+        root=root,
+        parquet_path=parquet_path,
+        manifest_path=manifest_path,
+        summary_root=summary_root,
+    )
+    _add_agent_summary(
+        root / "data" / "portfolio_news.db",
+        article_id=2,
+        link_id=3,
+        symbol="MSFT",
+        headline="MSFT cloud growth accelerates",
+        summary="Azure demand accelerated.",
+    )
+    commands: list[list[str]] = []
+
+    def fake_runner(command: list[str], **_kwargs: object) -> CompletedProcess[str]:
+        commands.append(command)
+        return CompletedProcess(command, 0, stdout="mini ok", stderr="")
+
+    result = sync_email_evidence_and_run_mini_cycles(
+        root=root,
+        parquet_path=parquet_path,
+        manifest_path=manifest_path,
+        summary_root=summary_root,
+        status_path=status_path,
+        runner=fake_runner,
+    )
+
+    assert result["status"] == "stock_analysis_updated"
+    assert result["affected_tickers"] == ["MSFT"]
+    assert len(commands) == 1
+    command = commands[0]
+    assert "--ticker" in command
+    assert command[command.index("--ticker") + 1] == "MSFT"
+    assert "--signal" in command
+    assert "subscription_thesis" in command
+    payload = json.loads(status_path.read_text())
+    assert payload["status_label"] == "Stock analysis updated"
+    assert payload["affected_tickers"] == ["MSFT"]
+    assert payload["ticker_statuses"][0]["ticker"] == "MSFT"
+    assert payload["ticker_statuses"][0]["status_label"] == "Stock analysis updated"
 
 
 def _agent_root(tmp_path: Path) -> Path:
@@ -290,5 +433,69 @@ def _write_agent_db(path: Path) -> None:
               'gpt-5-nano', 'v1', '2026-05-27T12:02:10.700000+00:00'
             );
             """
+        )
+        connection.commit()
+
+
+def _add_agent_summary(
+    path: Path,
+    *,
+    article_id: int,
+    link_id: int,
+    symbol: str,
+    headline: str,
+    summary: str,
+) -> None:
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            """
+            INSERT INTO articles (
+              id, canonical_url, source_url, headline, article_date, content_hash
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                article_id,
+                f"https://seekingalpha.com/article/{symbol.lower()}",
+                f"https://email.seekingalpha.com/{symbol.lower()}",
+                headline,
+                "2026-05-27T12:05:00.400000+00:00",
+                f"hash-{symbol.lower()}",
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO gmail_article_links (
+              id, gmail_message_id, portfolio_import_id, prompt_version, source_url,
+              canonical_url, article_id, status, last_attempt_at
+            )
+            VALUES (?, 1, 1, 'v1', ?, ?, ?, 'processed_relevant', ?)
+            """,
+            (
+                link_id,
+                f"https://seekingalpha.com/article/{symbol.lower()}",
+                f"https://seekingalpha.com/article/{symbol.lower()}",
+                article_id,
+                "2026-05-27T12:05:10.500000+00:00",
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO article_asset_summaries (
+              article_id, gmail_message_id, gmail_article_link_id, portfolio_import_id,
+              symbol, company_name, inferred_sentiment, theme, action_relevance,
+              short_summary, confidence, llm_model, prompt_version, created_at
+            )
+            VALUES (?, 1, ?, 1, ?, ?, 'bullish', 'bullish', 'thesis_change',
+                    ?, 0.77, 'gpt-5-nano', 'v1', ?)
+            """,
+            (
+                article_id,
+                link_id,
+                symbol,
+                f"{symbol} Corp.",
+                summary,
+                "2026-05-27T12:05:20.700000+00:00",
+            ),
         )
         connection.commit()

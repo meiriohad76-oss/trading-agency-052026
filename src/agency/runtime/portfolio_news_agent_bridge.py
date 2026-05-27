@@ -19,6 +19,7 @@ DEFAULT_ENV_NAME = ".env"
 DEFAULT_PARQUET_PATH = REPO_ROOT / "research" / "data" / "parquet" / "subscription_emails.parquet"
 DEFAULT_MANIFEST_PATH = REPO_ROOT / "research" / "data" / "manifests" / "subscription_emails.json"
 DEFAULT_SUMMARY_ROOT = REPO_ROOT / "research" / "results" / "latest-subscription-emails"
+DEFAULT_MINI_CYCLE_STATUS_PATH = DEFAULT_SUMMARY_ROOT / "subscription-email-mini-cycle-status.json"
 TERMINAL_RELEVANT = {"processed_relevant"}
 TERMINAL_ANALYZED = {"processed_relevant", "irrelevant_seen"}
 TERMINAL_FAILED = {"failed_access", "failed_extract", "failed_llm", "failed_telegram"}
@@ -94,7 +95,10 @@ def load_portfolio_news_agent_status(
         and (endpoint_checker or _is_cdp_endpoint_available)(str(config.browser_cdp_url))
     )
     db_status = _read_database_status(config.database_path) if config.database_path else {}
-    return _status_from_database(config, browser_ready=browser_ready, db_status=db_status)
+    return _with_mini_cycle_status(
+        _status_from_database(config, browser_ready=browser_ready, db_status=db_status),
+        _read_json_object(DEFAULT_MINI_CYCLE_STATUS_PATH),
+    )
 
 
 def load_portfolio_news_agent_config(
@@ -135,7 +139,12 @@ def export_portfolio_news_agent_events(
             "event_rows": 0,
             "detail": "Portfolio News Agent DB is not available.",
         }
+    previous_source_ids = _existing_source_ids(parquet_path)
     rows = _portfolio_news_event_rows(config.database_path)
+    affected_rows = [
+        row for row in rows if str(row.get("source_id") or "") not in previous_source_ids
+    ]
+    affected_tickers = _ticker_list(affected_rows)
     if rows:
         from subscription_email.storage import write_event_frame
 
@@ -146,7 +155,12 @@ def export_portfolio_news_agent_events(
         fetched_at=_utc_now_dt(),
         issues=[] if rows else [{"severity": "info", "message": "No article summaries exported."}],
     )
-    summary = _portfolio_news_export_summary(config, rows)
+    summary = _portfolio_news_export_summary(
+        config,
+        rows,
+        affected_tickers=affected_tickers,
+        affected_event_rows=len(affected_rows),
+    )
     summary_root.mkdir(parents=True, exist_ok=True)
     (summary_root / "subscription-email-ingest.json").write_text(
         json.dumps(summary, indent=2, sort_keys=True) + "\n",
@@ -155,6 +169,8 @@ def export_portfolio_news_agent_events(
     return {
         "status": "exported",
         "event_rows": len(rows),
+        "affected_event_rows": len(affected_rows),
+        "affected_tickers": affected_tickers,
         "parquet_path": str(parquet_path),
         "manifest_path": str(manifest_path),
     }
@@ -584,6 +600,9 @@ def _event_row(row: Mapping[str, object]) -> dict[str, object]:
 def _portfolio_news_export_summary(
     config: PortfolioNewsAgentConfig,
     rows: Sequence[Mapping[str, object]],
+    *,
+    affected_tickers: Sequence[str] = (),
+    affected_event_rows: int = 0,
 ) -> dict[str, object]:
     return {
         "config_path": str(config.config_path),
@@ -593,6 +612,8 @@ def _portfolio_news_export_summary(
         "news_rows": 0,
         "activity_rows": 0,
         "event_rows": len(rows),
+        "affected_event_rows": affected_event_rows,
+        "affected_tickers": list(affected_tickers),
         "linked_content": {
             "attempted": len(rows),
             "succeeded": len(rows),
@@ -628,6 +649,105 @@ def _write_subscription_email_manifest(
     from subscription_email.storage import write_manifest
 
     write_manifest(manifest_path, parquet_path, fetched_at=fetched_at, issues=issues)
+
+
+def _existing_source_ids(parquet_path: Path) -> set[str]:
+    if not parquet_path.exists():
+        return set()
+    try:
+        frame = pd.read_parquet(parquet_path, columns=["source_id"])
+    except Exception:
+        return set()
+    if "source_id" not in frame.columns:
+        return set()
+    return {
+        str(value)
+        for value in frame["source_id"].dropna().tolist()
+        if str(value).strip()
+    }
+
+
+def _ticker_list(rows: Sequence[Mapping[str, object]]) -> list[str]:
+    return sorted(
+        {
+            str(row.get("ticker") or "").strip().upper()
+            for row in rows
+            if str(row.get("ticker") or "").strip()
+        }
+    )
+
+
+def _read_json_object(path: Path) -> Mapping[str, object]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, Mapping) else {}
+
+
+def _with_mini_cycle_status(
+    status: Mapping[str, object],
+    mini_status: Mapping[str, object],
+) -> dict[str, object]:
+    output = dict(status)
+    ticker_statuses = _mapping_list(mini_status.get("ticker_statuses"))
+    affected_tickers = _string_list(mini_status.get("affected_tickers"))
+    state = str(mini_status.get("state") or "").strip()
+    status_label = _first_text(mini_status.get("status_label"))
+    affected_label = _affected_tickers_label(affected_tickers)
+    output.setdefault("affected_tickers", [])
+    output.setdefault("affected_tickers_label", "Affected tickers: none")
+    output.setdefault("mini_cycle_state", "")
+    output.setdefault("mini_cycle_status_label", "")
+    output.setdefault("mini_cycle_ticker_rows", [])
+    if not mini_status:
+        return output
+    output["affected_tickers"] = affected_tickers
+    output["affected_tickers_label"] = affected_label
+    output["mini_cycle_state"] = state
+    output["mini_cycle_status_label"] = status_label
+    output["mini_cycle_updated_at"] = _first_text(mini_status.get("updated_at"))
+    output["mini_cycle_detail"] = _first_text(mini_status.get("detail"))
+    output["mini_cycle_ticker_rows"] = ticker_statuses
+    if (affected_tickers or ticker_statuses) and _int(output.get("linked_content_processing")) <= 0:
+        output["current_action_label"] = _mini_cycle_current_action(
+            state=state,
+            status_label=status_label,
+            affected_label=affected_label,
+            ticker_statuses=ticker_statuses,
+        )
+    return output
+
+
+def _affected_tickers_label(tickers: Sequence[str]) -> str:
+    if not tickers:
+        return "Affected tickers: none"
+    shown = ", ".join(tickers[:8])
+    extra = len(tickers) - 8
+    if extra > 0:
+        shown = f"{shown}, +{extra} more"
+    return f"Affected tickers: {shown}"
+
+
+def _mini_cycle_current_action(
+    *,
+    state: str,
+    status_label: str,
+    affected_label: str,
+    ticker_statuses: Sequence[Mapping[str, object]],
+) -> str:
+    running = [
+        str(row.get("ticker") or "")
+        for row in ticker_statuses
+        if str(row.get("state") or "") == "running" and str(row.get("ticker") or "")
+    ]
+    if running:
+        return f"Mini analysis running for {', '.join(running)}. {affected_label}."
+    if status_label:
+        return f"{status_label}. {affected_label}."
+    if state:
+        return f"{state.replace('_', ' ').title()}. {affected_label}."
+    return affected_label
 
 
 def _read_simple_yaml(path: Path) -> dict[str, object]:
@@ -719,6 +839,22 @@ def _fetch_scalar(connection: sqlite3.Connection, query: str) -> int:
 
 def _mapping(value: object) -> Mapping[str, object]:
     return value if isinstance(value, Mapping) else {}
+
+
+def _mapping_list(value: object) -> list[Mapping[str, object]]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, Mapping)]
+
+
+def _string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [
+        text
+        for text in (str(item).strip().upper() for item in value)
+        if text
+    ]
 
 
 def _int(value: object) -> int:

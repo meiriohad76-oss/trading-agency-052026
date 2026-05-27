@@ -2735,6 +2735,23 @@ summary:focus-visible {
   gap: 8px;
 }
 
+.email-ticker-status-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.email-ticker-status-list li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
 .operator-briefing-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

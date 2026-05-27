@@ -1409,6 +1409,30 @@ if (document.readyState === "loading") {
       "[data-email-current-url]",
       status.current_article_url || "No current article URL.",
     );
+    setEmailText("[data-email-affected-tickers]", status.affected_tickers_label || "Affected tickers: none");
+    setEmailText(
+      "[data-email-mini-cycle-status]",
+      status.mini_cycle_status_label || "No stock mini-analysis run recorded for this email sync.",
+    );
+    const tickerStatusList = emailPanel.querySelector("[data-email-ticker-status-list]");
+    if (tickerStatusList) {
+      const rows = Array.isArray(status.mini_cycle_ticker_rows)
+        ? status.mini_cycle_ticker_rows
+        : [];
+      tickerStatusList.innerHTML = "";
+      tickerStatusList.hidden = rows.length === 0;
+      rows.forEach((row) => {
+        const item = document.createElement("li");
+        const ticker = document.createElement("strong");
+        ticker.textContent = operatorDataHealthText(row.ticker || "UNKNOWN");
+        const statusTag = document.createElement("span");
+        statusTag.className = `tag tag-${row.status_class || "neutral"}`;
+        statusTag.textContent = operatorDataHealthText(row.status_label || "No status");
+        item.appendChild(ticker);
+        item.appendChild(statusTag);
+        tickerStatusList.appendChild(item);
+      });
+    }
     setEmailText("[data-email-next-action]", status.next_action || "Run email/article analysis when subscription emails are needed for review.");
     const continueForm = emailPanel.querySelector("[data-email-continue-form]");
     const continueButton = emailPanel.querySelector("[data-email-continue-button]");
