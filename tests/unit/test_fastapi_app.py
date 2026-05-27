@@ -96,6 +96,7 @@ EXPECTED_REVIEWED_COUNT = 3
 EXPECTED_EMAIL_EVENT_COUNT = 2
 EXPECTED_BRIEF_POINT_COUNT = 4
 EXPECTED_FINAL_SELECTION_REPORT_LIMIT = 1000
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 @pytest.fixture(autouse=True)
@@ -3852,7 +3853,9 @@ def test_data_refresh_progress_view_hides_raw_stale_state_from_dom() -> None:
 
 
 def test_data_refresh_progress_js_uses_guarded_timeout_pollers() -> None:
-    script = Path("src/agency/static/data-refresh-progress.js").read_text(encoding="utf-8")
+    script = (REPO_ROOT / "src/agency/static/data-refresh-progress.js").read_text(
+        encoding="utf-8"
+    )
 
     assert "const fetchJsonWithTimeout" in script
     assert "new AbortController()" in script
@@ -5214,7 +5217,7 @@ def test_execution_preview_page_keeps_requested_ticker_in_focus(
     assert "AAPL can be manually advanced with caution" in response.text
     assert "confirmed signal count 1 is below required 2." in response.text
     assert ">Advance with caution</button>" in response.text
-    assert 'href="/candidates/AAPL?from=execution-preview#focused-preview-AAPL"' in response.text
+    assert 'href="/candidates/AAPL?from=execution-preview#paper-review-heading"' in response.text
     assert "Actionable Execution Follow-Up" not in response.text
     assert "Show full clearance list" in response.text
 
@@ -7036,7 +7039,7 @@ async def test_candidate_detail_light_context_skips_timeline_and_risk_lookups(
 
 
 def test_candidate_signal_template_shows_hard_cards_for_all_signal_groups() -> None:
-    template = Path("src/agency/templates/candidate_detail.html").read_text()
+    template = (REPO_ROOT / "src/agency/templates/candidate_detail.html").read_text()
 
     assert template.count("signal-trigger-card-grid") >= 3
 
@@ -7562,14 +7565,14 @@ def test_candidate_detail_report_rows_show_human_review_state() -> None:
 
 
 def test_candidate_detail_sticky_bar_uses_current_review_state() -> None:
-    template = Path("src/agency/templates/candidate_detail.html").read_text()
+    template = (REPO_ROOT / "src/agency/templates/candidate_detail.html").read_text()
 
     assert "pending review</span>" not in template
     assert "Review: {{ review.decision }}" in template
 
 
 def test_candidate_detail_caution_requires_real_checkbox_acknowledgement() -> None:
-    template = Path("src/agency/templates/candidate_detail.html").read_text()
+    template = (REPO_ROOT / "src/agency/templates/candidate_detail.html").read_text()
 
     assert 'href="#paper-review-heading">Review Caution' in template
     assert 'name="caution_acknowledged"' in template
@@ -7577,7 +7580,7 @@ def test_candidate_detail_caution_requires_real_checkbox_acknowledgement() -> No
 
 
 def test_candidate_detail_exposes_manual_llm_review_button() -> None:
-    template = Path("src/agency/templates/candidate_detail.html").read_text()
+    template = (REPO_ROOT / "src/agency/templates/candidate_detail.html").read_text()
 
     assert 'action="/candidates/{{ ticker }}/llm-review"' in template
     assert "Run LLM review for this stock" in template
@@ -7586,7 +7589,7 @@ def test_candidate_detail_exposes_manual_llm_review_button() -> None:
 
 
 def test_execution_preview_banner_uses_submit_gate_state() -> None:
-    template = Path("src/agency/templates/execution_preview.html").read_text()
+    template = (REPO_ROOT / "src/agency/templates/execution_preview.html").read_text()
 
     assert "Broker submit is disabled until you explicitly enable it in Policy." not in template
     assert "summary.submit_gate_open" in template
@@ -7633,7 +7636,7 @@ def test_final_selection_rows_show_human_review_state() -> None:
 
 
 def test_command_dashboard_template_places_review_queue_before_system_health() -> None:
-    template = Path("src/agency/templates/dashboard.html").read_text()
+    template = (REPO_ROOT / "src/agency/templates/dashboard.html").read_text()
 
     assert template.index('id="review-queue-heading"') < template.index(
         'id="system-status-heading"'
@@ -7641,7 +7644,7 @@ def test_command_dashboard_template_places_review_queue_before_system_health() -
 
 
 def test_command_dashboard_execute_link_preserves_selected_ticker() -> None:
-    template = Path("src/agency/templates/dashboard.html").read_text()
+    template = (REPO_ROOT / "src/agency/templates/dashboard.html").read_text()
 
     assert (
         'href="/execution-preview?ticker={{ item.ticker }}#focused-preview-{{ item.ticker }}"'

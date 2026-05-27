@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from collections.abc import Mapping, Sequence
 from contextlib import suppress
@@ -310,12 +311,13 @@ async def cockpit_submit(request: Request) -> JSONResponse:
             status_code=403,
             detail="Cockpit clearance is paper-only; live trading is locked off.",
         )
-    form = parse_qs((await request.body()).decode("utf-8"), keep_blank_values=True)
-    if _cockpit_form_first(form, "submit_ack") != "on":
+    body = await request.body()
+    payload = _cockpit_submit_payload_from_body(request, body)
+    if _cockpit_submit_ack(payload) is not True:
         raise HTTPException(status_code=400, detail="Confirm the paper-only submit checkbox first.")
-    if _cockpit_form_first(form, "submit_phrase").strip() != "submit paper orders":
+    if _cockpit_submit_phrase(payload).strip() != "submit paper orders":
         raise HTTPException(status_code=400, detail="Type the exact phrase: submit paper orders.")
-    orders = _cockpit_submit_orders_from_form(form)
+    orders = _cockpit_submit_orders_from_json(payload) if _cockpit_payload_is_json(request) else _cockpit_submit_orders_from_form(payload)
     if not orders:
         raise HTTPException(status_code=400, detail="No paper order rows were included in the cockpit manifest.")
 
@@ -434,6 +436,66 @@ async def cockpit_submit(request: Request) -> JSONResponse:
             "rejected": rejected,
         }
     )
+
+
+def _cockpit_submit_payload_from_body(
+    request: Request,
+    body: bytes,
+) -> Mapping[str, object]:
+    if _cockpit_payload_is_json(request):
+        try:
+            payload = json.loads(body.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise HTTPException(status_code=400, detail="Invalid cockpit submit JSON payload.") from exc
+        if not isinstance(payload, Mapping):
+            raise HTTPException(status_code=400, detail="Cockpit submit JSON payload must be an object.")
+        return payload
+    return parse_qs(body.decode("utf-8", errors="replace"), keep_blank_values=True)
+
+
+def _cockpit_payload_is_json(request: Request) -> bool:
+    return "application/json" in request.headers.get("content-type", "").lower()
+
+
+def _cockpit_submit_ack(payload: Mapping[str, object]) -> bool:
+    if "orders" in payload:
+        value = payload.get("submit_ack", payload.get("submit_gate_armed", False))
+        if isinstance(value, bool):
+            return value
+        return str(value).strip().lower() in {"1", "true", "yes", "on"}
+    return _cockpit_form_first(payload, "submit_ack") == "on"
+
+
+def _cockpit_submit_phrase(payload: Mapping[str, object]) -> str:
+    if "orders" in payload:
+        return str(payload.get("submit_phrase") or payload.get("operator_phrase") or "")
+    return _cockpit_form_first(payload, "submit_phrase")
+
+
+def _cockpit_submit_orders_from_json(payload: Mapping[str, object]) -> list[dict[str, object]]:
+    raw_orders = payload.get("orders", [])
+    if not isinstance(raw_orders, Sequence) or isinstance(raw_orders, str | bytes):
+        raise HTTPException(status_code=400, detail="Cockpit submit orders must be a list.")
+    orders: list[dict[str, object]] = []
+    for raw_order in raw_orders:
+        if not isinstance(raw_order, Mapping):
+            raise HTTPException(status_code=400, detail="Each cockpit submit order must be an object.")
+        ticker = str(raw_order.get("ticker") or "").strip().upper()
+        orders.append(
+            {
+                "cycle_id": str(raw_order.get("cycle_id") or ""),
+                "ticker": ticker,
+                "as_of": str(raw_order.get("as_of") or ""),
+                "order_intent_hash": str(raw_order.get("order_intent_hash") or ""),
+                "notional_hint": str(raw_order.get("notional_hint") or ""),
+                "side_hint": str(raw_order.get("side_hint") or ""),
+            }
+        )
+    return [
+        order
+        for order in orders
+        if order["cycle_id"] and order["ticker"] and order["as_of"]
+    ]
 
 
 def _cockpit_submit_orders_from_form(form: object) -> list[dict[str, object]]:
@@ -1306,6 +1368,9 @@ async def submit_execution_order(
 
 async def _paper_submit_confirmation(request: Request) -> tuple[bool, str]:
     body = await request.body()
+    if _cockpit_payload_is_json(request):
+        payload = _cockpit_submit_payload_from_body(request, body)
+        return _cockpit_submit_ack(payload), _cockpit_submit_phrase(payload)
     values = parse_qs(body.decode("utf-8", errors="replace"), keep_blank_values=True)
     armed_value = str(
         next(iter(values.get("submit_gate_armed") or values.get("submit_ack") or [""]), "")
@@ -1621,6 +1686,7 @@ async def market_regime(request: Request) -> Response:
 
 @router.get("/universe")
 async def universe() -> RedirectResponse:
+    # Legacy alias. The V3 navigation exposes this workflow as "Universe & market".
     return RedirectResponse("/market-regime", status_code=303)
 
 

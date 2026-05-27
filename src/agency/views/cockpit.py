@@ -1707,15 +1707,25 @@ def _signal_rows(signals_context: Mapping[str, object]) -> list[dict[str, object
     rows: list[dict[str, object]] = []
     for raw in _list(signals_context.get("lanes")):
         item = _mapping(raw)
+        state = _status_to_source_state(item.get("status_class"), item.get("status_label"))
         rows.append(
             {
                 "name": _first_text(item.get("label"), item.get("lane"), default="Signal"),
                 "status": _first_text(item.get("status_label"), default="Signal status"),
-                "state": _status_to_source_state(item.get("status_class"), item.get("status_label")),
+                "state": state,
+                "tier": _signal_tier_for_state(state),
                 "detail": _first_text(item.get("detail"), default="No signal detail reported."),
             }
         )
     return rows
+
+
+def _signal_tier_for_state(state: str) -> str:
+    if state == "ready":
+        return "confirmed"
+    if state == "partial":
+        return "inferred"
+    return "suppressed"
 
 
 def _scenario_from_context(

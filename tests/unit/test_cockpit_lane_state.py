@@ -5,9 +5,10 @@ from pathlib import Path
 from agency.views.cockpit import cockpit_context_from_sources
 from tests.unit.test_cockpit_contract import _sample_sources
 
-COCKPIT_TEMPLATE = Path("src/agency/templates/cockpit.html")
-PANELS_TEMPLATE = Path("src/agency/templates/_cockpit_panels.html")
-STYLES = Path("src/agency/static/styles.css")
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+COCKPIT_TEMPLATE = PROJECT_ROOT / "src/agency/templates/cockpit.html"
+PANELS_TEMPLATE = PROJECT_ROOT / "src/agency/templates/_cockpit_panels.html"
+STYLES = PROJECT_ROOT / "src/agency/static/styles.css"
 
 
 def _cockpit_template() -> str:

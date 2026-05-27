@@ -19,6 +19,7 @@ def selection_report(
         {"name": "evidence_breadth", "status": policy_status, "reason": policy_reason}
     ]
     report["risk_flags"] = list(risk_flags or [])
+    validate_contract("selection-report", report)
     return report
 
 

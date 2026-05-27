@@ -169,7 +169,7 @@ def test_cockpit_is_primary_operating_entrypoint(monkeypatch: MonkeyPatch) -> No
     response = client.get("/cockpit")
 
     assert response.status_code == 200
-    assert '<a class="brand" href="/cockpit">' in response.text
+    assert '<a class="brand" href="/command">' in response.text
     nav = response.text.split('<nav class="nav-list">', 1)[1].split("</nav>", 1)[0]
     assert nav.index('href="/cockpit"') < nav.index('href="/command"')
 

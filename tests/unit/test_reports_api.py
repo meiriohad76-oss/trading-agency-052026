@@ -41,7 +41,7 @@ def test_selection_reports_for_ticker_endpoint_uses_local_storage_when_postgres_
     assert isinstance(response.json(), list)
 
 
-def test_selection_reports_endpoint_skips_route_validation_for_speed(
+def test_selection_reports_endpoint_keeps_route_validation_enabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     observed: dict[str, object] = {}
@@ -61,7 +61,32 @@ def test_selection_reports_endpoint_skips_route_validation_for_speed(
 
     assert response.status_code == HTTP_OK
     assert response.json() == [{"ticker": "AAPL"}]
-    assert observed["validate_payloads"] is False
+    assert observed.get("validate_payloads", True) is True
+    assert observed["prefer_latest_artifact"] is True
+
+
+def test_selection_reports_ticker_endpoint_keeps_route_validation_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: dict[str, object] = {}
+
+    async def fake_runtime_selection_reports(**kwargs: object) -> list[dict[str, object]]:
+        observed.update(kwargs)
+        return [{"ticker": "AAPL"}]
+
+    monkeypatch.setattr(
+        reports_api,
+        "runtime_selection_reports",
+        fake_runtime_selection_reports,
+    )
+    client = TestClient(create_app())
+
+    response = client.get("/reports/selection/AAPL")
+
+    assert response.status_code == HTTP_OK
+    assert response.json() == [{"ticker": "AAPL"}]
+    assert observed["ticker"] == "AAPL"
+    assert observed.get("validate_payloads", True) is True
     assert observed["prefer_latest_artifact"] is True
 
 

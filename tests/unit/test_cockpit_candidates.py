@@ -11,8 +11,9 @@ from agency.views.cockpit import (
 from agency.views.command import paper_review_queue
 from tests.unit.test_cockpit_contract import _sample_sources
 
-TEMPLATE = Path("src/agency/templates/cockpit.html")
-STYLES = Path("src/agency/static/styles.css")
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+TEMPLATE = PROJECT_ROOT / "src/agency/templates/cockpit.html"
+STYLES = PROJECT_ROOT / "src/agency/static/styles.css"
 
 
 def _template() -> str:

@@ -5,8 +5,13 @@ from pathlib import Path
 from agency.views.cockpit import cockpit_context_from_sources
 from tests.unit.test_cockpit_contract import _sample_sources
 
-TEMPLATE = Path("src/agency/templates/cockpit.html")
-STYLES = Path("src/agency/static/styles.css")
+REPO_ROOT = Path(__file__).resolve().parents[2]
+TEMPLATE = REPO_ROOT / "src/agency/templates/cockpit.html"
+PANELS = REPO_ROOT / "src/agency/templates/_cockpit_panels.html"
+BASE_TEMPLATE = REPO_ROOT / "src/agency/templates/base.html"
+STYLES = REPO_ROOT / "src/agency/static/styles.css"
+COCKPIT_JS = REPO_ROOT / "src/agency/static/cockpit.js"
+DATA_REFRESH_PROGRESS_JS = REPO_ROOT / "src/agency/static/data-refresh-progress.js"
 
 
 def _template() -> str:
@@ -112,11 +117,13 @@ def test_cockpit_template_uses_mono_class_for_numeric_readouts() -> None:
     assert ".cockpit-mono" in css
 
 
-def test_base_navigation_links_to_cockpit() -> None:
-    base = Path("src/agency/templates/base.html").read_text(encoding="utf-8")
+def test_base_brand_links_to_command_without_demoting_cockpit_nav() -> None:
+    base = BASE_TEMPLATE.read_text(encoding="utf-8")
 
+    assert '<a class="brand" href="/command">' in base
     assert "href=\"/cockpit\"" in base
     assert "Cockpit" in base
+    assert "data-enable-heartbeat" in base
 
 
 def test_cockpit_template_posts_research_review_actions() -> None:
@@ -130,24 +137,27 @@ def test_cockpit_template_posts_research_review_actions() -> None:
 
 def test_cockpit_static_controls_are_truthful_and_filterable() -> None:
     html = _template()
-    panels = Path("src/agency/templates/_cockpit_panels.html").read_text(encoding="utf-8")
-    script = Path("src/agency/static/cockpit.js").read_text(encoding="utf-8")
+    panels = PANELS.read_text(encoding="utf-8")
+    script = COCKPIT_JS.read_text(encoding="utf-8")
 
     assert 'data-cockpit-ready="true"' not in html
     assert 'data-cockpit-ticker-payload="{{ candidate|tojson|safe }}"' in html
     assert 'class="cockpit-phase-cell active"' not in html
     assert "window.confirm(" not in script
     assert "showRestoreNotice(" in script
+    assert "setupReviewActionForms()" in DATA_REFRESH_PROGRESS_JS.read_text(
+        encoding="utf-8"
+    )
     assert 'document.querySelector(".topbar")?.setAttribute("hidden", "")' in script
     assert 'document.querySelector(".v3-phase-rail")?.setAttribute("hidden", "")' in script
     assert "data-signal-filter" in script
     assert "data-monitor-filter" in script
-    assert "cockpit-signal-item signal-{{ signal.status|lower" in panels
+    assert "cockpit-signal-item signal-{{ signal.tier|lower" in panels
     assert "cockpit-monitor-item monitor-{{ event.status_class|default('info', true)|lower" in panels
 
 
 def test_cockpit_script_forces_safety_scenario_starting_phase() -> None:
-    script = Path("src/agency/static/cockpit.js").read_text(encoding="utf-8")
+    script = COCKPIT_JS.read_text(encoding="utf-8")
 
     assert 'scenarioState === "submitted" ? "cleared"' in script
     assert 'scenarioState === "outage" || scenarioState === "no-actionable"' in script

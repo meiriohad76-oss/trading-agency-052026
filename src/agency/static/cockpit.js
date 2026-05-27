@@ -163,8 +163,11 @@
       try {
         const response = await fetch(form.action, {
           method: "POST",
-          body: new FormData(form),
-          headers: { Accept: "application/json" },
+          body: JSON.stringify(buildSubmitPayload()),
+          headers: {
+            Accept: "application/json",
+            "Content-Type": "application/json",
+          },
         });
         const payload = await response.json().catch(() =>
           response.ok
@@ -190,6 +193,29 @@
       }
     });
     updateSubmitGate();
+  }
+
+  function buildSubmitPayload() {
+    const values = (name) =>
+      Array.from(form.querySelectorAll(`[name="${name}"]`)).map((input) => input.value || "");
+    const tickers = values("ticker");
+    const cycles = values("cycle_id");
+    const asOfValues = values("as_of");
+    const hashes = values("order_intent_hash");
+    const notionals = values("notional_hint");
+    const sides = values("side_hint");
+    return {
+      submit_ack: Boolean(ack.checked),
+      submit_phrase: phrase.value || "",
+      orders: tickers.map((ticker, index) => ({
+        cycle_id: cycles[index] || "",
+        ticker,
+        as_of: asOfValues[index] || "",
+        order_intent_hash: hashes[index] || "",
+        notional_hint: notionals[index] || "",
+        side_hint: sides[index] || "",
+      })),
+    };
   }
 
   setupPolicyPanel();

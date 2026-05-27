@@ -315,7 +315,7 @@
                 data-cockpit-ticker-payload="{{ candidate|tojson|safe }}"
               >Open ticker detail</button>
             {% elif candidate.reviewable %}
-              <form method="post" action="{{ candidate.approve_review_action }}">
+              <form class="review-action-form" method="post" action="{{ candidate.approve_review_action }}" data-review-action="approve" data-review-ticker="{{ candidate.ticker }}">
                 {% if candidate.caution_acknowledgement_required %}
                   <label class="microcopy">
                     <input type="checkbox" name="caution_acknowledged" value="true" required>
@@ -324,10 +324,10 @@
                 {% endif %}
                 <button type="submit" class="button button-primary" data-cockpit-decision="approve" data-cockpit-ticker="{{ candidate.ticker }}">Approve Research</button>
               </form>
-              <form method="post" action="{{ candidate.defer_review_action }}">
+              <form class="review-action-form" method="post" action="{{ candidate.defer_review_action }}" data-review-action="defer" data-review-ticker="{{ candidate.ticker }}">
                 <button type="submit" class="button button-secondary" data-cockpit-decision="defer" data-cockpit-ticker="{{ candidate.ticker }}">Defer</button>
               </form>
-              <form method="post" action="{{ candidate.reject_review_action }}">
+              <form class="review-action-form" method="post" action="{{ candidate.reject_review_action }}" data-review-action="reject" data-review-ticker="{{ candidate.ticker }}">
                 <button type="submit" class="button button-secondary" data-cockpit-decision="reject" data-cockpit-ticker="{{ candidate.ticker }}">Reject</button>
               </form>
             {% else %}

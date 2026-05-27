@@ -3427,6 +3427,30 @@ def test_data_load_status_operator_copy_avoids_raw_stale_wording(
     assert "needs refresh" in displayed_text.lower()
 
 
+def test_data_load_status_handles_corrupt_manifest_gracefully(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    paths = _fixtures(tmp_path, monkeypatch)
+    (paths["manifest_root"] / "prices_daily.json").write_text(
+        "{invalid json}",
+        encoding="utf-8",
+    )
+
+    status = load_data_load_status(
+        config_path=paths["config"],
+        universe_path=paths["universe"],
+        manifest_root=paths["manifest_root"],
+        parquet_root=paths["parquet_root"],
+        runtime_summary_path=paths["runtime_summary"],
+        source_health_path=paths["source_health"],
+        now=datetime(2026, 5, 11, 15, 2, tzinfo=UTC),
+    )
+
+    assert status["state"] in {"blocked", "attention", "error", "missing"}
+    assert _dataset(status, "prices_daily")["status"] in {"missing", "blocked"}
+
+
 def _fixtures(tmp_path: Path, monkeypatch: MonkeyPatch) -> dict[str, Path]:
     manifest_root = tmp_path / "manifests"
     parquet_root = tmp_path / "parquet"

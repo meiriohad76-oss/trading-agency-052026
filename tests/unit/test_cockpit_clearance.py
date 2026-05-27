@@ -84,6 +84,19 @@ def test_cockpit_submit_result_uses_dom_text_nodes_for_api_values() -> None:
     assert ".textContent" in submit_result_block
 
 
+def test_cockpit_submit_posts_explicit_json_manifest_not_formdata() -> None:
+    script = _script()
+    clearance_block = script.split(
+        'const form = document.querySelector("[data-cockpit-clearance-form]");',
+        1,
+    )[1].split("setupPolicyPanel();", 1)[0]
+
+    assert "buildSubmitPayload()" in clearance_block
+    assert "JSON.stringify(buildSubmitPayload())" in clearance_block
+    assert '"Content-Type": "application/json"' in clearance_block
+    assert "new FormData(form)" not in clearance_block
+
+
 def test_clearance_phase_starts_with_bluf_sentence() -> None:
     html = _template()
 
@@ -126,6 +139,29 @@ def test_cockpit_submit_passes_request_and_all_order_rows_to_submit_handler(
     response = TestClient(create_app()).post(
         "/cockpit/submit",
         data=_submit_form(include_second=True),
+    )
+
+    assert response.status_code == 200
+    assert calls == [("AAA", "a" * 64), ("BBB", "b" * 64)]
+    assert response.json()["state"] == "accepted"
+
+
+def test_cockpit_submit_accepts_explicit_json_manifest(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, str]] = []
+
+    async def fake_submit_execution_order(request: Request, **kwargs: object) -> RedirectResponse:
+        assert request.headers["content-type"] == "application/json"
+        calls.append((str(kwargs["ticker"]), str(kwargs["order_intent_hash"])))
+        return RedirectResponse("/execution-preview", status_code=303)
+
+    _patch_submit_context(monkeypatch, include_second=True)
+    monkeypatch.setattr(dashboard_module, "submit_execution_order", fake_submit_execution_order)
+
+    response = TestClient(create_app()).post(
+        "/cockpit/submit",
+        json=_submit_json(include_second=True),
     )
 
     assert response.status_code == 200
@@ -318,6 +354,39 @@ def _submit_form(*, include_second: bool = False) -> dict[str, object]:
             "side_hint": ["BUY", "BUY"],
         }
     return form
+
+
+def _submit_json(*, include_second: bool = False) -> dict[str, object]:
+    form = _submit_form(include_second=include_second)
+    tickers = form["ticker"] if isinstance(form["ticker"], list) else [form["ticker"]]
+    cycles = form["cycle_id"] if isinstance(form["cycle_id"], list) else [form["cycle_id"]]
+    as_of_values = form["as_of"] if isinstance(form["as_of"], list) else [form["as_of"]]
+    hashes = (
+        form["order_intent_hash"]
+        if isinstance(form["order_intent_hash"], list)
+        else [form["order_intent_hash"]]
+    )
+    notionals = (
+        form["notional_hint"]
+        if isinstance(form["notional_hint"], list)
+        else [form["notional_hint"]]
+    )
+    sides = form["side_hint"] if isinstance(form["side_hint"], list) else [form["side_hint"]]
+    return {
+        "submit_ack": True,
+        "submit_phrase": "submit paper orders",
+        "orders": [
+            {
+                "cycle_id": str(cycles[index]),
+                "ticker": str(ticker),
+                "as_of": str(as_of_values[index]),
+                "order_intent_hash": str(hashes[index]),
+                "notional_hint": str(notionals[index]),
+                "side_hint": str(sides[index]),
+            }
+            for index, ticker in enumerate(tickers)
+        ],
+    }
 
 
 def _execution_context(*, include_second: bool = False, broker_order_id: str = "") -> dict[str, object]:

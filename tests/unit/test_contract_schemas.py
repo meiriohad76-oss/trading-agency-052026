@@ -11,7 +11,8 @@ from referencing import Registry, Resource
 from agency.api.risk import PolicyUpdate
 from agency.contracts import validation as validation_module
 
-SCHEMA_DIR = Path("schemas")
+REPO_ROOT = Path(__file__).resolve().parents[2]
+SCHEMA_DIR = REPO_ROOT / "schemas"
 SCHEMA_NAMES = [
     "provenance.schema.json",
     "signal-result.schema.json",
@@ -50,6 +51,12 @@ def test_selection_report_validates_nested_evidence_pack() -> None:
 def test_selection_report_schema_accepts_current_versions() -> None:
     allowed = set(_schemas()["selection-report.schema.json"]["properties"]["schema_version"]["enum"])
     assert {"0.1.0", "0.2.0"}.issubset(allowed)
+
+
+def test_risk_decision_schema_version_is_current() -> None:
+    schema_version = _schemas()["risk-decision.schema.json"]["properties"]["schema_version"]
+
+    assert schema_version["const"] == "0.1.0"
 
 
 def test_runtime_origin_enums_match_api_outputs() -> None:

@@ -5,8 +5,10 @@ from pathlib import Path
 from agency.views.cockpit import cockpit_context_from_sources
 from tests.unit.test_cockpit_contract import _sample_sources
 
-TEMPLATE = Path("src/agency/templates/cockpit.html")
-PANELS = Path("src/agency/templates/_cockpit_panels.html")
+REPO_ROOT = Path(__file__).resolve().parents[2]
+TEMPLATE = REPO_ROOT / "src/agency/templates/cockpit.html"
+PANELS = REPO_ROOT / "src/agency/templates/_cockpit_panels.html"
+COCKPIT_JS = REPO_ROOT / "src/agency/static/cockpit.js"
 
 
 def _template() -> str:
@@ -78,6 +80,7 @@ def test_signals_panel_has_filters_rule_cards_and_signal_log() -> None:
     assert "confirmed" in html
     assert "inferred" in html
     assert "suppressed" in html
+    assert "signal-{{ signal.tier" in html
     assert "Evidence treatment rule" in html
     assert "Breadth rule" in html
     assert "Signal log" in html
@@ -93,7 +96,7 @@ def test_ticker_panel_shows_llm_rationale_or_not_run_reason() -> None:
 
 def test_ticker_panel_has_rich_evidence_targets() -> None:
     html = _panels()
-    script = Path("src/agency/static/cockpit.js").read_text(encoding="utf-8")
+    script = COCKPIT_JS.read_text(encoding="utf-8")
     template = _template()
 
     for target in (

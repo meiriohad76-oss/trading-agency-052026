@@ -51,12 +51,13 @@ EXPECTED_REVIEW_QUEUE_COUNT = 4
 EXPECTED_REVIEWED_COUNT = 1
 EXPECTED_PENDING_COUNT = 3
 EXPECTED_RUNTIME_MAX_TICKERS = 250
+REPO_ROOT = Path(__file__).resolve().parents[2]
 MASSIVE_OPERATOR_RUNBOOK_PATHS = (
-    Path("research/config/full-universe-pull.example.sh"),
-    Path("docs/data-batching-strategy.md"),
-    Path("docs/data-extraction-strategy.md"),
-    Path("docs/phase-status.md"),
-    Path("docs/mvp-gap-analysis.md"),
+    REPO_ROOT / "research/config/full-universe-pull.example.sh",
+    REPO_ROOT / "docs/data-batching-strategy.md",
+    REPO_ROOT / "docs/data-extraction-strategy.md",
+    REPO_ROOT / "docs/phase-status.md",
+    REPO_ROOT / "docs/mvp-gap-analysis.md",
 )
 
 
@@ -402,7 +403,7 @@ def test_restore_command_reads_sql_from_stdin() -> None:
 
 
 def test_start_dev_respects_dotenv_database_url_before_sqlite_fallback() -> None:
-    script = Path("scripts/start_dev.ps1").read_text(encoding="utf-8")
+    script = (REPO_ROOT / "scripts/start_dev.ps1").read_text(encoding="utf-8")
 
     assert "Get-DotEnvValue" in script
     assert "$env:DATABASE_URL = $DotEnvDatabaseUrl" in script
@@ -410,7 +411,7 @@ def test_start_dev_respects_dotenv_database_url_before_sqlite_fallback() -> None
 
 
 def test_start_dev_restarts_existing_trading_agency_server() -> None:
-    script = Path("scripts/start_dev.ps1").read_text(encoding="utf-8")
+    script = (REPO_ROOT / "scripts/start_dev.ps1").read_text(encoding="utf-8")
 
     assert "Stop-ExistingTradingAgencyServers" in script
     assert "Get-CimInstance Win32_Process" in script
@@ -441,11 +442,11 @@ def test_agency_app_imports_without_external_pythonpath() -> None:
 
 
 def test_legacy_direct_local_app_entrypoint_removed() -> None:
-    assert not Path("scripts/run_local_app.py").exists()
+    assert not (REPO_ROOT / "scripts/run_local_app.py").exists()
 
 
 def test_start_local_runtime_requires_explicit_demo_seed() -> None:
-    script = Path("scripts/start_local_runtime.ps1").read_text(encoding="utf-8")
+    script = (REPO_ROOT / "scripts/start_local_runtime.ps1").read_text(encoding="utf-8")
 
     assert "[switch]$SeedDemo" in script
     assert "if ($SeedDemo)" in script
@@ -454,7 +455,7 @@ def test_start_local_runtime_requires_explicit_demo_seed() -> None:
 
 
 def test_start_local_runtime_restarts_existing_trading_agency_server() -> None:
-    script = Path("scripts/start_local_runtime.ps1").read_text(encoding="utf-8")
+    script = (REPO_ROOT / "scripts/start_local_runtime.ps1").read_text(encoding="utf-8")
 
     assert "Stop-ExistingTradingAgencyServers" in script
     assert "Get-CimInstance Win32_Process" in script
@@ -476,7 +477,7 @@ def test_operator_massive_stock_trade_runbooks_use_lane_model() -> None:
 
     assert forbidden_lines == []
 
-    runbook = Path("research/config/full-universe-pull.example.sh").read_text(
+    runbook = (REPO_ROOT / "research/config/full-universe-pull.example.sh").read_text(
         encoding="utf-8"
     )
     assert "backfill_massive_stock_trades.py" in runbook
@@ -488,7 +489,7 @@ def test_operator_massive_stock_trade_runbooks_use_lane_model() -> None:
 
 
 def test_live_massive_puller_help_does_not_advertise_disabled_bypass_flags() -> None:
-    script = Path("research/scripts/pull_massive_stock_trades.py").read_text(
+    script = (REPO_ROOT / "research/scripts/pull_massive_stock_trades.py").read_text(
         encoding="utf-8"
     )
 
@@ -783,7 +784,7 @@ def test_canonical_runtime_output_keeps_last_persisted_summary_on_persist_failur
     )
     assert (
         live_runtime_cycle_script._should_write_persistence_failure_artifacts(
-            Path("research/results/diagnostic-live-runtime")
+            REPO_ROOT / "research/results/diagnostic-live-runtime"
         )
         is True
     )
@@ -1649,7 +1650,7 @@ def test_operational_preflight_warns_subscription_email_login_action(
 
 
 def test_start_dev_updates_live_refresh_end_before_server_start() -> None:
-    script = Path("scripts/start_dev.ps1").read_text(encoding="utf-8")
+    script = (REPO_ROOT / "scripts/start_dev.ps1").read_text(encoding="utf-8")
 
     assert "research\\config\\live-refresh.local.json" in script
     assert "Updating live refresh end date" in script
@@ -1661,10 +1662,17 @@ def test_start_dev_updates_live_refresh_end_before_server_start() -> None:
 
 
 def test_app_startup_warns_when_scheduler_is_disabled() -> None:
-    source = Path("src/agency/app.py").read_text(encoding="utf-8")
+    source = (REPO_ROOT / "src/agency/app.py").read_text(encoding="utf-8")
 
     assert "[WARNING] AGENCY_SCHEDULER_ENABLED" in source
     assert "No automatic lane refresh or runtime cycles will run" in source
+
+
+def test_env_example_enables_scheduler_for_live_operation() -> None:
+    example = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+
+    assert "AGENCY_SCHEDULER_ENABLED=true" in example
+    assert "AGENCY_SCHEDULER_ENABLED=false" not in example
 
 
 def _pipeline_args(**overrides: object) -> argparse.Namespace:

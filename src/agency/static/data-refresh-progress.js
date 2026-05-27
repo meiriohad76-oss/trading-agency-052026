@@ -54,6 +54,67 @@ const guardedPoller = (callback) => {
   };
 };
 
+const setupReviewActionForms = () => {
+  document.querySelectorAll(".review-action-form").forEach((form) => {
+    if (form.dataset.reviewEnhanced === "true") {
+      return;
+    }
+    form.dataset.reviewEnhanced = "true";
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const submitter = event.submitter || form.querySelector('[type="submit"]');
+      if (submitter) {
+        submitter.disabled = true;
+        submitter.dataset.originalText = submitter.textContent || "";
+        submitter.textContent = "Sending...";
+      }
+      try {
+        const response = await fetch(form.action, {
+          method: "POST",
+          body: new FormData(form),
+          headers: { Accept: "application/json, text/html;q=0.9" },
+        });
+        if (!response.ok) {
+          throw new Error(`review failed: ${response.status}`);
+        }
+        const action = form.dataset.reviewAction || "review";
+        const card = form.closest(".review-card, [data-cockpit-candidate]");
+        if (card) {
+          card.classList.add("review-submitted");
+          card.setAttribute("data-review-submitted", action);
+        }
+        const status = card?.querySelector("[data-review-status]");
+        if (status) {
+          status.textContent = `${action.replaceAll("_", " ")} submitted`;
+        }
+        const ticker = form.dataset.reviewTicker || "ticker";
+        const output = document.createElement("span");
+        output.className = "tag tag-pass review-submit-status";
+        output.textContent = `${ticker} review submitted; refresh confirms server state.`;
+        form.replaceChildren(output);
+      } catch (error) {
+        if (submitter) {
+          submitter.disabled = false;
+          submitter.textContent = submitter.dataset.originalText || "Retry";
+        }
+        const output = form.querySelector("[data-review-submit-error]") || document.createElement("p");
+        output.dataset.reviewSubmitError = "true";
+        output.className = "form-error";
+        output.textContent = `Review submit failed: ${error}`;
+        if (!output.parentElement) {
+          form.appendChild(output);
+        }
+      }
+    });
+  });
+};
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", () => setupReviewActionForms());
+} else {
+  setupReviewActionForms();
+}
+
 (() => {
   const panel = document.querySelector("[data-full-live-panel]");
   if (!panel) {
@@ -771,6 +832,9 @@ const guardedPoller = (callback) => {
 })();
 
 (() => {
+  if (!document.querySelector("[data-enable-heartbeat]")) {
+    return;
+  }
   const heartbeat = document.querySelector("[data-runtime-heartbeat]");
   if (!heartbeat) {
     return;

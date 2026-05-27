@@ -36,7 +36,6 @@ async def selection_reports(
     try:
         return await runtime_selection_reports(
             limit=limit,
-            validate_payloads=False,
             prefer_latest_artifact=True,
         )
     except RuntimeSelectionReportsUnavailable as exc:
@@ -52,7 +51,6 @@ async def selection_reports_for_ticker(
         return await runtime_selection_reports(
             ticker=ticker,
             limit=limit,
-            validate_payloads=False,
             prefer_latest_artifact=True,
         )
     except RuntimeSelectionReportsUnavailable as exc:

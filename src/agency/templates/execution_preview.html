@@ -20,7 +20,7 @@
     <div class="review-card-head">
       <div>
         <span>{{ row.preview_state }} / {{ row.order_intent }}</span>
-        <h3><a class="text-link" href="/candidates/{{ row.ticker }}?from=execution-preview#focused-preview-{{ row.ticker }}">{{ row.ticker }}</a></h3>
+        <h3><a class="text-link" href="/candidates/{{ row.ticker }}?from=execution-preview#paper-review-heading">{{ row.ticker }}</a></h3>
       </div>
       {% if row.research_approval_available and not row.caution_acknowledgement_required %}
       <form class="execution-card-action" method="post" action="{{ row.approve_research_action }}">
@@ -273,7 +273,7 @@
       {{ focused_execution.ticker }} is not present in the latest execution preview. Open the candidate detail page, refresh the current cycle, or return to the Command dashboard.
     </p>
     <div class="inline-links">
-      <a class="text-link" href="/candidates/{{ focused_execution.ticker }}?from=execution-preview#focused-preview-{{ focused_execution.ticker }}">Open candidate detail</a>
+      <a class="text-link" href="/candidates/{{ focused_execution.ticker }}?from=execution-preview#paper-review-heading">Open candidate detail</a>
       <a class="text-link" href="/command">Back to Command</a>
     </div>
     {% endif %}
@@ -517,7 +517,7 @@
         <div class="review-card-head">
           <div>
             <span>{{ review.baseline.action }} / {{ review.baseline.conviction_pct }}% conviction</span>
-            <h3><a class="text-link" href="/candidates/{{ review.ticker }}?from=execution-preview#focused-preview-{{ review.ticker }}">{{ review.ticker }}</a></h3>
+            <h3><a class="text-link" href="/candidates/{{ review.ticker }}?from=execution-preview#paper-review-heading">{{ review.ticker }}</a></h3>
           </div>
           <span class="tag tag-{{ review.status_class }}">{{ review.status_label }}</span>
         </div>
@@ -580,7 +580,7 @@
           <tbody>
             {% for row in blocked_rows[:25] %}
             <tr>
-              <td data-label="Ticker"><a class="text-link" href="/candidates/{{ row.ticker }}?from=execution-preview#focused-preview-{{ row.ticker }}">{{ row.ticker }}</a></td>
+              <td data-label="Ticker"><a class="text-link" href="/candidates/{{ row.ticker }}?from=execution-preview#paper-review-heading">{{ row.ticker }}</a></td>
               <td data-label="State"><span class="tag tag-{{ row.state_class }}">{{ row.preview_state }}</span></td>
               <td data-label="Side">{{ row.side }}</td>
               <td data-label="Risk">{{ row.risk_decision }}</td>

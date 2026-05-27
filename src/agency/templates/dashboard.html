@@ -233,7 +233,7 @@
           </div>
           <div>
             <span class="metric-label">Human Review</span>
-            <strong>{{ item.human_review_decision }}</strong>
+            <strong data-review-status>{{ item.human_review_decision }}</strong>
             {% if item.human_review_decision|lower != "pending" %}
             <span class="muted-line">{{ item.human_review_reason }}{% if item.human_review_time_label != "Time unknown" %} / {{ item.human_review_time_label }}{% endif %}</span>
             {% endif %}

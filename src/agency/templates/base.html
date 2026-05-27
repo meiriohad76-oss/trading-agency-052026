@@ -10,7 +10,7 @@
   <body class="v3-app v3-screen-{{ v3_screen | default(active_nav | default('agency')) }}">
     <div class="app-shell v3-app-shell">
       <aside class="sidebar" aria-label="Main navigation">
-        <a class="brand" href="/cockpit">
+        <a class="brand" href="/command">
           <span class="brand-mark" aria-hidden="true">TA</span>
           <span class="brand-text">
             <strong class="brand-name">Trading Agency v3</strong>
@@ -82,11 +82,15 @@
             <p class="eyebrow">{% block eyebrow %}Trading Agency v3{% endblock %}</p>
             <h1>{% block page_title %}Agency Status{% endblock %}</h1>
           </div>
+          {% set heartbeat_enabled = active_nav in ["cockpit", "command", "execution"] %}
           <div
             class="topbar-actions"
+            {% if heartbeat_enabled %}
+            data-enable-heartbeat
             data-runtime-heartbeat
             data-runtime-health-endpoint="/health"
             data-runtime-broker-endpoint="/status/broker"
+            {% endif %}
           >
             <span class="status-dot status-dot-warn" data-runtime-dot aria-hidden="true"></span>
             <span class="ux-build-marker" aria-label="Current UX build">UX V3 · Pre-Flight Dashboards · 2026-05-23</span>

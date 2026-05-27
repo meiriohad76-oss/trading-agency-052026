@@ -30,6 +30,7 @@ from agency.views._shared import (
     _dashboard_selection_reports,
     _format_timestamp_or_text,
     _human_review_index,
+    _humanize_seconds_in_text,
     _int_field,
     _is_actionable_candidate,
     _label_text,
@@ -1380,36 +1381,6 @@ def _process_row(
             f"{process}: {detail} Action: {action}"
         ),
     }
-
-_SECONDS_TOKEN_RE = re.compile(r"\b(\d{3,})s\b")
-_ISO_TIMESTAMP_TOKEN_RE = re.compile(
-    r"(?<!\d)\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}"
-    r"(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})(?!\d)"
-)
-
-def _humanize_seconds_in_text(value: str) -> str:
-    with_durations = _SECONDS_TOKEN_RE.sub(
-        lambda match: _duration_label(int(match.group(1))),
-        value,
-    )
-    return _ISO_TIMESTAMP_TOKEN_RE.sub(
-        lambda match: _format_timestamp_or_text(match.group(0), default=match.group(0)),
-        with_durations,
-    )
-
-def _duration_label(seconds: int) -> str:
-    if seconds >= 86_400:
-        days, remainder = divmod(seconds, 86_400)
-        hours = remainder // 3_600
-        return f"{days}d {hours}h" if hours else f"{days}d"
-    if seconds >= 3_600:
-        hours, remainder = divmod(seconds, 3_600)
-        minutes = remainder // 60
-        return f"{hours}h {minutes}m" if minutes else f"{hours}h"
-    if seconds >= 60:
-        minutes, remainder = divmod(seconds, 60)
-        return f"{minutes}m {remainder}s" if remainder else f"{minutes}m"
-    return f"{seconds}s"
 
 def _process_status_label(value: str) -> str:
     text = str(value or "").strip()

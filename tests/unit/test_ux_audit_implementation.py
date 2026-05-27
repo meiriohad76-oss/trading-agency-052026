@@ -11,9 +11,13 @@ from agency.services.paper_trade_promotion import (
     promote_paper_trade_reports,
 )
 
-TEMPLATE_ROOT = Path("src/agency/templates")
-STYLE_PATH = Path("src/agency/static/styles.css")
-V3_STYLE_PATH = Path("src/agency/static/v3-screens.css")
+REPO_ROOT = Path(__file__).resolve().parents[2]
+TEMPLATE_ROOT = REPO_ROOT / "src/agency/templates"
+STYLE_PATH = REPO_ROOT / "src/agency/static/styles.css"
+V3_STYLE_PATH = REPO_ROOT / "src/agency/static/v3-screens.css"
+DATA_REFRESH_PROGRESS_JS = REPO_ROOT / "src/agency/static/data-refresh-progress.js"
+COCKPIT_JS = REPO_ROOT / "src/agency/static/cockpit.js"
+COMMAND_VIEW = REPO_ROOT / "src/agency/views/command.py"
 
 
 def _template(name: str) -> str:
@@ -87,12 +91,27 @@ def test_command_dashboard_has_queue_cta_and_collapsed_diagnostics() -> None:
 
 def test_command_review_forms_are_labeled_for_progressive_enhancement() -> None:
     html = _template("dashboard.html")
+    script = DATA_REFRESH_PROGRESS_JS.read_text(encoding="utf-8")
 
     assert 'class="review-action-form"' in html
     assert 'data-review-action="approve"' in html
     assert 'data-review-action="defer"' in html
     assert 'data-review-action="reject"' in html
     assert 'data-review-ticker="{{ item.ticker }}"' in html
+    assert "setupReviewActionForms()" in script
+    assert ".review-action-form" in script
+    assert "event.preventDefault()" in script
+    assert "fetch(form.action" in script
+    assert "form.replaceChildren(output)" in script
+    assert "[data-review-status]" in script
+
+
+def test_command_uses_shared_duration_humanizer() -> None:
+    source = COMMAND_VIEW.read_text(encoding="utf-8")
+
+    assert "_humanize_seconds_in_text," in source
+    assert "def _humanize_seconds_in_text" not in source
+    assert "def _duration_label" not in source
 
 
 def test_candidate_detail_prioritizes_decision_and_collapses_technical_detail() -> None:
@@ -177,7 +196,7 @@ def test_execution_preview_paper_cards_are_readable() -> None:
 
 
 def test_data_refresh_meter_is_module_scoped_before_iifes() -> None:
-    script = Path("src/agency/static/data-refresh-progress.js").read_text(encoding="utf-8")
+    script = DATA_REFRESH_PROGRESS_JS.read_text(encoding="utf-8")
     assert "const meter = (percent)" in script
     assert script.index("const meter = (percent)") < script.index("(() => {")
     data_load_section = script.split('const panel = document.querySelector("[data-load-panel]");', 1)[1]
@@ -203,9 +222,7 @@ def test_data_health_panel_uses_actionable_user_copy_not_internal_telemetry() ->
 def test_operator_data_health_copy_does_not_use_stale_wording() -> None:
     dashboard_html = _template("dashboard.html")
     signals_html = _template("signals.html")
-    progress_js = Path("src/agency/static/data-refresh-progress.js").read_text(
-        encoding="utf-8"
-    )
+    progress_js = DATA_REFRESH_PROGRESS_JS.read_text(encoding="utf-8")
 
     forbidden_visible_copy = [
         "Refresh Status Stale",
@@ -226,9 +243,7 @@ def test_operator_data_health_copy_does_not_use_stale_wording() -> None:
 
 def test_command_lane_tables_show_eta_and_progress_meters() -> None:
     dashboard_html = _template("dashboard.html")
-    progress_js = Path("src/agency/static/data-refresh-progress.js").read_text(
-        encoding="utf-8"
-    )
+    progress_js = DATA_REFRESH_PROGRESS_JS.read_text(encoding="utf-8")
 
     assert "lane.progress_meter_label" in dashboard_html
     assert "lane.progress_style" in dashboard_html
@@ -240,7 +255,7 @@ def test_command_lane_tables_show_eta_and_progress_meters() -> None:
 
 
 def test_cockpit_local_storage_cannot_restore_server_approval_markers() -> None:
-    script = Path("src/agency/static/cockpit.js").read_text(encoding="utf-8")
+    script = COCKPIT_JS.read_text(encoding="utf-8")
     decision_block = script.split(
         'document.querySelectorAll("[data-cockpit-decision]").forEach',
         1,
