@@ -36,6 +36,21 @@
     </div>
   </section>
 
+  {% if data_health.email_login_alert %}
+  <section class="data-health-email-login-alert command-email-login-alert" aria-label="Email evidence login required">
+    <div>
+      <span class="metric-label">Email evidence</span>
+      <strong>{{ data_health.email_login_alert.title|default("Email evidence needs login", true) }}</strong>
+      <p>{{ data_health.email_login_alert.detail }}</p>
+    </div>
+    <form method="post" action="{{ data_health.email_login_alert.action }}" title="{{ data_health.email_login_alert.detail }}">
+      <button class="mini-button data-health-action-button" type="submit">
+        {{ data_health.email_login_alert.label|default("Open Seeking Alpha login refresh", true) }}
+      </button>
+    </form>
+  </section>
+  {% endif %}
+
   <section class="operator-briefing" aria-label="Operator briefing">
     <div class="operator-briefing-header">
       <div>
@@ -387,7 +402,7 @@
     </article>
   </section>
 
-  {{ data_health_panel(data_health) }}
+  {{ data_health_panel(data_health, show_email_login_alert=false) }}
 
   <section class="panel system-status-panel" aria-labelledby="operational-detail-heading">
     <div class="section-heading">

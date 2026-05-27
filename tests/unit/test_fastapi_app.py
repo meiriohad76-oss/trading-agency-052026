@@ -662,12 +662,53 @@ def test_shared_dashboard_data_health_offers_refresh_queue_for_warning_issue() -
     assert "stale" not in str(health).lower()
     assert health["action_buttons"] == [
         {
+            "label": "Open Seeking Alpha login refresh",
+            "action": "/scheduler/subscription-emails/login-refresh",
+            "method": "post",
+            "detail": (
+                "Opens a visible browser/session so the operator can log in, "
+                "confirm login, and continue the email/article analyzer."
+            ),
+        },
+        {
             "label": "Open Refresh Queue",
             "href": "/#scheduler-heading",
             "method": "get",
             "detail": "Opens Command at the scheduler and lane refresh controls.",
         }
     ]
+    assert health["email_login_alert"] == {
+        "title": "Email evidence needs login",
+        "detail": (
+            "Seeking Alpha article links were found but have not been analyzed. "
+            "Open the login refresh, complete the login, confirm it, and the "
+            "email/article agent will continue."
+        ),
+        "action": "/scheduler/subscription-emails/login-refresh",
+        "label": "Open Seeking Alpha login refresh",
+    }
+
+
+def test_shared_data_health_template_promotes_subscription_login_alert() -> None:
+    template = (REPO_ROOT / "src/agency/templates/_data_health.html").read_text(
+        encoding="utf-8"
+    )
+    command_template = (REPO_ROOT / "src/agency/templates/dashboard.html").read_text(
+        encoding="utf-8"
+    )
+    cockpit_template = (REPO_ROOT / "src/agency/templates/cockpit.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert "data-health-email-login-alert" in template
+    assert "data_health.email_login_alert" in template
+    assert "Open Seeking Alpha login refresh" in template
+    assert command_template.index("data_health.email_login_alert") < command_template.index(
+        "data_health_panel(data_health"
+    )
+    assert cockpit_template.index("data_health.email_login_alert") < cockpit_template.index(
+        "data_health_panel(data_health"
+    )
 
 
 def test_shared_dashboard_data_health_explains_blocked_lanes_actionably() -> None:

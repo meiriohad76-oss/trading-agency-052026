@@ -1,4 +1,4 @@
-{% macro data_health_panel(data_health) %}
+{% macro data_health_panel(data_health, show_email_login_alert=True) %}
   {% if data_health %}
   <section class="panel data-health-panel data-health-{{ data_health.status_class }}" aria-label="Displayed data health for {{ data_health.page_label }}">
     <div class="section-heading">
@@ -28,9 +28,25 @@
       </article>
     </div>
 
-    {% if data_health.action_buttons %}
+    {% if show_email_login_alert and data_health.email_login_alert %}
+    <article class="data-health-email-login-alert" role="status" aria-label="Email evidence login required">
+      <div>
+        <span class="metric-label">Email evidence</span>
+        <strong>{{ data_health.email_login_alert.title|default("Email evidence needs login", true) }}</strong>
+        <p>{{ data_health.email_login_alert.detail }}</p>
+      </div>
+      <form method="post" action="{{ data_health.email_login_alert.action }}" title="{{ data_health.email_login_alert.detail }}">
+        <button class="mini-button data-health-action-button" type="submit">
+          {{ data_health.email_login_alert.label|default("Open Seeking Alpha login refresh", true) }}
+        </button>
+      </form>
+    </article>
+    {% endif %}
+
+    {% set visible_action_buttons = data_health.secondary_action_buttons if data_health.email_login_alert else data_health.action_buttons %}
+    {% if visible_action_buttons %}
     <div class="data-health-actions" aria-label="Data health actions">
-      {% for action in data_health.action_buttons %}
+      {% for action in visible_action_buttons %}
         {% if action.method == "post" %}
         <form method="post" action="{{ action.action }}" title="{{ action.detail }}">
           <button class="mini-button data-health-action-button" type="submit">{{ action.label }}</button>

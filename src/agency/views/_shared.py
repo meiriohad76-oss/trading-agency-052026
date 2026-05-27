@@ -55,6 +55,25 @@ REFRESHABLE_DATASET_TO_LANE = {
     "massive-stock-trades": "massive_live_trade_slices",
     "stock_trades": "massive_live_trade_slices",
 }
+SUBSCRIPTION_EMAIL_LOGIN_ACTION = {
+    "label": "Open Seeking Alpha login refresh",
+    "action": "/scheduler/subscription-emails/login-refresh",
+    "method": "post",
+    "detail": (
+        "Opens a visible browser/session so the operator can log in, "
+        "confirm login, and continue the email/article analyzer."
+    ),
+}
+SUBSCRIPTION_EMAIL_LOGIN_ALERT = {
+    "title": "Email evidence needs login",
+    "detail": (
+        "Seeking Alpha article links were found but have not been analyzed. "
+        "Open the login refresh, complete the login, confirm it, and the "
+        "email/article agent will continue."
+    ),
+    "action": "/scheduler/subscription-emails/login-refresh",
+    "label": "Open Seeking Alpha login refresh",
+}
 FINAL_SELECTION_REPORT_LIMIT = 1000
 SIGNALS_REPORT_LIMIT = 300
 SIGNALS_RENDER_LIMIT = 30
@@ -847,6 +866,16 @@ def dashboard_data_health(
         primary_issue,
         health_state,
     )
+    email_login_alert = _subscription_email_login_alert(
+        status=status,
+        rows=rows,
+        lane_state_rows=lane_state_rows,
+    )
+    action_buttons = _data_health_action_buttons(
+        primary_issue,
+        health_state,
+        email_login_alert=email_login_alert,
+    )
     meaning = _data_health_meaning(
         page_label,
         status_label,
@@ -889,7 +918,12 @@ def dashboard_data_health(
         "visible_row_count": len(rows),
         "hidden_row_count": 0,
         "issue_label": issue_label,
-        "action_buttons": _data_health_action_buttons(primary_issue, health_state),
+        "email_login_alert": email_login_alert,
+        "action_buttons": action_buttons,
+        "secondary_action_buttons": _secondary_data_health_actions(
+            action_buttons,
+            email_login_alert=email_login_alert,
+        ),
         "summary_items": [
             {"label": "As of", "value": _format_timestamp_or_text(status.get("as_of"))},
             {"label": "Decision status", "value": status_label},
@@ -1579,6 +1613,8 @@ def _row_display_detail(
 def _data_health_action_buttons(
     primary_issue: Mapping[str, object] | None,
     health_state: str,
+    *,
+    email_login_alert: Mapping[str, object] | None = None,
 ) -> list[dict[str, str]]:
     issue_status_class = (
         str(primary_issue.get("status_class") or "").lower()
@@ -1597,6 +1633,8 @@ def _data_health_action_buttons(
         )
     ).lower() if primary_issue is not None else ""
     buttons: list[dict[str, str]] = []
+    if email_login_alert is not None:
+        buttons.append(dict(SUBSCRIPTION_EMAIL_LOGIN_ACTION))
     refresh_lane_id = (
         str(primary_issue.get("refresh_lane_id") or "")
         if primary_issue is not None
@@ -1657,6 +1695,102 @@ def _data_health_action_buttons(
             }
         )
     return buttons
+
+
+def _subscription_email_login_alert(
+    *,
+    status: Mapping[str, object],
+    rows: Sequence[Mapping[str, object]],
+    lane_state_rows: Sequence[Mapping[str, object]],
+) -> dict[str, str] | None:
+    if _subscription_email_issue_in_raw_status(status):
+        return dict(SUBSCRIPTION_EMAIL_LOGIN_ALERT)
+    if any(_subscription_email_issue_in_row(row) for row in rows):
+        return dict(SUBSCRIPTION_EMAIL_LOGIN_ALERT)
+    if any(_subscription_email_issue_in_row(row) for row in lane_state_rows):
+        return dict(SUBSCRIPTION_EMAIL_LOGIN_ALERT)
+    return None
+
+
+def _secondary_data_health_actions(
+    action_buttons: Sequence[Mapping[str, object]],
+    *,
+    email_login_alert: Mapping[str, object] | None,
+) -> list[dict[str, str]]:
+    email_login_action = (
+        str(email_login_alert.get("action") or "")
+        if email_login_alert is not None
+        else ""
+    )
+    output: list[dict[str, str]] = []
+    for action in action_buttons:
+        action_target = str(action.get("action") or action.get("href") or "")
+        if email_login_action and action_target == email_login_action:
+            continue
+        output.append({str(key): str(value) for key, value in action.items()})
+    return output
+
+
+def _subscription_email_issue_in_raw_status(status: Mapping[str, object]) -> bool:
+    raw_rows: list[Mapping[str, object]] = []
+    for key in ("datasets", "lanes", "lane_states", "lane_state_rows"):
+        raw_rows.extend(_optional_mapping_rows(status.get(key)))
+    return any(_subscription_email_issue_in_row(row) for row in raw_rows)
+
+
+def _subscription_email_issue_in_row(row: Mapping[str, object]) -> bool:
+    identity = " ".join(
+        str(row.get(key) or "")
+        for key in (
+            "dataset",
+            "lane",
+            "lane_id",
+            "source_dataset",
+            "name",
+            "label",
+            "kind",
+        )
+    ).casefold()
+    if not (
+        "subscription_emails" in identity
+        or "subscription email" in identity
+        or "subscription thesis" in identity
+        or "subscription_thesis" in identity
+        or "seeking alpha" in identity
+    ):
+        return False
+    status_class = str(row.get("status_class") or "").casefold()
+    if status_class in {"warn", "warning", "block", "blocked"}:
+        return True
+    evidence_text = " ".join(
+        str(row.get(key) or "")
+        for key in (
+            "status",
+            "status_label",
+            "source_status",
+            "source_freshness",
+            "freshness",
+            "detail",
+            "diagnostic_detail",
+            "blocking_reason",
+            "recommended_action",
+            "operator_message",
+            "tooltip",
+        )
+    ).casefold()
+    return any(
+        token in evidence_text
+        for token in (
+            "login",
+            "protected",
+            "article link",
+            "needs refresh",
+            "aging",
+            "unavailable",
+            "not analyzed",
+            "source-health",
+        )
+    )
 
 def _row_blocking_reason(name: str, status_class: str, detail: str) -> str:
     cleaned = detail.strip()

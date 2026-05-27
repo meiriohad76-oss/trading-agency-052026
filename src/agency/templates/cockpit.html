@@ -41,6 +41,21 @@
     </div>
   </header>
 
+  {% if data_health.email_login_alert %}
+  <section class="data-health-email-login-alert cockpit-email-login-alert" aria-label="Email evidence login required">
+    <div>
+      <span class="metric-label">Email evidence</span>
+      <strong>{{ data_health.email_login_alert.title|default("Email evidence needs login", true) }}</strong>
+      <p>{{ data_health.email_login_alert.detail }}</p>
+    </div>
+    <form method="post" action="{{ data_health.email_login_alert.action }}" title="{{ data_health.email_login_alert.detail }}">
+      <button class="mini-button data-health-action-button" type="submit">
+        {{ data_health.email_login_alert.label|default("Open Seeking Alpha login refresh", true) }}
+      </button>
+    </form>
+  </section>
+  {% endif %}
+
   {% set data_state = data_state|default({}, true) %}
   {% set data_review = data_state.review|default({}, true) %}
   {% set data_paper = data_state.paper|default({}, true) %}
@@ -91,7 +106,7 @@
     </div>
   </section>
 
-  {{ data_health_panel(data_health) }}
+  {{ data_health_panel(data_health, show_email_login_alert=false) }}
 
   <aside class="cockpit-preferences" data-cockpit-preferences hidden aria-label="Cockpit preferences">
     <div class="cockpit-panel-backdrop" data-cockpit-preferences-close></div>
