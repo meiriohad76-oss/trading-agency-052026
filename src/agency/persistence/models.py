@@ -64,11 +64,14 @@ risk_decisions = Table(
     Col("as_of", DateTime(timezone=True), primary_key=True),
     Col("generated_at", DateTime(timezone=True), nullable=False),
     Col("decision", String(length=40), nullable=False),
+    Col("final_action", String(length=40), nullable=False, server_default="UNKNOWN"),
+    Col("final_conviction", Float, nullable=False, server_default="0.0"),
     Col("payload", JSON, nullable=False),
     Col("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Col("updated_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
 Index("ix_risk_decisions_generated_at", risk_decisions.c.generated_at)
+Index("ix_risk_decisions_final_action", risk_decisions.c.final_action)
 Index(
     "ix_risk_decisions_ticker_generated_at",
     risk_decisions.c.ticker,

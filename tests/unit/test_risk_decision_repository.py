@@ -21,6 +21,8 @@ def test_risk_decision_row_values_validate_and_convert_keys() -> None:
     assert values["cycle_id"] == "cycle-1"
     assert values["ticker"] == "AAPL"
     assert values["as_of"] == datetime(2026, 5, 7, 9, 30, tzinfo=UTC)
+    assert values["final_action"] == "BUY"
+    assert values["final_conviction"] == 0.7
     assert values["payload"] == _risk_decision()
 
 
@@ -30,6 +32,8 @@ def test_risk_decision_upsert_targets_decision_identity() -> None:
 
     assert "ON CONFLICT (cycle_id, ticker, as_of) DO UPDATE" in compiled
     assert "decision" in compiled
+    assert "final_action" in compiled
+    assert "final_conviction" in compiled
 
 
 def test_risk_decision_select_filters_by_uppercase_ticker() -> None:

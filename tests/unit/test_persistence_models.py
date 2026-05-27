@@ -93,9 +93,19 @@ def test_candidate_lifecycle_events_migration_links_to_selection_report_revision
 
 def test_risk_decisions_table_has_audit_key_columns() -> None:
     columns = set(risk_decisions.c.keys())
+    indexes = {index.name for index in risk_decisions.indexes}
 
-    assert {"cycle_id", "ticker", "as_of", "decision", "payload"}.issubset(columns)
+    assert {
+        "cycle_id",
+        "ticker",
+        "as_of",
+        "decision",
+        "final_action",
+        "final_conviction",
+        "payload",
+    }.issubset(columns)
     assert risk_decisions.primary_key.columns.keys() == ["cycle_id", "ticker", "as_of"]
+    assert "ix_risk_decisions_final_action" in indexes
 
 
 def test_risk_decisions_migration_links_to_lifecycle_revision() -> None:
@@ -103,6 +113,13 @@ def test_risk_decisions_migration_links_to_lifecycle_revision() -> None:
 
     assert migration.revision == "0005_risk_decisions"
     assert migration.down_revision == "0004_candidate_lifecycle_events"
+
+
+def test_risk_decision_query_column_migration_links_to_latest_revision() -> None:
+    migration = _load_migration("0010_risk_decision_query_columns.py")
+
+    assert migration.revision == "0010_risk_decision_query_columns"
+    assert migration.down_revision == "0009_runtime_generated_at_indexes"
 
 
 def test_runtime_audit_tables_have_key_columns() -> None:

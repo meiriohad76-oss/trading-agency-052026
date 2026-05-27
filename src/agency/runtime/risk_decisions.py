@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from agency.contracts import validate_contract
 from agency.persistence import risk_decisions
-from agency.runtime._coerce import parse_datetime
+from agency.runtime._coerce import parse_datetime, parse_float
 
 
 def risk_decision_row_values(payload: Mapping[str, object]) -> dict[str, object]:
@@ -22,6 +22,8 @@ def risk_decision_row_values(payload: Mapping[str, object]) -> dict[str, object]
         "as_of": parse_datetime(payload["as_of"]),
         "generated_at": parse_datetime(payload["generated_at"]),
         "decision": str(payload["decision"]),
+        "final_action": str(payload.get("final_action", "UNKNOWN")),
+        "final_conviction": parse_float(payload.get("final_conviction", 0.0)),
         "payload": dict(payload),
     }
 
