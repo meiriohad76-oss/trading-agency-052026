@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 import subprocess
@@ -144,6 +143,9 @@ def build_scheduler(db_url: str | None = None) -> Any:
 
         jobstores["default"] = SQLAlchemyJobStore(url=db_url)
     scheduler = AsyncIOScheduler(jobstores=jobstores, timezone="UTC")
+    # _register_phase_jobs() is intentionally disabled. The live system routes
+    # automatic refresh decisions through the market-aware work queue so each
+    # lane has one source of priority, cadence, budget, ETA, and status truth.
     _register_work_queue_jobs(scheduler)
     return scheduler
 
@@ -835,16 +837,18 @@ def _work_queue_for_runner(
 
 
 def _load_live_scheduler_work_queue() -> Mapping[str, object] | None:
+    # This function is called from APScheduler worker threads, outside the
+    # FastAPI request loop. Build the same queue from synchronous runtime
+    # artifacts instead of probing or starting an event loop.
     try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        pass
-    else:
-        return None
-    try:
-        from agency.views.command import scheduler_work_queue_raw_context
+        from agency.runtime.data_load_status import load_data_load_status
+        from agency.runtime.data_refresh_progress import load_data_refresh_progress
+        from agency.runtime.scheduler_work_queue import scheduler_work_queue_context
 
-        return asyncio.run(scheduler_work_queue_raw_context())
+        return scheduler_work_queue_context(
+            data_load_status=load_data_load_status(),
+            data_refresh_progress=load_data_refresh_progress(),
+        )
     except Exception:
         return None
 

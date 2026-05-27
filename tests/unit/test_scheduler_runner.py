@@ -487,6 +487,25 @@ def test_scheduler_uses_memory_jobs_by_default_even_with_database_url() -> None:
     assert "default" not in scheduler._jobstores  # noqa: SLF001
 
 
+def test_scheduler_build_documents_work_queue_as_single_authority() -> None:
+    source = Path("src/agency/runtime/scheduler_runner.py").read_text(encoding="utf-8")
+    build_body = source.split("def build_scheduler", 1)[1].split("return scheduler", 1)[0]
+    assert "_register_work_queue_jobs(scheduler)" in build_body
+    assert "intentionally disabled" in build_body
+    assert "_register_phase_jobs(scheduler)" not in build_body
+
+
+def test_live_scheduler_work_queue_loader_is_sync_worker_thread_path() -> None:
+    source = Path("src/agency/runtime/scheduler_runner.py").read_text(encoding="utf-8")
+    loader_body = source.split("def _load_live_scheduler_work_queue", 1)[1].split(
+        "def _manual_massive_lane",
+        1,
+    )[0]
+    assert "APScheduler worker thread" in loader_body
+    assert "asyncio.get_running_loop" not in loader_body
+    assert "asyncio.run" not in loader_body
+
+
 def test_work_queue_skip_preserves_stale_running_tick(monkeypatch) -> None:
     started_at = datetime.now(UTC) - timedelta(minutes=30)
     previous = {
