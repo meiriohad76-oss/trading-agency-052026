@@ -577,7 +577,7 @@ def _event_row(row: Mapping[str, object]) -> dict[str, object]:
         "timestamp_as_of": created_at,
         "freshness": "FRESH",
         "confidence": confidence,
-        "verification_level": "openai_llm_article_analysis",
+        "verification_level": "CONFIRMED",
     }
 
 

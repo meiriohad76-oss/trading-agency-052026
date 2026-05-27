@@ -145,6 +145,8 @@ def test_export_portfolio_news_agent_events_writes_subscription_email_dataset(
     assert row["linked_content_status"] == "article_analyzed"
     assert row["linked_content_direction"] == "BULLISH"
     assert "Margins improved" in row["linked_content_thesis"]
+    assert row["source_tier"] == "PAID_SUB_EMAIL"
+    assert row["verification_level"] == "CONFIRMED"
     assert row["timestamp_as_of"] == "2026-05-27T12:02:10+00:00"
     assert row["source_refs"][0]["service"] == "seeking_alpha"
     assert row["source_refs"][0]["source_url"] == "https://seekingalpha.com/article/aapl"
