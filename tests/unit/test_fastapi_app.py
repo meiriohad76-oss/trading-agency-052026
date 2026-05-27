@@ -3414,13 +3414,26 @@ def test_scheduler_work_queue_view_translates_massive_lanes_for_users() -> None:
 def test_manual_massive_lane_refresh_endpoint_schedules_background_task(
     monkeypatch: MonkeyPatch,
 ) -> None:
-    calls: list[tuple[str, dict[str, object]]] = []
+    queue = {
+        "massive_orchestrator": {
+            "lanes": [
+                {
+                    "lane_id": "massive_live_trade_slices",
+                    "status": "DUE_NOW",
+                    "command": ["python", "pull-live.py"],
+                }
+            ]
+        }
+    }
+    calls: list[tuple[str, dict[str, object], dict[str, object]]] = []
 
     async def fake_queue_context() -> dict[str, object]:
-        raise AssertionError("refresh route should not block on scheduler queue rendering")
+        return queue
 
     def fake_refresh(lane_id: str, **kwargs: object) -> dict[str, object]:
-        calls.append((lane_id, kwargs))
+        queue_provider = kwargs["queue_provider"]
+        assert callable(queue_provider)
+        calls.append((lane_id, kwargs, queue_provider()))
         return {"state": "completed", "lane_id": lane_id}
 
     monkeypatch.setattr(dashboard_module, "run_manual_massive_lane_refresh", fake_refresh)
@@ -3437,19 +3450,34 @@ def test_manual_massive_lane_refresh_endpoint_schedules_background_task(
 
     assert response.status_code == HTTP_SEE_OTHER
     assert response.headers["location"] == "/#scheduler-heading"
-    assert calls == [("massive_live_trade_slices", {})]
+    assert len(calls) == 1
+    lane_id, kwargs, captured_queue = calls[0]
+    assert lane_id == "massive_live_trade_slices"
+    assert set(kwargs) == {"queue_provider"}
+    assert captured_queue == queue
 
 
 def test_manual_dataset_refresh_endpoint_schedules_background_task(
     monkeypatch: MonkeyPatch,
 ) -> None:
-    calls: list[str] = []
+    queue = {"jobs": [{"dataset": "news_rss", "status": "DUE_NOW", "command": ["python"]}]}
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    async def fake_queue_context() -> dict[str, object]:
+        return queue
 
     def fake_refresh(dataset: str, **kwargs: object) -> dict[str, object]:
-        calls.append(dataset)
+        queue_provider = kwargs["queue_provider"]
+        assert callable(queue_provider)
+        calls.append((dataset, queue_provider()))
         return {"state": "completed", "dataset": dataset}
 
     monkeypatch.setattr(dashboard_module, "run_manual_dataset_refresh", fake_refresh)
+    monkeypatch.setattr(
+        dashboard_module,
+        "scheduler_work_queue_raw_context",
+        fake_queue_context,
+    )
 
     response = TestClient(create_app()).post(
         "/scheduler/datasets/news_rss/refresh",
@@ -3458,7 +3486,7 @@ def test_manual_dataset_refresh_endpoint_schedules_background_task(
 
     assert response.status_code == HTTP_SEE_OTHER
     assert response.headers["location"] == "/#scheduler-heading"
-    assert calls == ["news_rss"]
+    assert calls == [("news_rss", queue)]
 
 
 def test_subscription_email_login_refresh_endpoint_opens_interactive_flow(

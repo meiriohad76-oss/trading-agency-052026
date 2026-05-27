@@ -605,9 +605,11 @@ async def refresh_massive_lane(
     lane_id: str,
     background_tasks: BackgroundTasks,
 ) -> Response:
+    queue = await scheduler_work_queue_raw_context()
     background_tasks.add_task(
         run_manual_massive_lane_refresh,
         lane_id,
+        queue_provider=lambda: queue,
     )
     return RedirectResponse(url="/#scheduler-heading", status_code=303)
 
@@ -617,9 +619,11 @@ async def refresh_scheduler_dataset(
     dataset: str,
     background_tasks: BackgroundTasks,
 ) -> Response:
+    queue = await scheduler_work_queue_raw_context()
     background_tasks.add_task(
         run_manual_dataset_refresh,
         dataset,
+        queue_provider=lambda: queue,
     )
     return RedirectResponse(url="/#scheduler-heading", status_code=303)
 

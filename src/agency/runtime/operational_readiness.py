@@ -151,7 +151,26 @@ def _data_load_checks(data_load_status: Mapping[str, object]) -> list[dict[str, 
                 f"Data is still loading; {overall}% complete.",
             )
         ]
-    if data_load_status.get("ready") is not True or blockers > 0:
+    if blockers > 0:
+        return [
+            _check(
+                "Data loaded and analyzed",
+                BLOCK,
+                f"{label}: {blockers} data blocker(s), {warnings} warning(s).",
+            )
+        ]
+    if data_load_status.get("ready") is not True:
+        if _data_load_review_operational(data_load_status):
+            return [
+                _check(
+                    "Data loaded and analyzed",
+                    WARN,
+                    (
+                        f"{label}: review-ready subset is available; core {core}%, "
+                        f"critical agents {lanes}%, {warnings} warning(s)."
+                    ),
+                )
+            ]
         return [
             _check(
                 "Data loaded and analyzed",
