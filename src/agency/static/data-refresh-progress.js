@@ -1366,9 +1366,10 @@ if (document.readyState === "loading") {
     const succeeded = Number(status.linked_content_succeeded || 0);
     const attempted = Number(status.linked_content_attempted || 0);
     const failed = Number(status.linked_content_failed || 0);
+    const processing = Number(status.linked_content_processing || 0);
     const skipped = Number(status.linked_content_skipped || 0);
     const loginRequired = Number(status.login_required || 0);
-    const links = Number(status.article_links_found || attempted || succeeded + failed + skipped + loginRequired);
+    const links = Number(status.article_links_found || attempted || succeeded + failed + processing + skipped + loginRequired);
     const percent = Number.isFinite(Number(status.progress_percent))
       ? Math.max(0, Math.min(Math.round(Number(status.progress_percent)), 100))
       : links > 0
@@ -1395,10 +1396,19 @@ if (document.readyState === "loading") {
     setEmailText("[data-email-selected]", status.processed_email_count || 0);
     setEmailText("[data-email-links]", links);
     setEmailText("[data-email-opened]", `${succeeded}/${attempted}`);
+    setEmailText("[data-email-processing]", processing);
     setEmailText("[data-email-summaries]", status.summary_count || 0);
     setEmailText("[data-email-login-required]", loginRequired);
     setEmailText("[data-email-failed-skipped]", `${failed}/${skipped}`);
     setEmailText("[data-email-updated]", formatTimestamp(status.updated_at));
+    setEmailText(
+      "[data-email-current-action]",
+      status.current_action_label || "No article is being opened right now.",
+    );
+    setEmailText(
+      "[data-email-current-url]",
+      status.current_article_url || "No current article URL.",
+    );
     setEmailText("[data-email-next-action]", status.next_action || "Run email/article analysis when subscription emails are needed for review.");
     const continueForm = emailPanel.querySelector("[data-email-continue-form]");
     const continueButton = emailPanel.querySelector("[data-email-continue-button]");

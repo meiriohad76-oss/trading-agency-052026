@@ -4118,11 +4118,14 @@ def test_data_load_status_view_exposes_subscription_email_progress() -> None:
                 "linked_content_succeeded": 0,
                 "linked_content_failed": 0,
                 "linked_content_skipped": 0,
+                "linked_content_processing": 1,
                 "login_required": 10,
                 "cache_hits": 0,
                 "updated_at": "2026-05-19T10:10:28+00:00",
                 "detail": "Log in in Chrome, then confirm the waiting prompt.",
                 "next_action": "Confirm the login prompt so article links can open.",
+                "current_action_label": "Opening/analyzing Seeking Alpha article: https://seekingalpha.com/article/aapl",
+                "current_article_url": "https://seekingalpha.com/article/aapl",
             },
         }
     )
@@ -4133,10 +4136,15 @@ def test_data_load_status_view_exposes_subscription_email_progress() -> None:
     email = view["subscription_email_status"]
     assert email["last_update_label"] == "2026-05-19 10:10 UTC"
     assert email["progress_label"] == "0/10 article links analyzed"
+    assert email["linked_content_processing"] == 1
+    assert email["current_article_url"] == "https://seekingalpha.com/article/aapl"
     assert "Email/article progress" in template
     assert "data-email-article-progress" in template
     assert "data-email-status-label" in template
     assert "data-email-progress-fill" in template
+    assert "data-email-processing" in template
+    assert "data-email-current-action" in template
+    assert "data-email-current-url" in template
 
 
 def test_data_load_status_view_explains_source_health_rows() -> None:

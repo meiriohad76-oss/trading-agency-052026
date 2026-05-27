@@ -22,6 +22,7 @@ DEFAULT_SUMMARY_ROOT = REPO_ROOT / "research" / "results" / "latest-subscription
 TERMINAL_RELEVANT = {"processed_relevant"}
 TERMINAL_ANALYZED = {"processed_relevant", "irrelevant_seen"}
 TERMINAL_FAILED = {"failed_access", "failed_extract", "failed_llm", "failed_telegram"}
+ACTIVE_PROCESSING = {"processing"}
 
 
 @dataclass(frozen=True)
@@ -172,7 +173,14 @@ def _status_from_database(
     relevant = sum(_int(status_counts.get(status)) for status in TERMINAL_RELEVANT)
     failed = sum(_int(status_counts.get(status)) for status in TERMINAL_FAILED)
     failed_access = _int(status_counts.get("failed_access"))
+    processing = sum(_int(status_counts.get(status)) for status in ACTIVE_PROCESSING)
     queued = _int(status_counts.get("queued"))
+    current_processing = _mapping(db_status.get("current_processing_link"))
+    current_article_url = _first_text(
+        current_processing.get("canonical_url"),
+        current_processing.get("source_url"),
+    )
+    current_article_status_detail = _first_text(current_processing.get("status_detail"))
     emails = _int(latest_run.get("emails_found")) or _int(db_status.get("message_total"))
     summaries = _int(db_status.get("summary_total"))
     latest_status = str(latest_run.get("status") or "")
@@ -191,8 +199,10 @@ def _status_from_database(
         relevant=relevant,
         failed=failed,
         failed_access=failed_access,
+        processing=processing,
         queued=queued,
         summaries=summaries,
+        current_article_url=current_article_url,
     )
     percent = 0 if link_total <= 0 else round((analyzed / link_total) * 100)
     return {
@@ -205,6 +215,7 @@ def _status_from_database(
         "linked_content_attempted": max(0, link_total - queued),
         "linked_content_succeeded": analyzed,
         "linked_content_failed": failed,
+        "linked_content_processing": processing,
         "linked_content_skipped": queued,
         "cache_hits": 0,
         "login_required": 0 if browser_ready else max(1, link_total) if link_total else 0,
@@ -214,7 +225,19 @@ def _status_from_database(
         "updated_at": updated_at or "not recorded",
         "detail": detail,
         "next_action": next_action,
-        "progress_label": _portfolio_news_progress_label(link_total, analyzed, queued, failed),
+        "current_action_label": _portfolio_news_current_action_label(
+            processing=processing,
+            current_article_url=current_article_url,
+        ),
+        "current_article_url": current_article_url,
+        "current_article_status_detail": current_article_status_detail,
+        "progress_label": _portfolio_news_progress_label(
+            link_total,
+            analyzed,
+            queued,
+            failed,
+            processing,
+        ),
         "progress_percent": max(0, min(100, percent)),
         "progress_style": f"width: {max(0, min(100, percent))}%",
         "refresh_action_url": "/scheduler/subscription-emails/login-refresh",
@@ -238,8 +261,10 @@ def _portfolio_news_status_text(
     relevant: int,
     failed: int,
     failed_access: int,
+    processing: int,
     queued: int,
     summaries: int,
+    current_article_url: str,
 ) -> tuple[str, str, str, str]:
     if not browser_ready:
         if has_database and link_total and failed_access:
@@ -283,10 +308,16 @@ def _portfolio_news_status_text(
             "Click Analyze unread SA emails to scan Gmail, open article tabs, and run LLM analysis.",
         )
     if latest_status == "running":
+        active_article = (
+            f" Current article: {current_article_url}." if current_article_url else ""
+        )
         return (
             "Portfolio News Agent running",
             "warn",
-            f"Email/article run is active. {analyzed}/{link_total} article link(s) are analyzed.",
+            (
+                f"Email/article run is active. {analyzed}/{link_total} article link(s) "
+                f"are analyzed and {processing} are opening/analyzing now.{active_article}"
+            ),
             "Wait for the run to finish; this panel will update from the agent DB.",
         )
     if failed:
@@ -324,16 +355,36 @@ def _portfolio_news_status_text(
     )
 
 
-def _portfolio_news_progress_label(link_total: int, analyzed: int, queued: int, failed: int) -> str:
+def _portfolio_news_progress_label(
+    link_total: int,
+    analyzed: int,
+    queued: int,
+    failed: int,
+    processing: int = 0,
+) -> str:
     if link_total <= 0:
         return "No SA article links recorded"
     suffix = []
+    if processing:
+        suffix.append(f"{processing} opening/analyzing")
     if queued:
         suffix.append(f"{queued} queued")
     if failed:
         suffix.append(f"{failed} failed")
     extra = f" ({', '.join(suffix)})" if suffix else ""
     return f"{analyzed}/{link_total} SA article links analyzed{extra}"
+
+
+def _portfolio_news_current_action_label(
+    *,
+    processing: int,
+    current_article_url: str,
+) -> str:
+    if processing <= 0:
+        return "No article is being opened right now."
+    if current_article_url:
+        return f"Opening/analyzing Seeking Alpha article: {current_article_url}"
+    return f"{processing} Seeking Alpha article link(s) are opening/analyzing now."
 
 
 def _not_configured_status(root: Path) -> dict[str, object]:
@@ -347,6 +398,7 @@ def _not_configured_status(root: Path) -> dict[str, object]:
         "linked_content_attempted": 0,
         "linked_content_succeeded": 0,
         "linked_content_failed": 0,
+        "linked_content_processing": 0,
         "linked_content_skipped": 0,
         "cache_hits": 0,
         "login_required": 0,
@@ -355,6 +407,9 @@ def _not_configured_status(root: Path) -> dict[str, object]:
         "updated_at": "not recorded",
         "detail": f"Expected Portfolio News Agent repo at {root}.",
         "next_action": "Set AGENCY_PORTFOLIO_NEWS_AGENT_ROOT or clone the email agent repo.",
+        "current_action_label": "No article is being opened right now.",
+        "current_article_url": "",
+        "current_article_status_detail": "",
         "progress_label": "Portfolio News Agent DB not connected",
         "progress_percent": 0,
         "progress_style": "width: 0%",
@@ -399,6 +454,16 @@ def _read_database_status(database_path: Path | None) -> dict[str, object]:
                 FROM gmail_article_links
                 """,
             )
+            current_processing = _fetch_one(
+                connection,
+                """
+                SELECT source_url, canonical_url, status_detail, last_attempt_at
+                FROM gmail_article_links
+                WHERE status = 'processing'
+                ORDER BY last_attempt_at DESC, id DESC
+                LIMIT 1
+                """,
+            )
             return {
                 "latest_run": latest_run,
                 "link_status_counts": link_counts,
@@ -406,6 +471,7 @@ def _read_database_status(database_path: Path | None) -> dict[str, object]:
                 "message_total": _fetch_scalar(connection, "SELECT COUNT(*) FROM gmail_messages"),
                 "summary_total": _fetch_scalar(connection, "SELECT COUNT(*) FROM article_asset_summaries"),
                 "latest_attempt_at": (latest_attempt or {}).get("latest_attempt_at"),
+                "current_processing_link": current_processing,
             }
     except sqlite3.Error as exc:
         return {
@@ -415,6 +481,7 @@ def _read_database_status(database_path: Path | None) -> dict[str, object]:
             "message_total": 0,
             "summary_total": 0,
             "latest_attempt_at": "",
+            "current_processing_link": {},
         }
 
 

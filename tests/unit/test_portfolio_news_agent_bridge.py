@@ -32,6 +32,43 @@ def test_portfolio_news_agent_status_uses_external_sqlite_db(tmp_path: Path) -> 
     assert status["browser_ready"] is True
 
 
+def test_portfolio_news_agent_status_reports_active_article_processing(tmp_path: Path) -> None:
+    root = _agent_root(tmp_path)
+    _write_agent_config(root)
+    db_path = root / "data" / "portfolio_news.db"
+    _write_agent_db(db_path)
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            UPDATE runs
+            SET status = 'running', finished_at = NULL
+            WHERE id = 1
+            """
+        )
+        connection.execute(
+            """
+            UPDATE gmail_article_links
+            SET status = 'processing',
+                status_detail = 'Opening article and running LLM analysis',
+                last_attempt_at = '2026-05-27T12:04:20.100000+00:00'
+            WHERE id = 2
+            """
+        )
+        connection.commit()
+
+    status = load_portfolio_news_agent_status(root=root, endpoint_checker=lambda _url: True)
+
+    assert status["status_label"] == "Portfolio News Agent running"
+    assert status["linked_content_processing"] == 1
+    assert status["linked_content_attempted"] == 2
+    assert status["current_article_url"] == "https://seekingalpha.com/article/market"
+    assert status["current_article_status_detail"] == "Opening article and running LLM analysis"
+    assert status["current_action_label"] == (
+        "Opening/analyzing Seeking Alpha article: https://seekingalpha.com/article/market"
+    )
+    assert status["progress_label"] == "1/2 SA article links analyzed (1 opening/analyzing)"
+
+
 def test_portfolio_news_agent_status_reports_browser_not_connected(tmp_path: Path) -> None:
     root = _agent_root(tmp_path)
     _write_agent_config(root)

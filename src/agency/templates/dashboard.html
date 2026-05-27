@@ -78,6 +78,10 @@
         <strong data-email-opened>{{ email_status.linked_content_succeeded|default(0, true) }}/{{ email_status.linked_content_attempted|default(0, true) }}</strong>
       </div>
       <div>
+        <span class="metric-label">In progress now</span>
+        <strong data-email-processing>{{ email_status.linked_content_processing|default(0, true) }}</strong>
+      </div>
+      <div>
         <span class="metric-label">LLM stock summaries</span>
         <strong data-email-summaries>{{ email_status.summary_count|default(0, true) }}</strong>
       </div>
@@ -95,6 +99,8 @@
       </div>
     </div>
     <div class="operator-briefing-actions">
+      <p class="panel-note" data-email-current-action>{{ email_status.current_action_label|default("No article is being opened right now.", true) }}</p>
+      <p class="panel-note" data-email-current-url>{{ email_status.current_article_url|default("No current article URL.", true) }}</p>
       <p class="panel-note" data-email-next-action>{{ email_status.next_action|default("Run email/article analysis when subscription emails are needed for review.", true) }}</p>
       <form method="post" action="{{ email_status.refresh_action_url|default('/scheduler/subscription-emails/login-refresh', true) }}">
         <button class="mini-button data-health-action-button" type="submit">{{ email_status.refresh_button_label|default("Open Seeking Alpha login refresh", true) }}</button>
