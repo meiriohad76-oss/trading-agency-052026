@@ -9,6 +9,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from agency.db import _effective_database_url
+from agency.migration_support import prepare_migration_connection
 from agency.persistence import metadata
 
 config = context.config
@@ -40,6 +41,7 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection: Connection) -> None:
+    prepare_migration_connection(connection)
     context.configure(
         connection=connection,
         target_metadata=target_metadata,

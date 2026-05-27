@@ -7,6 +7,8 @@ from collections.abc import Mapping
 from datetime import date
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG_PATH = REPO_ROOT / "research" / "config" / "live-refresh.local.json"
 LOCAL_SQLITE_URLS = {
@@ -21,7 +23,7 @@ def check_operational_preflight(
     env: Mapping[str, str] | None = None,
     today: date | None = None,
 ) -> dict[str, object]:
-    values = os.environ if env is None else env
+    values = _preflight_env(env)
     current_day = today or date.today()
     config = _read_json_object(config_path)
     checks = [
@@ -222,6 +224,13 @@ def _strings(value: object) -> set[str]:
 def _is_local_sqlite(url: str) -> bool:
     normalized = url.strip().lower().replace("\\", "/")
     return normalized in LOCAL_SQLITE_URLS or normalized.endswith("/agency_local.db")
+
+
+def _preflight_env(env: Mapping[str, str] | None) -> Mapping[str, str]:
+    if env is not None:
+        return env
+    load_dotenv(REPO_ROOT / ".env", override=False)
+    return os.environ
 
 
 def _truthy(value: object) -> bool:

@@ -1608,6 +1608,38 @@ def test_operational_preflight_blocks_disabled_scheduler_and_warns_db_fallback(
     assert _preflight_check(allowed, "Database persistence")["status"] == "PASS"
 
 
+def test_operational_preflight_loads_repo_env_when_env_is_not_supplied(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    preflight = importlib.import_module("scripts.check_operational_preflight")
+    config_path = tmp_path / "live-refresh.local.json"
+    config_path.write_text(
+        json.dumps({"end": "2026-05-27", "datasets": []}),
+        encoding="utf-8",
+    )
+    (tmp_path / ".env").write_text(
+        "\n".join(
+            [
+                "AGENCY_SCHEDULER_ENABLED=true",
+                "DATABASE_URL=postgresql+asyncpg://agency_app:agency@localhost:5432/agency",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(preflight, "REPO_ROOT", tmp_path)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("AGENCY_SCHEDULER_ENABLED", raising=False)
+
+    summary = preflight.check_operational_preflight(
+        config_path=config_path,
+        today=date(2026, 5, 27),
+    )
+
+    assert _preflight_check(summary, "Database persistence")["status"] == "PASS"
+    assert _preflight_check(summary, "Automatic scheduler")["status"] == "PASS"
+
+
 def test_operational_preflight_warns_subscription_email_login_action(
     tmp_path: Path,
 ) -> None:
