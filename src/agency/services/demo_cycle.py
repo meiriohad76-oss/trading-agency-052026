@@ -184,12 +184,16 @@ def _selection_report(
         {"name": "demo_policy", "status": policy_status, "reason": policy_reason}
     ]
     report["risk_flags"] = list(risk_flags or [])
+    is_buy = final_action == "BUY"
+    report["schema_version"] = "0.2.0"
     report["trade_plan"] = {
         "entry": None,
         "stop_loss": None,
         "take_profit": None,
-        "position_size": 10.0 if final_action == "BUY" else 0.0,
-        "time_in_force": "DAY" if final_action == "BUY" else None,
+        "trailing_stop_pct": 0.03 if is_buy else None,
+        "position_size": 10.0 if is_buy else None,
+        "position_pct": 0.1 if is_buy else None,
+        "time_in_force": "DAY" if is_buy else None,
         "notes": ["demo-only paper artifact"],
     }
     validate_contract("selection-report", report)

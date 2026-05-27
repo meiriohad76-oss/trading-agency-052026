@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from agency.contracts import validate_contract
 from agency.services import build_evidence_pack, build_final_selection, build_signal_result
 
 
@@ -18,6 +19,12 @@ def selection_report(
         {"name": "evidence_breadth", "status": policy_status, "reason": policy_reason}
     ]
     report["risk_flags"] = list(risk_flags or [])
+    return report
+
+
+def selection_report_validated(**kwargs: object) -> dict[str, object]:
+    report = selection_report(**kwargs)
+    validate_contract("selection-report", report)
     return report
 
 

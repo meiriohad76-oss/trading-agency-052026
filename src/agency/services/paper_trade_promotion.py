@@ -9,6 +9,7 @@ from agency.services.human_review import (
     OPERATOR_MANUAL_ADVANCE_TYPE,
     selection_report_hash,
 )
+from agency.services.risk import PortfolioPolicy
 
 TRADE_PROMOTION_NOTE = (
     "paper trade promotion: approved WATCH creates a paper BUY order-intent preview"
@@ -81,9 +82,11 @@ def promote_paper_trade_reports(
     open_orders: Sequence[Mapping[str, object]] = (),
     broker_ready: bool = False,
     config: PaperTradePromotionConfig | None = None,
+    policy: PortfolioPolicy | None = None,
 ) -> list[dict[str, object]]:
     """Return report copies with eligible approved WATCH rows promoted to paper BUY."""
     normalized_config = config or PaperTradePromotionConfig()
+    normalized_policy = policy or PortfolioPolicy()
     reports = [_validated_report(report) for report in selection_reports]
     advances = {} if operator_advance_states is None else operator_advance_states
     evaluations = _paper_trade_promotion_evaluation_list(
@@ -103,6 +106,7 @@ def promote_paper_trade_reports(
                 advances.get(_report_key(report)),
                 report,
             ),
+            policy=normalized_policy,
         )
         if index in selected_indices
         else dict(report)
@@ -733,8 +737,11 @@ def _promoted_report(
     report: Mapping[str, object],
     *,
     operator_advance: Mapping[str, object] | None = None,
+    policy: PortfolioPolicy | None = None,
 ) -> dict[str, object]:
+    normalized_policy = policy or PortfolioPolicy()
     promoted = dict(report)
+    promoted["schema_version"] = "0.2.0"
     promoted["final_action"] = "BUY"
     if operator_advance is not None:
         promoted["policy_gates"] = _operator_advanced_policy_gates(report, operator_advance)
@@ -742,7 +749,9 @@ def _promoted_report(
         "entry": None,
         "stop_loss": None,
         "take_profit": None,
+        "trailing_stop_pct": round(normalized_policy.trailing_stop_pct / 100.0, 6),
         "position_size": None,
+        "position_pct": round(normalized_policy.default_position_pct / 100.0, 6),
         "time_in_force": "DAY",
         "notes": [
             TRADE_PROMOTION_NOTE,

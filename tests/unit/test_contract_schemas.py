@@ -8,6 +8,7 @@ import pytest
 from jsonschema import Draft202012Validator, ValidationError
 from referencing import Registry, Resource
 
+from agency.api.risk import PolicyUpdate
 from agency.contracts import validation as validation_module
 
 SCHEMA_DIR = Path("schemas")
@@ -44,6 +45,28 @@ def test_runtime_contract_validators_are_cached() -> None:
 
 def test_selection_report_validates_nested_evidence_pack() -> None:
     _validator("selection-report.schema.json").validate(_selection_report())
+
+
+def test_selection_report_schema_accepts_current_versions() -> None:
+    allowed = set(_schemas()["selection-report.schema.json"]["properties"]["schema_version"]["enum"])
+    assert {"0.1.0", "0.2.0"}.issubset(allowed)
+
+
+def test_runtime_origin_enums_match_api_outputs() -> None:
+    assert set(_schemas()["selection-report.schema.json"]["properties"]["runtime_origin"]["enum"]) == {
+        "runtime_artifact_fallback",
+        "runtime_artifact_selected",
+    }
+    assert set(_schemas()["risk-decision.schema.json"]["properties"]["runtime_origin"]["enum"]) == {
+        "runtime_artifact_fallback",
+        "runtime_artifact_selected",
+    }
+
+
+def test_policy_update_cannot_toggle_runtime_submit_safety() -> None:
+    fields = set(PolicyUpdate.model_fields)
+    assert "broker_submit_enabled" not in fields
+    assert "allow_short_trades" not in fields
 
 
 def test_data_source_health_validates_dashboard_status_payload() -> None:

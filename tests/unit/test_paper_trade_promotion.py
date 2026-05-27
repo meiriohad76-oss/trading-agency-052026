@@ -62,6 +62,35 @@ def test_approved_high_conviction_watch_can_be_promoted_to_paper_buy_preview() -
     assert "order-intent preview" in str(preview["reasons"][0])
 
 
+def test_promoted_report_uses_trade_plan_schema_02_and_policy_fractions() -> None:
+    report = selection_report(action="WATCH", score=0.95)
+    review = build_human_review_event(
+        cycle_id=str(report["cycle_id"]),
+        ticker=str(report["ticker"]),
+        as_of=str(report["as_of"]),
+        decision="APPROVE",
+        selection_report_hash=selection_report_hash(report),
+    )
+
+    promoted = promote_paper_trade_reports(
+        [report],
+        review_states={_key(report): review},
+        broker_ready=True,
+        config=PaperTradePromotionConfig(
+            enabled=True,
+            min_source_count=1,
+            min_confirmed_signals=1,
+        ),
+        policy=PortfolioPolicy(default_position_pct=7.5, trailing_stop_pct=2.5),
+    )
+
+    trade_plan = promoted[0]["trade_plan"]
+    assert isinstance(trade_plan, dict)
+    assert promoted[0]["schema_version"] == "0.2.0"
+    assert trade_plan["position_pct"] == 0.075
+    assert trade_plan["trailing_stop_pct"] == 0.025
+
+
 def test_paper_trade_promotion_requires_human_approval_and_no_policy_blocks() -> None:
     approved = selection_report(action="WATCH", score=0.95)
     blocked = selection_report(

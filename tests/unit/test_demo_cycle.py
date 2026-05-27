@@ -116,6 +116,22 @@ def test_demo_runtime_seed_artifacts_validate_contracts() -> None:
         validate_contract("candidate-lifecycle-event", event)
 
 
+def test_demo_runtime_seed_trade_plans_use_current_schema_fields() -> None:
+    seed = build_demo_runtime_seed()
+    reports_by_ticker = {str(report["ticker"]): report for report in seed.selection_reports}
+
+    nvda_plan = reports_by_ticker["NVDA"]["trade_plan"]
+    assert isinstance(nvda_plan, dict)
+    assert reports_by_ticker["NVDA"]["schema_version"] == "0.2.0"
+    assert nvda_plan["position_pct"] == 0.1
+    assert nvda_plan["trailing_stop_pct"] == 0.03
+
+    for ticker in ("HD", "UNH"):
+        plan = reports_by_ticker[ticker]["trade_plan"]
+        assert isinstance(plan, dict)
+        assert plan["position_size"] is None
+
+
 def _session() -> AsyncSession:
     return cast(AsyncSession, _SESSION)
 
