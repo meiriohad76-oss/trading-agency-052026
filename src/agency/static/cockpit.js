@@ -5,6 +5,8 @@
   if (!shell) {
     return;
   }
+  document.querySelector(".topbar")?.setAttribute("hidden", "");
+  document.querySelector(".v3-phase-rail")?.setAttribute("hidden", "");
 
   const cycleId = shell.getAttribute("data-cockpit-cycle") || "current";
   const storageKey = `cockpit:v3:${cycleId}:staging`;
@@ -18,6 +20,8 @@
   applyPreferences(preferences);
   restorePreferenceControls(preferences);
   setupTouchTooltips();
+  setupPanelFilters("data-signal-filter", ".cockpit-signal-item", "signal");
+  setupPanelFilters("data-monitor-filter", ".cockpit-monitor-item", "monitor");
 
   const preferencesOpen = document.querySelector("[data-cockpit-preferences-open]");
   const preferencesPanel = document.querySelector("[data-cockpit-preferences]");
@@ -67,6 +71,10 @@
       const ticker = button.getAttribute("data-cockpit-ticker") || "";
       const decision = button.getAttribute("data-cockpit-decision") || "";
       if (!ticker || !decision) {
+        return;
+      }
+      if (isServerDecisionButton(button)) {
+        markServerDecisionPending(button, decision);
         return;
       }
       state.decisions[ticker] = decision;
@@ -185,15 +193,32 @@
   }
 
   setupPolicyPanel();
+  discardLegacyServerDecisionMarkers();
 
   if (Object.keys(state.decisions).length || Object.keys(state.exits).length) {
-    const restore = window.confirm("Restore staged cockpit decisions for this cycle?");
-    if (!restore) {
-      state.decisions = {};
-      state.exits = {};
-      state.phase = "candidates";
-      saveState();
-    }
+    const pendingRestore = {
+      decisions: { ...state.decisions },
+      exits: { ...state.exits },
+      phase: state.phase || "candidates",
+    };
+    state.decisions = {};
+    state.exits = {};
+    state.phase = "candidates";
+    saveState();
+    showRestoreNotice(
+      () => {
+        state.decisions = pendingRestore.decisions;
+        state.exits = pendingRestore.exits;
+        state.phase = pendingRestore.phase;
+        saveState();
+        restoreMarks();
+        updateCapacity();
+        showPhase(state.phase || "candidates");
+      },
+      () => {
+        saveState();
+      }
+    );
   }
   const scenarioState = shell.getAttribute("data-cockpit-scenario") || "normal";
   const defaultPhase = scenarioState === "submitted" ? "cleared" : "candidates";
@@ -284,6 +309,53 @@
     });
   }
 
+  function setupPanelFilters(attribute, itemSelector, prefix) {
+    const buttons = Array.from(document.querySelectorAll(`[${attribute}]`));
+    buttons.forEach((button) => {
+      button.addEventListener("click", () => {
+        const value = button.getAttribute(attribute) || "all";
+        buttons.forEach((item) => {
+          item.classList.toggle("active", item === button);
+        });
+        document.querySelectorAll(itemSelector).forEach((item) => {
+          const visible = value === "all" || item.classList.contains(`${prefix}-${value}`);
+          item.toggleAttribute("hidden", !visible);
+        });
+      });
+    });
+  }
+
+  function showRestoreNotice(onRestore, onDiscard) {
+    const notice = document.createElement("div");
+    notice.className = "cockpit-restore-notice";
+    notice.setAttribute("role", "alert");
+    const text = document.createElement("p");
+    text.textContent = "Restore local planning markers from your last session? These are not server approvals.";
+    const restore = document.createElement("button");
+    restore.className = "button button-secondary";
+    restore.type = "button";
+    restore.textContent = "Restore";
+    restore.addEventListener("click", () => {
+      onRestore();
+      notice.remove();
+    });
+    const discard = document.createElement("button");
+    discard.className = "button button-secondary";
+    discard.type = "button";
+    discard.textContent = "Discard";
+    discard.addEventListener("click", () => {
+      onDiscard();
+      notice.remove();
+    });
+    notice.append(text, restore, discard);
+    const rail = document.querySelector(".cockpit-phase-rail");
+    if (rail) {
+      rail.insertAdjacentElement("afterend", notice);
+    } else {
+      document.body.prepend(notice);
+    }
+  }
+
   function setPreferenceControl(name, value) {
     const input = document.querySelector(`[name="${name}"][value="${value}"]`);
     if (input) {
@@ -311,6 +383,36 @@
     container.querySelectorAll("button").forEach((button) => {
       button.classList.toggle("selected", button.textContent.trim().toLowerCase() === decision);
     });
+  }
+
+  function isServerDecisionButton(button) {
+    return button.type === "submit" || Boolean(button.closest("form"));
+  }
+
+  function markServerDecisionPending(button, decision) {
+    const row = button.closest("[data-cockpit-candidate]");
+    if (row) {
+      row.setAttribute("data-cockpit-server-decision-pending", decision);
+    }
+    button.setAttribute(
+      "title",
+      "Sending to server; this is not a server approval until the page reloads with a recorded review."
+    );
+  }
+
+  function discardLegacyServerDecisionMarkers() {
+    state.decisions = state.decisions || {};
+    let changed = false;
+    Object.entries(state.decisions).forEach(([ticker, decision]) => {
+      const button = document.querySelector(`[data-cockpit-decision="${decision}"][data-cockpit-ticker="${ticker}"]`);
+      if (button && isServerDecisionButton(button)) {
+        delete state.decisions[ticker];
+        changed = true;
+      }
+    });
+    if (changed) {
+      saveState();
+    }
   }
 
   function restoreMarks() {

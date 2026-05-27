@@ -15,7 +15,6 @@
   data-cockpit-theme="{{ preferences.theme }}"
   data-cockpit-density="{{ preferences.density }}"
   data-ux-feature="rich-ticker-detail"
-  data-cockpit-ready="true"
 >
   <header class="cockpit-topline">
     <div>
@@ -201,7 +200,7 @@
   </nav>
 
   <section class="cockpit-phase-rail" aria-label="Workflow phases">
-    <button type="button" class="cockpit-phase-cell active" data-cockpit-phase-target="candidates"><span class="cockpit-mono">01</span><strong>Candidates</strong><small>Active</small></button>
+    <button type="button" class="cockpit-phase-cell" data-cockpit-phase-target="candidates"><span class="cockpit-mono">01</span><strong>Candidates</strong><small>Active</small></button>
     <button type="button" class="cockpit-phase-cell" data-cockpit-phase-target="portfolio"><span class="cockpit-mono">02</span><strong>Portfolio</strong><small>Review next</small></button>
     <button type="button" class="cockpit-phase-cell" data-cockpit-phase-target="clearance"><span class="cockpit-mono">03</span><strong>Clearance</strong><small>Paper gate</small></button>
     <button type="button" class="cockpit-phase-cell" data-cockpit-phase-target="cleared"><span class="cockpit-mono">04</span><strong>Cleared</strong><small>After submit</small></button>
@@ -305,7 +304,7 @@
                 type="button"
                 class="button button-secondary"
                 data-cockpit-ticker-detail
-                data-cockpit-ticker-payload='{{ candidate|tojson }}'
+                data-cockpit-ticker-payload="{{ candidate|tojson|safe }}"
               >Open ticker detail</button>
             {% elif candidate.reviewable %}
               <form method="post" action="{{ candidate.approve_review_action }}">
@@ -348,7 +347,7 @@
                 type="button"
                 class="button button-secondary"
                 data-cockpit-ticker-detail
-                data-cockpit-ticker-payload='{{ candidate|tojson }}'
+                data-cockpit-ticker-payload="{{ candidate|tojson|safe }}"
               >Open ticker detail</button>
             </div>
           </div>

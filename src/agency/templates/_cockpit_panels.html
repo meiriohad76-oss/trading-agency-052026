@@ -59,6 +59,11 @@
             <span role="cell">
               {{ lane.gap_detail }}
               <small>{{ lane.recommended_action }}</small>
+              {% if lane.refresh_action.url %}
+                <form class="inline-action-form" method="post" action="{{ lane.refresh_action.url }}">
+                  <button class="button button-secondary" type="submit" title="{{ lane.refresh_action.detail }}">{{ lane.refresh_action.label }}</button>
+                </form>
+              {% endif %}
             </span>
           </article>
         {% else %}
@@ -145,7 +150,7 @@
       <h3>Signal log</h3>
       <div class="cockpit-panel-list cockpit-signal-log">
         {% for signal in signals %}
-          <article>
+          <article class="cockpit-signal-item signal-{{ signal.status|lower|replace(' ', '-') }} signal-{{ signal.state|lower|replace(' ', '-') }}">
             <strong>{{ signal.name }}</strong>
             <span class="status-pill status-pill-{% if signal.state == 'ready' %}pass{% elif signal.state == 'partial' %}warn{% else %}block{% endif %}">{{ signal.status }}</span>
             <p>{{ signal.detail }}</p>
@@ -246,7 +251,7 @@
       </div>
       <div class="cockpit-panel-list">
         {% for event in monitor_events %}
-          <article>
+          <article class="cockpit-monitor-item monitor-{{ event.status_class|default('info', true)|lower }}">
             <strong>{{ event.message }}</strong>
             <p>{{ event.kind }} / {{ event.topic }} / {{ event.action }}</p>
             <small>{{ event.timestamp }}</small>

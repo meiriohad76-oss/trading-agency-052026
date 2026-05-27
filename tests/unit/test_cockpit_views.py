@@ -128,6 +128,24 @@ def test_cockpit_template_posts_research_review_actions() -> None:
     assert "Approve Research" in html
 
 
+def test_cockpit_static_controls_are_truthful_and_filterable() -> None:
+    html = _template()
+    panels = Path("src/agency/templates/_cockpit_panels.html").read_text(encoding="utf-8")
+    script = Path("src/agency/static/cockpit.js").read_text(encoding="utf-8")
+
+    assert 'data-cockpit-ready="true"' not in html
+    assert 'data-cockpit-ticker-payload="{{ candidate|tojson|safe }}"' in html
+    assert 'class="cockpit-phase-cell active"' not in html
+    assert "window.confirm(" not in script
+    assert "showRestoreNotice(" in script
+    assert 'document.querySelector(".topbar")?.setAttribute("hidden", "")' in script
+    assert 'document.querySelector(".v3-phase-rail")?.setAttribute("hidden", "")' in script
+    assert "data-signal-filter" in script
+    assert "data-monitor-filter" in script
+    assert "cockpit-signal-item signal-{{ signal.status|lower" in panels
+    assert "cockpit-monitor-item monitor-{{ event.status_class|default('info', true)|lower" in panels
+
+
 def test_cockpit_script_forces_safety_scenario_starting_phase() -> None:
     script = Path("src/agency/static/cockpit.js").read_text(encoding="utf-8")
 
