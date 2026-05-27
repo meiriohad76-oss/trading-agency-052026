@@ -1643,6 +1643,9 @@ def data_load_status_view(status: Mapping[str, object]) -> dict[str, object]:
     view["source_summary"] = dict(_optional_mapping(status, "source_summary"))
     view["dataset_summary"] = dict(_optional_mapping(status, "dataset_summary"))
     view["agent_summary"] = dict(_optional_mapping(status, "agent_summary"))
+    view["subscription_email_status"] = _subscription_email_status_view(
+        _mapping_field(status, "subscription_email_status")
+    )
     view["dataset_rows"] = [
         _data_load_row(cast(Mapping[str, object], row))
         for row in _list_field(status, "datasets")
@@ -1682,6 +1685,49 @@ def data_load_status_view(status: Mapping[str, object]) -> dict[str, object]:
         "cycle. It is not the same as paper-trading permission; execution still needs "
         "freshness, broker, risk, and order-approval gates."
     )
+    return view
+
+
+def _subscription_email_status_view(row: Mapping[str, object]) -> dict[str, object]:
+    view = dict(row)
+    for key in ("status_label", "detail", "next_action"):
+        if key in view:
+            view[key] = _operator_text(view[key])
+    view.setdefault("status_label", "No email article run recorded")
+    view.setdefault("status_class", "neutral")
+    view.setdefault("processed_email_count", 0)
+    view.setdefault("article_links_found", 0)
+    view.setdefault("linked_content_attempted", 0)
+    view.setdefault("linked_content_succeeded", 0)
+    view.setdefault("linked_content_failed", 0)
+    view.setdefault("linked_content_skipped", 0)
+    view.setdefault("cache_hits", 0)
+    view.setdefault("login_required", 0)
+    view.setdefault("summary_count", 0)
+    view.setdefault("refresh_action_url", "/scheduler/subscription-emails/login-refresh")
+    view.setdefault("refresh_button_label", "Open Seeking Alpha login refresh")
+    view.setdefault("continue_action_url", "")
+    view.setdefault("continue_button_label", "")
+    view["last_update_label"] = _format_timestamp_or_text(
+        view.get("updated_at"),
+        default="not recorded",
+    )
+    succeeded = _optional_int(view, "linked_content_succeeded")
+    links = _optional_int(view, "article_links_found")
+    attempted = _optional_int(view, "linked_content_attempted")
+    failed = _optional_int(view, "linked_content_failed")
+    skipped = _optional_int(view, "linked_content_skipped")
+    login_required = _optional_int(view, "login_required")
+    total = links or attempted or succeeded + failed + skipped + login_required
+    if not view.get("progress_label"):
+        view["progress_label"] = (
+            f"{succeeded}/{total} article links analyzed"
+            if total
+            else "No article links selected"
+        )
+    if view.get("progress_percent") is None:
+        view["progress_percent"] = 0 if total == 0 else round((succeeded / total) * 100)
+    view["progress_style"] = f"width: {max(0, min(100, int(view['progress_percent'])))}%"
     return view
 
 

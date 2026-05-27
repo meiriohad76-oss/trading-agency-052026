@@ -34,6 +34,7 @@ from agency.runtime.artifact_fallbacks import append_runtime_lifecycle_event_art
 from agency.runtime.lane_promotion import load_lane_promotion_status
 from agency.runtime.live_config_readiness import load_live_config_readiness
 from agency.runtime.scheduler_runner import (
+    launch_subscription_email_article_analysis_after_login,
     launch_subscription_email_login_refresh,
     run_manual_dataset_refresh,
     run_manual_massive_lane_refresh,
@@ -633,6 +634,14 @@ async def refresh_subscription_email_with_login(
     background_tasks: BackgroundTasks,
 ) -> Response:
     background_tasks.add_task(launch_subscription_email_login_refresh)
+    return RedirectResponse(url="/#scheduler-heading", status_code=303)
+
+
+@router.post("/scheduler/subscription-emails/continue-after-login")
+async def continue_subscription_email_after_login(
+    background_tasks: BackgroundTasks,
+) -> Response:
+    background_tasks.add_task(launch_subscription_email_article_analysis_after_login)
     return RedirectResponse(url="/#scheduler-heading", status_code=303)
 
 

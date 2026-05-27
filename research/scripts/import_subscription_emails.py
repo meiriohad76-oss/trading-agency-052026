@@ -4,6 +4,7 @@ import argparse
 import json
 import sys
 from dataclasses import replace
+from datetime import UTC, datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -27,11 +28,26 @@ from subscription_email.linked_content import allowed_article_fetch_links  # noq
 from subscription_email.mailbox import preview_mailbox_emails  # noqa: E402
 from subscription_email.types import EmailRecord  # noqa: E402
 
+DEFAULT_PROGRESS_OUTPUT = (
+    ROOT
+    / "research"
+    / "results"
+    / "latest-subscription-emails"
+    / "subscription-email-progress.json"
+)
+
 
 def main() -> int:
     load_dotenv(ROOT / ".env", override=True)
     args = _parse_args()
     config = _config_with_overrides(args)
+    _write_progress(
+        args.progress_output,
+        state="running",
+        detail="Fetching subscription emails and preparing article analysis.",
+        mailbox_max_messages=config.mailbox_max_messages,
+        article_max_total_per_run=config.article_max_total_per_run,
+    )
     if args.dry_run:
         preview = preview_mailbox_emails(config)
         print(
@@ -84,6 +100,12 @@ def main() -> int:
             ),
         )
     except (BrowserSessionUnavailableError, EOFError) as exc:
+        _write_progress(
+            args.progress_output,
+            state="login_acknowledgement_required",
+            status_class="warn",
+            detail=str(exc) or "User login acknowledgement is required before article links open.",
+        )
         print(
             json.dumps(
                 {
@@ -99,6 +121,25 @@ def main() -> int:
             )
         )
         return 2
+    _write_progress(
+        args.progress_output,
+        state="complete",
+        status_class="pass" if result.linked_content_failed == 0 else "warn",
+        detail=(
+            "Subscription email ingest finished; article-link counts are recorded "
+            "for the dashboard."
+        ),
+        processed_email_count=result.processed_emails,
+        selected_email_count=result.processed_emails,
+        event_rows=result.event_rows,
+        linked_content_attempted=result.linked_content_attempted,
+        linked_content_succeeded=result.linked_content_succeeded,
+        linked_content_failed=result.linked_content_failed,
+        linked_content_skipped=result.linked_content_skipped,
+        linked_content_login_required=result.linked_content_login_required,
+        linked_content_unavailable=result.linked_content_unavailable,
+        linked_content_status_counts=result.linked_content_status_counts,
+    )
     print(
         json.dumps(
             {
@@ -155,7 +196,19 @@ def _run_article_login_preflight(
     if not config.article_login_preflight_required:
         return config
     verification_urls = _email_article_verification_urls(config, args, records)
+    article_links_found = _article_links_found(config, records)
     if not verification_urls:
+        _write_progress(
+            getattr(args, "progress_output", DEFAULT_PROGRESS_OUTPUT),
+            state="no_article_links_selected",
+            status_class="neutral",
+            detail=(
+                "No selected subscription email article link required login "
+                "preflight in this batch."
+            ),
+            selected_email_count=len(records),
+            article_links_found=article_links_found,
+        )
         print(
             json.dumps(
                 {
@@ -169,6 +222,18 @@ def _run_article_login_preflight(
             )
         )
         return config
+    _write_progress(
+        getattr(args, "progress_output", DEFAULT_PROGRESS_OUTPUT),
+        state="waiting_for_login_confirmation",
+        status_class="warn",
+        detail=(
+            "Chrome is open for provider login. Article links will not open until "
+            "the operator confirms the waiting prompt."
+        ),
+        selected_email_count=len(records),
+        article_links_found=article_links_found,
+        providers=list(verification_urls),
+    )
     results = ensure_interactive_article_login(
         config,
         providers=tuple(verification_urls),
@@ -183,6 +248,15 @@ def _run_article_login_preflight(
                 },
                 sort_keys=True,
             )
+        )
+        _write_progress(
+            getattr(args, "progress_output", DEFAULT_PROGRESS_OUTPUT),
+            state="login_confirmed",
+            status_class="warn",
+            detail="Login confirmed. Opening and analyzing article links now.",
+            selected_email_count=len(records),
+            article_links_found=article_links_found,
+            providers=list(verification_urls),
         )
         return replace(
             config,
@@ -220,10 +294,21 @@ def _run_article_login_challenge(
     url: str,
     record: EmailRecord,
 ) -> SubscriptionEmailConfig:
-    del args
     provider = provider_for_url(url)
     if provider is None:
         return config
+    _write_progress(
+        getattr(args, "progress_output", DEFAULT_PROGRESS_OUTPUT),
+        state="article_login_challenge",
+        status_class="warn",
+        detail=(
+            "An article opened to login or human verification. Waiting for "
+            "operator confirmation before retrying that article."
+        ),
+        selected_email_count=1,
+        article_links_found=1,
+        providers=[provider],
+    )
     print(
         json.dumps(
             {
@@ -257,7 +342,65 @@ def _run_article_login_challenge(
             sort_keys=True,
         )
     )
+    _write_progress(
+        getattr(args, "progress_output", DEFAULT_PROGRESS_OUTPUT),
+        state="login_confirmed",
+        status_class="warn",
+        detail="Login confirmed. Opening and analyzing article links now.",
+        selected_email_count=1,
+        article_links_found=1,
+        providers=[provider],
+    )
     return replace(config, article_login_preflight_confirmed=True)
+
+
+def _article_links_found(config: SubscriptionEmailConfig, records: list[EmailRecord]) -> int:
+    total = sum(
+        min(len(allowed_article_fetch_links(record, config)), config.article_max_links_per_email)
+        for record in records
+    )
+    if config.article_max_total_per_run <= 0:
+        return 0
+    return min(total, config.article_max_total_per_run)
+
+
+def _write_progress(
+    path: Path,
+    *,
+    state: str,
+    detail: str,
+    status_class: str | None = None,
+    **extra: object,
+) -> None:
+    payload = {
+        "schema_version": "0.1.0",
+        "state": state,
+        "status_class": status_class or _progress_status_class(state),
+        "updated_at": datetime.now(UTC).isoformat(),
+        "detail": detail,
+        **extra,
+    }
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _progress_status_class(state: str) -> str:
+    if state == "complete":
+        return "pass"
+    if state in {
+        "running",
+        "waiting_for_login_confirmation",
+        "login_confirmed",
+        "article_login_challenge",
+        "login_acknowledgement_required",
+    }:
+        return "warn"
+    if state in {"failed", "error"}:
+        return "block"
+    return "neutral"
 
 
 def _safe_url_label(url: str) -> str:
@@ -314,6 +457,12 @@ def _parse_args() -> argparse.Namespace:
         "--summary-root",
         type=Path,
         default=ROOT / "research" / "results" / "latest-subscription-emails",
+    )
+    parser.add_argument(
+        "--progress-output",
+        type=Path,
+        default=DEFAULT_PROGRESS_OUTPUT,
+        help="Write live email/article analysis progress for dashboard visibility.",
     )
     parser.add_argument(
         "--source-path",

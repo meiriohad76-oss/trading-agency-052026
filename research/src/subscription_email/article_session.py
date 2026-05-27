@@ -170,12 +170,17 @@ class BrowserArticleSession:
         return context
 
     def _connect_to_existing_chrome(self, provider: str) -> Any:
-        del provider
         if self._attached_context is not None:
             return self._attached_context
         if self._config.cdp_url is None:
             raise BrowserSessionUnavailableError("article_browser_cdp_url is not configured")
-        browser = self._runtime_instance().chromium.connect_over_cdp(self._config.cdp_url)
+        browser = _connect_or_start_cdp_browser(
+            self._runtime_instance(),
+            self._config,
+            first_login_url=provider_login_url(provider),
+            output=print,
+            input_func=None,
+        )
         contexts = list(browser.contexts)
         if not contexts:
             raise BrowserSessionUnavailableError(

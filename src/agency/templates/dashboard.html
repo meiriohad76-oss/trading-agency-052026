@@ -51,6 +51,67 @@
   </section>
   {% endif %}
 
+  {% set email_status = data_load_status.subscription_email_status|default({}, true) %}
+  <section class="panel subscription-pipeline" data-email-article-progress aria-label="Email article analysis progress">
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">Email/article progress</p>
+        <h2 data-email-status-label>{{ email_status.status_label|default("No email article run recorded", true) }}</h2>
+        <p class="section-subtitle" data-email-detail>{{ email_status.detail|default("No current subscription email article-analysis progress file was found.", true) }}</p>
+      </div>
+      <span class="tag tag-{{ email_status.status_class|default('neutral', true) }}" data-email-progress-label>{{ email_status.progress_label|default("No article links selected", true) }}</span>
+    </div>
+    <div class="progress-track" role="progressbar" aria-label="Email article analysis progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ email_status.progress_percent|default(0, true) }}" data-email-progress-track>
+      <div class="progress-fill" style="{{ email_status.progress_style|default('width: 0%', true) }}" data-email-progress-fill></div>
+    </div>
+    <div class="progress-grid compact-progress-grid">
+      <div>
+        <span class="metric-label">Emails selected</span>
+        <strong data-email-selected>{{ email_status.processed_email_count|default(0, true) }}</strong>
+      </div>
+      <div>
+        <span class="metric-label">Article links found</span>
+        <strong data-email-links>{{ email_status.article_links_found|default(0, true) }}</strong>
+      </div>
+      <div>
+        <span class="metric-label">Opened/analyzed</span>
+        <strong data-email-opened>{{ email_status.linked_content_succeeded|default(0, true) }}/{{ email_status.linked_content_attempted|default(0, true) }}</strong>
+      </div>
+      <div>
+        <span class="metric-label">LLM stock summaries</span>
+        <strong data-email-summaries>{{ email_status.summary_count|default(0, true) }}</strong>
+      </div>
+      <div>
+        <span class="metric-label">Needs login</span>
+        <strong data-email-login-required>{{ email_status.login_required|default(0, true) }}</strong>
+      </div>
+      <div>
+        <span class="metric-label">Failed/skipped</span>
+        <strong data-email-failed-skipped>{{ email_status.linked_content_failed|default(0, true) }}/{{ email_status.linked_content_skipped|default(0, true) }}</strong>
+      </div>
+      <div>
+        <span class="metric-label">Last update</span>
+        <strong data-email-updated>{{ email_status.last_update_label|default("not recorded", true) }}</strong>
+      </div>
+    </div>
+    <div class="operator-briefing-actions">
+      <p class="panel-note" data-email-next-action>{{ email_status.next_action|default("Run email/article analysis when subscription emails are needed for review.", true) }}</p>
+      <form method="post" action="{{ email_status.refresh_action_url|default('/scheduler/subscription-emails/login-refresh', true) }}">
+        <button class="mini-button data-health-action-button" type="submit">{{ email_status.refresh_button_label|default("Open Seeking Alpha login refresh", true) }}</button>
+      </form>
+      <form
+        method="post"
+        action="{{ email_status.continue_action_url|default('', true) }}"
+        data-email-continue-form
+        {% if not email_status.continue_action_url %}hidden{% endif %}
+      >
+        <button class="mini-button data-health-action-button primary-mini-action" type="submit" data-email-continue-button>
+          {{ email_status.continue_button_label|default("I logged in - open and analyze articles", true) }}
+        </button>
+      </form>
+    </div>
+  </section>
+
   <section class="operator-briefing" aria-label="Operator briefing">
     <div class="operator-briefing-header">
       <div>

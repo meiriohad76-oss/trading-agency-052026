@@ -3555,6 +3555,31 @@ def test_subscription_email_login_refresh_endpoint_opens_interactive_flow(
     assert calls == [{}]
 
 
+def test_subscription_email_continue_after_login_endpoint_opens_article_analysis(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    def fake_launch(**kwargs: object) -> dict[str, object]:
+        calls.append(kwargs)
+        return {"state": "started"}
+
+    monkeypatch.setattr(
+        dashboard_module,
+        "launch_subscription_email_article_analysis_after_login",
+        fake_launch,
+    )
+
+    response = TestClient(create_app()).post(
+        "/scheduler/subscription-emails/continue-after-login",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == HTTP_SEE_OTHER
+    assert response.headers["location"] == "/#scheduler-heading"
+    assert calls == [{}]
+
+
 def test_execution_preview_page_exposes_daily_bars_refresh_when_gate_blocks(
     monkeypatch: MonkeyPatch,
 ) -> None:
@@ -4073,6 +4098,45 @@ def test_data_load_status_view_prepares_dashboard_rows() -> None:
     assert view["lane_state_rows"][0]["eta_label"] == "6m"
     assert view["issue_rows"][0]["kind"] == "Agent Lane"
     assert view["issue_rows"][0]["status_class"] == "warn"
+
+
+def test_data_load_status_view_exposes_subscription_email_progress() -> None:
+    view = data_load_status_view(
+        {
+            "overall_percent": 88,
+            "datasets": [],
+            "lanes": [],
+            "blockers": [],
+            "warnings": [],
+            "subscription_email_status": {
+                "state": "waiting_for_login_confirmation",
+                "status_label": "Waiting for your login confirmation",
+                "status_class": "warn",
+                "processed_email_count": 10,
+                "article_links_found": 10,
+                "linked_content_attempted": 0,
+                "linked_content_succeeded": 0,
+                "linked_content_failed": 0,
+                "linked_content_skipped": 0,
+                "login_required": 10,
+                "cache_hits": 0,
+                "updated_at": "2026-05-19T10:10:28+00:00",
+                "detail": "Log in in Chrome, then confirm the waiting prompt.",
+                "next_action": "Confirm the login prompt so article links can open.",
+            },
+        }
+    )
+    template = (REPO_ROOT / "src/agency/templates/dashboard.html").read_text(
+        encoding="utf-8"
+    )
+
+    email = view["subscription_email_status"]
+    assert email["last_update_label"] == "2026-05-19 10:10 UTC"
+    assert email["progress_label"] == "0/10 article links analyzed"
+    assert "Email/article progress" in template
+    assert "data-email-article-progress" in template
+    assert "data-email-status-label" in template
+    assert "data-email-progress-fill" in template
 
 
 def test_data_load_status_view_explains_source_health_rows() -> None:

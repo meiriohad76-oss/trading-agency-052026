@@ -14,6 +14,7 @@ from news.consumption import load_news_consumption_entries
 from agency.runtime.data_refresh_progress import load_data_refresh_progress
 from agency.runtime.lane_state import build_lane_states
 from agency.runtime.live_config_readiness import load_live_config_readiness
+from agency.runtime.portfolio_news_agent_bridge import load_portfolio_news_agent_status
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_CONFIG_PATH = REPO_ROOT / "research" / "config" / "live-refresh.local.json"
@@ -40,6 +41,13 @@ DEFAULT_SUBSCRIPTION_EMAIL_SUMMARY_PATH = (
     / "results"
     / "latest-subscription-emails"
     / "subscription-email-ingest.json"
+)
+DEFAULT_SUBSCRIPTION_EMAIL_PROGRESS_PATH = (
+    REPO_ROOT
+    / "research"
+    / "results"
+    / "latest-subscription-emails"
+    / "subscription-email-progress.json"
 )
 
 CORE_DATASETS = ("prices_daily", "stock_trades")
@@ -186,6 +194,7 @@ def load_data_load_status(
     news_manifest = _read_json_object(manifest_dir / "news_rss.json")
     news_resolved_source_ids = _news_resolved_source_ids(news_manifest, parquet_dir)
     subscription_email_summary = _read_json_object(DEFAULT_SUBSCRIPTION_EMAIL_SUMMARY_PATH)
+    subscription_email_progress = _read_json_object(DEFAULT_SUBSCRIPTION_EMAIL_PROGRESS_PATH)
     if source_health_rows is None:
         source_health = _read_json_list(source_file)
         source_origin = (
@@ -329,6 +338,10 @@ def load_data_load_status(
             news_manifest,
             news_consumption_ledger_path=news_ledger_file,
             current_source_ids=news_resolved_source_ids,
+        ),
+        "subscription_email_status": _subscription_email_status(
+            subscription_email_summary,
+            subscription_email_progress,
         ),
         "source_summary": source_summary,
         "health_monitor": health_monitor,
@@ -1594,6 +1607,308 @@ def _dataset_detail(
     return f"{DATASET_LABELS[dataset]} available; source freshness {freshness}."
 
 
+def _subscription_email_status(
+    summary: Mapping[str, object],
+    progress: Mapping[str, object],
+) -> dict[str, object]:
+    portfolio_news_status = load_portfolio_news_agent_status()
+    if _use_portfolio_news_agent_status(portfolio_news_status, summary, progress):
+        return portfolio_news_status
+    linked = _mapping(summary.get("linked_content"))
+    state = str(progress.get("state") or "").strip()
+    verdict = str(summary.get("verdict") or "").strip()
+    progress_is_active = state in {
+        "running",
+        "waiting_for_login_confirmation",
+        "login_confirmed",
+        "article_login_challenge",
+        "login_acknowledgement_required",
+        "no_article_links_selected",
+    }
+    processed = _first_positive_int(
+        progress.get("processed_email_count"),
+        progress.get("selected_email_count"),
+        summary.get("processed_emails"),
+    )
+    attempted = _progress_or_summary_int(
+        progress,
+        linked,
+        "linked_content_attempted",
+        "attempted",
+        progress_is_active=progress_is_active,
+    )
+    succeeded = _progress_or_summary_int(
+        progress,
+        linked,
+        "linked_content_succeeded",
+        "succeeded",
+        progress_is_active=progress_is_active,
+    )
+    failed = _progress_or_summary_int(
+        progress,
+        linked,
+        "linked_content_failed",
+        "failed",
+        progress_is_active=progress_is_active,
+    )
+    skipped = _progress_or_summary_int(
+        progress,
+        linked,
+        "linked_content_skipped",
+        "skipped",
+        progress_is_active=progress_is_active,
+    )
+    cache_hits = _progress_or_summary_int(
+        progress,
+        linked,
+        "linked_content_cache_hits",
+        "cache_hits",
+        progress_is_active=progress_is_active,
+    )
+    login_required = _progress_or_summary_int(
+        progress,
+        linked,
+        "linked_content_login_required",
+        "login_required",
+        progress_is_active=progress_is_active,
+    )
+    unavailable = _progress_or_summary_int(
+        progress,
+        linked,
+        "linked_content_unavailable",
+        "unavailable",
+        progress_is_active=progress_is_active,
+    )
+    links_found = _first_positive_int(
+        progress.get("article_links_found"),
+        attempted,
+        succeeded + failed + skipped + login_required + unavailable,
+    )
+    if state in {"waiting_for_login_confirmation", "article_login_challenge"} and login_required == 0:
+        login_required = links_found
+    updated_at = str(
+        progress.get("updated_at")
+        or summary.get("fetched_at")
+        or ""
+    )
+    status_label, status_class, detail, next_action = _subscription_email_status_text(
+        state=state,
+        verdict=verdict,
+        processed=processed,
+        links_found=links_found,
+        attempted=attempted,
+        succeeded=succeeded,
+        failed=failed,
+        skipped=skipped,
+        login_required=login_required,
+        unavailable=unavailable,
+        progress_detail=str(progress.get("detail") or ""),
+    )
+    progress_label, progress_percent = _subscription_email_progress_label(
+        state=state,
+        processed=processed,
+        links_found=links_found,
+        attempted=attempted,
+        succeeded=succeeded,
+        failed=failed,
+        skipped=skipped,
+        login_required=login_required,
+        unavailable=unavailable,
+    )
+    can_continue_after_login = (
+        state
+        in {
+            "waiting_for_login_confirmation",
+            "article_login_challenge",
+            "login_acknowledgement_required",
+        }
+        or verdict == "needs_article_login"
+        or login_required > 0
+    )
+    return {
+        "state": state or ("needs_article_login" if verdict == "needs_article_login" else "unknown"),
+        "status_label": status_label,
+        "status_class": status_class,
+        "processed_email_count": processed,
+        "article_links_found": links_found,
+        "linked_content_attempted": attempted,
+        "linked_content_succeeded": succeeded,
+        "linked_content_failed": failed,
+        "linked_content_skipped": skipped,
+        "cache_hits": cache_hits,
+        "login_required": login_required,
+        "unavailable": unavailable,
+        "summary_count": 0,
+        "updated_at": updated_at or "not recorded",
+        "detail": detail,
+        "next_action": next_action,
+        "progress_label": progress_label,
+        "progress_percent": progress_percent,
+        "progress_style": f"width: {progress_percent}%",
+        "refresh_action_url": "/scheduler/subscription-emails/login-refresh",
+        "refresh_button_label": "Open Seeking Alpha login refresh",
+        "continue_action_url": (
+            "/scheduler/subscription-emails/continue-after-login"
+            if can_continue_after_login
+            else ""
+        ),
+        "continue_button_label": (
+            "I logged in - open and analyze articles"
+            if can_continue_after_login
+            else ""
+        ),
+    }
+
+
+def _use_portfolio_news_agent_status(
+    status: Mapping[str, object],
+    summary: Mapping[str, object],
+    progress: Mapping[str, object],
+) -> bool:
+    if str(status.get("state") or "") != "not_configured":
+        return True
+    return not summary and not progress
+
+
+def _subscription_email_status_text(
+    *,
+    state: str,
+    verdict: str,
+    processed: int,
+    links_found: int,
+    attempted: int,
+    succeeded: int,
+    failed: int,
+    skipped: int,
+    login_required: int,
+    unavailable: int,
+    progress_detail: str,
+) -> tuple[str, str, str, str]:
+    if state == "login_acknowledgement_required":
+        detail = progress_detail or (
+            "Seeking Alpha login may be complete, but Chrome is not exposing local "
+            "agent access, so article tabs cannot be opened and analyzed yet."
+        )
+        return (
+            "Chrome agent access needed",
+            "warn",
+            detail,
+            (
+                "Close all Chrome windows, then click Open Seeking Alpha login refresh. "
+                "When Chrome reopens with local agent access and you are logged in, "
+                "click I logged in - open and analyze articles."
+            ),
+        )
+    if state == "waiting_for_login_confirmation":
+        detail = progress_detail or (
+            "Chrome is open for login. After login, use the dashboard "
+            "continue button to open and analyze article links."
+        )
+        detail = detail.replace(
+            "Article links will not open until the operator confirms the waiting prompt.",
+            "After login, click I logged in - open and analyze articles.",
+        )
+        return (
+            "Waiting for your login confirmation",
+            "warn",
+            detail,
+            "After login, click I logged in - open and analyze articles.",
+        )
+    if state in {"login_confirmed", "article_login_challenge", "running"}:
+        return (
+            "Opening and analyzing article links",
+            "warn",
+            progress_detail
+            or "The email/article agent is active and should open article tabs in Chrome.",
+            "Wait for article analysis to finish, then reload the dashboard.",
+        )
+    if state == "complete" or attempted or succeeded:
+        status_class = "pass" if failed == 0 and login_required == 0 and unavailable == 0 else "warn"
+        total = links_found or max(attempted, succeeded + failed + skipped)
+        label = (
+            f"Analyzed {succeeded}/{total} article links"
+            if total
+            else f"Processed {processed} email(s)"
+        )
+        detail = (
+            f"Email agent processed {processed} email(s), attempted {attempted} "
+            f"article link(s), analyzed {succeeded}, failed {failed}, skipped {skipped}."
+        )
+        return (
+            label,
+            status_class,
+            detail,
+            "Use analyzed email evidence where it matches a ticker.",
+        )
+    if verdict == "needs_article_login" or login_required:
+        return (
+            "Login needed before article analysis",
+            "warn",
+            (
+                f"Email agent processed {processed} email(s), but {login_required} "
+                "protected article link(s) still need login before analysis."
+            ),
+            (
+                "Open Seeking Alpha login refresh. After login, click "
+                "I logged in - open and analyze articles."
+            ),
+        )
+    return (
+        "No email article run recorded",
+        "neutral",
+        "No current subscription email article-analysis progress file was found.",
+        "Run email/article analysis when subscription emails are needed for review.",
+    )
+
+
+def _subscription_email_progress_label(
+    *,
+    state: str,
+    processed: int,
+    links_found: int,
+    attempted: int,
+    succeeded: int,
+    failed: int,
+    skipped: int,
+    login_required: int,
+    unavailable: int,
+) -> tuple[str, int]:
+    total = links_found or max(attempted, succeeded + failed + skipped + login_required + unavailable)
+    if state == "login_acknowledgement_required":
+        return "Login acknowledged; Chrome agent access not connected", 0
+    if state == "waiting_for_login_confirmation":
+        return "Waiting for login confirmation", 0
+    if state in {"login_confirmed", "article_login_challenge", "running"} and total == 0:
+        return f"Preparing article analysis for {processed} email(s)", 0
+    if total:
+        percent = round((succeeded / total) * 100)
+        return f"{succeeded}/{total} article links analyzed", max(0, min(100, percent))
+    if processed:
+        return f"Processed {processed} email(s); no article links opened yet", 0
+    return "No article links selected", 0
+
+
+def _first_positive_int(*values: object) -> int:
+    for value in values:
+        parsed = _int_value(value)
+        if parsed > 0:
+            return parsed
+    return 0
+
+
+def _progress_or_summary_int(
+    progress: Mapping[str, object],
+    summary: Mapping[str, object],
+    progress_key: str,
+    summary_key: str,
+    *,
+    progress_is_active: bool,
+) -> int:
+    if progress_is_active:
+        return _int_value(progress.get(progress_key))
+    return _first_positive_int(progress.get(progress_key), summary.get(summary_key))
+
+
 def _subscription_email_login_detail(summary: Mapping[str, object]) -> str | None:
     if str(summary.get("verdict") or "") != "needs_article_login":
         return None
@@ -1610,8 +1925,7 @@ def _subscription_email_login_detail(summary: Mapping[str, object]) -> str | Non
         f"{login_required} protected article link(s) required login, and "
         f"{succeeded} article fetch(es) succeeded. Last email fetch: {fetched_at}. "
         "Click Open Seeking Alpha login refresh; the app opens regular installed "
-        "Chrome, waits for login confirmation, then continues the email/article "
-        "agent."
+        "Chrome. After login, click I logged in - open and analyze articles."
     )
 
 

@@ -216,6 +216,17 @@ h2 {
   border-color: #afbac7;
 }
 
+.primary-mini-action {
+  color: #ffffff;
+  border-color: #0f766e;
+  background: #0f766e;
+}
+
+.primary-mini-action:hover {
+  border-color: #115e59;
+  background: #115e59;
+}
+
 .danger-button {
   color: #5c1414;
   background: #fff0f0;

@@ -11,6 +11,13 @@ from typing import Any
 
 from dotenv import load_dotenv
 
+from agency.runtime.portfolio_news_agent_bridge import (
+    ensure_portfolio_news_agent_agency_config,
+    portfolio_news_agent_env_path,
+    portfolio_news_agent_python,
+    portfolio_news_agent_root,
+)
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PYTHON = os.environ.get("AGENCY_PYTHON", str(REPO_ROOT / ".venv" / "Scripts" / "python"))
 WORK_QUEUE_TICK_SECONDS = int(os.environ.get("AGENCY_WORK_QUEUE_TICK_SECONDS", "60"))
@@ -787,9 +794,9 @@ def launch_subscription_email_login_refresh() -> dict[str, object]:
         return {"state": "failed_to_start", "detail": detail}
 
     detail = (
-        "Opened a visible subscription email login refresh window. Complete the "
-        "provider login there, confirm the prompt, and the email/article agent "
-        "will continue in that window."
+        "Opened the Portfolio News Agent SA browser check. It starts the dedicated "
+        "Chrome/Edge session, verifies Seeking Alpha access, and prompts for login "
+        "only when needed."
     )
     scheduler_status.record_scheduler_runtime_status(
         state="idle",
@@ -797,6 +804,53 @@ def launch_subscription_email_login_refresh() -> dict[str, object]:
         job_count=1,
         extra={
             "manual_subscription_email_login_refresh": {
+                "status": "started",
+                "process_id": process.pid,
+                "dataset": "subscription_emails",
+            }
+        },
+    )
+    return {"state": "started", "process_id": process.pid, "detail": detail}
+
+
+def launch_subscription_email_article_analysis_after_login() -> dict[str, object]:
+    """Open a visible local shell that continues article analysis after login."""
+    from agency.runtime import scheduler_status
+
+    command = _subscription_email_after_login_shell_command()
+    creationflags = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
+    try:
+        process = subprocess.Popen(  # noqa: S603 - local operator-launched tool.
+            command,
+            cwd=str(REPO_ROOT),
+            creationflags=creationflags,
+        )
+    except Exception as exc:
+        detail = f"Could not open the subscription email article-analysis window: {exc}"
+        scheduler_status.record_scheduler_runtime_status(
+            state="idle",
+            detail=detail,
+            job_count=0,
+            extra={
+                "manual_subscription_email_article_analysis": {
+                    "status": "failed_to_start",
+                    "reason": detail,
+                }
+            },
+        )
+        return {"state": "failed_to_start", "detail": detail}
+
+    detail = (
+        "Opened the Portfolio News Agent email/article run. It scans unread Seeking "
+        "Alpha emails, opens article tabs in the dedicated browser session, runs LLM "
+        "analysis, stores results in SQLite, and syncs usable evidence back to the agency."
+    )
+    scheduler_status.record_scheduler_runtime_status(
+        state="idle",
+        detail=detail,
+        job_count=1,
+        extra={
+            "manual_subscription_email_article_analysis": {
                 "status": "started",
                 "process_id": process.pid,
                 "dataset": "subscription_emails",
@@ -959,20 +1013,52 @@ def _record_manual_dataset_refresh_refused(
 
 
 def _subscription_email_login_refresh_shell_command() -> list[str]:
-    repo = str(REPO_ROOT).replace("'", "''")
+    return _portfolio_news_agent_shell_command(
+        "--check-sa-browser",
+        final_message="Portfolio News Agent SA browser check finished. Press Enter to close.",
+    )
+
+
+def _subscription_email_after_login_shell_command() -> list[str]:
+    return _portfolio_news_agent_shell_command(
+        "--once",
+        final_message="Portfolio News Agent email/article analysis finished. Press Enter to close.",
+        sync_after_success=True,
+    )
+
+
+def _portfolio_news_agent_shell_command(
+    agent_mode: str,
+    *,
+    final_message: str,
+    sync_after_success: bool = False,
+) -> list[str]:
+    repo = _ps_quote(REPO_ROOT)
+    agent_root = portfolio_news_agent_root()
+    agent_root_text = _ps_quote(agent_root)
+    agent_python = _ps_quote(portfolio_news_agent_python(agent_root))
+    agent_config = _ps_quote(
+        ensure_portfolio_news_agent_agency_config(root=agent_root)
+    )
+    agent_env = _ps_quote(portfolio_news_agent_env_path(agent_root))
+    agency_python = _ps_quote(PYTHON)
+    sync_script = (
+        f"if ($exitCode -eq 0) {{ Set-Location -LiteralPath '{repo}'; "
+        f"& '{agency_python}' research\\scripts\\sync_portfolio_news_agent.py "
+        f"--agent-root '{agent_root_text}'; $exitCode = $LASTEXITCODE; }} "
+        if sync_after_success
+        else ""
+    )
     script = (
         "$ErrorActionPreference = 'Stop'; "
-        f"Set-Location -LiteralPath '{repo}'; "
-        ".\\.venv\\Scripts\\python research\\scripts\\import_subscription_emails.py "
-        "--config research\\config\\subscription-email.local.json "
-        "--max-emails 10 "
-        "--max-article-links 10 "
-        "--enable-article-llm-analysis "
-        "--require-article-login "
-        "--article-login-service seeking_alpha; "
+        f"Set-Location -LiteralPath '{agent_root_text}'; "
+        f"& '{agent_python}' run_agent.py {agent_mode} --config '{agent_config}' --env-file '{agent_env}'; "
+        "$exitCode = $LASTEXITCODE; "
+        f"{sync_script}"
         "Write-Host ''; "
-        "Write-Host 'Subscription email refresh finished. Press Enter to close.'; "
-        "Read-Host"
+        f"Write-Host '{_ps_message(final_message)}'; "
+        "Read-Host; "
+        "exit $exitCode"
     )
     return [
         "powershell.exe",
@@ -983,6 +1069,14 @@ def _subscription_email_login_refresh_shell_command() -> list[str]:
         "-Command",
         script,
     ]
+
+
+def _ps_quote(value: Path | str) -> str:
+    return str(value).replace("'", "''")
+
+
+def _ps_message(value: str) -> str:
+    return value.replace("'", "''")
 
 
 def _next_command_for_tick(

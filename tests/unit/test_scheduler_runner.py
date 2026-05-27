@@ -17,6 +17,44 @@ def test_pre_market_jobs_include_stock_trades_and_email() -> None:
     assert "sec_company_facts" not in names
 
 
+def test_subscription_email_login_refresh_reprocesses_seen_batch_and_records_progress(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    root = _write_portfolio_news_agent_config(tmp_path)
+    monkeypatch.setenv("AGENCY_PORTFOLIO_NEWS_AGENT_ROOT", str(root))
+    command = scheduler_runner._subscription_email_login_refresh_shell_command()
+    script = " ".join(command)
+
+    assert "run_agent.py --check-sa-browser" in script
+    assert "data\\agency_config.yaml" in script or "data/agency_config.yaml" in script
+    assert (root / "data" / "agency_config.yaml").exists()
+    assert "telegram_enabled: false" in (root / "data" / "agency_config.yaml").read_text(
+        encoding="utf-8"
+    )
+    assert "Portfolio News Agent SA browser check finished" in script
+    assert "import_subscription_emails.py" not in script
+    assert "sync_portfolio_news_agent.py" not in script
+    assert "AGENCY_ARTICLE_LOGIN_DEDICATED_PROFILE" not in script
+
+
+def test_subscription_email_after_login_refresh_opens_articles_without_preflight_prompt(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    root = _write_portfolio_news_agent_config(tmp_path)
+    monkeypatch.setenv("AGENCY_PORTFOLIO_NEWS_AGENT_ROOT", str(root))
+    command = scheduler_runner._subscription_email_after_login_shell_command()
+    script = " ".join(command)
+
+    assert "run_agent.py --once" in script
+    assert "data\\agency_config.yaml" in script or "data/agency_config.yaml" in script
+    assert "sync_portfolio_news_agent.py" in script
+    assert "Portfolio News Agent email/article analysis finished" in script
+    assert "import_subscription_emails.py" not in script
+    assert "AGENCY_ARTICLE_LOGIN_DEDICATED_PROFILE" not in script
+
+
 def test_regular_market_jobs_include_stock_trades_and_news() -> None:
     jobs = jobs_for_phase("regular_market")
     names = {j["name"] for j in jobs}
@@ -24,6 +62,27 @@ def test_regular_market_jobs_include_stock_trades_and_news() -> None:
     assert "news_rss" in names
     assert "prices_daily" not in names
     assert "sec_form4" not in names
+
+
+def _write_portfolio_news_agent_config(tmp_path: Path) -> Path:
+    root = tmp_path / "email news agent"
+    root.mkdir()
+    (root / "config.yaml").write_text(
+        "\n".join(
+            [
+                'portfolio_file: "portfolio.xlsx"',
+                'gmail_sender: "account@seekingalpha.com"',
+                'database_path: "data/portfolio_news.db"',
+                'browser_profile_dir: "data/sa-browser-profile"',
+                'browser_channel: "chrome"',
+                'browser_cdp_url: "http://127.0.0.1:9222"',
+                'openai_model: "gpt-5-nano"',
+                "telegram_enabled: true",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return root
 
 
 def test_dataset_refresh_command_uses_singular_dataset_arg(

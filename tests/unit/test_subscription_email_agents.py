@@ -1050,6 +1050,65 @@ def test_import_preflight_aborts_when_login_cannot_be_verified(
         )
 
 
+def test_import_subscription_preflight_records_login_progress(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _config(
+        follow_article_links=True,
+        article_login_preflight_required=True,
+        article_login_preflight_services=("seeking_alpha",),
+    )
+    article_url = "https://seekingalpha.com/article/aapl?mailing_id=1"
+    records = [
+        _record(
+            "seeking_alpha",
+            "Seeking Alpha AAPL article",
+            f"AAPL analyst article {article_url}",
+        )
+    ]
+    progress_path = tmp_path / "subscription-email-progress.json"
+    snapshots: list[dict[str, object]] = []
+
+    def fake_login(
+        _config: SubscriptionEmailConfig,
+        *,
+        providers: tuple[str, ...],
+        verification_urls: dict[str, str],
+    ) -> tuple[article_session.ArticleLoginPreflightResult, ...]:
+        snapshots.append(json.loads(progress_path.read_text(encoding="utf-8")))
+        return (
+            article_session.ArticleLoginPreflightResult(
+                provider=providers[0],
+                login_url="https://seekingalpha.com/account/login",
+                mode="attached_chrome_cdp",
+                confirmed=True,
+                verification_url=verification_urls[providers[0]],
+            ),
+        )
+
+    monkeypatch.setattr(
+        import_subscription_script,
+        "ensure_interactive_article_login",
+        fake_login,
+    )
+
+    updated = import_subscription_script._run_article_login_preflight(
+        config,
+        SimpleNamespace(article_login_service=[], progress_output=progress_path),
+        records,
+    )
+
+    assert updated.article_login_preflight_confirmed is True
+    assert snapshots[0]["state"] == "waiting_for_login_confirmation"
+    assert snapshots[0]["selected_email_count"] == 1
+    assert snapshots[0]["article_links_found"] == 1
+    complete = json.loads(progress_path.read_text(encoding="utf-8"))
+    assert complete["state"] == "login_confirmed"
+    assert complete["article_links_found"] == 1
+    assert "Opening and analyzing article links" in str(complete["detail"])
+
+
 def test_linked_article_unavailable_is_durable_status(tmp_path: Path) -> None:
     config = _config(
         follow_article_links=True,
@@ -2485,6 +2544,63 @@ def test_browser_article_session_can_attach_to_user_chrome(
     assert "positive earnings guidance" in page.text
     assert context.closed is False
     assert context.pages[0].closed is True
+
+
+def test_browser_article_session_starts_cdp_chrome_when_missing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _config(
+        article_fetch_mode="browser",
+        article_browser_state_dir=tmp_path / "sessions",
+        article_browser_cdp_url="http://127.0.0.1:9222",
+    )
+
+    class RecoveringCdpRuntime:
+        def __init__(self, browser: FakeCdpBrowser) -> None:
+            self.chromium = self
+            self.browser = browser
+            self.connected_urls: list[str] = []
+            self.stopped = False
+            self.attempts = 0
+
+        def connect_over_cdp(self, url: str) -> FakeCdpBrowser:
+            self.connected_urls.append(url)
+            self.attempts += 1
+            if self.attempts == 1:
+                raise RuntimeError("connection refused")
+            return self.browser
+
+        def stop(self) -> None:
+            self.stopped = True
+
+    context = FakeChromeContext()
+    runtime = RecoveringCdpRuntime(FakeCdpBrowser(context))
+    started_urls: list[str] = []
+    monkeypatch.setattr(
+        article_session,
+        "_playwright_sync_api",
+        lambda: FakePlaywrightApi(runtime),
+    )
+    monkeypatch.setattr(
+        article_session,
+        "_start_cdp_browser",
+        lambda _config, first_login_url: started_urls.append(first_login_url),
+    )
+
+    with article_session.BrowserArticleSession(config=config) as session:
+        page = session.fetch(
+            "https://seekingalpha.com/article/attached-aapl",
+            EXPECTED_ARTICLE_TIMEOUT_SECONDS,
+        )
+
+    assert runtime.connected_urls == [
+        "http://127.0.0.1:9222",
+        "http://127.0.0.1:9222",
+    ]
+    assert started_urls == ["https://seekingalpha.com/account/login"]
+    assert page.url == "https://seekingalpha.com/article/attached-aapl"
+    assert runtime.stopped is True
 
 
 def test_fetch_with_browser_session_uses_cdp_without_saved_state(

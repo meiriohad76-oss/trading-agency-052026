@@ -1301,6 +1301,7 @@ if (document.readyState === "loading") {
   if (!endpoint) {
     return;
   }
+  const emailPanel = document.querySelector("[data-email-article-progress]");
 
   const setText = (selector, value) => {
     const element = panel.querySelector(selector);
@@ -1334,6 +1335,83 @@ if (document.readyState === "loading") {
       cell.textContent = operatorDataHealthText(value);
     }
     row.appendChild(cell);
+  };
+
+  const setEmailText = (selector, value) => {
+    if (!emailPanel) {
+      return;
+    }
+    const element = emailPanel.querySelector(selector);
+    if (element) {
+      element.textContent = operatorDataHealthText(value);
+    }
+  };
+
+  const formatTimestamp = (value) => {
+    if (!value || value === "not recorded") {
+      return "not recorded";
+    }
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return String(value);
+    }
+    const pad = (number) => String(number).padStart(2, "0");
+    return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())} ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())} UTC`;
+  };
+
+  const renderEmailStatus = (status) => {
+    if (!emailPanel || !status) {
+      return;
+    }
+    const succeeded = Number(status.linked_content_succeeded || 0);
+    const attempted = Number(status.linked_content_attempted || 0);
+    const failed = Number(status.linked_content_failed || 0);
+    const skipped = Number(status.linked_content_skipped || 0);
+    const loginRequired = Number(status.login_required || 0);
+    const links = Number(status.article_links_found || attempted || succeeded + failed + skipped + loginRequired);
+    const percent = Number.isFinite(Number(status.progress_percent))
+      ? Math.max(0, Math.min(Math.round(Number(status.progress_percent)), 100))
+      : links > 0
+        ? Math.max(0, Math.min(Math.round((succeeded / links) * 100), 100))
+        : 0;
+    const progress = status.progress_label || (
+      links > 0 ? `${succeeded}/${links} article links analyzed` : "No article links selected"
+    );
+    const label = emailPanel.querySelector("[data-email-progress-label]");
+    if (label) {
+      label.className = `tag tag-${status.status_class || "neutral"}`;
+      label.textContent = operatorDataHealthText(progress);
+    }
+    const track = emailPanel.querySelector("[data-email-progress-track]");
+    if (track) {
+      track.setAttribute("aria-valuenow", String(percent));
+    }
+    const fill = emailPanel.querySelector("[data-email-progress-fill]");
+    if (fill) {
+      fill.style.width = `${percent}%`;
+    }
+    setEmailText("[data-email-status-label]", status.status_label || "No email article run recorded");
+    setEmailText("[data-email-detail]", status.detail || "No current subscription email article-analysis progress file was found.");
+    setEmailText("[data-email-selected]", status.processed_email_count || 0);
+    setEmailText("[data-email-links]", links);
+    setEmailText("[data-email-opened]", `${succeeded}/${attempted}`);
+    setEmailText("[data-email-summaries]", status.summary_count || 0);
+    setEmailText("[data-email-login-required]", loginRequired);
+    setEmailText("[data-email-failed-skipped]", `${failed}/${skipped}`);
+    setEmailText("[data-email-updated]", formatTimestamp(status.updated_at));
+    setEmailText("[data-email-next-action]", status.next_action || "Run email/article analysis when subscription emails are needed for review.");
+    const continueForm = emailPanel.querySelector("[data-email-continue-form]");
+    const continueButton = emailPanel.querySelector("[data-email-continue-button]");
+    if (continueForm) {
+      const actionUrl = String(status.continue_action_url || "");
+      continueForm.hidden = !actionUrl;
+      if (actionUrl) {
+        continueForm.setAttribute("action", actionUrl);
+      }
+    }
+    if (continueButton && status.continue_button_label) {
+      continueButton.textContent = operatorDataHealthText(status.continue_button_label);
+    }
   };
 
   const countLabel = (row) => {
@@ -1572,6 +1650,7 @@ if (document.readyState === "loading") {
     renderLaneRows(payload.lane_states || payload.lanes || []);
     renderFreshnessRows(payload.freshness_rows || []);
     renderIssues(payload.blockers || [], payload.warnings || []);
+    renderEmailStatus(payload.subscription_email_status);
   };
 
   const renderUnavailable = () => {

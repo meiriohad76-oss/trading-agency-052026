@@ -3265,6 +3265,256 @@ def test_subscription_email_detail_prompts_operator_login_when_articles_need_sa(
     assert "stale" not in detail.lower()
 
 
+def test_subscription_email_status_reports_article_progress(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    paths = _fixtures(tmp_path, monkeypatch)
+    summary_path = tmp_path / "subscription-email-ingest.json"
+    progress_path = tmp_path / "subscription-email-progress.json"
+    summary_path.write_text(
+        json.dumps(
+            {
+                "verdict": "ok",
+                "fetched_at": "2026-05-19T10:10:28+00:00",
+                "processed_emails": 5,
+                "event_rows": 12,
+                "linked_content": {
+                    "attempted": 4,
+                    "succeeded": 3,
+                    "failed": 1,
+                    "skipped": 1,
+                    "cache_hits": 0,
+                    "login_required": 0,
+                    "unavailable": 0,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    progress_path.write_text(
+        json.dumps(
+            {
+                "state": "complete",
+                "updated_at": "2026-05-19T10:12:28+00:00",
+                "selected_email_count": 5,
+                "article_links_found": 4,
+                "linked_content_attempted": 4,
+                "linked_content_succeeded": 3,
+                "linked_content_failed": 1,
+                "linked_content_skipped": 1,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        data_load_status_module,
+        "DEFAULT_SUBSCRIPTION_EMAIL_SUMMARY_PATH",
+        summary_path,
+    )
+    monkeypatch.setattr(
+        data_load_status_module,
+        "DEFAULT_SUBSCRIPTION_EMAIL_PROGRESS_PATH",
+        progress_path,
+    )
+
+    status = load_data_load_status(
+        config_path=paths["config"],
+        universe_path=paths["universe"],
+        manifest_root=paths["manifest_root"],
+        parquet_root=paths["parquet_root"],
+        runtime_summary_path=paths["runtime_summary"],
+        source_health_path=paths["source_health"],
+        now=datetime(2026, 5, 19, 15, 0, tzinfo=UTC),
+    )
+
+    email_status = status["subscription_email_status"]
+    assert email_status["status_label"] == "Analyzed 3/4 article links"
+    assert email_status["processed_email_count"] == 5
+    assert email_status["article_links_found"] == 4
+    assert email_status["next_action"] == "Use analyzed email evidence where it matches a ticker."
+
+
+def test_subscription_email_status_active_progress_does_not_inherit_old_counts(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    paths = _fixtures(tmp_path, monkeypatch)
+    summary_path = tmp_path / "subscription-email-ingest.json"
+    progress_path = tmp_path / "subscription-email-progress.json"
+    summary_path.write_text(
+        json.dumps(
+            {
+                "verdict": "needs_article_login",
+                "fetched_at": "2026-05-19T10:10:28+00:00",
+                "processed_emails": 10,
+                "linked_content": {"login_required": 10, "skipped": 10, "succeeded": 0},
+            }
+        ),
+        encoding="utf-8",
+    )
+    progress_path.write_text(
+        json.dumps(
+            {
+                "state": "waiting_for_login_confirmation",
+                "updated_at": "2026-05-27T12:39:54+00:00",
+                "selected_email_count": 1,
+                "article_links_found": 1,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        data_load_status_module,
+        "DEFAULT_SUBSCRIPTION_EMAIL_SUMMARY_PATH",
+        summary_path,
+    )
+    monkeypatch.setattr(
+        data_load_status_module,
+        "DEFAULT_SUBSCRIPTION_EMAIL_PROGRESS_PATH",
+        progress_path,
+    )
+
+    status = load_data_load_status(
+        config_path=paths["config"],
+        universe_path=paths["universe"],
+        manifest_root=paths["manifest_root"],
+        parquet_root=paths["parquet_root"],
+        runtime_summary_path=paths["runtime_summary"],
+        source_health_path=paths["source_health"],
+        now=datetime(2026, 5, 27, 12, 40, tzinfo=UTC),
+    )
+
+    email_status = status["subscription_email_status"]
+    assert email_status["processed_email_count"] == 1
+    assert email_status["article_links_found"] == 1
+    assert email_status["linked_content_skipped"] == 0
+    assert email_status["login_required"] == 1
+    assert email_status["continue_action_url"] == "/scheduler/subscription-emails/continue-after-login"
+    assert email_status["continue_button_label"] == "I logged in - open and analyze articles"
+
+
+def test_subscription_email_status_reports_chrome_access_needed_after_login_ack(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    paths = _fixtures(tmp_path, monkeypatch)
+    summary_path = tmp_path / "subscription-email-ingest.json"
+    progress_path = tmp_path / "subscription-email-progress.json"
+    detail = (
+        "could not connect to Chrome DevTools at http://127.0.0.1:9222 "
+        "after opening regular Chrome."
+    )
+    summary_path.write_text(
+        json.dumps(
+            {
+                "verdict": "needs_article_login",
+                "fetched_at": "2026-05-27T13:00:00+00:00",
+                "processed_emails": 10,
+                "linked_content": {"login_required": 10, "skipped": 10, "succeeded": 0},
+            }
+        ),
+        encoding="utf-8",
+    )
+    progress_path.write_text(
+        json.dumps(
+            {
+                "state": "login_acknowledgement_required",
+                "status_class": "warn",
+                "detail": detail,
+                "updated_at": "2026-05-27T13:34:47+00:00",
+                "selected_email_count": 10,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        data_load_status_module,
+        "DEFAULT_SUBSCRIPTION_EMAIL_SUMMARY_PATH",
+        summary_path,
+    )
+    monkeypatch.setattr(
+        data_load_status_module,
+        "DEFAULT_SUBSCRIPTION_EMAIL_PROGRESS_PATH",
+        progress_path,
+    )
+
+    status = load_data_load_status(
+        config_path=paths["config"],
+        universe_path=paths["universe"],
+        manifest_root=paths["manifest_root"],
+        parquet_root=paths["parquet_root"],
+        runtime_summary_path=paths["runtime_summary"],
+        source_health_path=paths["source_health"],
+        now=datetime(2026, 5, 27, 13, 35, tzinfo=UTC),
+    )
+
+    email_status = status["subscription_email_status"]
+    assert email_status["status_label"] == "Chrome agent access needed"
+    assert email_status["status_class"] == "warn"
+    assert detail in email_status["detail"]
+    assert "No current subscription email article-analysis progress file" not in email_status["detail"]
+    assert email_status["progress_label"] == (
+        "Login acknowledged; Chrome agent access not connected"
+    )
+    assert email_status["progress_percent"] == 0
+    assert "Close all Chrome windows" in email_status["next_action"]
+    assert email_status["continue_action_url"] == "/scheduler/subscription-emails/continue-after-login"
+    assert email_status["continue_button_label"] == "I logged in - open and analyze articles"
+
+
+def test_subscription_email_status_prefers_portfolio_news_agent_bridge(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    paths = _fixtures(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        data_load_status_module,
+        "load_portfolio_news_agent_status",
+        lambda: {
+            "source_agent": "portfolio_news_agent",
+            "state": "success",
+            "status_label": "SA email evidence analyzed",
+            "status_class": "pass",
+            "processed_email_count": 2,
+            "article_links_found": 2,
+            "linked_content_attempted": 2,
+            "linked_content_succeeded": 2,
+            "linked_content_failed": 0,
+            "linked_content_skipped": 0,
+            "cache_hits": 0,
+            "login_required": 0,
+            "unavailable": 0,
+            "updated_at": "2026-05-27T12:03:00+00:00",
+            "detail": "Portfolio News Agent DB is authoritative.",
+            "next_action": "Use article summaries.",
+            "progress_label": "2/2 SA article links analyzed",
+            "progress_percent": 100,
+            "progress_style": "width: 100%",
+            "refresh_action_url": "/scheduler/subscription-emails/login-refresh",
+            "refresh_button_label": "Open SA browser and verify login",
+            "continue_action_url": "/scheduler/subscription-emails/continue-after-login",
+            "continue_button_label": "Analyze unread SA emails",
+        },
+    )
+
+    status = load_data_load_status(
+        config_path=paths["config"],
+        universe_path=paths["universe"],
+        manifest_root=paths["manifest_root"],
+        parquet_root=paths["parquet_root"],
+        runtime_summary_path=paths["runtime_summary"],
+        source_health_path=paths["source_health"],
+        now=datetime(2026, 5, 27, 13, 35, tzinfo=UTC),
+    )
+
+    email_status = status["subscription_email_status"]
+    assert email_status["source_agent"] == "portfolio_news_agent"
+    assert email_status["status_label"] == "SA email evidence analyzed"
+    assert email_status["refresh_button_label"] == "Open SA browser and verify login"
+    assert email_status["continue_button_label"] == "Analyze unread SA emails"
+
+
 def test_data_load_status_blocks_stale_health_monitor_rows(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
@@ -3495,6 +3745,11 @@ def test_data_load_status_handles_corrupt_manifest_gracefully(
 
 
 def _fixtures(tmp_path: Path, monkeypatch: MonkeyPatch) -> dict[str, Path]:
+    monkeypatch.setattr(
+        data_load_status_module,
+        "load_portfolio_news_agent_status",
+        lambda: {"state": "not_configured"},
+    )
     manifest_root = tmp_path / "manifests"
     parquet_root = tmp_path / "parquet"
     manifest_root.mkdir()
