@@ -129,21 +129,21 @@ analyzed in memory only; summaries store hashes, ticker tags, direction,
 catalyst tags, risk flags, key-point labels, and a compact derived thesis, not
 the raw paid article body.
 
-If a provider blocks the Playwright-launched Chrome window, use your own Chrome
+If a provider blocks a fresh browser profile, use your regular installed Chrome
 window through the local Chrome DevTools Protocol port. First close normal Chrome
-windows, then start a dedicated user-owned Chrome profile:
+windows, then start Chrome with the agent access port and the normal user
+profile:
 
 ```powershell
 Start-Process "$env:ProgramFiles\Google\Chrome\Application\chrome.exe" `
   -ArgumentList @(
     "--remote-debugging-port=9222",
-    "--user-data-dir=$env:LOCALAPPDATA\TradingAgency\ChromeProfile",
     "https://seekingalpha.com"
   )
 ```
 
-Log in to Seeking Alpha manually in that Chrome window and clear any human
-verification prompt yourself. Then set:
+Log in to Seeking Alpha manually in that normal Chrome window and clear any
+human verification prompt yourself. Then set:
 
 ```json
 "article_fetch_mode": "browser",
@@ -169,11 +169,18 @@ When this is enabled, `import_subscription_emails.py` and
 `watch_subscription_emails.py` first open the provider login page in the
 configured browser. If `article_browser_cdp_url` is set, the login page opens in
 the already-running user Chrome attached to that DevTools port. If no attached
-Chrome is responding yet, the process starts a dedicated Trading Agency Chrome
-window with that DevTools port and local profile. Log in manually, clear any
-human-verification screen yourself, then press Enter in PowerShell. Only after
-that confirmation does the email agent sync the mailbox and open article links.
-Article links reuse that same logged-in browser context.
+Chrome is responding yet, the process starts regular installed Chrome with that
+DevTools port and the normal user profile. If Chrome was already open and did
+not accept the DevTools flag, the process tells you to close Chrome and press
+Enter so it can reopen regular Chrome with agent access. Log in manually, clear
+any human-verification screen yourself, then press Enter in PowerShell. Only
+after that confirmation does the email agent sync the mailbox and open article
+links. Article links reuse that same logged-in browser context.
+
+For an explicitly isolated test profile, set
+`AGENCY_ARTICLE_LOGIN_DEDICATED_PROFILE=true` before running the import. Do not
+use that mode for Seeking Alpha operational login unless you intentionally want a
+fresh profile.
 
 The guarded first-version pipeline and data-refresh batch also honor this
 setting. When the subscription-email config requires the preflight, that step is

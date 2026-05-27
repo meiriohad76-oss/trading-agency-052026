@@ -1500,8 +1500,8 @@ def _lane_refresh_action(
     if dataset == "subscription_emails" or lane_id == "subscription_thesis":
         return {
             "url": "/scheduler/subscription-emails/login-refresh",
-            "label": "Open email login refresh",
-            "detail": "Opens the login-gated email/article refresh flow for this lane.",
+            "label": "Open Seeking Alpha login refresh",
+            "detail": "Opens regular installed Chrome for the login-gated email/article refresh flow.",
         }
     if dataset in {"news_rss", "sec_company_facts", "sec_form4", "sec_13f"}:
         return {

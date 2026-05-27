@@ -1678,7 +1678,7 @@ def test_operational_preflight_warns_subscription_email_login_action(
 
     check = _preflight_check(summary, "Subscription email analyzer")
     assert check["status"] == "WARN"
-    assert "Open email login refresh" in check["action"]
+    assert "Open Seeking Alpha login refresh" in check["action"]
 
 
 def test_start_dev_updates_live_refresh_end_before_server_start() -> None:

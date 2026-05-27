@@ -166,7 +166,7 @@ def _subscription_email_check(
             "Subscription email analyzer",
             "WARN",
             "Article login preflight is required before Seeking Alpha-style links can be analyzed.",
-            "Open email login refresh, complete the visible login, then rerun email analysis.",
+            "Open Seeking Alpha login refresh, complete login in regular Chrome, then rerun email analysis.",
         )
     missing = _missing_mailbox_credentials(email_config, env)
     if missing:

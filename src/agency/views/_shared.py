@@ -60,16 +60,16 @@ SUBSCRIPTION_EMAIL_LOGIN_ACTION = {
     "action": "/scheduler/subscription-emails/login-refresh",
     "method": "post",
     "detail": (
-        "Opens a visible browser/session so the operator can log in, "
-        "confirm login, and continue the email/article analyzer."
+        "Opens regular installed Chrome for the operator login, waits for "
+        "confirmation, and then continues the email/article analyzer."
     ),
 }
 SUBSCRIPTION_EMAIL_LOGIN_ALERT = {
     "title": "Email evidence needs login",
     "detail": (
         "Seeking Alpha article links were found but have not been analyzed. "
-        "Open the login refresh, complete the login, confirm it, and the "
-        "email/article agent will continue."
+        "Open regular Chrome from the login refresh, complete the login, "
+        "confirm it, and the email/article agent will continue."
     ),
     "action": "/scheduler/subscription-emails/login-refresh",
     "label": "Open Seeking Alpha login refresh",

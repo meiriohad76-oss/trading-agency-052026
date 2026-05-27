@@ -2327,6 +2327,50 @@ def test_attached_chrome_preflight_starts_dedicated_cdp_browser_when_missing(
     assert results[0].confirmed is True
 
 
+def test_cdp_browser_fallback_opens_regular_chrome_profile_by_default(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = article_session.BrowserSessionFetchConfig(
+        state_dir=tmp_path / "sessions",
+        wait_seconds=5,
+        browser_channel="chrome",
+        headless=False,
+        cdp_url="http://127.0.0.1:9222",
+    )
+    launched: list[tuple[list[str], dict[str, object]]] = []
+
+    class FakeProcess:
+        pid = 1234
+
+    def fake_popen(command: list[str], **kwargs: object) -> FakeProcess:
+        launched.append((command, dict(kwargs)))
+        return FakeProcess()
+
+    monkeypatch.setattr(
+        article_session,
+        "_browser_executable",
+        lambda _channel: "C:/Program Files/Google/Chrome/Application/chrome.exe",
+    )
+    monkeypatch.setattr(article_session.subprocess, "Popen", fake_popen)
+
+    article_session._start_cdp_browser(
+        config,
+        "https://seekingalpha.com/account/login",
+    )
+
+    assert len(launched) == 1
+    command = launched[0][0]
+    assert command[0].endswith("chrome.exe")
+    assert "--remote-debugging-port=9222" in command
+    assert "--remote-debugging-address=127.0.0.1" in command
+    assert "--new-window" in command
+    assert "https://seekingalpha.com/account/login" in command
+    assert not any(arg.startswith("--user-data-dir=") for arg in command)
+    assert "--no-first-run" not in command
+    assert "--no-default-browser-check" not in command
+
+
 def test_interactive_login_preflight_requires_verified_provider_session(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

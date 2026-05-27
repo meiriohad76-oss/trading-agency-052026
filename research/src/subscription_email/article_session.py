@@ -449,6 +449,7 @@ def _ensure_login_with_attached_chrome(
             config,
             first_login_url=first_login_url,
             output=output,
+            input_func=input_func,
         )
         contexts = list(browser.contexts)
         if not contexts:
@@ -508,54 +509,85 @@ def _connect_or_start_cdp_browser(
     *,
     first_login_url: str,
     output: Callable[[str], None],
+    input_func: Callable[[str], str] | None = None,
 ) -> Any:
     try:
         return runtime.chromium.connect_over_cdp(str(config.cdp_url))
     except Exception as first_exc:
         output(
-            f"Chrome DevTools was not reachable at {config.cdp_url}; opening a "
-            "dedicated article-login browser now."
+            f"Chrome DevTools was not reachable at {config.cdp_url}; opening your "
+            "regular installed Chrome with local agent access now."
         )
         try:
             _start_cdp_browser(config, first_login_url)
         except Exception as start_exc:
             message = (
-                f"could not open the article-login browser for {config.cdp_url}; "
-                "start Chrome with remote debugging and retry the email agent"
+                f"could not open regular Chrome for {config.cdp_url}; start Chrome "
+                "with local remote debugging and retry the email agent"
             )
             raise BrowserSessionUnavailableError(message) from start_exc
-        deadline = time.monotonic() + CDP_CONNECT_RETRY_SECONDS
-        last_exc: Exception = first_exc
-        while time.monotonic() <= deadline:
+        browser, last_exc = _connect_to_cdp_until_deadline(runtime, config, first_exc)
+        if browser is not None:
+            return browser
+        if input_func is not None:
+            output(
+                "Chrome still did not expose the local agent port. If Chrome was "
+                "already open before this refresh, close all Chrome windows now; "
+                "then press Enter and the agent will reopen regular Chrome with "
+                "the required local access."
+            )
+            input_func("Press Enter after closing Chrome, or Ctrl+C to cancel...")
             try:
-                return runtime.chromium.connect_over_cdp(str(config.cdp_url))
-            except Exception as retry_exc:
-                last_exc = retry_exc
-                time.sleep(CDP_CONNECT_SLEEP_SECONDS)
+                _start_cdp_browser(config, first_login_url)
+            except Exception as restart_exc:
+                message = (
+                    f"could not reopen regular Chrome for {config.cdp_url}; start "
+                    "Chrome with local remote debugging and retry the email agent"
+                )
+                raise BrowserSessionUnavailableError(message) from restart_exc
+            browser, last_exc = _connect_to_cdp_until_deadline(runtime, config, last_exc)
+            if browser is not None:
+                return browser
         message = (
             f"could not connect to Chrome DevTools at {config.cdp_url} after "
-            "opening the article-login browser; log in or clear the provider page, "
-            "then retry the email agent"
+            "opening regular Chrome. Close existing Chrome windows and press the "
+            "dashboard login refresh again, or start Chrome with local remote "
+            "debugging before running the email agent."
         )
         output(message)
         raise BrowserSessionUnavailableError(message) from last_exc
 
 
+def _connect_to_cdp_until_deadline(
+    runtime: Any,
+    config: BrowserSessionFetchConfig,
+    first_exc: Exception,
+) -> tuple[Any | None, Exception]:
+    deadline = time.monotonic() + CDP_CONNECT_RETRY_SECONDS
+    last_exc: Exception = first_exc
+    while time.monotonic() <= deadline:
+        try:
+            return runtime.chromium.connect_over_cdp(str(config.cdp_url)), last_exc
+        except Exception as retry_exc:
+            last_exc = retry_exc
+            time.sleep(CDP_CONNECT_SLEEP_SECONDS)
+    return None, last_exc
+
+
 def _start_cdp_browser(config: BrowserSessionFetchConfig, first_login_url: str) -> None:
     executable = _browser_executable(config.browser_channel)
-    user_data_dir = config.state_dir / "profiles" / "attached-chrome"
-    user_data_dir.mkdir(parents=True, exist_ok=True)
     command = [
         executable,
         f"--remote-debugging-port={_cdp_port(config.cdp_url)}",
         "--remote-debugging-address=127.0.0.1",
-        f"--user-data-dir={user_data_dir}",
-        "--no-first-run",
-        "--no-default-browser-check",
         "--new-window",
         "--start-maximized",
         first_login_url,
     ]
+    if _use_dedicated_article_login_profile():
+        user_data_dir = config.state_dir / "profiles" / "attached-chrome"
+        user_data_dir.mkdir(parents=True, exist_ok=True)
+        command.insert(3, f"--user-data-dir={user_data_dir}")
     kwargs: dict[str, object] = {
         "stdout": subprocess.DEVNULL,
         "stderr": subprocess.DEVNULL,
@@ -565,6 +597,11 @@ def _start_cdp_browser(config: BrowserSessionFetchConfig, first_login_url: str) 
     else:
         kwargs["start_new_session"] = True
     subprocess.Popen(command, **kwargs)
+
+
+def _use_dedicated_article_login_profile() -> bool:
+    value = os.environ.get("AGENCY_ARTICLE_LOGIN_DEDICATED_PROFILE", "")
+    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _browser_executable(browser_channel: str) -> str:

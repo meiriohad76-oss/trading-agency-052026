@@ -666,8 +666,8 @@ def test_shared_dashboard_data_health_offers_refresh_queue_for_warning_issue() -
             "action": "/scheduler/subscription-emails/login-refresh",
             "method": "post",
             "detail": (
-                "Opens a visible browser/session so the operator can log in, "
-                "confirm login, and continue the email/article analyzer."
+                "Opens regular installed Chrome for the operator login, waits for "
+                "confirmation, and then continues the email/article analyzer."
             ),
         },
         {
@@ -681,8 +681,8 @@ def test_shared_dashboard_data_health_offers_refresh_queue_for_warning_issue() -
         "title": "Email evidence needs login",
         "detail": (
             "Seeking Alpha article links were found but have not been analyzed. "
-            "Open the login refresh, complete the login, confirm it, and the "
-            "email/article agent will continue."
+            "Open regular Chrome from the login refresh, complete the login, "
+            "confirm it, and the email/article agent will continue."
         ),
         "action": "/scheduler/subscription-emails/login-refresh",
         "label": "Open Seeking Alpha login refresh",
@@ -3205,7 +3205,7 @@ def test_scheduler_work_queue_view_only_posts_runnable_dataset_refresh_jobs() ->
     assert news["refresh_button_label"] == "Refresh RSS/news"
     assert email["refresh_enabled"] is True
     assert email["refresh_action_url"] == "/scheduler/subscription-emails/login-refresh"
-    assert email["refresh_button_label"] == "Open email login refresh"
+    assert email["refresh_button_label"] == "Open Seeking Alpha login refresh"
     assert sec["refresh_enabled"] is False
     assert sec["refresh_action_url"] == ""
 

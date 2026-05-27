@@ -1609,8 +1609,9 @@ def _subscription_email_login_detail(summary: Mapping[str, object]) -> str | Non
         f"Latest ingest: {processed} email(s), {event_rows} event row(s), "
         f"{login_required} protected article link(s) required login, and "
         f"{succeeded} article fetch(es) succeeded. Last email fetch: {fetched_at}. "
-        "Click Open email login refresh; the app opens a visible browser/session, "
-        "waits for login confirmation, then continues the email/article agent."
+        "Click Open Seeking Alpha login refresh; the app opens regular installed "
+        "Chrome, waits for login confirmation, then continues the email/article "
+        "agent."
     )
 
 

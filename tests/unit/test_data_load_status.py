@@ -3261,7 +3261,7 @@ def test_subscription_email_detail_prompts_operator_login_when_articles_need_sa(
     detail = str(_dataset(status, "subscription_emails")["detail"])
     assert "operator login" in detail
     assert "10 protected article link(s) required login" in detail
-    assert "Click Open email login refresh" in detail
+    assert "Click Open Seeking Alpha login refresh" in detail
     assert "stale" not in detail.lower()
 
 

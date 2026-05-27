@@ -68,10 +68,10 @@ SCHEDULER_DATASET_REFRESH_ACTIONS = {
     },
     "subscription_emails": {
         "url": "/scheduler/subscription-emails/login-refresh",
-        "label": "Open email login refresh",
+        "label": "Open Seeking Alpha login refresh",
         "detail": (
-            "Opens a visible local refresh window so the operator can log in to "
-            "Seeking Alpha before article links are opened."
+            "Opens regular installed Chrome so the operator can log in to Seeking "
+            "Alpha before article links are opened."
         ),
     },
     "sec_company_facts": {
