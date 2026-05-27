@@ -173,7 +173,54 @@ async def test_runtime_risk_decisions_can_prefer_newer_runtime_artifact(
     )
 
     assert payloads[0]["cycle_id"] == "full-active-refresh-20260524T0625Z"
-    assert "runtime_origin" not in payloads[0]
+    assert payloads[0]["runtime_origin"] == "runtime_artifact_selected"
+    assert payloads[0]["runtime_storage_superseded"] is True
+    assert str(payloads[0]["runtime_artifact_path"]).endswith("risk-decisions.json")
+    assert payloads[0]["runtime_artifact_timestamp"] == "2026-05-24T06:26:28Z"
+
+
+async def test_runtime_risk_decisions_do_not_supersede_unknown_db_timestamp(
+    tmp_path: Path,
+) -> None:
+    async def reader(
+        session: object,
+        ticker: str | None,
+        limit: int,
+    ) -> list[dict[str, object]]:
+        del session, ticker, limit
+        return [
+            {
+                **_risk_decision(),
+                "cycle_id": "db-unknown-timestamp",
+                "generated_at": "not-a-timestamp",
+                "as_of": "also-not-a-timestamp",
+            }
+        ]
+
+    artifact = tmp_path / "risk-decisions.json"
+    artifact.write_text(
+        json.dumps(
+            [
+                {
+                    **_risk_decision(),
+                    "cycle_id": "artifact-valid-timestamp",
+                    "generated_at": "2026-05-24T06:26:28Z",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    payloads = await runtime_risk_decisions(
+        session_provider=_fake_session_provider,
+        reader=reader,
+        artifact_root=tmp_path,
+        prefer_latest_artifact=True,
+        validate_payloads=False,
+    )
+
+    assert payloads[0]["cycle_id"] == "db-unknown-timestamp"
+    assert "runtime_storage_superseded" not in payloads[0]
 
 
 async def test_runtime_risk_decisions_does_not_use_artifact_by_default(

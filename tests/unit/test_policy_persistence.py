@@ -258,3 +258,29 @@ async def test_active_policy_uses_db_sizing_and_env_execution_controls(
     assert policy.stop_loss_pct == 4.5
     assert policy.broker_submit_enabled is True
     assert policy.allow_short_trades is True
+
+
+async def test_active_policy_preserves_db_execution_controls_when_env_absent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("agency.services.risk.load_dotenv", lambda: None)
+    monkeypatch.delenv("AGENCY_BROKER_SUBMIT_ENABLED", raising=False)
+    monkeypatch.delenv("AGENCY_ALLOW_SHORT_TRADES", raising=False)
+    monkeypatch.setenv("AGENCY_PORTFOLIO_POLICY_PATH", "missing-policy-file.json")
+    row = {
+        "data": {
+            "take_profit_pct": 9.0,
+            "broker_submit_enabled": True,
+            "allow_short_trades": True,
+        }
+    }
+
+    @asynccontextmanager
+    async def session_with_row_provider() -> AsyncIterator[Any]:
+        yield _make_session_with_row(row)
+
+    policy = await load_active_portfolio_policy(session_provider=session_with_row_provider)
+
+    assert policy.take_profit_pct == 9.0
+    assert policy.broker_submit_enabled is True
+    assert policy.allow_short_trades is True

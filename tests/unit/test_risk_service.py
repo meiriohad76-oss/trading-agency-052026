@@ -35,6 +35,17 @@ def test_risk_decision_warns_for_degraded_runtime_source() -> None:
     assert result.risk_decision["reasons"] == ["runtime source degradation present"]
 
 
+def test_risk_decision_blocks_float_missing_source_count() -> None:
+    result = build_risk_decision(
+        selection_report(action="BUY"),
+        {"source_count": 1, "degraded_source_count": 0, "missing_source_count": 3.0},
+        generated_at=GENERATED_AT,
+    )
+
+    assert result.risk_decision["decision"] == "BLOCK"
+    assert "missing runtime source health" in result.risk_decision["reasons"]
+
+
 def test_execution_preview_for_warned_trade_candidate_is_ready_with_caution() -> None:
     risk = build_risk_decision(
         selection_report(action="BUY"),

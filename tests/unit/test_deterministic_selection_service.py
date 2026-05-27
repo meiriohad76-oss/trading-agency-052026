@@ -4,6 +4,7 @@ import pytest
 
 from agency.contracts import ContractValidationError, validate_contract
 from agency.services import build_deterministic_selection
+from agency.services import deterministic_selection as deterministic_selection_module
 
 EXPECTED_CONVICTION = 0.7
 
@@ -58,6 +59,21 @@ def test_deterministic_selection_is_repeatable_for_same_inputs() -> None:
 
     assert first.selection_report == second.selection_report
     assert first.lifecycle_event["event_id"] == second.lifecycle_event["event_id"]
+
+
+def test_deterministic_lifecycle_event_uses_action_status_policy() -> None:
+    report = {
+        "cycle_id": "cycle-1",
+        "ticker": "AAPL",
+        "generated_at": "2026-05-07T09:31:00Z",
+        "final_action": "CLOSE_REVIEW",
+        "final_conviction": 0.4,
+        "deterministic": {"reason_codes": ["exit_review"], "blockers": []},
+    }
+
+    event = deterministic_selection_module._deterministic_lifecycle_event(report)
+
+    assert event["status"] == "WARN"
 
 
 def _evidence_pack() -> dict[str, object]:

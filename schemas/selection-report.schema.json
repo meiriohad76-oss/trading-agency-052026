@@ -54,7 +54,19 @@
     "runtime_origin": {
       "description": "Runtime storage origin. Present when a local/offline artifact fallback explicitly supplied this row.",
       "type": "string",
-      "enum": ["runtime_artifact_fallback"]
+      "enum": ["runtime_artifact_fallback", "runtime_artifact_selected"]
+    },
+    "runtime_artifact_path": {
+      "description": "Local artifact path used when a runtime artifact supplied or superseded database storage.",
+      "type": "string"
+    },
+    "runtime_artifact_timestamp": {
+      "description": "Timestamp from the artifact row used for operator provenance.",
+      "type": "string"
+    },
+    "runtime_storage_superseded": {
+      "description": "True when the artifact row is newer than the database row it replaced.",
+      "type": "boolean"
     },
     "final_action": {
       "description": "The reconciled action recommendation after all evaluation paths.",

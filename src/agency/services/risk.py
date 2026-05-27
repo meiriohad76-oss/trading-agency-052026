@@ -125,8 +125,14 @@ class PortfolioPolicy:
                 values.get("AGENCY_LIVE_TRADING_ENABLED"),
                 default=defaults.live_trading_enabled,
             ),
-            broker_submit_enabled=_env_bool(values.get("AGENCY_BROKER_SUBMIT_ENABLED")),
-            allow_short_trades=_env_bool(values.get("AGENCY_ALLOW_SHORT_TRADES")),
+            broker_submit_enabled=_env_bool(
+                values.get("AGENCY_BROKER_SUBMIT_ENABLED"),
+                default=defaults.broker_submit_enabled,
+            ),
+            allow_short_trades=_env_bool(
+                values.get("AGENCY_ALLOW_SHORT_TRADES"),
+                default=defaults.allow_short_trades,
+            ),
         )
         return _policy_with_file_overrides(policy, values)
 
@@ -281,10 +287,21 @@ async def load_active_portfolio_policy(
         return env_policy
     if db_policy is None:
         return env_policy
+    env_values = os.environ
+    broker_submit_enabled = (
+        env_policy.broker_submit_enabled
+        if _env_bool_is_configured(env_values, "AGENCY_BROKER_SUBMIT_ENABLED")
+        else db_policy.broker_submit_enabled
+    )
+    allow_short_trades = (
+        env_policy.allow_short_trades
+        if _env_bool_is_configured(env_values, "AGENCY_ALLOW_SHORT_TRADES")
+        else db_policy.allow_short_trades
+    )
     return replace(
         db_policy,
-        broker_submit_enabled=env_policy.broker_submit_enabled,
-        allow_short_trades=env_policy.allow_short_trades,
+        broker_submit_enabled=broker_submit_enabled,
+        allow_short_trades=allow_short_trades,
     )
 
 
@@ -498,7 +515,11 @@ def _runtime_source_check(source_health_summary: Mapping[str, object]) -> dict[s
     source_count = _int_field(source_health_summary, "source_count")
     degraded_count = _int_field(source_health_summary, "degraded_source_count")
     missing_value = source_health_summary.get("missing_source_count", 0)
-    missing_count = missing_value if isinstance(missing_value, int) else 0
+    missing_count = (
+        float(missing_value)
+        if isinstance(missing_value, int | float) and not isinstance(missing_value, bool)
+        else 0.0
+    )
     missing_sources = (
         _string_list(source_health_summary, "missing_sources")
         if "missing_sources" in source_health_summary
@@ -742,6 +763,11 @@ def _env_bool(value: str | None, *, default: bool = False) -> bool:
     if value is None or not value.strip():
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_bool_is_configured(values: Mapping[str, str], key: str) -> bool:
+    value = values.get(key)
+    return value is not None and bool(value.strip())
 
 
 def _env_float(value: str | None, *, default: float) -> float:

@@ -8,6 +8,7 @@ from agency.contracts import validate_contract
 from agency.runtime import make_lifecycle_event_id
 from agency.services.deterministic_rules import evaluate_deterministic_rules
 from agency.services.llm_review import build_context_only_llm_review
+from agency.services.selection_events import status_for_action
 
 
 @dataclass(frozen=True)
@@ -55,8 +56,8 @@ def _deterministic_lifecycle_event(report: Mapping[str, object]) -> dict[str, ob
     event_time = str(report["generated_at"])
     event_type = "DETERMINISTIC_ACTION"
     final_action = str(report["final_action"])
-    status = "ACTIONABLE" if final_action == "WATCH" else "BLOCKED"
     deterministic = _mapping_field(report, "deterministic")
+    status = status_for_action(final_action, deterministic)
     reason = _first_reason(deterministic)
     ticker = str(report["ticker"])
     cycle_id = str(report["cycle_id"])

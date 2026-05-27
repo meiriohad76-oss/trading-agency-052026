@@ -32,6 +32,14 @@ RAW_LANE_REQUIREMENTS = {
     "options_flow": ("massive_options_flow",),
     "options_anomaly": ("massive_options_flow",),
 }
+RAW_LANE_SOURCE_MAP = {
+    "massive_daily_bars": "daily-market-bars",
+    "massive_live_trade_slices": "massive-stock-trades",
+    "massive_premarket_trade_slices": "massive-stock-trades",
+    "massive_block_trade_feed": "massive-stock-trades",
+    "massive_backtest_trade_tape": "massive-stock-trades",
+    "massive_options_flow": "massive-options-flow",
+}
 
 LOADING_STATES = {"loading", "pending", "planned", "running"}
 REFRESH_STATES = {"stale", "needs_refresh", "unverified", "expired"}
@@ -595,9 +603,7 @@ def _proof_timestamp(
 
 
 def _source_for_raw_lane(lane_id: str) -> str:
-    if lane_id == "massive_daily_bars":
-        return "daily-market-bars"
-    return "massive-stock-trades"
+    return RAW_LANE_SOURCE_MAP.get(lane_id, "massive-stock-trades")
 
 
 def _source_dataset_for_raw_lane(lane_id: str) -> str:

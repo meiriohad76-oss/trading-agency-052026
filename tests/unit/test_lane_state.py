@@ -337,6 +337,35 @@ def test_lane_state_unknown_status_gets_operator_label() -> None:
     assert lane_state_module._status_label_for_lane("planned", "raw_acquisition") == "Planned"
 
 
+def test_options_raw_lane_uses_options_source_health() -> None:
+    states = build_lane_states(
+        data_refresh={
+            "massive_lanes": [
+                {
+                    "lane_id": "massive_options_flow",
+                    "label": "Massive Options Flow",
+                    "state": "complete",
+                    "required_now": True,
+                    "blocks_execution": False,
+                }
+            ]
+        },
+        dataset_rows=[],
+        lane_rows=[],
+        source_health_rows=[
+            {
+                "source": "massive-options-flow",
+                "status": "UNAVAILABLE",
+                "freshness": "UNAVAILABLE",
+            }
+        ],
+        now=NOW,
+    )
+
+    lane = _lane(states, "massive_options_flow")
+    assert lane["source_status"] == "UNAVAILABLE"
+
+
 def _lane(states: list[dict[str, object]], lane_id: str) -> dict[str, object]:
     for row in states:
         if row["lane_id"] == lane_id:
