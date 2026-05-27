@@ -1191,6 +1191,122 @@ def test_data_load_status_uses_stock_trade_parquet_rows_when_lane_and_coverage_m
     assert status["tradable_ready"] is False
 
 
+def test_data_load_status_does_not_treat_full_parquet_row_proof_as_tradable(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    paths = _fixtures(tmp_path, monkeypatch)
+    config = json.loads(paths["config"].read_text(encoding="utf-8"))
+    config["end"] = "2026-05-12"
+    paths["config"].write_text(json.dumps(config), encoding="utf-8")
+    _write_manifest(
+        paths["manifest_root"],
+        "prices_daily",
+        row_count=20,
+        tickers=["AAPL", "MSFT"],
+        max_timestamp_as_of="2026-05-12T00:00:00+00:00",
+    )
+    _write_manifest(
+        paths["manifest_root"],
+        "stock_trades",
+        row_count=999,
+        tickers=["AAPL", "MSFT"],
+        max_timestamp_as_of="2026-05-12T21:00:00+00:00",
+        fetched_at="2026-05-12T21:05:00+00:00",
+        date_range={"start": "2026-05-12", "end": "2026-05-12"},
+    )
+    _write_stock_trade_coverage(
+        paths["parquet_root"],
+        {
+            "AAPL|2026-05-11": {
+                "coverage_status": "partial",
+                "downloaded_row_count": 1000,
+                "pages_downloaded": 1,
+                "order": "desc",
+                "updated_at": "2026-05-12T20:00:00+00:00",
+            },
+            "MSFT|2026-05-11": {
+                "coverage_status": "partial",
+                "downloaded_row_count": 1000,
+                "pages_downloaded": 1,
+                "order": "desc",
+                "updated_at": "2026-05-12T20:00:00+00:00",
+            },
+        },
+    )
+    _write_stock_trade_parquet(
+        paths["parquet_root"],
+        "AAPL",
+        [{"ticker": "AAPL", "year": 2026, "trade_date": date(2026, 5, 12)}],
+    )
+    _write_stock_trade_parquet(
+        paths["parquet_root"],
+        "MSFT",
+        [{"ticker": "MSFT", "year": 2026, "trade_date": date(2026, 5, 12)}],
+    )
+    _write_massive_lane_manifest(
+        paths["manifest_root"],
+        lane_id="massive_daily_bars",
+        dataset="prices_daily",
+        source_manifest="prices_daily.json",
+        tickers=["AAPL", "MSFT"],
+        fetched_at="2026-05-12T21:00:00+00:00",
+        window_start="2026-05-12",
+        window_end="2026-05-12",
+        coverage=[
+            {"ticker": "AAPL", "coverage_status": "complete", "complete": True},
+            {"ticker": "MSFT", "coverage_status": "complete", "complete": True},
+        ],
+    )
+    _write_massive_lane_manifest(
+        paths["manifest_root"],
+        lane_id="massive_live_trade_slices",
+        tickers=["AAPL", "MSFT"],
+        fetched_at="2026-05-11T21:00:00+00:00",
+        window_start="2026-05-11",
+        window_end="2026-05-11",
+        coverage=[],
+    )
+    _write_runtime_summary(
+        paths["runtime_summary"],
+        {
+            "abnormal_volume": 2,
+            "technical_analysis": 2,
+            "buy_sell_pressure": 2,
+            "block_trade_pressure": 2,
+            "unusual_trade_activity": 2,
+            "pre_market_unusual_activity": 2,
+            "market_flow_trend": 2,
+        },
+    )
+    _write_source_health(
+        paths["source_health"],
+        [
+            _source("daily-market-bars", freshness="FRESH", status="HEALTHY"),
+            _source("massive-stock-trades", freshness="FRESH", status="HEALTHY"),
+        ],
+    )
+
+    status = load_data_load_status(
+        config_path=paths["config"],
+        universe_path=paths["universe"],
+        manifest_root=paths["manifest_root"],
+        parquet_root=paths["parquet_root"],
+        runtime_summary_path=paths["runtime_summary"],
+        source_health_path=paths["source_health"],
+        now=datetime(2026, 5, 13, 2, 0, tzinfo=UTC),
+    )
+
+    row = _dataset(status, "stock_trades")
+    assert row["usable_ticker_count"] == 2
+    assert row["source_status"] == "DEGRADED"
+    assert row["source_freshness"] == "PARTIAL"
+    assert row["status"] == "warning"
+    assert "parquet row proof" in str(row["detail"])
+    assert status["review_operational_ready"] is True
+    assert status["tradable_ready"] is False
+
+
 def test_data_load_status_treats_unverified_desc_complete_live_slice_as_usable(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
@@ -2177,6 +2293,95 @@ def test_data_load_status_warns_for_failed_support_refresh_when_core_lanes_ready
         warning["kind"] == "data_refresh" and warning["item"] == "sec_form4"
         for warning in status["warnings"]
     )
+
+
+def test_data_load_status_keeps_block_trade_refresh_execution_blocking(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    paths = _fixtures(tmp_path, monkeypatch)
+    _write_ready_core_market_lanes(paths)
+    status_path = Path(str(paths["manifest_root"].parent / "failed-block-trade-refresh.json"))
+    status_path.write_text(
+        json.dumps(
+            {
+                "failed": True,
+                "has_failures": True,
+                "current_dataset": "massive_block_trade_feed",
+                "failed_datasets": ["massive_block_trade_feed"],
+                "progress": {
+                    "state": "failed",
+                    "total_jobs": 1,
+                    "completed_jobs": 1,
+                    "percent_complete": 100,
+                },
+                "jobs": [
+                    {
+                        "dataset": "massive_block_trade_feed",
+                        "status": "failed",
+                        "reason": "Block-trade derivation failed.",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("DATA_REFRESH_STATUS_PATH", str(status_path))
+
+    status = load_data_load_status(
+        config_path=paths["config"],
+        universe_path=paths["universe"],
+        manifest_root=paths["manifest_root"],
+        parquet_root=paths["parquet_root"],
+        runtime_summary_path=paths["runtime_summary"],
+        source_health_path=paths["source_health"],
+        now=datetime(2026, 5, 11, 15, 2, tzinfo=UTC),
+    )
+
+    assert status["market_flow_summary"]["status"] == "ready"
+    assert status["data_refresh"]["state"] == "failed"
+    assert status["state"] == "blocked"
+    assert status["tradable_ready"] is False
+    assert any(
+        blocker["kind"] == "data_refresh"
+        and blocker["item"] == "massive_block_trade_feed"
+        for blocker in status["blockers"]
+    )
+
+
+def test_market_flow_summary_does_not_mask_blocked_lane_with_ready_lane(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    paths = _fixtures(tmp_path, monkeypatch)
+    _write_ready_core_market_lanes(paths)
+    _write_runtime_summary(
+        paths["runtime_summary"],
+        {
+            "abnormal_volume": 2,
+            "technical_analysis": 2,
+            "buy_sell_pressure": 2,
+            "block_trade_pressure": 0,
+            "unusual_trade_activity": 2,
+            "pre_market_unusual_activity": 2,
+            "market_flow_trend": 2,
+        },
+    )
+
+    status = load_data_load_status(
+        config_path=paths["config"],
+        universe_path=paths["universe"],
+        manifest_root=paths["manifest_root"],
+        parquet_root=paths["parquet_root"],
+        runtime_summary_path=paths["runtime_summary"],
+        source_health_path=paths["source_health"],
+        now=datetime(2026, 5, 11, 15, 2, tzinfo=UTC),
+    )
+
+    assert _lane(status, "block_trade_pressure")["status"] == "blocked"
+    assert status["market_flow_summary"]["status"] == "blocked"
+    assert status["market_flow_summary"]["blocked_lane_count"] == 1
+    assert status["tradable_ready"] is False
 
 
 def test_data_load_status_blocks_failed_core_refresh_even_when_old_lanes_exist(

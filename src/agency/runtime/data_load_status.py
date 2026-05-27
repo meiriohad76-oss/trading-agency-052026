@@ -56,7 +56,6 @@ NON_BLOCKING_REFRESH_DATASETS = {
     *SUPPORT_DATASETS,
     *CONTEXT_DATASETS,
     "massive_backtest_trade_tape",
-    "massive_block_trade_feed",
     "massive_options_flow",
     "massive_reference",
 }
@@ -280,7 +279,14 @@ def load_data_load_status(
     data_refresh_state = _effective_data_refresh_state(data_refresh, market_flow=market_flow)
     warnings.extend(_support_refresh_warnings(data_refresh, effective_state=data_refresh_state))
     state = _state(data_refresh_state, blockers, warnings)
-    tradable_ready = not blockers and str(market_flow["status"]) == "ready"
+    source_summary = _source_summary(monitored_source_health, now=current)
+    critical_sources_execution_ready = _critical_sources_execution_ready(source_summary)
+    tradable_ready = (
+        state != "blocked"
+        and not blockers
+        and str(market_flow["status"]) == "ready"
+        and critical_sources_execution_ready
+    )
     review_operational_ready = state in {"ready", "attention"} and (
         _int_value(market_flow["usable_ticker_count"]) > 0
         or _critical_non_market_lanes_ready(lane_rows)
@@ -324,7 +330,7 @@ def load_data_load_status(
             news_consumption_ledger_path=news_ledger_file,
             current_source_ids=news_resolved_source_ids,
         ),
-        "source_summary": _source_summary(monitored_source_health, now=current),
+        "source_summary": source_summary,
         "health_monitor": health_monitor,
         "dataset_summary": _dataset_summary(dataset_rows),
         "agent_summary": _agent_summary(lane_rows),
@@ -700,6 +706,17 @@ def _data_refresh_blockers(
     *,
     market_flow: Mapping[str, object],
 ) -> list[dict[str, object]]:
+    state = str(data_refresh.get("state") or "").lower()
+    affected = _affected_refresh_datasets(data_refresh)
+    blocking_affected = [
+        dataset for dataset in affected if _refresh_dataset_blocks(dataset)
+    ]
+    if state in TRADE_PULL_BLOCKING_STATES and blocking_affected:
+        detail = str(
+            data_refresh.get("detail")
+            or f"{blocking_affected[0]} refresh is {state}; rerun that lane before paper execution."
+        )
+        return [_issue("data_refresh", blocking_affected[0], detail)]
     trade_pull = data_refresh.get("trade_pull")
     if not isinstance(trade_pull, Mapping):
         return []
@@ -882,7 +899,7 @@ def _market_flow_summary(
             "detail": "No market-flow lanes are configured for this cycle.",
         }
     counts = [_int_value(row.get("produced_count")) for row in rows]
-    produced = max(counts) if counts else 0
+    produced = min(counts) if counts else 0
     source_usable = usable_trade_tickers if stock_trades else produced
     signal_usable = min(source_usable, produced) if stock_trades else produced
     signal_missing_or_failed = max(0, expected - signal_usable)
@@ -891,8 +908,13 @@ def _market_flow_summary(
     ready_count = _count_rows(rows, "status", "ready")
     warning_count = _count_rows(rows, "status", "warning")
     blocked_count = _count_rows(rows, "status", "blocked")
-    if blocked_count and source_usable <= 0:
+    if blocked_count and produced <= 0:
         status = "blocked"
+    elif blocked_count:
+        status = "partial"
+        signal_usable = min(signal_usable, produced)
+        signal_missing_or_failed = max(0, expected - signal_usable)
+        coverage_pct = round(_coverage(signal_usable, expected) * PERCENT_SCALE)
     elif signal_usable >= expected and source_missing_or_failed == 0:
         status = "ready"
     elif signal_usable > 0:
@@ -1383,6 +1405,13 @@ def _state(data_refresh_state: str, blockers: Sequence[object], warnings: Sequen
     if warnings:
         return "attention"
     return "ready"
+
+
+def _critical_sources_execution_ready(source_summary: Mapping[str, object]) -> bool:
+    return (
+        _int_value(source_summary.get("critical_blocker_count")) == 0
+        and _int_value(source_summary.get("critical_warning_count")) == 0
+    )
 
 
 def _overall_percent(
@@ -2709,6 +2738,13 @@ def _stock_trade_coverage_metadata_lane_snapshot(
                 and not _stock_trade_live_coverage_row_complete(row)
             }
         ),
+        "weak_proof_tickers": sorted(
+            {
+                str(row.get("ticker")).upper()
+                for row in coverage_rows
+                if str(row.get("proof_source") or "") == "stock_trades_parquet_rows"
+            }
+        ),
         "issues": issues,
         "row_count": _int_value(stock_manifest.get("row_count")),
         "proof_source": "stock_trades_coverage_metadata",
@@ -3008,6 +3044,7 @@ def _stock_trade_lane_source_health(
     age_seconds = int((_ensure_utc(now) - checked_at).total_seconds())
     partial_ticker_count = len(_list_field(live_trade_lane, "partial_tickers"))
     partial_source_count = len(_list_field(live_trade_lane, "partial_source_tickers"))
+    weak_proof_count = len(_list_field(live_trade_lane, "weak_proof_tickers"))
     failed_ticker_count = len(_list_field(live_trade_lane, "failed_tickers"))
     usable_ticker_count = len(_list_field(live_trade_lane, "usable_tickers"))
     ticker_count = len(_list_field(live_trade_lane, "tickers"))
@@ -3017,10 +3054,14 @@ def _stock_trade_lane_source_health(
         and usable_ticker_count >= ticker_count
         and partial_ticker_count == 0
         and failed_ticker_count == 0
+        and weak_proof_count == 0
     )
     if age_seconds > MASSIVE_LIVE_TRADE_SLA_SECONDS and not closed_market_current:
         freshness = "STALE"
         status = "STALE"
+    elif weak_proof_count:
+        freshness = "PARTIAL"
+        status = "DEGRADED"
     elif latest_slice_ready:
         freshness = "FRESH"
         status = "HEALTHY"
@@ -3044,12 +3085,18 @@ def _stock_trade_lane_source_health(
             f"manifest checked {age_seconds}s ago; "
             f"{usable_ticker_count}/{ticker_count} ticker(s) usable, "
             f"{partial_ticker_count} missing/partial, {partial_source_count} partial slices, "
-            f"{failed_ticker_count} failed."
+            f"{failed_ticker_count} failed, {weak_proof_count} row-count proof."
             + (
                 " Partial slices are acceptable for the live latest-slice lane when "
                 "every active ticker has a usable descending page; full-depth tape "
                 "repair is owned by massive_backtest_trade_tape."
                 if latest_slice_ready and partial_source_count
+                else ""
+            )
+            + (
+                " Row-count proof can support review, but it is not execution-grade "
+                "proof; refresh massive_live_trade_slices before paper execution."
+                if weak_proof_count
                 else ""
             )
             + (

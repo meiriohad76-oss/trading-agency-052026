@@ -176,6 +176,36 @@ def test_cockpit_lane_state_derives_actionable_next_step_when_lane_omits_one() -
     assert "No lane action recorded" not in technical["tooltip"]
 
 
+def test_cockpit_lane_state_rows_expose_individual_refresh_actions() -> None:
+    context = cockpit_context_from_sources(_sources_with_lane_states())
+    rows = {
+        row["lane_id"]: row
+        for row in context["data_state"]["lane_rows"]
+    }
+    html = _panels_template()
+
+    live = rows["massive_live_trade_slices"]
+    technical = rows["technical_analysis"]
+    subscription = rows["subscription_thesis"]
+    options = rows["massive_options_flow"]
+
+    assert live["refresh_action"]["url"] == (
+        "/scheduler/massive-lanes/massive_live_trade_slices/refresh"
+    )
+    assert live["refresh_action"]["label"] == "Refresh Live Trade Slices"
+    assert technical["refresh_action"]["url"] == (
+        "/scheduler/massive-lanes/massive_daily_bars/refresh"
+    )
+    assert subscription["refresh_action"]["url"] == (
+        "/scheduler/subscription-emails/login-refresh"
+    )
+    assert options["refresh_action"]["url"] == ""
+    assert options["refresh_action"]["label"] == "Policy locked"
+    assert "not exposed as a runnable scheduler refresh" in options["refresh_action"]["detail"]
+    assert 'action="{{ lane.refresh_action.url }}"' in html
+    assert "{{ lane.refresh_action.label }}" in html
+
+
 def test_cockpit_template_has_top_level_data_state_strip() -> None:
     html = _cockpit_template()
     css = _styles()

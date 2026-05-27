@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 import time
 from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import asynccontextmanager
@@ -79,6 +80,8 @@ from agency.services import (
     selection_report_hash,
 )
 from agency.services.selection_events import build_llm_lifecycle_event
+from agency.views.cockpit import cockpit_context_from_sources
+from tests.unit.test_cockpit_contract import _sample_sources
 
 HTTP_OK = 200
 HTTP_ACCEPTED = 202
@@ -331,6 +334,7 @@ def test_shared_dashboard_data_health_exposes_lane_state_rows() -> None:
                     "status_class": "warn",
                     "progress_label": "6/29 ticker-days",
                     "latest_as_of": "2026-05-22T13:25:29+00:00",
+                    "checked_at": "2026-05-22T13:26:00+00:00",
                     "detail": "Live trade slices are running for APP.",
                     "recommended_action": "Wait for the lane to finish.",
                 }
@@ -341,6 +345,55 @@ def test_shared_dashboard_data_health_exposes_lane_state_rows() -> None:
     assert health["lane_state_rows"][0]["lane_id"] == "massive_live_trade_slices"
     assert health["lane_state_rows"][0]["progress_label"] == "6/29 ticker-days"
     assert health["lane_state_rows"][0]["latest_as_of"] == "2026-05-22 13:25 UTC"
+    assert health["lane_state_rows"][0]["checked_at"] == "2026-05-22 13:26 UTC"
+    assert health["lane_state_rows"][0]["refresh_action"] == {
+        "enabled": True,
+        "label": "Refresh Live Trade Slices",
+        "action": "/scheduler/massive-lanes/massive_live_trade_slices/refresh",
+        "method": "post",
+        "detail": "Runs this data lane through the scheduler's trade-aware policy.",
+        "disabled_reason": "",
+    }
+
+
+def test_shared_dashboard_data_health_does_not_offer_unrunnable_massive_lanes() -> None:
+    health = shared_module.dashboard_data_health(
+        "Portfolio monitor dashboard",
+        data_load_status={
+            "overall_percent": 88,
+            "cycle_id": "live-ready-20260516",
+            "health_monitor": {
+                "status_label": "Live",
+                "status_class": "pass",
+                "live": True,
+                "reliable": True,
+                "row_count": 7,
+                "latest_checked_at": "2026-05-16T09:43:59+00:00",
+            },
+            "datasets": [],
+            "lanes": [],
+            "lane_states": [
+                {
+                    "lane_id": "massive_options_flow",
+                    "label": "Massive Options Flow",
+                    "status_label": "Not required for current workflow",
+                    "status_class": "neutral",
+                    "progress_label": "not tracked",
+                    "latest_as_of": "not recorded",
+                    "checked_at": "2026-05-22T13:26:00+00:00",
+                    "detail": "Options entitlement has not been verified.",
+                    "recommended_action": "No action required for paper equity workflow.",
+                    "source_dataset": "options_flow",
+                }
+            ],
+        },
+    )
+
+    action = health["lane_state_rows"][0]["refresh_action"]
+    assert action["enabled"] is False
+    assert action["action"] == ""
+    assert action["label"] == "Policy locked"
+    assert "not exposed as a runnable scheduler lane" in action["disabled_reason"]
 
 
 def test_shared_dashboard_data_health_offers_trade_lane_refresh_for_old_massive_monitor() -> None:
@@ -706,6 +759,46 @@ def test_health_endpoint_reports_service_status() -> None:
     assert response.json() == {"status": "ok", "service": "trading-agency-v3"}
 
 
+def test_cockpit_renders_order_intent_review_control(monkeypatch: MonkeyPatch) -> None:
+    sources = _sample_sources()
+    sources["dashboard"]["review_queue"].append(  # type: ignore[index,union-attr]
+        {
+            "ticker": "AMZN",
+            "action": "WATCH",
+            "conviction_pct": 69,
+            "gate_status": "PASS",
+            "risk_decision": "WARN",
+            "review_state": "Ready",
+            "human_review_decision": "Approve",
+            "source_count": 5,
+            "confirmed_signal_count": 2,
+            "cycle_id": "cycle-live-20260522-1530",
+            "as_of": "2026-05-22T00:00:00+00:00",
+        }
+    )
+    sources["execution"]["preview_rows"].append(  # type: ignore[index,union-attr]
+        {
+            "ticker": "AMZN",
+            "preview_state": "READY",
+            "side": "BUY",
+            "submit_enabled": False,
+            "order_value_label": "$1000.00",
+            "notional": 1000.0,
+        }
+    )
+
+    async def fake_cockpit_context(**_: object) -> dict[str, object]:
+        return cockpit_context_from_sources(sources)
+
+    monkeypatch.setattr(dashboard_module, "cached_cockpit_context", fake_cockpit_context)
+
+    response = TestClient(create_app()).get("/cockpit")
+
+    assert response.status_code == HTTP_OK
+    assert "Order intent needs approval" in response.text
+    assert 'href="/execution-preview?ticker=AMZN">Review order intent</a>' in response.text
+
+
 def test_dashboard_renders_status_overview(monkeypatch: MonkeyPatch) -> None:
     async def fake_reports(*, limit: int = 50) -> list[dict[str, object]]:
         del limit
@@ -985,7 +1078,7 @@ def test_market_regime_page_renders_snapshot(monkeypatch: MonkeyPatch) -> None:
     response = client.get("/market-regime")
 
     assert response.status_code == HTTP_OK
-    assert "Universe &amp; Market Regime" in response.text
+    assert "Universe and market briefing is ready" in response.text
     assert "Market Map" in response.text
     assert "Sector Leadership" in response.text
     assert "How to use this" in response.text
@@ -2997,10 +3090,82 @@ def test_scheduler_work_queue_view_exposes_context_refresh_actions() -> None:
     )
 
     news, email = view["stale_rows"]
+    assert news["refresh_action_url"] == ""
+    assert news["refresh_enabled"] is False
+    assert news["refresh_button_label"] == "Open Refresh Queue"
+    assert "no runnable scheduler job" in news["refresh_disabled_reason"].lower()
+    assert email["refresh_action_url"] == ""
+    assert email["refresh_enabled"] is False
+    assert email["refresh_button_label"] == "Open Refresh Queue"
+
+
+def test_scheduler_work_queue_view_only_posts_runnable_dataset_refresh_jobs() -> None:
+    view = command_module.scheduler_work_queue_view(
+        {
+            "summary": {
+                "headline": "Context data needs attention.",
+                "counts": {"due_now": 2, "running": 0},
+            },
+            "ticker_tiers": {"tiers": {}},
+            "tradability": {
+                "status_label": "Tradable",
+                "status_class": "pass",
+                "detail": "Core execution lanes are ready.",
+            },
+            "repair_plan": {"jobs": []},
+            "execution_freshness_gate": {"checks": []},
+            "scheduler_runtime": {"status_label": "Idle", "detail": "No job running."},
+            "massive_orchestrator": {"lanes": [], "derived_signal_lanes": []},
+            "jobs": [
+                {
+                    "job_id": "dataset:news_rss",
+                    "kind": "dataset",
+                    "dataset": "news_rss",
+                    "status": "DUE_NOW",
+                    "command": ["python", "refresh-news.py"],
+                },
+                {
+                    "job_id": "dataset:subscription_emails",
+                    "kind": "dataset",
+                    "dataset": "subscription_emails",
+                    "status": "DUE_NOW",
+                    "command": ["python", "refresh-email.py"],
+                },
+            ],
+            "next_jobs": [],
+            "stale_datasets": [
+                {
+                    "dataset": "news_rss",
+                    "status": "WARNING",
+                    "status_class": "warn",
+                    "reason": "RSS/news source needs attention.",
+                },
+                {
+                    "dataset": "subscription_emails",
+                    "status": "WARNING",
+                    "status_class": "warn",
+                    "reason": "Subscription email thesis needs login confirmation.",
+                },
+                {
+                    "dataset": "sec_form4",
+                    "status": "WARNING",
+                    "status_class": "warn",
+                    "reason": "Form 4 source needs attention.",
+                },
+            ],
+            "market_phase": "regular_market",
+        }
+    )
+
+    news, email, sec = view["stale_rows"]
+    assert news["refresh_enabled"] is True
     assert news["refresh_action_url"] == "/scheduler/datasets/news_rss/refresh"
     assert news["refresh_button_label"] == "Refresh RSS/news"
+    assert email["refresh_enabled"] is True
     assert email["refresh_action_url"] == "/scheduler/subscription-emails/login-refresh"
     assert email["refresh_button_label"] == "Open email login refresh"
+    assert sec["refresh_enabled"] is False
+    assert sec["refresh_action_url"] == ""
 
 
 def test_scheduler_work_queue_view_splits_automation_gate_and_workload() -> None:
@@ -3208,6 +3373,9 @@ def test_scheduler_work_queue_view_translates_massive_lanes_for_users() -> None:
     assert daily["display_status_label"] == "Loaded / No Pull Needed"
     assert daily["display_health_label"] == "Health Check Needed"
     assert daily["coverage_label"] == "Manifest complete / 100% coverage"
+    assert daily["progress_percent"] == 100
+    assert daily["progress_style"] == "width: 100%"
+    assert daily["progress_meter_label"] == "100% lane progress"
     assert daily["show_live_ticker_progress"] is False
     assert daily["impact_label"] == "Execution-critical"
     assert daily["refresh_enabled"] is False
@@ -3217,6 +3385,9 @@ def test_scheduler_work_queue_view_translates_massive_lanes_for_users() -> None:
     assert premarket["display_status_label"] == "Refresh Due"
     assert premarket["display_health_label"] == "Usable With Gaps"
     assert premarket["coverage_label"] == "13 fresh / 23 pending"
+    assert premarket["progress_percent"] == 36
+    assert premarket["progress_style"] == "width: 36%"
+    assert "ETA 6m" in premarket["progress_detail_label"]
     assert premarket["show_live_ticker_progress"] is True
     assert premarket["action_label"] == "Run lane refresh"
     assert premarket["refresh_enabled"] is True
@@ -3230,6 +3401,7 @@ def test_scheduler_work_queue_view_translates_massive_lanes_for_users() -> None:
     assert options["display_status_label"] == "Disabled / Entitlement Not Verified"
     assert options["impact_label"] == "Optional / entitlement"
     assert options["bucket_label"] == "Research / Disabled / Not Entitled"
+    assert options["progress_percent"] == 0
     assert options["refresh_enabled"] is False
     assert options["refresh_button_label"] == "Refresh Options Flow"
 
@@ -3679,6 +3851,15 @@ def test_data_refresh_progress_view_hides_raw_stale_state_from_dom() -> None:
     assert "stale" not in str(view["display_state"]).lower()
 
 
+def test_data_refresh_progress_js_uses_guarded_timeout_pollers() -> None:
+    script = Path("src/agency/static/data-refresh-progress.js").read_text(encoding="utf-8")
+
+    assert "const fetchJsonWithTimeout" in script
+    assert "new AbortController()" in script
+    assert "const guardedPoller" in script
+    assert script.count("const poll = guardedPoller(async () => {") >= 2
+
+
 def test_data_refresh_progress_view_translates_massive_lane_progress() -> None:
     view = data_refresh_progress_view(
         {
@@ -3791,6 +3972,22 @@ def test_data_load_status_view_prepares_dashboard_rows() -> None:
                     "expected_count": 2,
                 }
             ],
+            "lane_states": [
+                {
+                    "lane_id": "massive_live_trade_slices",
+                    "label": "Massive Live Trade Slices",
+                    "lane_kind": "raw_acquisition",
+                    "status_label": "Data is still loading",
+                    "status_class": "warn",
+                    "progress_label": "13/36 ticker-days",
+                    "progress_percent": 36,
+                    "eta_label": "6m",
+                    "latest_as_of": "2026-05-22T13:25:00+00:00",
+                    "checked_at": "2026-05-22T13:26:00+00:00",
+                    "operator_message": "Massive Live Trade Slices data is still loading.",
+                    "recommended_action": "Wait for the lane refresh to finish.",
+                }
+            ],
             "blockers": [],
             "warnings": [{"kind": "agent_lane", "item": "news", "reason": "stale"}],
         }
@@ -3799,6 +3996,9 @@ def test_data_load_status_view_prepares_dashboard_rows() -> None:
     assert view["progress_style"] == "width: 88%"
     assert view["dataset_rows"][0]["count_label"] == "2/2 tickers"
     assert view["lane_rows"][0]["coverage_style"] == "width: 50%"
+    assert view["lane_state_rows"][0]["progress_style"] == "width: 36%"
+    assert view["lane_state_rows"][0]["progress_meter_label"] == "36% lane progress"
+    assert view["lane_state_rows"][0]["eta_label"] == "6m"
     assert view["issue_rows"][0]["kind"] == "Agent Lane"
     assert view["issue_rows"][0]["status_class"] == "warn"
 
@@ -7587,6 +7787,30 @@ async def test_runtime_data_source_status_overlays_unified_readiness(
     assert payloads[0]["checked_at"] == "2099-01-01T09:30:00Z"
     assert "unified_readiness_override" in " ".join(payloads[0]["notes"])
     assert "missing MSFT" in " ".join(payloads[0]["notes"])
+
+
+async def test_data_load_status_generation_runs_off_event_loop(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    event_loop_thread = threading.get_ident()
+    worker_threads: list[int] = []
+
+    def fake_data_load_status(**_: object) -> dict[str, object]:
+        worker_threads.append(threading.get_ident())
+        return {"state": "ready", "freshness_rows": []}
+
+    monkeypatch.setattr(health_module, "load_data_load_status", fake_data_load_status)
+
+    payload = await health_module._load_data_load_status_async(
+        source_health_rows=[],
+        source_health_origin="test source",
+    )
+
+    assert payload["state"] == "ready"
+    assert payload["source_read_origin"] == "test source"
+    assert isinstance(payload["status_generation_ms"], int)
+    assert worker_threads
+    assert worker_threads[0] != event_loop_thread
 
 
 async def test_runtime_data_source_status_falls_back_for_empty_repository() -> None:

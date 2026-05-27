@@ -648,13 +648,93 @@ def test_approved_watch_candidate_uses_ready_execution_preview_as_orderable() ->
     assert row["ticker"] == "AMZN"
     assert row["actionable"] is True
     assert row["status"] == "approved"
-    assert row["status_label"] == "Ready for paper order"
-    assert row["action_label"] == "Review paper order"
+    assert row["status_label"] == "Ready to submit paper order"
+    assert row["action_label"] == "Submit paper order"
     assert row["order_preview"] == "$1000.00"
     assert row["order_notional"] == 1000.0
     assert row["llm_label"] == "LLM review available"
     assert manifest[0]["ticker"] == "AMZN"
     assert manifest[0]["kind"] == "buy"
+
+
+def test_blocked_candidate_with_ready_preview_is_not_actionable() -> None:
+    sources = _sample_sources()
+    sources["dashboard"]["review_queue"] = [  # type: ignore[index]
+        {
+            "ticker": "AMZN",
+            "action": "WATCH",
+            "conviction_pct": 69,
+            "gate_status": "BLOCK",
+            "risk_detail": "Portfolio concentration cap would be exceeded.",
+            "review_state": "Ready",
+            "human_review_decision": "Approve",
+            "source_count": 5,
+            "confirmed_signal_count": 2,
+            "cycle_id": "cycle-live-20260522-1530",
+            "as_of": "2026-05-22T00:00:00+00:00",
+        }
+    ]
+    sources["execution"]["preview_rows"] = [  # type: ignore[index]
+        {
+            "ticker": "AMZN",
+            "preview_state": "READY",
+            "side": "BUY",
+            "submit_enabled": True,
+            "order_value_label": "$1000.00",
+            "notional": 1000.0,
+        }
+    ]
+    sources["execution"]["orderable_rows"] = sources["execution"]["preview_rows"]  # type: ignore[index]
+
+    context = cockpit_context_from_sources(sources)
+    row = context["candidates"][0]
+
+    assert row["actionable"] is False
+    assert row["order_reviewable"] is False
+    assert row["status"] == "blocked"
+    assert row["status_label"] == "Audit only - policy gate blocks order"
+    assert row["action_label"] == "Open audit"
+    assert context["clearance"]["manifest"] == []
+
+
+def test_ready_preview_without_submit_is_order_intent_review_not_paper_ready() -> None:
+    sources = _sample_sources()
+    sources["dashboard"]["review_queue"] = [  # type: ignore[index]
+        {
+            "ticker": "AMZN",
+            "action": "WATCH",
+            "conviction_pct": 69,
+            "gate_status": "PASS",
+            "risk_decision": "WARN",
+            "review_state": "Ready",
+            "human_review_decision": "Approve",
+            "source_count": 5,
+            "confirmed_signal_count": 2,
+            "cycle_id": "cycle-live-20260522-1530",
+            "as_of": "2026-05-22T00:00:00+00:00",
+        }
+    ]
+    sources["execution"]["preview_rows"] = [  # type: ignore[index]
+        {
+            "ticker": "AMZN",
+            "preview_state": "READY",
+            "side": "BUY",
+            "submit_enabled": False,
+            "order_value_label": "$1000.00",
+            "notional": 1000.0,
+        }
+    ]
+    sources["execution"]["orderable_rows"] = []  # type: ignore[index]
+
+    context = cockpit_context_from_sources(sources)
+    row = context["candidates"][0]
+
+    assert row["actionable"] is False
+    assert row["order_reviewable"] is True
+    assert row["status"] == "pending"
+    assert row["status_label"] == "Order intent needs approval"
+    assert row["action_label"] == "Review order intent"
+    assert context["scenario"]["state"] == "review"
 
 
 def test_llm_not_run_copy_is_explicit_for_non_top_ten() -> None:
@@ -686,7 +766,7 @@ def test_candidate_status_copy_is_operator_facing() -> None:
     context = cockpit_context_from_sources(_sample_sources())
     rows = {row["ticker"]: row for row in context["candidates"]}
 
-    assert rows["AAA"]["status_label"] == "Ready for paper order"
+    assert rows["AAA"]["status_label"] == "Ready to submit paper order"
     assert rows["CCC"]["status_label"] == "Audit only - policy gate blocks order"
 
 

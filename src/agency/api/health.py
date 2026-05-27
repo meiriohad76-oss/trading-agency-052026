@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import AbstractAsyncContextManager
 from datetime import UTC, datetime
@@ -77,7 +78,7 @@ def data_refresh_progress() -> dict[str, object]:
 @router.get("/status/data-load")
 async def data_load_status() -> dict[str, object]:
     source_health = await runtime_data_source_status_with_timeout()
-    return load_data_load_status(
+    return await _load_data_load_status_async(
         source_health_rows=source_health,
         source_health_origin=_source_health_origin_label(source_health),
     )
@@ -87,7 +88,7 @@ async def data_load_status() -> dict[str, object]:
 async def full_live_readiness() -> dict[str, object]:
     source_health = await runtime_data_source_status_with_timeout()
     data_refresh = load_data_refresh_progress()
-    data_load = load_data_load_status(
+    data_load = await _load_data_load_status_async(
         source_health_rows=source_health,
         source_health_origin=_source_health_origin_label(source_health),
     )
@@ -169,7 +170,7 @@ async def runtime_data_source_status_with_load_status(
         reader=reader,
         artifact_root=artifact_root,
     )
-    load_status = load_data_load_status(
+    load_status = await _load_data_load_status_async(
         source_health_rows=payloads,
         source_health_origin=_source_health_origin_label(payloads),
     )
@@ -180,6 +181,17 @@ async def runtime_data_source_status_with_load_status(
         "data_sources": data_sources,
         "data_load_status": load_status,
     }
+
+
+async def _load_data_load_status_async(**kwargs: object) -> dict[str, object]:
+    started = time.perf_counter()
+    status = await asyncio.to_thread(load_data_load_status, **kwargs)
+    elapsed_ms = round((time.perf_counter() - started) * 1000)
+    output = dict(status)
+    output.setdefault("status_generation_ms", elapsed_ms)
+    if "source_health_origin" in kwargs:
+        output.setdefault("source_read_origin", str(kwargs["source_health_origin"]))
+    return output
 
 
 async def _runtime_data_source_payloads(

@@ -19,6 +19,9 @@ from agency.runtime.cockpit_monitor import (
 )
 from agency.runtime.ticker_reference import load_ticker_reference_index
 from agency.views._shared import (
+    REFRESHABLE_DATASET_TO_LANE,
+    REFRESHABLE_MASSIVE_LANES,
+    RUNNABLE_MASSIVE_LANES,
     _dashboard_selection_reports,
     dashboard_data_health,
     live_runtime_source_health_rows,
@@ -33,6 +36,7 @@ DEFAULT_SECTOR_LABEL = "Reference lane not loaded"
 DEFAULT_OPTIONAL_CONTEXT_TIMEOUT_SECONDS = 1.0
 DEFAULT_REQUIRED_CONTEXT_TIMEOUT_SECONDS = 8.0
 DEFAULT_SOURCE_LOAD_TIMEOUT_SECONDS = 1.5
+DEFAULT_TICKER_DETAIL_TIMEOUT_SECONDS = 1.5
 COCKPIT_CONTEXT_CACHE_SECONDS = 2.0
 COCKPIT_CONTEXT_MAX_STALE_SECONDS = 120.0
 COCKPIT_CONTEXT_WARM_TIMEOUT_SECONDS = 45.0
@@ -543,9 +547,74 @@ async def cockpit_ticker_detail_payload(ticker: str) -> dict[str, object]:
 
     from agency.views.candidates import candidate_detail_context
 
-    return cockpit_ticker_detail_payload_from_context(
-        await candidate_detail_context(normalize_ticker(ticker))
-    )
+    normalized = normalize_ticker(ticker)
+    try:
+        context = await asyncio.wait_for(
+            candidate_detail_context(
+                normalized,
+                include_rich_signal_evidence=False,
+                return_source="cockpit",
+            ),
+            timeout=_ticker_detail_timeout_seconds(),
+        )
+    except TimeoutError:
+        return _cockpit_ticker_detail_timeout_payload(normalized)
+    return cockpit_ticker_detail_payload_from_context(context)
+
+
+def _ticker_detail_timeout_seconds() -> float:
+    raw = os.environ.get("AGENCY_COCKPIT_TICKER_DETAIL_TIMEOUT_SECONDS", "")
+    if not raw.strip():
+        return DEFAULT_TICKER_DETAIL_TIMEOUT_SECONDS
+    try:
+        value = float(raw)
+    except ValueError:
+        return DEFAULT_TICKER_DETAIL_TIMEOUT_SECONDS
+    return max(0.01, value)
+
+
+def _cockpit_ticker_detail_timeout_payload(ticker: str) -> dict[str, object]:
+    payload = {
+        "ticker": ticker,
+        "title": f"{ticker} Detail",
+        "summary": (
+            "The quick cockpit drawer did not finish in time. The full candidate "
+            "brief remains available."
+        ),
+        "headline": f"{ticker} detail is loading slowly.",
+        "next_step": "Open the full candidate page for complete evidence and review history.",
+        "action_label": "Open full candidate page",
+        "status_label": "Detail delayed",
+        "conviction_pct": 0,
+        "source_count": 0,
+        "confirmed_signal_count": 0,
+        "llm": {
+            "status_label": "Not loaded in quick drawer",
+            "status_detail": "The cockpit stopped waiting before rich evidence was loaded.",
+            "action": "None",
+            "confidence_pct": 0,
+            "rationale": "Open the full candidate page for the current LLM rationale.",
+        },
+        "data_health": {
+            "status_label": "Detail delayed",
+            "status_class": "warn",
+            "headline": "Quick drawer timed out.",
+            "recommended_action": "Open the full candidate page for complete evidence.",
+            "primary_blocker": "Quick drawer timeout",
+            "primary_blocker_detail": "The cockpit drawer is intentionally bounded.",
+            "overall_percent": 0,
+            "last_verified_label": "",
+        },
+        "review": {"decision": "Pending", "reason": "", "event_time_label": ""},
+        "support_cards": [],
+        "caution_cards": [],
+        "decision_points": [],
+        "signal_mix_note": "",
+        "signals": [],
+        "context_cards": [],
+        "detail_url": f"/candidates/{ticker}",
+    }
+    return _scrub_secrets(payload)
 
 
 def cockpit_ticker_detail_payload_from_context(
@@ -780,7 +849,11 @@ def _funnel_section(
     progress = _mapping(dashboard.get("review_progress"))
     total = _int(progress.get("total_count"), fallback=len(candidates))
     actionable = sum(1 for row in candidates if row.get("actionable") is True)
-    reviewable = sum(1 for row in candidates if row.get("reviewable") is True)
+    reviewable = sum(
+        1
+        for row in candidates
+        if row.get("reviewable") is True or row.get("order_reviewable") is True
+    )
     blocked = sum(1 for row in candidates if row.get("status") == "blocked")
     return {
         "universe": _int(_mapping(dashboard.get("live_config")).get("active_universe_count"), fallback=total),
@@ -804,6 +877,11 @@ def _candidate_rows(
     source_rows = _list(dashboard.get("review_queue")) or _list(dashboard.get("candidates"))
     reference_index = _ticker_reference_index(dashboard.get("ticker_reference"))
     previews = {_first_text(_mapping(row).get("ticker")): _mapping(row) for row in _list(execution.get("preview_rows"))}
+    orderable_tickers = {
+        _first_text(_mapping(row).get("ticker")).upper()
+        for row in _list(execution.get("orderable_rows"))
+        if _first_text(_mapping(row).get("ticker"))
+    }
     rows: list[dict[str, object]] = []
     for raw_index, raw in enumerate(source_rows, start=1):
         item = _mapping(raw)
@@ -829,19 +907,29 @@ def _candidate_rows(
         preview = previews.get(ticker, {})
         preview_state = _first_text(preview.get("preview_state")).upper()
         preview_side = _first_text(preview.get("side")).upper()
-        preview_ready = preview_state == "READY" and preview_side in TRADE_ACTIONS
-        gate_blocked = "BLOCK" in risk_label
-        actionable = (
-            (action in TRADE_ACTIONS or preview_ready)
-            and item.get("is_reviewable") is not False
-            and not gate_blocked
+        preview_ready = preview_state == "READY" and (
+            preview_side in TRADE_ACTIONS or ticker.upper() in orderable_tickers
         )
+        submit_ready = preview_ready and (
+            preview.get("submit_enabled") is True or ticker.upper() in orderable_tickers
+        )
+        gate_blocked = "BLOCK" in risk_label
+        order_reviewable = preview_ready and not submit_ready and not gate_blocked
+        actionable = submit_ready and item.get("is_reviewable") is not False and not gate_blocked
         reviewable = (
             False
-            if actionable
+            if actionable or order_reviewable
             else _candidate_is_reviewable(item, gate_blocked=gate_blocked)
         )
-        status = "approved" if actionable else "blocked" if "BLOCK" in risk_label else "demoted"
+        status = (
+            "approved"
+            if actionable
+            else "pending"
+            if order_reviewable
+            else "blocked"
+            if "BLOCK" in risk_label
+            else "demoted"
+        )
         evidence_items = _evidence_items(item)
         evidence_line = evidence_items[0]["text"]
         risk_text = _first_text(
@@ -907,22 +995,26 @@ def _candidate_rows(
                 "status": status,
                 "status_label": _candidate_status_label(
                     actionable=actionable,
+                    order_reviewable=order_reviewable,
                     reviewable=reviewable,
                     risk_label=risk_label,
                 ),
-                "blocker": None if actionable else risk_text,
+                "blocker": None if actionable else "Order intent approval is required before submit." if order_reviewable else risk_text,
                 "actionable": actionable,
+                "order_reviewable": order_reviewable,
                 "reviewable": reviewable,
                 "action_label": (
-                    "Review paper order"
+                    "Submit paper order"
                     if actionable
+                    else "Review order intent"
+                    if order_reviewable
                     else "Approve, defer, or reject"
                     if reviewable
                     else "Open audit"
                 ),
                 "decision_controls": (
                     ["order"]
-                    if actionable
+                    if actionable or order_reviewable
                     else ["approve", "defer", "reject"]
                     if reviewable
                     else ["audit"]
@@ -1325,6 +1417,11 @@ def _data_state_lane_row(row: Mapping[str, object]) -> dict[str, object]:
     checked_at_label = _data_state_text(
         _first_text(row.get("checked_at_label"), row.get("checked_at"), default="not checked")
     )
+    refresh_action = _lane_refresh_action(
+        row,
+        lane_id=lane_id,
+        source_dataset=_first_text(row.get("source_dataset")),
+    )
     return {
         "lane_id": lane_id,
         "name": name,
@@ -1345,6 +1442,7 @@ def _data_state_lane_row(row: Mapping[str, object]) -> dict[str, object]:
         "ready_for_paper_execution": ready_for_paper,
         "latest_as_of_label": latest_as_of_label,
         "checked_at_label": checked_at_label,
+        "refresh_action": refresh_action,
         "requirement_label": requirement_label,
         "operator_message": operator_message,
         "recommended_action": recommended_action,
@@ -1360,6 +1458,67 @@ def _data_state_lane_row(row: Mapping[str, object]) -> dict[str, object]:
             status_class=status_class,
         ),
     }
+
+
+def _lane_refresh_action(
+    row: Mapping[str, object],
+    *,
+    lane_id: str,
+    source_dataset: str,
+) -> dict[str, str]:
+    explicit_url = _first_text(row.get("refresh_action_url"))
+    explicit_label = _data_state_text(_first_text(row.get("refresh_action_label")))
+    if explicit_url:
+        return {
+            "url": explicit_url,
+            "label": explicit_label or "Refresh lane",
+            "detail": _data_state_text(
+                _first_text(
+                    row.get("refresh_action_detail"),
+                    default="Runs the lane refresh through the scheduler policy.",
+                )
+            ),
+        }
+    massive_lane = _refresh_massive_lane_id(lane_id, source_dataset)
+    if massive_lane:
+        if massive_lane not in RUNNABLE_MASSIVE_LANES:
+            return {
+                "url": "",
+                "label": "Policy locked",
+                "detail": (
+                    f"{REFRESHABLE_MASSIVE_LANES.get(massive_lane, massive_lane)} "
+                    "is tracked for health, but this lane is not exposed as a "
+                    "runnable scheduler refresh in the current policy."
+                ),
+            }
+        return {
+            "url": f"/scheduler/massive-lanes/{massive_lane}/refresh",
+            "label": REFRESHABLE_MASSIVE_LANES.get(massive_lane, "Refresh lane"),
+            "detail": "Runs this lane through the scheduler's trade-aware policy.",
+        }
+    dataset = source_dataset or lane_id
+    if dataset == "subscription_emails" or lane_id == "subscription_thesis":
+        return {
+            "url": "/scheduler/subscription-emails/login-refresh",
+            "label": "Open email login refresh",
+            "detail": "Opens the login-gated email/article refresh flow for this lane.",
+        }
+    if dataset in {"news_rss", "sec_company_facts", "sec_form4", "sec_13f"}:
+        return {
+            "url": f"/scheduler/datasets/{dataset}/refresh",
+            "label": f"Refresh {dataset.replace('_', ' ').title()}",
+            "detail": "Runs this dataset refresh through the scheduler policy.",
+        }
+    return {"url": "", "label": "", "detail": ""}
+
+
+def _refresh_massive_lane_id(lane_id: str, source_dataset: str) -> str:
+    if lane_id in REFRESHABLE_MASSIVE_LANES:
+        return lane_id
+    mapped = REFRESHABLE_DATASET_TO_LANE.get(source_dataset) or REFRESHABLE_DATASET_TO_LANE.get(
+        lane_id
+    )
+    return mapped or ""
 
 
 def _data_state_top_gaps(
@@ -1567,6 +1726,7 @@ def _scenario_from_context(
     candidates = [_mapping(item) for item in _list(context.get("candidates"))]
     actionable_count = sum(1 for row in candidates if row.get("actionable") is True)
     reviewable_count = sum(1 for row in candidates if row.get("reviewable") is True)
+    order_reviewable_count = sum(1 for row in candidates if row.get("order_reviewable") is True)
     submitted_rows = _submitted_order_rows(execution)
     if submitted_rows:
         total_notional = round(sum(_money_value(row.get("notional")) for row in submitted_rows), 2)
@@ -1593,10 +1753,17 @@ def _scenario_from_context(
             "candidate_controls_enabled": False,
         }
     if actionable_count == 0:
-        if reviewable_count > 0:
+        if reviewable_count + order_reviewable_count > 0:
+            review_subject = (
+                f"{order_reviewable_count} order intents need approval"
+                if order_reviewable_count and not reviewable_count
+                else f"{reviewable_count} candidates are ready for research review"
+                if reviewable_count and not order_reviewable_count
+                else f"{reviewable_count + order_reviewable_count} candidates are ready for review"
+            )
             return {
                 "state": "review",
-                "headline": f"{reviewable_count} candidates are ready for research review.",
+                "headline": f"{review_subject}.",
                 "detail": "Approve, defer, or reject the review rows; no paper order is staged until policy and execution gates create an orderable preview.",
                 "candidate_controls_enabled": True,
             }
@@ -2058,9 +2225,17 @@ def _candidate_is_reviewable(item: Mapping[str, object], *, gate_blocked: bool) 
     return has_review_action and human_decision == "PENDING" and review_state in {"", "READY", "WAITING"}
 
 
-def _candidate_status_label(*, actionable: bool, reviewable: bool, risk_label: str) -> str:
+def _candidate_status_label(
+    *,
+    actionable: bool,
+    order_reviewable: bool,
+    reviewable: bool,
+    risk_label: str,
+) -> str:
     if actionable:
-        return "Ready for paper order"
+        return "Ready to submit paper order"
+    if order_reviewable:
+        return "Order intent needs approval"
     if reviewable:
         return "Ready for research review"
     if "BLOCK" in risk_label:

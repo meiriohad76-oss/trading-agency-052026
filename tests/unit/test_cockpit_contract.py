@@ -248,8 +248,8 @@ def test_cockpit_only_agent_approved_candidates_are_actionable() -> None:
 
     assert rows["AAA"]["status"] == "approved"
     assert rows["AAA"]["actionable"] is True
-    assert rows["BBB"]["status"] == "approved"
-    assert rows["BBB"]["actionable"] is True
+    assert rows["BBB"]["status"] == "demoted"
+    assert rows["BBB"]["actionable"] is False
     assert rows["CCC"]["status"] == "blocked"
     assert rows["CCC"]["actionable"] is False
     assert rows["CCC"]["action_label"] == "Open audit"
@@ -259,7 +259,7 @@ def test_cockpit_derived_values_are_not_hardcoded() -> None:
     context = cockpit_context_from_sources(_sample_sources())
 
     assert context["funnel"]["final"] == 3
-    assert context["funnel"]["actionable"] == 2
+    assert context["funnel"]["actionable"] == 1
     assert context["cycle"]["sources_total"] == 11
     assert context["cycle"]["sources_degraded"] == 2
     assert context["account"]["buying_power"] == 25000.0

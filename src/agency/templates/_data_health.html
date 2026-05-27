@@ -93,7 +93,18 @@
             <span class="metric-label">Latest proof</span>
             <strong>{{ lane.latest_as_of }}</strong>
           </div>
+          <div>
+            <span class="metric-label">Checked</span>
+            <strong>{{ lane.checked_at }}</strong>
+          </div>
           <p>{{ lane.recommended_action }}</p>
+          {% if lane.refresh_action.enabled %}
+          <form method="post" action="{{ lane.refresh_action.action }}" title="{{ lane.refresh_action.detail }}">
+            <button class="mini-button data-health-action-button" type="submit">{{ lane.refresh_action.label }}</button>
+          </form>
+          {% elif lane.refresh_action.disabled_reason %}
+          <small title="{{ lane.refresh_action.detail }}">{{ lane.refresh_action.disabled_reason }}</small>
+          {% endif %}
         </article>
         {% endfor %}
       </div>

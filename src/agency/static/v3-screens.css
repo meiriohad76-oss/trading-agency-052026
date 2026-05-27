@@ -747,12 +747,13 @@ html[data-ux-version="v3"] body {
 .v3-app .tag,
 .v3-app .status-pill {
   border-radius: 999px;
-  color: var(--v3-muted);
+  color: var(--v3-text);
   border: 1px solid var(--v3-border-strong);
   background: rgba(255, 255, 255, 0.025);
   font-size: 0.72rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .v3-app .tag-pass,

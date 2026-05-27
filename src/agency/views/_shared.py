@@ -42,6 +42,13 @@ REFRESHABLE_MASSIVE_LANES = {
     "massive_reference": "Refresh Massive Reference",
     "massive_backtest_trade_tape": "Refresh Backtest Trade Tape",
 }
+RUNNABLE_MASSIVE_LANES = {
+    "massive_daily_bars",
+    "massive_live_trade_slices",
+    "massive_premarket_trade_slices",
+    "massive_block_trade_feed",
+    "massive_backtest_trade_tape",
+}
 REFRESHABLE_DATASET_TO_LANE = {
     "prices_daily": "massive_daily_bars",
     "daily-market-bars": "massive_daily_bars",
@@ -1336,6 +1343,11 @@ def _data_health_lane_state_rows(
         status_label = _operator_text(row.get("status_label"), default="Status not reported")
         progress_label = _operator_text(row.get("progress_label"), default="not tracked")
         detail = _operator_text(row.get("detail"), default="No lane-state detail reported.")
+        refresh_action = _data_health_lane_refresh_action(
+            row,
+            lane_id=lane_id,
+            source_dataset=str(row.get("source_dataset") or ""),
+        )
         recommended_action = _operator_text(
             row.get("recommended_action"),
             default=_lane_state_recommended_action(status_label, progress_label),
@@ -1351,12 +1363,77 @@ def _data_health_lane_state_rows(
                     row.get("latest_as_of") or row.get("last_update") or row.get("as_of"),
                     default="not recorded",
                 ),
+                "checked_at": _format_timestamp_or_text(
+                    row.get("checked_at") or row.get("proof_timestamp"),
+                    default="not checked",
+                ),
                 "detail": detail,
                 "recommended_action": recommended_action,
+                "refresh_action": refresh_action,
                 "tooltip": f"{name}: {status_label}. {detail}",
             }
         )
     return output
+
+
+def _data_health_lane_refresh_action(
+    row: Mapping[str, object],
+    *,
+    lane_id: str,
+    source_dataset: str,
+) -> dict[str, object]:
+    explicit_url = _clean_text(row.get("refresh_action_url"))
+    explicit_label = _clean_text(row.get("refresh_action_label"))
+    if explicit_url is not None:
+        return {
+            "enabled": True,
+            "label": explicit_label or "Refresh lane",
+            "action": explicit_url,
+            "method": "post",
+            "detail": _clean_text(row.get("refresh_action_detail"))
+            or "Runs this data lane through the scheduler policy.",
+            "disabled_reason": "",
+        }
+    massive_lane = _refresh_massive_lane_id_for_action(lane_id, source_dataset)
+    if massive_lane:
+        if massive_lane in RUNNABLE_MASSIVE_LANES:
+            return {
+                "enabled": True,
+                "label": REFRESHABLE_MASSIVE_LANES.get(massive_lane, "Refresh lane"),
+                "action": f"/scheduler/massive-lanes/{massive_lane}/refresh",
+                "method": "post",
+                "detail": "Runs this data lane through the scheduler's trade-aware policy.",
+                "disabled_reason": "",
+            }
+        return {
+            "enabled": False,
+            "label": "Policy locked",
+            "action": "",
+            "method": "post",
+            "detail": "This lane is visible for health tracking but has no runnable refresh job.",
+            "disabled_reason": (
+                f"{REFRESHABLE_MASSIVE_LANES.get(massive_lane, massive_lane)} is "
+                "not exposed as a runnable scheduler lane in the current policy."
+            ),
+        }
+    return {
+        "enabled": False,
+        "label": "Open Refresh Queue",
+        "action": "",
+        "method": "get",
+        "detail": "Open Command to inspect scheduler policy for this lane.",
+        "disabled_reason": "No direct lane refresh action is attached to this health row.",
+    }
+
+
+def _refresh_massive_lane_id_for_action(lane_id: str, source_dataset: str) -> str:
+    if lane_id in REFRESHABLE_MASSIVE_LANES:
+        return lane_id
+    return REFRESHABLE_DATASET_TO_LANE.get(source_dataset) or REFRESHABLE_DATASET_TO_LANE.get(
+        lane_id,
+        "",
+    )
+
 
 def _lane_state_recommended_action(status_label: str, progress_label: str) -> str:
     text = f"{status_label} {progress_label}".casefold()
@@ -1525,7 +1602,7 @@ def _data_health_action_buttons(
         if primary_issue is not None
         else ""
     )
-    if refresh_lane_id in REFRESHABLE_MASSIVE_LANES:
+    if refresh_lane_id in RUNNABLE_MASSIVE_LANES:
         buttons.append(
             {
                 "label": REFRESHABLE_MASSIVE_LANES[refresh_lane_id],

@@ -1848,8 +1848,9 @@ def scheduler_work_queue_view(status: Mapping[str, object]) -> dict[str, object]
     view["runtime"] = scheduler_runtime
     view["job_rows"] = _mapping_list_field(view, "jobs")[:10]
     view["next_job_rows"] = _mapping_list_field(view, "next_jobs")
+    job_rows = _mapping_list_field(view, "jobs")
     view["stale_rows"] = [
-        _scheduler_dataset_review_row(row)
+        _scheduler_dataset_review_row(row, jobs=job_rows)
         for row in _mapping_list_field(view, "stale_datasets")[:8]
     ]
     raw_massive_lane_rows = _mapping_list_field(massive_orchestrator, "lanes")
@@ -1889,18 +1890,64 @@ def scheduler_work_queue_view(status: Mapping[str, object]) -> dict[str, object]
     return view
 
 
-def _scheduler_dataset_review_row(row: Mapping[str, object]) -> dict[str, object]:
+def _scheduler_dataset_review_row(
+    row: Mapping[str, object],
+    *,
+    jobs: Sequence[Mapping[str, object]],
+) -> dict[str, object]:
     view = dict(row)
     dataset = str(view.get("dataset") or view.get("name") or "").strip()
     action = SCHEDULER_DATASET_REFRESH_ACTIONS.get(dataset, {})
-    view["refresh_action_url"] = str(action.get("url") or "")
-    view["refresh_button_label"] = str(action.get("label") or "Open scheduler")
-    view["refresh_action_detail"] = str(
-        action.get("detail")
-        or "Open Command at the scheduler and use the lane policy controls."
+    runnable_job = _runnable_dataset_refresh_job(dataset, jobs)
+    action_url = str(action.get("url") or "") if runnable_job else ""
+    view["refresh_action_url"] = action_url
+    view["refresh_button_label"] = str(
+        action.get("label") if action_url else "Open Refresh Queue"
     )
-    view["refresh_enabled"] = bool(view["refresh_action_url"])
+    view["refresh_action_detail"] = str(
+        (
+            f"{action.get('detail')} Runnable job: "
+            f"{runnable_job.get('job_id') or runnable_job.get('name') or dataset}."
+        )
+        if action_url
+        else "No runnable scheduler job exists for this row right now."
+    )
+    view["refresh_enabled"] = bool(action_url)
+    view["refresh_disabled_reason"] = (
+        ""
+        if action_url
+        else "No runnable scheduler job exists for this dataset right now."
+    )
     return view
+
+
+def _runnable_dataset_refresh_job(
+    dataset: str,
+    jobs: Sequence[Mapping[str, object]],
+) -> Mapping[str, object]:
+    for job in jobs:
+        if _scheduler_row_status(job) != "DUE_NOW":
+            continue
+        command = job.get("command")
+        if not isinstance(command, list) or not command:
+            continue
+        if _job_matches_dataset(job, dataset):
+            return job
+    return {}
+
+
+def _job_matches_dataset(job: Mapping[str, object], dataset: str) -> bool:
+    values = {
+        str(job.get("dataset") or "").strip(),
+        str(job.get("name") or "").strip(),
+        str(job.get("signal_lane") or "").strip(),
+        str(job.get("job_id") or "").strip().split(":", 1)[-1],
+    }
+    if dataset in values:
+        return True
+    if dataset == "subscription_emails":
+        return "subscription_thesis" in values or "subscription_email" in values
+    return False
 
 
 def _scheduler_automation_status(runtime: Mapping[str, object]) -> dict[str, object]:
@@ -2051,6 +2098,10 @@ def _massive_lane_view(row: Mapping[str, object]) -> dict[str, object]:
         row,
         show_live_ticker_progress=show_live_ticker_progress,
     )
+    progress_percent = _massive_lane_progress_percent(
+        row,
+        show_live_ticker_progress=show_live_ticker_progress,
+    )
     bucket_label = _massive_lane_bucket_label(row, status_label=status_label)
     action_label = _massive_lane_action_label(row, status_label=status_label)
     refresh_control = _massive_lane_refresh_control(row)
@@ -2066,6 +2117,14 @@ def _massive_lane_view(row: Mapping[str, object]) -> dict[str, object]:
             "action_label": action_label,
             "show_live_ticker_progress": show_live_ticker_progress,
             "coverage_label": coverage_label,
+            "progress_percent": progress_percent,
+            "progress_style": f"width: {progress_percent}%",
+            "progress_meter_label": f"{progress_percent}% lane progress",
+            "progress_detail_label": _massive_lane_progress_detail_label(
+                row,
+                coverage_label=coverage_label,
+                progress_percent=progress_percent,
+            ),
             "status_tooltip": _massive_lane_status_tooltip(row, status_label),
             "health_tooltip": _massive_lane_health_tooltip(row, health_label),
             "impact_tooltip": impact_detail,
@@ -2391,6 +2450,32 @@ def _massive_lane_coverage_label(
     if ticker_count:
         return f"{ticker_count} planned; manifest {manifest}"
     return f"Manifest {manifest}"
+
+
+def _massive_lane_progress_percent(
+    row: Mapping[str, object],
+    *,
+    show_live_ticker_progress: bool,
+) -> int:
+    if row.get("percent_complete") is not None:
+        return max(0, min(100, _optional_int(row, "percent_complete")))
+    if show_live_ticker_progress:
+        fresh = _optional_int(row, "fresh_ticker_count")
+        pending = _optional_int(row, "pending_ticker_count")
+        total = fresh + pending
+        if total > 0:
+            return max(0, min(100, round(fresh / total * 100)))
+    return max(0, min(100, _optional_int(row, "manifest_coverage_pct")))
+
+
+def _massive_lane_progress_detail_label(
+    row: Mapping[str, object],
+    *,
+    coverage_label: str,
+    progress_percent: int,
+) -> str:
+    eta = str(row.get("eta_label") or "not available")
+    return f"{progress_percent}% loaded. {coverage_label}. ETA {eta}."
 
 
 def _massive_display_status_class(status_label: str) -> str:
@@ -2751,6 +2836,11 @@ def _lane_state_row(row: Mapping[str, object]) -> dict[str, object]:
     )
     view["latest_as_of_label"] = _format_timestamp_or_text(row.get("latest_as_of"))
     view["checked_at_label"] = _format_timestamp_or_text(row.get("checked_at"))
+    progress_percent = _bounded_lane_state_progress(row)
+    view["progress_percent"] = progress_percent
+    view["progress_style"] = f"width: {progress_percent}%"
+    view["progress_meter_label"] = f"{progress_percent}% lane progress"
+    view["eta_label"] = _operator_text(row.get("eta_label") or "not available")
     requirements = [
         str(item)
         for item in _list_field_or_empty(row, "raw_lanes_required")
@@ -2758,6 +2848,15 @@ def _lane_state_row(row: Mapping[str, object]) -> dict[str, object]:
     ]
     view["requirement_label"] = ", ".join(requirements) if requirements else "Direct source"
     return view
+
+
+def _bounded_lane_state_progress(row: Mapping[str, object]) -> int:
+    if row.get("progress_percent") is not None:
+        return max(0, min(100, _optional_int(row, "progress_percent")))
+    if row.get("percent_complete") is not None:
+        return max(0, min(100, _optional_int(row, "percent_complete")))
+    return 0
+
 
 def _data_load_issue(
     row: Mapping[str, object],

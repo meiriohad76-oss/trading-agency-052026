@@ -34,7 +34,15 @@ def _sources() -> dict[str, object]:
         },
         "execution": {
             "orderable_rows": [{"ticker": "PREF", "notional_label": "$1,000"}],
-            "preview_rows": [{"ticker": "PREF", "notional_label": "$1,000"}],
+            "preview_rows": [
+                {
+                    "ticker": "PREF",
+                    "preview_state": "READY",
+                    "side": "BUY",
+                    "submit_enabled": True,
+                    "notional_label": "$1,000",
+                }
+            ],
         },
         "portfolio": {},
         "market": {},

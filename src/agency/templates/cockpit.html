@@ -293,13 +293,21 @@
               <span>{{ candidate.risk_line|default("Risk check did not attach a specific finding.", true) }}</span>
             </span>
             <span class="cockpit-status-cell">
-              <span class="status-pill status-pill-{% if candidate.actionable or candidate.reviewable %}pass{% else %}warn{% endif %}">{{ candidate.status_label|default("Status not reported", true) }}</span>
+              <span class="status-pill status-pill-{% if candidate.actionable or candidate.reviewable or candidate.order_reviewable %}pass{% else %}warn{% endif %}">{{ candidate.status_label|default("Status not reported", true) }}</span>
               <span>{{ candidate.llm_label|default("LLM not run for this ticker", true) }}</span>
             </span>
           </button>
           <div class="cockpit-decision-cell">
             {% if candidate.actionable %}
               <button type="button" class="button button-primary" data-cockpit-phase-target="clearance">Review manifest</button>
+              <button
+                type="button"
+                class="button button-secondary"
+                data-cockpit-ticker-detail
+                data-cockpit-ticker-payload="{{ candidate|tojson|safe }}"
+              >Open ticker detail</button>
+            {% elif candidate.order_reviewable %}
+              <a class="button button-primary" href="/execution-preview?ticker={{ candidate.ticker }}">Review order intent</a>
               <button
                 type="button"
                 class="button button-secondary"

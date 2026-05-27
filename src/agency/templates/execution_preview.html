@@ -246,6 +246,28 @@
         {{ preview_card(row, "focused-preview-" ~ row.ticker) }}
       {% endfor %}
     </div>
+    <div class="focused-execution-gates" aria-label="Focused execution gates">
+      <article class="guidance-card guidance-card-neutral">
+        <span class="metric-label">LLM status</span>
+        <strong>Shown on the selected card</strong>
+        <p>Rules/LLM alignment and conflict notes stay attached to {{ focused_execution.ticker }} before paper submit.</p>
+      </article>
+      <article class="guidance-card guidance-card-{{ execution_freshness_gate.status_class }}">
+        <span class="metric-label">Execution Freshness Gate</span>
+        <strong>{{ execution_freshness_gate.status_label }}</strong>
+        <p>{{ execution_freshness_gate.detail }}</p>
+      </article>
+      <article class="guidance-card guidance-card-{{ summary.submit_gate_class }}">
+        <span class="metric-label">Submission Gate</span>
+        <strong>{{ summary.submit_gate_label }}</strong>
+        <p>{{ summary.detail }}</p>
+      </article>
+      <article class="guidance-card guidance-card-{{ broker.status_class | default('neutral') }}">
+        <span class="metric-label">Broker</span>
+        <strong>{% if broker.connected %}Connected{% else %}Offline{% endif %}</strong>
+        <p>{% if broker.connected %}{{ broker.mode }} account, {{ broker.positions | length }} open position(s).{% else %}{{ broker.detail }}{% endif %}</p>
+      </article>
+    </div>
     {% else %}
     <p class="empty-block">
       {{ focused_execution.ticker }} is not present in the latest execution preview. Open the candidate detail page, refresh the current cycle, or return to the Command dashboard.
