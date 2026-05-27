@@ -59,6 +59,12 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
             if not db_url
             else "AGENCY_SCHEDULER_ENABLED is false, so automatic jobs are disabled."
         )
+        print(
+            "[WARNING] AGENCY_SCHEDULER_ENABLED is false or not set. "
+            "No automatic lane refresh or runtime cycles will run. "
+            "Set AGENCY_SCHEDULER_ENABLED=true for live operation.",
+            flush=True,
+        )
         record_scheduler_runtime_status(
             state="disabled",
             detail=reason,

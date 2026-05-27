@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import sys
+from collections.abc import Mapping
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -1550,6 +1551,122 @@ def test_market_aware_refresh_config_preserves_skipped_support_dataset(
     assert adjusted.tickers == ("HON",)
 
 
+def test_operational_preflight_blocks_config_end_before_today(tmp_path: Path) -> None:
+    preflight = importlib.import_module("scripts.check_operational_preflight")
+    config_path = tmp_path / "live-refresh.local.json"
+    config_path.write_text(
+        json.dumps({"end": "2026-05-26", "datasets": []}),
+        encoding="utf-8",
+    )
+
+    summary = preflight.check_operational_preflight(
+        config_path=config_path,
+        env={
+            "AGENCY_SCHEDULER_ENABLED": "true",
+            "DATABASE_URL": "postgresql+asyncpg://agency@localhost/trading",
+        },
+        today=date(2026, 5, 27),
+    )
+
+    check = _preflight_check(summary, "Live refresh date")
+    assert check["status"] == "BLOCK"
+    assert "2026-05-27" in check["action"]
+    assert summary["ready"] is False
+
+
+def test_operational_preflight_blocks_disabled_scheduler_and_warns_db_fallback(
+    tmp_path: Path,
+) -> None:
+    preflight = importlib.import_module("scripts.check_operational_preflight")
+    config_path = tmp_path / "live-refresh.local.json"
+    config_path.write_text(
+        json.dumps({"end": "2026-05-27", "datasets": []}),
+        encoding="utf-8",
+    )
+
+    summary = preflight.check_operational_preflight(
+        config_path=config_path,
+        env={"AGENCY_SCHEDULER_ENABLED": "false"},
+        today=date(2026, 5, 27),
+    )
+
+    assert _preflight_check(summary, "Automatic scheduler")["status"] == "BLOCK"
+    db_check = _preflight_check(summary, "Database persistence")
+    assert db_check["status"] == "WARN"
+    assert "local SQLite fallback" in db_check["detail"]
+
+    allowed = preflight.check_operational_preflight(
+        config_path=config_path,
+        env={
+            "AGENCY_SCHEDULER_ENABLED": "true",
+            "DATABASE_URL": "sqlite+aiosqlite:///./agency_local.db",
+            "AGENCY_ALLOW_LOCAL_DB_FALLBACK": "true",
+        },
+        today=date(2026, 5, 27),
+    )
+    assert _preflight_check(allowed, "Database persistence")["status"] == "PASS"
+
+
+def test_operational_preflight_warns_subscription_email_login_action(
+    tmp_path: Path,
+) -> None:
+    preflight = importlib.import_module("scripts.check_operational_preflight")
+    email_config = tmp_path / "subscription-email.local.json"
+    email_config.write_text(
+        json.dumps(
+            {
+                "mode": "gmail",
+                "enabled_services": ["seeking_alpha"],
+                "article_login_preflight_required": True,
+            }
+        ),
+        encoding="utf-8",
+    )
+    config_path = tmp_path / "live-refresh.local.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "end": "2026-05-27",
+                "datasets": ["subscription_emails"],
+                "subscription_email_config": str(email_config),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    summary = preflight.check_operational_preflight(
+        config_path=config_path,
+        env={
+            "AGENCY_SCHEDULER_ENABLED": "true",
+            "DATABASE_URL": "postgresql+asyncpg://agency@localhost/trading",
+        },
+        today=date(2026, 5, 27),
+    )
+
+    check = _preflight_check(summary, "Subscription email analyzer")
+    assert check["status"] == "WARN"
+    assert "Open email login refresh" in check["action"]
+
+
+def test_start_dev_updates_live_refresh_end_before_server_start() -> None:
+    script = Path("scripts/start_dev.ps1").read_text(encoding="utf-8")
+
+    assert "research\\config\\live-refresh.local.json" in script
+    assert "Updating live refresh end date" in script
+    assert "$cfg.end = $today" in script
+    assert "UTF8Encoding" in script
+    assert script.index("Updating live refresh end date") < script.index(
+        "Starting Trading Agency dev server"
+    )
+
+
+def test_app_startup_warns_when_scheduler_is_disabled() -> None:
+    source = Path("src/agency/app.py").read_text(encoding="utf-8")
+
+    assert "[WARNING] AGENCY_SCHEDULER_ENABLED" in source
+    assert "No automatic lane refresh or runtime cycles will run" in source
+
+
 def _pipeline_args(**overrides: object) -> argparse.Namespace:
     defaults: dict[str, object] = {
         "config": "research/config/live-refresh.local.json",
@@ -1575,3 +1692,13 @@ def _pipeline_args(**overrides: object) -> argparse.Namespace:
     }
     defaults.update(overrides)
     return argparse.Namespace(**defaults)
+
+
+def _preflight_check(summary: Mapping[str, object], name: str) -> Mapping[str, object]:
+    checks = summary["checks"]
+    if not isinstance(checks, list):
+        raise TypeError("preflight checks must be a list")
+    for check in checks:
+        if isinstance(check, Mapping) and check.get("name") == name:
+            return check
+    raise AssertionError(f"preflight check not found: {name}")

@@ -95,6 +95,23 @@ $env:AGENCY_PAPER_TRADE_MIN_CONVICTION = "0.62"
 $env:AGENCY_BROKER_SUBMIT_ENABLED = "true"
 $env:AGENCY_ALPACA_BROKER_ENABLED = "true"
 
+$cfgPath = "research\config\live-refresh.local.json"
+if (Test-Path $cfgPath) {
+    try {
+        $cfg = Get-Content $cfgPath -Raw | ConvertFrom-Json
+        $today = Get-Date -Format "yyyy-MM-dd"
+        if ($cfg.end -ne $today) {
+            Write-Host "Updating live refresh end date from $($cfg.end) to $today"
+            $cfg.end = $today
+            $json = $cfg | ConvertTo-Json -Depth 20
+            $utf8NoBom = New-Object System.Text.UTF8Encoding $false
+            [System.IO.File]::WriteAllText((Resolve-Path $cfgPath).Path, $json, $utf8NoBom)
+        }
+    } catch {
+        Write-Warning "Could not update $cfgPath before server start: $($_.Exception.Message)"
+    }
+}
+
 Stop-ExistingTradingAgencyServers -Port $Port
 
 & $Python -m pip install --upgrade pip
