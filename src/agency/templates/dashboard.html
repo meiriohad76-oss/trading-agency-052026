@@ -243,7 +243,7 @@
         <div class="review-card-actions">
           {% if item.human_review_decision|lower == "pending" %}
           <span class="inline-actions">
-            <form method="post" action="{{ item.approve_review_action }}">
+            <form class="review-action-form" method="post" action="{{ item.approve_review_action }}" data-review-action="approve" data-review-ticker="{{ item.ticker }}">
               {% if item.caution_acknowledgement_required %}
               <p class="card-next-step">{{ item.caution_acknowledgement_text }}</p>
               <label class="microcopy">
@@ -253,10 +253,10 @@
               {% endif %}
               <button class="mini-button action-approve" type="submit"><span aria-hidden="true">✓</span> Approve</button>
             </form>
-            <form method="post" action="{{ item.defer_review_action }}">
+            <form class="review-action-form" method="post" action="{{ item.defer_review_action }}" data-review-action="defer" data-review-ticker="{{ item.ticker }}">
               <button class="mini-button action-defer" type="submit"><span aria-hidden="true">!</span> Defer</button>
             </form>
-            <form method="post" action="{{ item.reject_review_action }}">
+            <form class="review-action-form" method="post" action="{{ item.reject_review_action }}" data-review-action="reject" data-review-ticker="{{ item.ticker }}">
               <button class="mini-button danger-button action-reject" type="submit"><span aria-hidden="true">x</span> Reject</button>
             </form>
           </span>
@@ -736,8 +736,11 @@
                       </td>
                       <td data-label="Status"><span class="tag tag-{{ row.status_class }}">{{ row.status_label }}</span></td>
                       <td data-label="Proof">
+                        <div class="mini-meter" aria-label="{{ row.progress_meter_label }}">
+                          <span style="{{ row.progress_style }}"></span>
+                        </div>
                         <span>{{ row.progress_label }}</span>
-                        <span>As of {{ row.latest_as_of_label }} &middot; checked {{ row.checked_at_label }}</span>
+                        <span>ETA {{ row.eta_label }} &middot; as of {{ row.latest_as_of_label }} &middot; checked {{ row.checked_at_label }}</span>
                       </td>
                       <td data-label="Action">
                         <span>{{ row.operator_message }}</span>
@@ -932,10 +935,14 @@
                     <span>{{ lane.impact_detail }}</span>
                   </td>
                   <td data-label="Coverage" title="{{ lane.coverage_tooltip }}">
+                    <div class="mini-meter" aria-label="{{ lane.progress_meter_label }}">
+                      <span style="{{ lane.progress_style }}"></span>
+                    </div>
                     {{ lane.coverage_label }}
                     {% if lane.batch_ticker_count %}
                       <br><span class="muted-line">{{ lane.batch_ticker_count }} in next safe batch</span>
                     {% endif %}
+                    <br><span class="muted-line">{{ lane.progress_detail_label }}</span>
                     <br><span class="muted-line">Tier {{ lane.ticker_tier }}; manifest {{ lane.manifest_status }} / {{ lane.manifest_coverage_pct }}%</span>
                   </td>
                   <td data-label="Cadence / Budget" title="{{ lane.budget_tooltip }}">{{ lane.cadence_minutes or "window" }} &middot; ETA {{ lane.eta_label }}<br>{{ lane.request_budget_label }}</td>
@@ -1058,6 +1065,9 @@
                     <form class="inline-actions" method="post" action="{{ row.refresh_action_url }}" title="{{ row.refresh_action_detail }}">
                       <button class="mini-button" type="submit">{{ row.refresh_button_label }}</button>
                     </form>
+                  {% else %}
+                    <button class="disabled-button" type="button" disabled aria-disabled="true" title="{{ row.refresh_action_detail }}">{{ row.refresh_button_label }}</button>
+                    <span class="muted-line">{{ row.refresh_disabled_reason }}</span>
                   {% endif %}
                 </div>
                 {% else %}

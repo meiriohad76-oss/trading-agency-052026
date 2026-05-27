@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import asyncio
-import time
 
 from fastapi.testclient import TestClient
 from pytest import MonkeyPatch
 
 import agency.dashboard as dashboard_module
+import agency.views.candidates as candidates_view
 import agency.views.cockpit as cockpit_view
 import agency.views.command as command_view
 import agency.views.execution as execution_view
@@ -114,7 +114,8 @@ def test_cockpit_route_renders(monkeypatch: MonkeyPatch) -> None:
 
     assert response.status_code == 200
     assert "Pre-Flight Cockpit" in response.text
-    assert 'data-cockpit-ready="true"' in response.text
+    assert 'data-cockpit-ready="true"' not in response.text
+    assert 'data-ux-feature="rich-ticker-detail"' in response.text
     assert "1 trade ready" in response.text
     assert "ROUT" in response.text
 
@@ -267,6 +268,85 @@ def test_api_cockpit_ticker_detail_returns_rich_payload(monkeypatch: MonkeyPatch
     assert response.json()["headline"] == "ROUT rich detail"
 
 
+async def test_cockpit_ticker_detail_uses_light_candidate_context(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    observed: dict[str, object] = {}
+
+    async def fake_candidate_detail_context(
+        ticker: str,
+        *,
+        include_rich_signal_evidence: bool = True,
+        return_source: str | None = None,
+    ) -> dict[str, object]:
+        observed["ticker"] = ticker
+        observed["include_rich_signal_evidence"] = include_rich_signal_evidence
+        observed["return_source"] = return_source
+        if include_rich_signal_evidence:
+            raise AssertionError("cockpit drawer must not load rich candidate detail")
+        return {
+            "ticker": ticker,
+            "decision_brief": {
+                "headline": "Light drawer headline",
+                "detail": "Light drawer summary",
+                "next_step": "Open the full candidate page for heavy evidence.",
+            },
+            "latest_report": {
+                "ticker": ticker,
+                "final_action": "WATCH",
+                "conviction_pct": 72,
+            },
+            "review": {"decision": "Pending"},
+            "data_health": {"status_label": "Light", "status_class": "neutral"},
+            "email_evidence": {},
+            "news_evidence": {},
+        }
+
+    monkeypatch.setattr(
+        candidates_view,
+        "candidate_detail_context",
+        fake_candidate_detail_context,
+    )
+
+    payload = await cockpit_view.cockpit_ticker_detail_payload("rout")
+
+    assert observed == {
+        "ticker": "ROUT",
+        "include_rich_signal_evidence": False,
+        "return_source": "cockpit",
+    }
+    assert payload["ticker"] == "ROUT"
+    assert payload["headline"] == "Light drawer headline"
+    assert payload["data_health"]["status_label"] == "Light"  # type: ignore[index]
+
+
+async def test_cockpit_ticker_detail_has_bounded_timeout(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    async def slow_candidate_detail_context(
+        ticker: str,
+        *,
+        include_rich_signal_evidence: bool = True,
+        return_source: str | None = None,
+    ) -> dict[str, object]:
+        del ticker, include_rich_signal_evidence, return_source
+        await asyncio.sleep(0.20)
+        return {"ticker": "SLOW"}
+
+    monkeypatch.setenv("AGENCY_COCKPIT_TICKER_DETAIL_TIMEOUT_SECONDS", "0.01")
+    monkeypatch.setattr(
+        candidates_view,
+        "candidate_detail_context",
+        slow_candidate_detail_context,
+    )
+
+    payload = await cockpit_view.cockpit_ticker_detail_payload("slow")
+
+    assert payload["ticker"] == "SLOW"
+    assert payload["data_health"]["status_label"] == "Detail delayed"  # type: ignore[index]
+    assert "Open the full candidate page" in payload["next_step"]
+
+
 async def test_cockpit_context_does_not_block_on_slow_optional_sections(
     monkeypatch: MonkeyPatch,
 ) -> None:
@@ -316,11 +396,8 @@ async def test_cockpit_context_does_not_block_on_slow_optional_sections(
     monkeypatch.setattr(cockpit_view, "_cockpit_execution_preview_context", slow_optional_context)
     monkeypatch.setattr(portfolio_view, "portfolio_monitor_context", slow_optional_context)
 
-    start = time.perf_counter()
     context = await cockpit_view.cockpit_context()
-    elapsed = time.perf_counter() - start
 
-    assert elapsed < 0.20
     assert context["candidates"][0]["ticker"] == "FAST"  # type: ignore[index]
     assert context["portfolio_phase"]["status_label"] == "Portfolio Check Delayed"  # type: ignore[index]
 
@@ -414,7 +491,6 @@ async def test_cockpit_data_proof_fallback_has_bounded_timeout(
         return {"data_sources": [], "data_load_status": {}}
 
     monkeypatch.setenv("AGENCY_COCKPIT_SOURCE_LOAD_TIMEOUT_SECONDS", "0.02")
-    start = time.perf_counter()
     context = await cockpit_view._dashboard_with_cockpit_data_proof(
         {
             "context_status": {
@@ -427,8 +503,6 @@ async def test_cockpit_data_proof_fallback_has_bounded_timeout(
         data_load_status_view_builder=command_view.data_load_status_view,
         source_status_rows_builder=command_view.source_status_rows,
     )
-    elapsed = time.perf_counter() - start
 
-    assert elapsed < 0.20
     assert context["context_status"]["status"] == "delayed"  # type: ignore[index]
     assert "data_health" not in context

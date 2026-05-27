@@ -353,6 +353,7 @@ async def cockpit_submit(request: Request) -> JSONResponse:
         _reject_tampered_cockpit_order_hints(row, order)
         try:
             await submit_execution_order(
+                request=request,
                 cycle_id=str(row["cycle_id"]),
                 ticker=str(row["ticker"]),
                 as_of=str(row["as_of"]),
@@ -1306,8 +1307,12 @@ async def submit_execution_order(
 async def _paper_submit_confirmation(request: Request) -> tuple[bool, str]:
     body = await request.body()
     values = parse_qs(body.decode("utf-8", errors="replace"), keep_blank_values=True)
-    armed_value = str(next(iter(values.get("submit_gate_armed", [""])), ""))
-    phrase = str(next(iter(values.get("operator_phrase", [""])), ""))
+    armed_value = str(
+        next(iter(values.get("submit_gate_armed") or values.get("submit_ack") or [""]), "")
+    )
+    phrase = str(
+        next(iter(values.get("operator_phrase") or values.get("submit_phrase") or [""]), "")
+    )
     return armed_value.strip().lower() in {"1", "true", "yes", "on"}, phrase
 
 

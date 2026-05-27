@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from fastapi.responses import RedirectResponse
 from fastapi.testclient import TestClient
 from pytest import MonkeyPatch
@@ -107,6 +107,29 @@ def test_cockpit_submit_reuses_execution_freshness_gate(monkeypatch: MonkeyPatch
 
     assert response.status_code == 200
     assert calls == ["AAA"]
+    assert response.json()["state"] == "accepted"
+
+
+def test_cockpit_submit_passes_request_and_all_order_rows_to_submit_handler(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, str]] = []
+
+    async def fake_submit_execution_order(request: Request, **kwargs: object) -> RedirectResponse:
+        assert request.url.path == "/cockpit/submit"
+        calls.append((str(kwargs["ticker"]), str(kwargs["order_intent_hash"])))
+        return RedirectResponse("/execution-preview", status_code=303)
+
+    _patch_submit_context(monkeypatch, include_second=True)
+    monkeypatch.setattr(dashboard_module, "submit_execution_order", fake_submit_execution_order)
+
+    response = TestClient(create_app()).post(
+        "/cockpit/submit",
+        data=_submit_form(include_second=True),
+    )
+
+    assert response.status_code == 200
+    assert calls == [("AAA", "a" * 64), ("BBB", "b" * 64)]
     assert response.json()["state"] == "accepted"
 
 

@@ -85,6 +85,16 @@ def test_command_dashboard_has_queue_cta_and_collapsed_diagnostics() -> None:
     assert "Blocked by risk" not in html
 
 
+def test_command_review_forms_are_labeled_for_progressive_enhancement() -> None:
+    html = _template("dashboard.html")
+
+    assert 'class="review-action-form"' in html
+    assert 'data-review-action="approve"' in html
+    assert 'data-review-action="defer"' in html
+    assert 'data-review-action="reject"' in html
+    assert 'data-review-ticker="{{ item.ticker }}"' in html
+
+
 def test_candidate_detail_prioritizes_decision_and_collapses_technical_detail() -> None:
     html = _template("candidate_detail.html")
 
