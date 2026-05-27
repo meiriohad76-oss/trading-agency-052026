@@ -28,6 +28,7 @@ DAILY_BAR_PHASES = (
     "closed_holiday",
 )
 REQUESTING_ACQUISITION_MODES = {"massive_api"}
+LIVE_OPERATIONAL_FRESHNESS_REQUIREMENT_SECONDS = 30 * 60
 
 
 @dataclass(frozen=True)
@@ -198,7 +199,7 @@ MASSIVE_RAW_LANE_POLICIES: tuple[MassiveRawLanePolicy, ...] = (
         active_phases=ACTIVE_TRADE_PHASES,
         ticker_tier_active="T0/T1",
         ticker_tier_quiet="T0/T1/T2",
-        freshness_requirement_seconds=5 * 60,
+        freshness_requirement_seconds=LIVE_OPERATIONAL_FRESHNESS_REQUIREMENT_SECONDS,
         blocks_execution=True,
         default_priority=100,
         default_cadence_minutes=5,
@@ -223,7 +224,7 @@ MASSIVE_RAW_LANE_POLICIES: tuple[MassiveRawLanePolicy, ...] = (
         active_phases=PREMARKET_PHASES,
         ticker_tier_active="T0/T1",
         ticker_tier_quiet="T0/T1",
-        freshness_requirement_seconds=5 * 60,
+        freshness_requirement_seconds=LIVE_OPERATIONAL_FRESHNESS_REQUIREMENT_SECONDS,
         blocks_execution=True,
         default_priority=105,
         default_cadence_minutes=5,
@@ -248,7 +249,7 @@ MASSIVE_RAW_LANE_POLICIES: tuple[MassiveRawLanePolicy, ...] = (
         active_phases=REGULAR_MARKET_PHASES,
         ticker_tier_active="T0/T1",
         ticker_tier_quiet="T0/T1/T2",
-        freshness_requirement_seconds=10 * 60,
+        freshness_requirement_seconds=LIVE_OPERATIONAL_FRESHNESS_REQUIREMENT_SECONDS,
         blocks_execution=True,
         default_priority=98,
         default_cadence_minutes=5,
@@ -324,7 +325,7 @@ MASSIVE_RAW_LANE_POLICIES: tuple[MassiveRawLanePolicy, ...] = (
         active_phases=MARKET_HOURS_PHASES,
         ticker_tier_active="T0/T1",
         ticker_tier_quiet="T0/T1/T2",
-        freshness_requirement_seconds=10 * 60,
+        freshness_requirement_seconds=LIVE_OPERATIONAL_FRESHNESS_REQUIREMENT_SECONDS,
         blocks_execution=False,
         default_priority=75,
         default_cadence_minutes=10,

@@ -43,6 +43,18 @@ def test_raw_lane_registry_is_complete_unique_and_referenced() -> None:
         assert set(required_lanes).issubset(declared), signal_lane
 
 
+def test_live_operational_massive_lanes_use_thirty_minute_freshness_sla() -> None:
+    policies = {policy.lane_id: policy for policy in MASSIVE_RAW_LANE_POLICIES}
+
+    for lane_id in (
+        "massive_live_trade_slices",
+        "massive_premarket_trade_slices",
+        "massive_block_trade_feed",
+        "massive_options_flow",
+    ):
+        assert policies[lane_id].freshness_requirement_seconds == 30 * 60
+
+
 def test_premarket_orchestrator_splits_raw_and_derived_massive_lanes(
     tmp_path: Path,
 ) -> None:

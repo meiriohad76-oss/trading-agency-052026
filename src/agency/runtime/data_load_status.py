@@ -129,7 +129,7 @@ PRE_MARKET_UNUSUAL_ACTIVITY_LANE = "pre_market_unusual_activity"
 MASSIVE_DAILY_BARS_SLA_SECONDS = 24 * 60 * 60
 # Dashboard/latest-slice freshness allows a bounded full-universe sweep to finish.
 # Execution submission still applies a stricter just-in-time broker/evidence gate.
-MASSIVE_LIVE_TRADE_SLA_SECONDS = 10 * 60
+MASSIVE_LIVE_TRADE_SLA_SECONDS = 30 * 60
 MASSIVE_LIVE_TRADE_SWEEP_GRACE_SECONDS = 2 * MASSIVE_LIVE_TRADE_SLA_SECONDS
 MIN_SUPPORT_LANE_COVERAGE = 0.6
 PERCENT_SCALE = 100

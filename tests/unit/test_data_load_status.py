@@ -3386,6 +3386,49 @@ def test_premarket_lane_blocks_during_premarket_when_raw_lane_is_stale(
     assert source_summary["critical_blocker_count"] == 1
 
 
+def test_premarket_trade_lane_accepts_twenty_minute_old_proof(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    paths = _fixtures(tmp_path, monkeypatch)
+    _write_ready_core_market_lanes(paths)
+    for lane_id in ("massive_live_trade_slices", "massive_premarket_trade_slices"):
+        _write_massive_lane_manifest(
+            paths["manifest_root"],
+            lane_id=lane_id,
+            tickers=["AAPL", "MSFT"],
+            fetched_at="2026-05-11T12:00:00+00:00",
+            coverage=[
+                {"ticker": "AAPL", "coverage_status": "complete", "complete": True},
+                {"ticker": "MSFT", "coverage_status": "complete", "complete": True},
+            ],
+        )
+
+    status = load_data_load_status(
+        config_path=paths["config"],
+        universe_path=paths["universe"],
+        manifest_root=paths["manifest_root"],
+        parquet_root=paths["parquet_root"],
+        runtime_summary_path=paths["runtime_summary"],
+        source_health_path=paths["source_health"],
+        now=datetime(2026, 5, 11, 12, 20, tzinfo=UTC),
+    )
+
+    premarket = _lane(status, "pre_market_unusual_activity")
+    massive_source = next(
+        row for row in status["freshness_rows"] if row["source"] == "massive-stock-trades"
+    )
+    assert status["tradable_ready"] is True
+    assert premarket["status"] == "ready"
+    assert premarket["source_status"] == "HEALTHY"
+    assert massive_source["status"] == "HEALTHY"
+    assert not [
+        blocker
+        for blocker in status["blockers"]
+        if blocker["item"] == "pre_market_unusual_activity"
+    ]
+
+
 def test_data_load_status_operator_copy_avoids_raw_stale_wording(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
