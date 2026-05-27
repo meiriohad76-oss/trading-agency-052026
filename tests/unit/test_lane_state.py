@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+from agency.runtime import lane_state as lane_state_module
 from agency.runtime.lane_state import build_lane_states
 
 NOW = datetime(2026, 5, 22, 14, 30, tzinfo=UTC)
@@ -22,6 +23,7 @@ def test_lane_states_report_raw_lane_running() -> None:
                     "eta_seconds": 420,
                     "eta_label": "7m",
                     "progress_label": "6/29 ticker-days",
+                    "percent_complete": 21,
                     "detail": "Massive Live Trade Slices is running on APP.",
                 }
             ]
@@ -39,6 +41,7 @@ def test_lane_states_report_raw_lane_running() -> None:
     assert lane["ready_for_review"] is False
     assert lane["ready_for_paper_execution"] is False
     assert lane["eta_label"] == "7m"
+    assert lane["progress_percent"] == 21
     assert "still loading" in str(lane["operator_message"])
 
 
@@ -282,7 +285,8 @@ def test_lane_states_block_execution_when_required_lane_needs_refresh() -> None:
 
     lane = _lane(states, "massive_block_trade_feed")
     assert lane["state"] == "needs_refresh"
-    assert lane["status_label"] == "Analysis exists but needs refresh"
+    assert lane["status_label"] == "Lane proof needs refresh"
+    assert "lane proof needs refresh" in str(lane["operator_message"]).lower()
     assert lane["blocks_execution"] is True
     assert lane["ready_for_review"] is False
     assert lane["ready_for_paper_execution"] is False
@@ -327,6 +331,10 @@ def test_lane_states_do_not_count_disabled_optional_lane_as_blocker() -> None:
     assert options["blocker"] is False
     assert anomaly["state"] == "disabled_optional"
     assert anomaly["blocker"] is False
+
+
+def test_lane_state_unknown_status_gets_operator_label() -> None:
+    assert lane_state_module._status_label_for_lane("planned", "raw_acquisition") == "Planned"
 
 
 def _lane(states: list[dict[str, object]], lane_id: str) -> dict[str, object]:

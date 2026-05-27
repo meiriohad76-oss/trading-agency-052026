@@ -11,6 +11,49 @@ const operatorDataHealthText = (value) =>
     .replace(/\bdata stale\b/gi, "data needs refresh")
     .replace(/\bstale\b/gi, "needs refresh");
 
+const meter = (percent) => {
+  const wrapper = document.createElement("div");
+  const safePercent = Math.max(0, Math.min(Number(percent || 0), 100));
+  wrapper.className = "mini-meter";
+  wrapper.setAttribute("aria-label", `${safePercent}% coverage`);
+  const fill = document.createElement("span");
+  fill.style.width = `${safePercent}%`;
+  wrapper.appendChild(fill);
+  return wrapper;
+};
+
+const fetchJsonWithTimeout = async (endpoint, timeoutMs = 4500) => {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(endpoint, {
+      headers: { Accept: "application/json" },
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      throw new Error(`poll failed: ${response.status}`);
+    }
+    return await response.json();
+  } finally {
+    window.clearTimeout(timer);
+  }
+};
+
+const guardedPoller = (callback) => {
+  let inFlight = false;
+  return async () => {
+    if (inFlight) {
+      return;
+    }
+    inFlight = true;
+    try {
+      await callback();
+    } finally {
+      inFlight = false;
+    }
+  };
+};
+
 (() => {
   const panel = document.querySelector("[data-full-live-panel]");
   if (!panel) {
@@ -556,6 +599,29 @@ const operatorDataHealthText = (value) =>
     return `Manifest ${manifest}`;
   };
 
+  const boundedWholePercent = (value) => Math.max(0, Math.min(100, Math.round(Number(value || 0))));
+
+  const massiveLaneProgressPercent = (lane, showProgress) => {
+    if (lane.progress_percent !== undefined && lane.progress_percent !== null) {
+      return boundedWholePercent(lane.progress_percent);
+    }
+    if (lane.percent_complete !== undefined && lane.percent_complete !== null) {
+      return boundedWholePercent(lane.percent_complete);
+    }
+    if (showProgress) {
+      const fresh = Number(lane.fresh_ticker_count || 0);
+      const pending = Number(lane.pending_ticker_count || 0);
+      const total = fresh + pending;
+      if (total > 0) {
+        return boundedWholePercent((fresh / total) * 100);
+      }
+    }
+    return boundedWholePercent(lane.manifest_coverage_pct || 0);
+  };
+
+  const massiveLaneProgressDetail = (lane, coverage, progressPercent) =>
+    `${progressPercent}% loaded. ${coverage}. ETA ${lane.eta_label || "not available"}.`;
+
   const massiveBucketLabel = (lane, displayStatus) => {
     const laneId = String(lane.lane_id || lane.name || "");
     const status = normalized(lane.status);
@@ -594,6 +660,7 @@ const operatorDataHealthText = (value) =>
       : massiveImpact(lane);
     const showProgress = lane.show_live_ticker_progress ?? showMassiveLiveTickerProgress(lane);
     const coverage = lane.coverage_label || massiveCoverageLabel(lane, showProgress);
+    const progressPercent = massiveLaneProgressPercent(lane, showProgress);
     const bucket = lane.bucket_label || massiveBucketLabel(lane, displayStatus);
     return {
       ...lane,
@@ -604,6 +671,10 @@ const operatorDataHealthText = (value) =>
       impact_label: impact.label,
       impact_detail: impact.detail,
       coverage_label: coverage,
+      progress_percent: progressPercent,
+      progress_style: lane.progress_style || `width: ${progressPercent}%`,
+      progress_meter_label: lane.progress_meter_label || `${progressPercent}% lane progress`,
+      progress_detail_label: lane.progress_detail_label || massiveLaneProgressDetail(lane, coverage, progressPercent),
       bucket_label: bucket,
       action_label: lane.action_label || massiveActionLabel(displayStatus),
       tooltip: lane.tooltip || `${displayStatus}. ${impact.detail} Manifest status: ${lane.manifest_status || "missing"}; coverage: ${lane.manifest_coverage_pct || 0}%; detail: ${lane.detail || "No lane detail recorded."}`,
@@ -647,7 +718,14 @@ const operatorDataHealthText = (value) =>
       const statusTag = tag(enriched.display_status_label, enriched.display_status_class);
       statusTag.title = enriched.tooltip || enriched.impact_detail || "";
       appendCell(row, "Status", statusTag);
-      appendCell(row, "Progress", `${enriched.progress_label || "not tracked"} - ${enriched.percent_complete || 0}%`);
+      const progressText = document.createElement("span");
+      progressText.textContent = operatorDataHealthText(
+        `${enriched.progress_label || "not tracked"} - ETA ${enriched.eta_label || "not available"}`
+      );
+      appendCell(row, "Progress", [
+        meter(enriched.progress_percent),
+        progressText,
+      ]);
       appendCell(row, "Rows", enriched.row_count_label || "0");
       appendCell(row, "Updated", enriched.updated_at || "not recorded");
       const meaning = document.createElement("div");
@@ -680,17 +758,13 @@ const operatorDataHealthText = (value) =>
     });
   };
 
-  const poll = async () => {
+  const poll = guardedPoller(async () => {
     try {
-      const response = await fetch(endpoint, { headers: { Accept: "application/json" } });
-      if (!response.ok) {
-        throw new Error("data-refresh failed");
-      }
-      render(await response.json());
+      render(await fetchJsonWithTimeout(endpoint));
     } catch (_error) {
       renderUnavailable();
     }
-  };
+  });
 
   window.setInterval(poll, 5000);
   poll();
@@ -1014,10 +1088,24 @@ const operatorDataHealthText = (value) =>
       appendCell(row, "Execution Impact", impactCell);
       const batchTickers = lane.batch_ticker_count || lane.command_ticker_count || 0;
       const batchLabel = batchTickers ? `; ${batchTickers} in next safe batch` : "";
+      const coverageDetail = document.createElement("span");
+      coverageDetail.textContent = operatorDataHealthText(
+        `${lane.coverage_label || "Coverage not recorded"}${batchLabel}; ${lane.progress_detail_label || ""}`
+      );
+      const manifestDetail = document.createElement("span");
+      manifestDetail.className = "muted-line";
+      manifestDetail.textContent = operatorDataHealthText(
+        `Tier ${lane.ticker_tier || "n/a"}; manifest ${lane.manifest_status || "missing"} / ${lane.manifest_coverage_pct || 0}%`
+      );
       appendCell(
         row,
         "Coverage",
-        `${lane.coverage_label || "Coverage not recorded"}${batchLabel}; tier ${lane.ticker_tier || "n/a"}; manifest ${lane.manifest_status || "missing"} / ${lane.manifest_coverage_pct || 0}%`
+        [
+          meter(lane.progress_percent),
+          coverageDetail,
+          document.createElement("br"),
+          manifestDetail,
+        ]
       );
       appendCell(
         row,
@@ -1184,17 +1272,6 @@ const operatorDataHealthText = (value) =>
     row.appendChild(cell);
   };
 
-  const meter = (percent) => {
-    const wrapper = document.createElement("div");
-    const safePercent = Math.max(0, Math.min(Number(percent || 0), 100));
-    wrapper.className = "mini-meter";
-    wrapper.setAttribute("aria-label", `${safePercent}% coverage`);
-    const fill = document.createElement("span");
-    fill.style.width = `${safePercent}%`;
-    wrapper.appendChild(fill);
-    return wrapper;
-  };
-
   const countLabel = (row) => {
     const hasNumber = (value) => value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value));
     if (hasNumber(row.produced_count) && hasNumber(row.expected_count)) {
@@ -1285,10 +1362,15 @@ const operatorDataHealthText = (value) =>
       row.appendChild(laneCell);
       appendCell(row, "Status", tag(item.status_label || item.status, item.status_class));
       if (item.lane_kind) {
+        const proofText = document.createElement("span");
+        proofText.textContent = item.progress_label || "not tracked";
+        const checkedText = document.createElement("span");
+        checkedText.textContent = `ETA ${item.eta_label || "not available"} - as of ${item.latest_as_of || "not recorded"} - checked ${item.checked_at || "not checked"}`;
         appendCell(row, "Proof", [
-          document.createTextNode(item.progress_label || "not tracked"),
+          meter(item.progress_percent),
+          proofText,
           document.createElement("br"),
-          document.createTextNode(`As of ${item.latest_as_of || "not recorded"} - checked ${item.checked_at || "not checked"}`),
+          checkedText,
         ]);
         appendCell(row, "Action", [
           document.createTextNode(item.operator_message || "No lane-state explanation recorded."),
@@ -1458,17 +1540,13 @@ const operatorDataHealthText = (value) =>
     );
   };
 
-  const poll = async () => {
+  const poll = guardedPoller(async () => {
     try {
-      const response = await fetch(endpoint, { headers: { Accept: "application/json" } });
-      if (!response.ok) {
-        throw new Error("data-load failed");
-      }
-      render(await response.json());
+      render(await fetchJsonWithTimeout(endpoint));
     } catch (_error) {
       renderUnavailable();
     }
-  };
+  });
 
   window.setInterval(poll, 5000);
   poll();

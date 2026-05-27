@@ -13,6 +13,7 @@ from agency.services.paper_trade_promotion import (
 
 TEMPLATE_ROOT = Path("src/agency/templates")
 STYLE_PATH = Path("src/agency/static/styles.css")
+V3_STYLE_PATH = Path("src/agency/static/v3-screens.css")
 
 
 def _template(name: str) -> str:
@@ -136,6 +137,11 @@ def test_risk_and_execution_templates_show_llm_and_order_workflow_status() -> No
     assert "llm_conflict" in execution_html
     assert "Submit each ready order from its card" in execution_html
     assert "Submitted paper order" in execution_html
+    focused_block = execution_html.split("focused-execution-gates", 1)[1].split("{% else %}", 1)[0]
+    assert "LLM status" in focused_block
+    assert "Execution Freshness Gate" in focused_block
+    assert "Submission Gate" in focused_block
+    assert "Broker" in focused_block
 
 
 def test_execution_preview_paper_cards_are_readable() -> None:
@@ -158,6 +164,14 @@ def test_execution_preview_paper_cards_are_readable() -> None:
     execution_metric_block = css.split(".execution-preview-card .review-card-metrics strong", 1)[1].split("}", 1)[0]
     assert "word-break: normal" in execution_metric_block
     assert "hyphens: none" in execution_metric_block
+
+
+def test_data_refresh_meter_is_module_scoped_before_iifes() -> None:
+    script = Path("src/agency/static/data-refresh-progress.js").read_text(encoding="utf-8")
+    assert "const meter = (percent)" in script
+    assert script.index("const meter = (percent)") < script.index("(() => {")
+    data_load_section = script.split('const panel = document.querySelector("[data-load-panel]");', 1)[1]
+    assert "const meter = (percent)" not in data_load_section
 
 
 def test_data_health_panel_uses_actionable_user_copy_not_internal_telemetry() -> None:
@@ -198,6 +212,41 @@ def test_operator_data_health_copy_does_not_use_stale_wording() -> None:
     combined = "\n".join([dashboard_html, signals_html, progress_js])
     for phrase in forbidden_visible_copy:
         assert phrase not in combined
+
+
+def test_command_lane_tables_show_eta_and_progress_meters() -> None:
+    dashboard_html = _template("dashboard.html")
+    progress_js = Path("src/agency/static/data-refresh-progress.js").read_text(
+        encoding="utf-8"
+    )
+
+    assert "lane.progress_meter_label" in dashboard_html
+    assert "lane.progress_style" in dashboard_html
+    assert "row.progress_meter_label" in dashboard_html
+    assert "row.eta_label" in dashboard_html
+    assert "lane.progress_percent" in progress_js
+    assert "item.progress_percent" in progress_js
+    assert "lane.progress_detail_label" in progress_js
+
+
+def test_cockpit_local_storage_cannot_restore_server_approval_markers() -> None:
+    script = Path("src/agency/static/cockpit.js").read_text(encoding="utf-8")
+    decision_block = script.split(
+        'document.querySelectorAll("[data-cockpit-decision]").forEach',
+        1,
+    )[1].split(
+        'document.querySelectorAll("[data-cockpit-exit]").forEach',
+        1,
+    )[0]
+
+    assert "isServerDecisionButton(button)" in decision_block
+    assert "markServerDecisionPending(button, decision)" in decision_block
+    assert (
+        decision_block.index("isServerDecisionButton(button)")
+        < decision_block.index("state.decisions[ticker] = decision")
+    )
+    assert "discardLegacyServerDecisionMarkers()" in script
+    assert "server approval" in script
 
 
 def test_candidate_email_readout_avoids_bad_word_breaks() -> None:
@@ -246,6 +295,15 @@ def test_review_queue_ready_badge_has_readable_contrast() -> None:
     assert "#7a2500" not in urgent_block
     assert "font-weight: 800" in urgent_block
     assert ".review-state-icon" in css
+
+
+def test_v3_status_tags_keep_readable_text_spacing() -> None:
+    css = V3_STYLE_PATH.read_text(encoding="utf-8")
+
+    tag_block = css.split(".v3-app .tag,", 1)[1].split("}", 1)[0]
+    assert "letter-spacing: 0" in tag_block
+    assert "text-transform: none" in tag_block
+    assert "font-weight: 700" in tag_block
 
 
 def test_review_queue_metric_values_do_not_break_words() -> None:

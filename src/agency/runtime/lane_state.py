@@ -173,6 +173,7 @@ def _raw_lane_state(
         eta_seconds=_int(row.get("eta_seconds"), 0),
         eta_label=_text(row.get("eta_label"), "not available"),
         progress_label=_text(row.get("progress_label"), "not tracked"),
+        progress_percent=_progress_percent(row),
         issues=_strings(row.get("issues")),
         reason_code=_text(row.get("reason_code"), raw_state),
         source_status=_text(source_row.get("status") or row.get("source_status"), ""),
@@ -221,6 +222,7 @@ def _derived_lane_state(
         eta_seconds=_int(row.get("eta_seconds"), 0),
         eta_label=_text(row.get("eta_label"), "not available"),
         progress_label=_derived_progress_label(row),
+        progress_percent=_progress_percent(row),
         issues=_strings(row.get("issues")),
         reason_code=_text(row.get("reason_code"), _text(row.get("status"), "")),
         source_status=_text(
@@ -327,6 +329,7 @@ def _state_payload(
     eta_seconds: int,
     eta_label: str,
     progress_label: str,
+    progress_percent: int,
     issues: Sequence[str],
     reason_code: str,
     source_status: str,
@@ -351,6 +354,7 @@ def _state_payload(
     )
     operator_message = _operator_message(
         state,
+        lane_kind=lane_kind,
         label=label,
         detail=detail,
         issues=issues,
@@ -361,7 +365,7 @@ def _state_payload(
         "lane_kind": lane_kind,
         "label": label,
         "state": state,
-        "status_label": STATE_LABELS[state],
+        "status_label": _status_label_for_lane(state, lane_kind),
         "status_class": status_class,
         "operator_message": operator_message,
         "recommended_action": _recommended_action(state, label=label, lane_kind=lane_kind),
@@ -379,6 +383,7 @@ def _state_payload(
         "eta_seconds": eta_seconds,
         "eta_label": eta_label,
         "progress_label": progress_label,
+        "progress_percent": progress_percent,
         "issues": list(issues),
         "reason_code": reason_code,
         "source_status": source_status or "UNKNOWN",
@@ -410,6 +415,7 @@ def _lane_status_class(
 def _operator_message(
     state: str,
     *,
+    lane_kind: str,
     label: str,
     detail: str,
     issues: Sequence[str],
@@ -424,6 +430,8 @@ def _operator_message(
     if state == "loaded_unanalyzed":
         return f"{label} source data exists, but the agent has not produced current analysis."
     if state == "needs_refresh":
+        if lane_kind == "raw_acquisition":
+            return f"{label} lane proof needs refresh. {evidence}".strip()
         return f"{label} analysis exists but needs refresh. {evidence}".strip()
     if state == "provider_unavailable":
         return f"{label} provider or proof is unavailable. {evidence}".strip()
@@ -435,6 +443,12 @@ def _operator_message(
             return f"{label} is partial but usable for review.{suffix}".strip()
         return f"{label} is usable for review{suffix}".strip()
     return f"{label} is optional for the current workflow."
+
+
+def _status_label_for_lane(state: str, lane_kind: str) -> str:
+    if state == "needs_refresh" and lane_kind == "raw_acquisition":
+        return "Lane proof needs refresh"
+    return STATE_LABELS.get(state, state.replace("_", " ").title())
 
 
 def _recommended_action(state: str, *, label: str, lane_kind: str) -> str:
@@ -541,6 +555,23 @@ def _derived_progress_label(row: Mapping[str, object]) -> str:
     if expected is None:
         return f"{produced} row(s)"
     return f"{produced}/{expected} row(s)"
+
+
+def _progress_percent(row: Mapping[str, object]) -> int:
+    for key in ("progress_percent", "percent_complete", "coverage_pct", "manifest_coverage_pct"):
+        value = _int_or_none(row.get(key))
+        if value is not None:
+            return max(0, min(100, value))
+    produced = _int(row.get("produced_count"), 0)
+    expected = _int_or_none(row.get("expected_count"))
+    if expected and expected > 0:
+        return max(0, min(100, round(produced / expected * 100)))
+    fresh = _int(row.get("fresh_ticker_count"), 0)
+    pending = _int(row.get("pending_ticker_count"), 0)
+    total = fresh + pending
+    if total > 0:
+        return max(0, min(100, round(fresh / total * 100)))
+    return 0
 
 
 def _proof_timestamp(
