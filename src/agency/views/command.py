@@ -28,7 +28,6 @@ from agency.views._shared import (
     _active_cycle_reports,
     _dashboard_risk_decisions,
     _dashboard_selection_reports,
-    _float_field,
     _format_timestamp_or_text,
     _human_review_index,
     _int_field,
@@ -281,7 +280,7 @@ def command_summary(
         1 for candidate in candidates if _is_actionable_candidate(candidate)
     )
     blocked_candidate_count = sum(
-        1 for candidate in candidates if candidate["gate_status"] == "BLOCK"
+        1 for candidate in candidates if candidate.get("gate_status") == "BLOCK"
     )
     return {
         "candidate_count": candidate_count,
@@ -447,18 +446,21 @@ async def _rows_from_live_runtime(
 def source_status_rows(sources: Sequence[Mapping[str, object]]) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     for source in sources:
-        raw_status = str(source["status"])
-        raw_freshness = str(source["freshness"])
+        raw_status = str(source.get("status", "unknown"))
+        raw_freshness = str(source.get("freshness", "unknown"))
+        reliability_score = source.get("reliability_score", 0.0)
+        if not isinstance(reliability_score, int | float):
+            reliability_score = 0.0
         rows.append(
             {
-                "source": str(source["source"]),
+                "source": str(source.get("source", "")),
                 "status": _source_operator_status(raw_status),
                 "freshness": _source_operator_status(raw_freshness),
                 "raw_status": raw_status,
                 "raw_freshness": raw_freshness,
-                "reliability_pct": round(_float_field(source, "reliability_score") * 100),
+                "reliability_pct": round(float(reliability_score) * 100),
                 "status_class": _source_status_class(source),
-                "checked_at": str(source["checked_at"]),
+                "checked_at": str(source.get("checked_at", "")),
             }
         )
     return rows

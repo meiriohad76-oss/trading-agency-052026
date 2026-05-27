@@ -486,7 +486,10 @@ def _reason_summary(reason_code: str) -> str:
     return summaries.get(reason_code, f"{_label_text(reason_code)}.")
 
 def _is_actionable_candidate(candidate: Mapping[str, object]) -> bool:
-    return str(candidate["action"]) in ACTIONABLE_ACTIONS and candidate["gate_status"] != "BLOCK"
+    return (
+        str(candidate.get("action", "")) in ACTIONABLE_ACTIONS
+        and candidate.get("gate_status") != "BLOCK"
+    )
 
 def _human_review_index(
     review_events: Sequence[Mapping[str, object]],
@@ -546,20 +549,20 @@ def _human_review_summary(event: Mapping[str, object] | None) -> dict[str, str]:
         }
     payload = _mapping_field(event, "payload")
     decision = str(payload.get("review_decision", "RECORDED"))
-    status = str(event["status"])
+    status = str(event.get("status", "unknown"))
     return {
         "decision": _label_text(decision),
         "status_class": _human_review_status_class(status),
-        "reason": str(event["reason"]),
+        "reason": str(event.get("reason", "")),
         "review_reason": _clean_text(payload.get("review_reason")) or "",
         "notes": _clean_text(payload.get("notes")) or "",
-        "event_time": str(event["event_time"]),
+        "event_time": str(event.get("event_time", "")),
     }
 
 def _source_is_degraded(source: Mapping[str, object]) -> bool:
     return (
-        str(source["status"]) in DEGRADED_SOURCE_STATUSES
-        or str(source["freshness"]) in DEGRADED_FRESHNESS
+        str(source.get("status", "")) in DEGRADED_SOURCE_STATUSES
+        or str(source.get("freshness", "")) in DEGRADED_FRESHNESS
     )
 
 def _label_text(value: str) -> str:
@@ -688,15 +691,19 @@ def _string_list(payload: Mapping[str, object], key: str) -> list[str]:
     return [str(item) for item in _list_field(payload, key)]
 
 def _list_field(payload: Mapping[str, object], key: str) -> list[object]:
-    value = payload[key]
+    value = payload.get(key)
+    if value is None:
+        return []
     if not isinstance(value, list):
-        raise TypeError(f"{key} must be a list")
+        raise TypeError(f"{key} must be a list, got {type(value).__name__}")
     return value
 
 def _mapping_field(payload: Mapping[str, object], key: str) -> Mapping[str, object]:
-    value = payload[key]
+    value = payload.get(key)
+    if value is None:
+        return {}
     if not isinstance(value, Mapping):
-        raise TypeError(f"{key} must be a mapping")
+        raise TypeError(f"{key} must be a mapping, got {type(value).__name__}")
     return cast(Mapping[str, object], value)
 
 def _mapping_list_field(payload: Mapping[str, object], key: str) -> list[Mapping[str, object]]:
