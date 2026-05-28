@@ -44,6 +44,16 @@ def test_local_llm_config_supports_direct_ollama(monkeypatch) -> None:
     assert config.models_url == "http://10.100.102.18:11434/api/tags"
 
 
+def test_parse_json_object_ignores_trailing_non_json_text() -> None:
+    from agency.runtime.local_llm import _parse_json_object
+
+    payload = _parse_json_object(
+        '{"summary":"ok","confidence":0.4}\nextra note with } brace'
+    )
+
+    assert payload == {"summary": "ok", "confidence": 0.4}
+
+
 async def test_openwebui_client_posts_openai_compatible_payload() -> None:
     requests: list[dict[str, Any]] = []
 
@@ -177,6 +187,11 @@ async def test_openwebui_client_posts_ollama_native_payload() -> None:
                 ],
                 "stream": False,
                 "format": "json",
+                "options": {
+                    "temperature": 0,
+                    "num_predict": 260,
+                    "num_ctx": 2048,
+                },
             },
         }
     ]

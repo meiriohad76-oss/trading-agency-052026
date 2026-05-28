@@ -23,7 +23,7 @@ LOCAL_LLM_MODEL_ENV = "AGENCY_LOCAL_LLM_MODEL"
 LOCAL_LLM_MODE_ENV = "AGENCY_LOCAL_LLM_MODE"
 LOCAL_LLM_PROVIDER_ENV = "AGENCY_LOCAL_LLM_PROVIDER"
 LOCAL_LLM_TIMEOUT_ENV = "AGENCY_LOCAL_LLM_TIMEOUT_SECONDS"
-MAX_PROMPT_SIGNAL_ROWS = 8
+MAX_PROMPT_SIGNAL_ROWS = 4
 MAX_TEXT_CHARS = 700
 
 
@@ -113,12 +113,10 @@ class OpenWebUIClient:
             "configured": self.config.configured,
             "reachable": True,
             "status": "ready",
-            "status_label": "Local LLM reachable",
+            "status_label": _provider_status_label(self.config.provider),
             "model": self.config.model,
             "models_url": self.config.models_url,
-            "model_count": len(payload) if isinstance(payload, list) else len(payload.get("data", []))
-            if isinstance(payload, Mapping)
-            else 0,
+            "model_count": _model_count(payload, self.config.provider),
         }
 
     def _headers(self, *, include_content_type: bool = True) -> dict[str, str]:
@@ -136,6 +134,11 @@ class OpenWebUIClient:
                 "messages": messages,
                 "stream": False,
                 "format": "json",
+                "options": {
+                    "temperature": 0,
+                    "num_predict": 260,
+                    "num_ctx": 2048,
+                },
             }
         return {
             "model": self.config.model,
@@ -246,7 +249,9 @@ async def generate_local_llm_insights(
     for row in runtime_rows:
         ticker = str(row["ticker"])
         try:
-            insight = await llm.complete_json(_messages_for_ticker(row))
+            insight = await llm.complete_json(
+                _messages_for_ticker(row, provider=config.provider)
+            )
             insights.append(_normalize_insight(ticker, insight, row=row, config=config))
         except Exception as exc:  # noqa: BLE001 - persisted as no-secret worker status.
             insights.append(_failed_insight(ticker, exc, row=row, config=config))
@@ -312,17 +317,34 @@ def _sort_key(pack: Mapping[str, object], report: Mapping[str, object]) -> tuple
     return (-conviction - actionable, str(pack.get("ticker") or ""))
 
 
-def _messages_for_ticker(row: Mapping[str, object]) -> list[dict[str, str]]:
+def _messages_for_ticker(
+    row: Mapping[str, object],
+    *,
+    provider: str = "openwebui",
+) -> list[dict[str, str]]:
     payload = _prompt_payload(row)
+    schema_text = (
+        '{"summary":"string","bullish_case":["string"],"bearish_case":["string"],'
+        '"what_changed":["string"],"user_checks":["string"],'
+        '"contradictions":["string"],"confidence":0.5}'
+    )
+    if provider == "ollama":
+        payload = _ollama_prompt_payload(payload)
+        system_text = (
+            "Return one compact valid JSON object only. No markdown. No trailing text. "
+            f"Use exactly this schema: {schema_text}"
+        )
+    else:
+        system_text = (
+            "You are an advisory local LLM worker for a supervised paper-trading "
+            "agency. Return strict JSON only. You cannot approve trades, change "
+            "risk gates, or override deterministic policy. Your job is to explain "
+            "evidence, contradictions, and user checks in plain English."
+        )
     return [
         {
             "role": "system",
-            "content": (
-                "You are an advisory local LLM worker for a supervised paper-trading "
-                "agency. Return strict JSON only. You cannot approve trades, change "
-                "risk gates, or override deterministic policy. Your job is to explain "
-                "evidence, contradictions, and user checks in plain English."
-            ),
+            "content": system_text,
         },
         {"role": "user", "content": json.dumps(payload, ensure_ascii=True, sort_keys=True)},
     ]
@@ -340,15 +362,46 @@ def _prompt_payload(row: Mapping[str, object]) -> dict[str, object]:
         "context_signals": _signal_summaries(pack.get("context_signals")),
         "suppressed_signals": _signal_summaries(pack.get("suppressed_signals")),
         "required_json_schema": {
-            "summary": "string",
-            "bullish_case": ["string"],
-            "bearish_case": ["string"],
-            "what_changed": ["string"],
-            "user_checks": ["string"],
-            "contradictions": ["string"],
+            "summary": "one concise sentence",
+            "bullish_case": ["max 2 short bullets"],
+            "bearish_case": ["max 2 short bullets"],
+            "what_changed": ["max 2 short bullets"],
+            "user_checks": ["max 2 short bullets"],
+            "contradictions": ["max 2 short bullets"],
             "confidence": "number from 0 to 1",
         },
     }
+
+
+def _ollama_prompt_payload(payload: Mapping[str, object]) -> dict[str, object]:
+    return {
+        "ticker": payload.get("ticker"),
+        "final_action": payload.get("final_action"),
+        "final_conviction": payload.get("final_conviction"),
+        "deterministic_action": _mapping(payload.get("deterministic")).get("action"),
+        "active": _compact_signal_summaries(payload.get("actionable_signals")),
+        "context": _compact_signal_summaries(payload.get("context_signals")),
+        "excluded": _compact_signal_summaries(payload.get("suppressed_signals")),
+        "instruction": (
+            "Summarize evidence in short plain English. Keep each array to at most "
+            "one item. confidence must be 0..1. This is advisory only."
+        ),
+    }
+
+
+def _compact_signal_summaries(value: object) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for row in _list(value)[:2]:
+        item = _mapping(row)
+        rows.append(
+            {
+                "lane": item.get("lane"),
+                "direction": item.get("direction"),
+                "score": item.get("score"),
+                "reasons": _list(item.get("reason_codes"))[:2],
+            }
+        )
+    return rows
 
 
 def _signal_summaries(value: object) -> list[dict[str, object]]:
@@ -361,7 +414,6 @@ def _signal_summaries(value: object) -> list[dict[str, object]]:
                 "direction": item.get("direction"),
                 "score": item.get("score"),
                 "confidence": item.get("confidence"),
-                "freshness": item.get("freshness"),
                 "reason_codes": _list(item.get("reason_codes"))[:5],
             }
         )
@@ -473,10 +525,9 @@ def _parse_json_object(content: str) -> dict[str, object]:
         payload = json.loads(content)
     except json.JSONDecodeError:
         start = content.find("{")
-        end = content.rfind("}")
-        if start < 0 or end <= start:
+        if start < 0:
             raise
-        payload = json.loads(content[start : end + 1])
+        payload, _end = json.JSONDecoder().raw_decode(content[start:])
     if not isinstance(payload, Mapping):
         raise TypeError("local LLM response JSON must be an object")
     return dict(payload)
@@ -520,6 +571,20 @@ def _status_label(status: str) -> str:
         "disabled": "Local LLM disabled",
         "not_configured": "Local LLM not configured",
     }.get(status, status.replace("_", " ").title())
+
+
+def _provider_status_label(provider: str) -> str:
+    return "Direct Ollama reachable" if provider == "ollama" else "Local LLM reachable"
+
+
+def _model_count(payload: object, provider: str) -> int:
+    if isinstance(payload, list):
+        return len(payload)
+    if not isinstance(payload, Mapping):
+        return 0
+    if provider == "ollama":
+        return len(_list(payload.get("models")))
+    return len(_list(payload.get("data")))
 
 
 def _env_flag(name: str) -> bool:
