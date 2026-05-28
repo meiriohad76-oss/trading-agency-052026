@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+import pytest
 
 from agency.runtime.local_llm import (
     LocalLlmConfig,
@@ -187,6 +188,7 @@ async def test_openwebui_client_posts_ollama_native_payload() -> None:
                     {"role": "user", "content": "Summarize AAPL."},
                 ],
                 "stream": False,
+                "think": False,
                 "format": "json",
                 "options": {
                     "temperature": 0,
@@ -196,6 +198,20 @@ async def test_openwebui_client_posts_ollama_native_payload() -> None:
             },
         }
     ]
+
+
+def test_local_llm_config_uses_longer_default_timeout_for_direct_ollama(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENCY_LOCAL_LLM_ENABLED", "true")
+    monkeypatch.setenv("AGENCY_LOCAL_LLM_PROVIDER", "ollama")
+    monkeypatch.setenv("AGENCY_LOCAL_LLM_BASE_URL", "http://pi.local:11434")
+    monkeypatch.setenv("AGENCY_LOCAL_LLM_MODEL", "qwen3.5:4b")
+    monkeypatch.delenv("AGENCY_LOCAL_LLM_TIMEOUT_SECONDS", raising=False)
+
+    config = LocalLlmConfig.from_env()
+
+    assert config.timeout_seconds == 180.0
 
 
 async def test_generate_local_llm_insights_writes_shadow_artifact(tmp_path: Path) -> None:
@@ -257,6 +273,37 @@ async def test_generate_local_llm_insights_disabled_writes_status_without_calls(
     artifact = json.loads((output_root / "local-llm-insights.json").read_text())
     assert artifact["status"] == "disabled"
     assert artifact["insights"] == []
+
+
+async def test_generate_local_llm_insights_marks_artifact_failed_when_all_tickers_fail(
+    tmp_path: Path,
+) -> None:
+    input_root = _runtime_input_root(tmp_path)
+    output_root = tmp_path / "local-llm"
+    provider = _FailingProvider(RuntimeError("model timed out"))
+
+    result = await generate_local_llm_insights(
+        input_root=input_root,
+        output_root=output_root,
+        config=LocalLlmConfig(
+            enabled=True,
+            base_url="http://pi.local:3000",
+            api_key="local-key",
+            model="qwen3.5:4b",
+        ),
+        provider=provider,
+        tickers=["AAPL"],
+    )
+
+    assert result["status"] == "failed"
+    assert result["status_class"] == "block"
+    assert result["status_label"] == "Local LLM insights failed"
+    assert result["detail"] == (
+        "Generated 0/1 local LLM ticker insight(s); all requested insights failed."
+    )
+    artifact = json.loads((output_root / "local-llm-insights.json").read_text())
+    assert artifact["status"] == "failed"
+    assert artifact["insights"][0]["status"] == "failed"
 
 
 async def test_check_local_llm_health_reports_not_configured_without_network() -> None:
@@ -370,3 +417,11 @@ class _FakeProvider:
         assert "advisory" in messages[0]["content"].lower()
         assert "AAPL" in messages[1]["content"]
         return dict(self.payload)
+
+
+class _FailingProvider:
+    def __init__(self, exc: Exception) -> None:
+        self.exc = exc
+
+    async def complete_json(self, _messages: list[dict[str, str]]) -> dict[str, object]:
+        raise self.exc

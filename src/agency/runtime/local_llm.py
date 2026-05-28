@@ -43,6 +43,8 @@ class LocalLlmConfig:
 
     @classmethod
     def from_env(cls) -> LocalLlmConfig:
+        provider = os.environ.get(LOCAL_LLM_PROVIDER_ENV, "openwebui").strip().lower() or "openwebui"
+        default_timeout = 180.0 if provider == "ollama" else 60.0
         return cls(
             enabled=_env_flag(LOCAL_LLM_ENABLED_ENV),
             base_url=os.environ.get(LOCAL_LLM_BASE_URL_ENV, "").strip(),
@@ -50,9 +52,8 @@ class LocalLlmConfig:
             model=os.environ.get(LOCAL_LLM_MODEL_ENV, DEFAULT_LOCAL_LLM_MODEL).strip()
             or DEFAULT_LOCAL_LLM_MODEL,
             mode=os.environ.get(LOCAL_LLM_MODE_ENV, "shadow").strip().lower() or "shadow",
-            provider=os.environ.get(LOCAL_LLM_PROVIDER_ENV, "openwebui").strip().lower()
-            or "openwebui",
-            timeout_seconds=_float_env(LOCAL_LLM_TIMEOUT_ENV, default=60.0),
+            provider=provider,
+            timeout_seconds=_float_env(LOCAL_LLM_TIMEOUT_ENV, default=default_timeout),
         )
 
     @property
@@ -133,6 +134,7 @@ class OpenWebUIClient:
                 "model": self.config.model,
                 "messages": messages,
                 "stream": False,
+                "think": False,
                 "format": "json",
                 "options": {
                     "temperature": 0,
@@ -256,12 +258,13 @@ async def generate_local_llm_insights(
         except Exception as exc:  # noqa: BLE001 - persisted as no-secret worker status.
             insights.append(_failed_insight(ticker, exc, row=row, config=config))
 
+    status, detail = _insight_payload_status(insights)
     payload = _base_payload(
-        status="completed",
+        status=status,
         config=config,
         input_root=input_root,
         insights=insights,
-        detail=f"Generated {len(insights)} local LLM ticker insight(s) in shadow mode.",
+        detail=detail,
     )
     _write_payload(output_root, payload)
     return payload
@@ -472,6 +475,28 @@ def _failed_insight(
     }
 
 
+def _insight_payload_status(insights: Sequence[Mapping[str, object]]) -> tuple[str, str]:
+    requested = len(insights)
+    completed = sum(1 for row in insights if str(row.get("status") or "") == "completed")
+    failed = sum(1 for row in insights if str(row.get("status") or "") == "failed")
+    if requested == 0:
+        return "completed", "Generated 0 local LLM ticker insight(s) in shadow mode."
+    if completed == 0 and failed > 0:
+        return (
+            "failed",
+            f"Generated 0/{requested} local LLM ticker insight(s); all requested insights failed.",
+        )
+    if failed > 0:
+        return (
+            "completed_with_errors",
+            f"Generated {completed}/{requested} local LLM ticker insight(s); {failed} failed.",
+        )
+    return (
+        "completed",
+        f"Generated {completed} local LLM ticker insight(s) in shadow mode.",
+    )
+
+
 def _base_payload(
     *,
     status: str,
@@ -484,7 +509,7 @@ def _base_payload(
         "schema_version": "0.1.0",
         "status": status,
         "status_label": _status_label(status),
-        "status_class": "pass" if status == "completed" else "warn",
+        "status_class": _payload_status_class(status),
         "provider": config.provider,
         "mode": config.mode,
         "model": config.model,
@@ -568,9 +593,19 @@ def _read_json_list(path: Path) -> list[object]:
 def _status_label(status: str) -> str:
     return {
         "completed": "Local LLM insights ready",
+        "completed_with_errors": "Local LLM insights partial",
+        "failed": "Local LLM insights failed",
         "disabled": "Local LLM disabled",
         "not_configured": "Local LLM not configured",
     }.get(status, status.replace("_", " ").title())
+
+
+def _payload_status_class(status: str) -> str:
+    if status == "completed":
+        return "pass"
+    if status == "failed":
+        return "block"
+    return "warn"
 
 
 def _provider_status_label(provider: str) -> str:

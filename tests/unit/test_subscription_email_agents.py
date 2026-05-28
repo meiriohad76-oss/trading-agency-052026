@@ -10,6 +10,7 @@ from email.utils import format_datetime
 from pathlib import Path
 from types import SimpleNamespace
 
+import httpx
 import pandas as pd
 import pytest
 from subscription_email import article_session, linked_content
@@ -1737,6 +1738,69 @@ def test_article_llm_analyzer_attaches_local_ollama_shadow_contract(
     assert "disagrees" in str(analysis["local_llm_article_comparison"]).lower()
 
 
+def test_article_llm_analyzer_local_ollama_payload_disables_thinking(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    page = FetchedArticle(
+        url="https://seekingalpha.com/article/local-cvx",
+        status_code=200,
+        title="CVX dividend growth thesis",
+        text="CVX has dividend growth support but energy price risk remains.",
+    )
+    record = _record(
+        "seeking_alpha",
+        "CVX: dividend article",
+        "Open this link: https://seekingalpha.com/article/local-cvx",
+    )
+    captured_payloads: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_payloads.append(json.loads(request.content.decode("utf-8")))
+        return httpx.Response(
+            200,
+            json={
+                "message": {
+                    "role": "assistant",
+                    "content": json.dumps(
+                        {
+                            "direction": "BULLISH",
+                            "confidence": 0.62,
+                            "tickers": ["CVX"],
+                            "thesis": "CVX dividend growth supports a constructive read.",
+                            "key_points": ["Dividend growth is supportive."],
+                            "catalysts": ["earnings"],
+                            "risk_flags": ["macro"],
+                            "decision_use": "Use as shadow context only.",
+                            "signal_strength": "medium",
+                        }
+                    ),
+                },
+                "done": True,
+            },
+        )
+
+    original_client = httpx.Client
+
+    monkeypatch.setattr(
+        httpx,
+        "Client",
+        lambda **kwargs: original_client(transport=httpx.MockTransport(handler), **kwargs),
+    )
+
+    analysis = ArticleLlmAnalyzer(
+        api_key=None,
+        model="qwen3.5:4b",
+        enabled=True,
+        provider="local_ollama",
+        base_url="http://pi.local:11434",
+    ).analyze(page, config=_config(), record=record)
+
+    assert analysis["local_llm_article_status"] == "completed"
+    assert captured_payloads
+    assert captured_payloads[0]["think"] is False
+    assert captured_payloads[0]["options"]["num_predict"] == 260
+
+
 def test_article_llm_analyzer_local_ollama_not_configured_keeps_deterministic() -> None:
     page = FetchedArticle(
         url="https://seekingalpha.com/article/local-aapl",
@@ -1764,7 +1828,7 @@ def test_article_llm_analyzer_local_ollama_not_configured_keeps_deterministic() 
     assert "AGENCY_LOCAL_LLM_BASE_URL" in str(analysis["local_llm_article_error"])
 
 
-def test_article_llm_analyzer_local_ollama_uses_article_timeout_when_env_timeout_missing(
+def test_article_llm_analyzer_local_ollama_uses_direct_ollama_default_timeout(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config = _config()
@@ -1772,18 +1836,19 @@ def test_article_llm_analyzer_local_ollama_uses_article_timeout_when_env_timeout
         **{
             **config.__dict__,
             "article_llm_provider": "local_ollama",
-            "article_llm_model": "qwen2.5:3b-instruct",
-            "article_llm_timeout_seconds": 123,
+            "article_llm_model": "qwen3.5:4b",
+            "article_llm_timeout_seconds": 45,
         }
     )
     monkeypatch.setenv("AGENCY_LOCAL_LLM_BASE_URL", "http://pi.local:11434")
-    monkeypatch.setenv("AGENCY_LOCAL_LLM_MODEL", "qwen2.5:3b-instruct")
+    monkeypatch.setenv("AGENCY_LOCAL_LLM_PROVIDER", "ollama")
+    monkeypatch.setenv("AGENCY_LOCAL_LLM_MODEL", "qwen3.5:4b")
     monkeypatch.delenv("AGENCY_LOCAL_LLM_TIMEOUT_SECONDS", raising=False)
 
     analyzer = ArticleLlmAnalyzer.from_config(config)
 
     assert analyzer.provider == "local_ollama"
-    assert analyzer.timeout_seconds == 123
+    assert analyzer.timeout_seconds == 180
 
 
 def test_article_llm_analyzer_local_ollama_failure_keeps_readable_error_without_openai_key(

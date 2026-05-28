@@ -22,7 +22,6 @@ from subscription_email.types import EmailRecord
 from agency.runtime.local_llm import (
     LOCAL_LLM_BASE_URL_ENV,
     LOCAL_LLM_MODEL_ENV,
-    LOCAL_LLM_TIMEOUT_ENV,
     LocalLlmConfig,
 )
 from agency.services.llm_review import looks_like_openai_api_key
@@ -82,10 +81,9 @@ class ArticleLlmAnalyzer:
         if provider == "local_ollama":
             local_config = LocalLlmConfig.from_env()
             model = os.environ.get(LOCAL_LLM_MODEL_ENV, "").strip() or config.article_llm_model
-            timeout_seconds = (
-                int(local_config.timeout_seconds)
-                if os.environ.get(LOCAL_LLM_TIMEOUT_ENV, "").strip()
-                else config.article_llm_timeout_seconds
+            timeout_seconds = max(
+                config.article_llm_timeout_seconds,
+                int(local_config.timeout_seconds),
             )
             return cls(
                 api_key=None,
@@ -222,10 +220,11 @@ class ArticleLlmAnalyzer:
             "model": self.model,
             "messages": messages,
             "stream": False,
+            "think": False,
             "format": "json",
             "options": {
                 "temperature": 0,
-                "num_predict": 500,
+                "num_predict": 260,
                 "num_ctx": 3072,
             },
         }
