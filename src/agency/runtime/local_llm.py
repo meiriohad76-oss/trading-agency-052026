@@ -21,6 +21,7 @@ LOCAL_LLM_BASE_URL_ENV = "AGENCY_LOCAL_LLM_BASE_URL"
 LOCAL_LLM_API_KEY_ENV = "AGENCY_LOCAL_LLM_API_KEY"
 LOCAL_LLM_MODEL_ENV = "AGENCY_LOCAL_LLM_MODEL"
 LOCAL_LLM_MODE_ENV = "AGENCY_LOCAL_LLM_MODE"
+LOCAL_LLM_PROVIDER_ENV = "AGENCY_LOCAL_LLM_PROVIDER"
 LOCAL_LLM_TIMEOUT_ENV = "AGENCY_LOCAL_LLM_TIMEOUT_SECONDS"
 MAX_PROMPT_SIGNAL_ROWS = 8
 MAX_TEXT_CHARS = 700
@@ -49,19 +50,27 @@ class LocalLlmConfig:
             model=os.environ.get(LOCAL_LLM_MODEL_ENV, DEFAULT_LOCAL_LLM_MODEL).strip()
             or DEFAULT_LOCAL_LLM_MODEL,
             mode=os.environ.get(LOCAL_LLM_MODE_ENV, "shadow").strip().lower() or "shadow",
+            provider=os.environ.get(LOCAL_LLM_PROVIDER_ENV, "openwebui").strip().lower()
+            or "openwebui",
             timeout_seconds=_float_env(LOCAL_LLM_TIMEOUT_ENV, default=60.0),
         )
 
     @property
     def configured(self) -> bool:
+        if self.provider == "ollama":
+            return bool(self.base_url and self.model)
         return bool(self.base_url and self.api_key and self.model)
 
     @property
     def chat_completions_url(self) -> str:
+        if self.provider == "ollama":
+            return _provider_url(self.base_url, "api/chat")
         return _openwebui_url(self.base_url, "chat/completions")
 
     @property
     def models_url(self) -> str:
+        if self.provider == "ollama":
+            return _provider_url(self.base_url, "api/tags")
         return _openwebui_url(self.base_url, "models")
 
 
@@ -82,19 +91,11 @@ class OpenWebUIClient:
         ) as client:
             response = await client.post(
                 self.config.chat_completions_url,
-                headers={
-                    "Authorization": f"Bearer {self.config.api_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": self.config.model,
-                    "messages": messages,
-                    "temperature": 0.1,
-                    "stream": False,
-                },
+                headers=self._headers(),
+                json=self._chat_payload(messages),
             )
             response.raise_for_status()
-            return _completion_json_payload(response.json())
+            return _completion_json_payload(response.json(), provider=self.config.provider)
 
     async def health(self) -> dict[str, object]:
         async with httpx.AsyncClient(
@@ -103,7 +104,7 @@ class OpenWebUIClient:
         ) as client:
             response = await client.get(
                 self.config.models_url,
-                headers={"Authorization": f"Bearer {self.config.api_key}"},
+                headers=self._headers(include_content_type=False),
             )
             response.raise_for_status()
             payload = response.json()
@@ -118,6 +119,29 @@ class OpenWebUIClient:
             "model_count": len(payload) if isinstance(payload, list) else len(payload.get("data", []))
             if isinstance(payload, Mapping)
             else 0,
+        }
+
+    def _headers(self, *, include_content_type: bool = True) -> dict[str, str]:
+        headers: dict[str, str] = {}
+        if self.config.provider != "ollama" and self.config.api_key:
+            headers["Authorization"] = f"Bearer {self.config.api_key}"
+        if include_content_type:
+            headers["Content-Type"] = "application/json"
+        return headers
+
+    def _chat_payload(self, messages: list[dict[str, str]]) -> dict[str, object]:
+        if self.config.provider == "ollama":
+            return {
+                "model": self.config.model,
+                "messages": messages,
+                "stream": False,
+                "format": "json",
+            }
+        return {
+            "model": self.config.model,
+            "messages": messages,
+            "temperature": 0.1,
+            "stream": False,
         }
 
 
@@ -430,8 +454,12 @@ def _write_payload(output_root: Path, payload: Mapping[str, object]) -> None:
     )
 
 
-def _completion_json_payload(payload: object) -> dict[str, object]:
+def _completion_json_payload(payload: object, *, provider: str) -> dict[str, object]:
     data = _mapping(payload)
+    if provider == "ollama":
+        message = _mapping(data.get("message"))
+        content = str(message.get("content") or "").strip()
+        return _parse_json_object(content)
     choices = _list(data.get("choices"))
     if not choices:
         raise ValueError("OpenWebUI response did not contain choices")
@@ -463,6 +491,18 @@ def _openwebui_url(base_url: str, endpoint: str) -> str:
     if path.endswith(("/chat/completions", "/models")):
         return base
     path = f"{path}/{endpoint}" if path.endswith(("/api", "/v1")) else f"{path}/api/{endpoint}"
+    return urlunsplit((parts.scheme, parts.netloc, path, "", ""))
+
+
+def _provider_url(base_url: str, endpoint: str) -> str:
+    base = base_url.strip().rstrip("/")
+    if not base:
+        return ""
+    parts = urlsplit(base)
+    path = parts.path.rstrip("/")
+    if path.endswith(endpoint):
+        return base
+    path = f"{path}/{endpoint}"
     return urlunsplit((parts.scheme, parts.netloc, path, "", ""))
 
 

@@ -20,7 +20,7 @@ from agency.runtime.local_llm import (  # noqa: E402
 
 
 async def main() -> int:
-    load_dotenv(ROOT / ".env", override=True)
+    load_dotenv(ROOT / ".env", override=False)
     args = _parse_args()
     result = await generate_local_llm_insights(
         input_root=args.input_root,

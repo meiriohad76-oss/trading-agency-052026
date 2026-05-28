@@ -29,6 +29,21 @@ def test_local_llm_config_normalizes_open_webui_base_url(monkeypatch) -> None:
     assert config.models_url == "http://10.0.0.5:3000/api/models"
 
 
+def test_local_llm_config_supports_direct_ollama(monkeypatch) -> None:
+    monkeypatch.setenv("AGENCY_LOCAL_LLM_ENABLED", "true")
+    monkeypatch.setenv("AGENCY_LOCAL_LLM_PROVIDER", "ollama")
+    monkeypatch.setenv("AGENCY_LOCAL_LLM_BASE_URL", "http://10.100.102.18:11434")
+    monkeypatch.setenv("AGENCY_LOCAL_LLM_MODEL", "qwen2.5:3b-instruct")
+    monkeypatch.setenv("AGENCY_LOCAL_LLM_API_KEY", "")
+
+    config = LocalLlmConfig.from_env()
+
+    assert config.provider == "ollama"
+    assert config.configured is True
+    assert config.chat_completions_url == "http://10.100.102.18:11434/api/chat"
+    assert config.models_url == "http://10.100.102.18:11434/api/tags"
+
+
 async def test_openwebui_client_posts_openai_compatible_payload() -> None:
     requests: list[dict[str, Any]] = []
 
@@ -94,6 +109,74 @@ async def test_openwebui_client_posts_openai_compatible_payload() -> None:
                 ],
                 "temperature": 0.1,
                 "stream": False,
+            },
+        }
+    ]
+
+
+async def test_openwebui_client_posts_ollama_native_payload() -> None:
+    requests: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(
+            {
+                "method": request.method,
+                "url": str(request.url),
+                "auth": request.headers.get("authorization"),
+                "payload": json.loads(request.content.decode("utf-8")),
+            }
+        )
+        return httpx.Response(
+            200,
+            json={
+                "message": {
+                    "role": "assistant",
+                    "content": json.dumps(
+                        {
+                            "summary": "Direct Ollama JSON works.",
+                            "bullish_case": ["One constructive point"],
+                            "bearish_case": [],
+                            "what_changed": [],
+                            "user_checks": [],
+                            "contradictions": [],
+                            "confidence": 0.5,
+                        }
+                    ),
+                },
+                "done": True,
+            },
+        )
+
+    config = LocalLlmConfig(
+        enabled=True,
+        provider="ollama",
+        base_url="http://pi.local:11434",
+        api_key="",
+        model="qwen2.5:3b-instruct",
+    )
+    client = OpenWebUIClient(config, transport=httpx.MockTransport(handler))
+
+    result = await client.complete_json(
+        [
+            {"role": "system", "content": "Return JSON."},
+            {"role": "user", "content": "Summarize AAPL."},
+        ]
+    )
+
+    assert result["summary"] == "Direct Ollama JSON works."
+    assert requests == [
+        {
+            "method": "POST",
+            "url": "http://pi.local:11434/api/chat",
+            "auth": None,
+            "payload": {
+                "model": "qwen2.5:3b-instruct",
+                "messages": [
+                    {"role": "system", "content": "Return JSON."},
+                    {"role": "user", "content": "Summarize AAPL."},
+                ],
+                "stream": False,
+                "format": "json",
             },
         }
     ]

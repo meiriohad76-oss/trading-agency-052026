@@ -228,6 +228,12 @@ def _key_present(
 def _configured(spec: ProviderSpec, key_rows: Sequence[Mapping[str, object]]) -> bool:
     if not key_rows:
         return True
+    if spec.provider_id == "local_llm_openwebui" and _local_llm_provider() == "ollama":
+        present_by_name = {str(row["name"]): row["present"] is True for row in key_rows}
+        return bool(
+            present_by_name.get("AGENCY_LOCAL_LLM_BASE_URL")
+            and present_by_name.get("AGENCY_LOCAL_LLM_MODEL")
+        )
     present = [row["present"] is True for row in key_rows]
     if spec.mode == "any":
         return any(present)
@@ -249,7 +255,10 @@ def _detail(spec: ProviderSpec, status: str, configured: bool) -> str:
         return "No local API key is expected for this provider."
     if configured:
         if spec.provider_id == "local_llm_openwebui":
-            return "Configured locally for shadow-mode advisory insights; it cannot change trade gates."
+            return (
+                "Configured locally for shadow-mode advisory insights; "
+                "it cannot change trade gates."
+            )
         return "Configured locally; secret values are not exposed."
     if status == BLOCK:
         return f"Required now; add {_key_label(spec)} to local config."
@@ -259,6 +268,8 @@ def _detail(spec: ProviderSpec, status: str, configured: bool) -> str:
 
 
 def _key_label(spec: ProviderSpec) -> str:
+    if spec.provider_id == "local_llm_openwebui" and _local_llm_provider() == "ollama":
+        return "AGENCY_LOCAL_LLM_BASE_URL, AGENCY_LOCAL_LLM_MODEL"
     separator = " or " if spec.mode == "any" else ", "
     return separator.join(spec.keys) if spec.keys else "No key required"
 
@@ -294,3 +305,7 @@ def _checks(live_config: Mapping[str, object]) -> Sequence[Mapping[str, object]]
     if not isinstance(value, list):
         return ()
     return [item for item in value if isinstance(item, Mapping)]
+
+
+def _local_llm_provider() -> str:
+    return os.environ.get("AGENCY_LOCAL_LLM_PROVIDER", "openwebui").strip().lower()

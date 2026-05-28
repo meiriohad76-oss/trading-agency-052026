@@ -116,6 +116,24 @@ def test_provider_readiness_reports_local_llm_shadow_provider(
     assert "shadow" in str(row["detail"]).lower()
 
 
+def test_provider_readiness_supports_direct_ollama_local_llm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _blank_provider_env(monkeypatch)
+    monkeypatch.setenv("AGENCY_LOCAL_LLM_ENABLED", "true")
+    monkeypatch.setenv("AGENCY_LOCAL_LLM_PROVIDER", "ollama")
+    monkeypatch.setenv("AGENCY_LOCAL_LLM_BASE_URL", "http://10.100.102.18:11434")
+    monkeypatch.setenv("AGENCY_LOCAL_LLM_MODEL", "qwen2.5:3b-instruct")
+
+    readiness = load_provider_readiness({"provider": "yfinance", "checks": []})
+
+    row = _provider(readiness, "Raspberry Pi Local LLM")
+    assert row["required_now"] is True
+    assert row["configured"] is True
+    assert row["status"] == "PASS"
+    assert row["key_label"] == "AGENCY_LOCAL_LLM_BASE_URL, AGENCY_LOCAL_LLM_MODEL"
+
+
 def test_provider_readiness_endpoint_returns_provider_matrix(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -157,6 +175,7 @@ def _blank_provider_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "AGENCY_ALPACA_BROKER_ENABLED",
         "AGENCY_BROKER_SUBMIT_ENABLED",
         "AGENCY_LOCAL_LLM_ENABLED",
+        "AGENCY_LOCAL_LLM_PROVIDER",
         "AGENCY_LOCAL_LLM_BASE_URL",
         "AGENCY_LOCAL_LLM_API_KEY",
         "AGENCY_LOCAL_LLM_MODEL",

@@ -15,7 +15,7 @@ from agency.runtime.local_llm import check_local_llm_health  # noqa: E402
 
 
 async def main() -> int:
-    load_dotenv(ROOT / ".env", override=True)
+    load_dotenv(ROOT / ".env", override=False)
     result = await check_local_llm_health()
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0 if str(result.get("status")) in {"ready", "disabled"} else 2

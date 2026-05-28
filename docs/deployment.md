@@ -68,8 +68,12 @@ Set local-only secrets in `.env`; do not commit real values.
   `AGENCY_LLM_REVIEW_MAX_CANDIDATES`.
 - Raspberry Pi / Open WebUI local LLM is optional and shadow-only. To use it
   for advisory off-hours summaries, set `AGENCY_LOCAL_LLM_ENABLED=true`,
-  `AGENCY_LOCAL_LLM_BASE_URL`, `AGENCY_LOCAL_LLM_API_KEY`, and
-  `AGENCY_LOCAL_LLM_MODEL`. It cannot approve trades, promote candidates, or
+  `AGENCY_LOCAL_LLM_PROVIDER=openwebui`, `AGENCY_LOCAL_LLM_BASE_URL`,
+  `AGENCY_LOCAL_LLM_API_KEY`, and `AGENCY_LOCAL_LLM_MODEL`. If Open WebUI is
+  behind Cloudflare or its chat wrapper is unavailable, set
+  `AGENCY_LOCAL_LLM_PROVIDER=ollama` and point `AGENCY_LOCAL_LLM_BASE_URL` at
+  the Pi Ollama API, for example `http://10.100.102.18:11434`; direct Ollama
+  mode requires no API key. It cannot approve trades, promote candidates, or
   override risk gates.
 - Planned provider keys are optional until their connectors are enabled:
   `OPENFIGI_API_KEY`, `BENZINGA_API_KEY`, `UNUSUAL_WHALES_API_KEY`,
