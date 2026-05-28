@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -12,6 +13,7 @@ from urllib.parse import urlencode, urlsplit
 import pandas as pd
 from news.consumption import load_news_consumption_entries
 
+from agency.runtime.local_llm import DEFAULT_OUTPUT_ROOT as LOCAL_LLM_OUTPUT_ROOT
 from agency.runtime.signal_evidence import enrich_signal_rows_with_evidence
 from agency.services import build_leveraged_alternative_review
 from agency.views._shared import (
@@ -62,6 +64,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 NEWS_CONSUMPTION_LEDGER_PATH = (
     REPO_ROOT / "research" / "data" / "state" / "news_rss_consumed.json"
 )
+LOCAL_LLM_INSIGHT_PATH = LOCAL_LLM_OUTPUT_ROOT / "local-llm-insights.json"
 CANDIDATE_AUDIT_LIGHT_STATUS_CACHE_SECONDS = 60.0
 _candidate_audit_light_status_cache: tuple[float, dict[str, object]] | None = None
 
@@ -142,6 +145,7 @@ async def candidate_detail_context(
         ),
         "email_evidence": email_evidence,
         "news_evidence": news_evidence,
+        "local_llm_insight": candidate_local_llm_insight(normalized_ticker),
         "leveraged_review": build_leveraged_alternative_review(
             latest_raw_report or latest_report,
             risk_decision=latest_risk_decision,
@@ -153,6 +157,165 @@ async def candidate_detail_context(
         "timeline": timeline_rows(timeline),
         "summary": candidate_detail_summary(normalized_ticker, report_rows, timeline),
     }
+
+def candidate_local_llm_insight(
+    ticker: str,
+    *,
+    artifact_path: Path = LOCAL_LLM_INSIGHT_PATH,
+) -> dict[str, object]:
+    normalized_ticker = ticker.upper()
+    try:
+        artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return _empty_local_llm_insight(
+            normalized_ticker,
+            status="artifact_missing",
+            status_label="Local LLM insight not generated",
+            status_class="neutral",
+            detail=(
+                "Run the Raspberry Pi local LLM worker when you want a shadow-mode "
+                "explanation for this ticker."
+            ),
+        )
+    except (OSError, json.JSONDecodeError):
+        return _empty_local_llm_insight(
+            normalized_ticker,
+            status="artifact_unreadable",
+            status_label="Local LLM insight file unreadable",
+            status_class="warn",
+            detail="The local LLM artifact exists but could not be parsed safely.",
+        )
+    if not isinstance(artifact, Mapping):
+        return _empty_local_llm_insight(
+            normalized_ticker,
+            status="artifact_unreadable",
+            status_label="Local LLM insight file unreadable",
+            status_class="warn",
+            detail="The local LLM artifact did not contain the expected object payload.",
+        )
+
+    status = _clean_text(artifact.get("status")) or "unknown"
+    if status != "completed":
+        return _empty_local_llm_insight(
+            normalized_ticker,
+            status=status,
+            status_label=_clean_text(artifact.get("status_label")) or _label_text(status),
+            status_class=_clean_text(artifact.get("status_class")) or "warn",
+            detail=_clean_text(artifact.get("detail"))
+            or "The local LLM worker has not produced ticker-level insights yet.",
+            artifact=artifact,
+        )
+
+    insight = _local_llm_ticker_insight(artifact, normalized_ticker)
+    if insight is None:
+        return _empty_local_llm_insight(
+            normalized_ticker,
+            status="not_run_for_ticker",
+            status_label=f"Local LLM not run for {normalized_ticker}",
+            status_class="neutral",
+            detail=(
+                "The latest local LLM artifact is available, but this ticker was not "
+                "included in that shadow review."
+            ),
+            artifact=artifact,
+        )
+
+    insight_status = _clean_text(insight.get("status")) or "unknown"
+    summary = _clean_text(insight.get("summary")) or "No local LLM summary was returned."
+    return {
+        "available": insight_status == "completed",
+        "ticker": normalized_ticker,
+        "status": insight_status,
+        "status_label": _local_llm_status_label(insight_status),
+        "status_class": "pass" if insight_status == "completed" else "warn",
+        "detail": _clean_text(artifact.get("detail")) or "",
+        "model": _clean_text(insight.get("model")) or _clean_text(artifact.get("model")) or "not recorded",
+        "mode": _clean_text(insight.get("mode")) or _clean_text(artifact.get("mode")) or "shadow",
+        "generated_at": _clean_text(insight.get("generated_at"))
+        or _clean_text(artifact.get("generated_at"))
+        or "",
+        "generated_at_label": _format_timestamp_label(
+            insight.get("generated_at") or artifact.get("generated_at")
+        ),
+        "summary": summary,
+        "bullish_case": _local_llm_string_list(insight.get("bullish_case")),
+        "bearish_case": _local_llm_string_list(insight.get("bearish_case")),
+        "what_changed": _local_llm_string_list(insight.get("what_changed")),
+        "user_checks": _local_llm_string_list(insight.get("user_checks")),
+        "contradictions": _local_llm_string_list(insight.get("contradictions")),
+        "confidence_pct": round(max(0.0, min(1.0, _number(insight.get("confidence")))) * 100),
+        "can_affect_trade_gates": False,
+        "trade_gate_note": "Advisory only; it cannot approve or block trades.",
+    }
+
+def _empty_local_llm_insight(
+    ticker: str,
+    *,
+    status: str,
+    status_label: str,
+    status_class: str,
+    detail: str,
+    artifact: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    artifact = artifact or {}
+    return {
+        "available": False,
+        "ticker": ticker,
+        "status": status,
+        "status_label": status_label,
+        "status_class": status_class,
+        "detail": detail,
+        "model": _clean_text(artifact.get("model")) or "not recorded",
+        "mode": _clean_text(artifact.get("mode")) or "shadow",
+        "generated_at": _clean_text(artifact.get("generated_at")) or "",
+        "generated_at_label": _format_timestamp_label(artifact.get("generated_at")),
+        "summary": "",
+        "bullish_case": [],
+        "bearish_case": [],
+        "what_changed": [],
+        "user_checks": [],
+        "contradictions": [],
+        "confidence_pct": 0,
+        "can_affect_trade_gates": False,
+        "trade_gate_note": "Advisory only; it cannot approve or block trades.",
+    }
+
+def _local_llm_ticker_insight(
+    artifact: Mapping[str, object],
+    ticker: str,
+) -> Mapping[str, object] | None:
+    insights = artifact.get("insights")
+    if not isinstance(insights, list):
+        return None
+    for insight in insights:
+        if not isinstance(insight, Mapping):
+            continue
+        if str(insight.get("ticker") or "").strip().upper() == ticker:
+            return cast(Mapping[str, object], insight)
+    return None
+
+def _local_llm_string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    rows: list[str] = []
+    for item in value:
+        text = _clean_text(item)
+        if text:
+            rows.append(_clip_text(text, 240))
+    return rows
+
+def _local_llm_status_label(status: str) -> str:
+    if status == "completed":
+        return "Local LLM insight ready"
+    if status == "failed":
+        return "Local LLM insight failed"
+    return f"Local LLM insight {_label_text(status).lower()}"
+
+def _number(value: object) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
 
 async def _candidate_audit_light_data_load_status() -> dict[str, object]:
     global _candidate_audit_light_status_cache

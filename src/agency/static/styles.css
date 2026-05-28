@@ -5349,6 +5349,24 @@ table.signal-table {
   overflow-wrap: anywhere;
 }
 
+.local-llm-evidence-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.local-llm-evidence-grid ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: var(--text);
+  line-height: 1.45;
+}
+
+.local-llm-evidence-grid li + li {
+  margin-top: 6px;
+}
+
 .paper-mode-card {
   border: 1px dashed rgba(154, 91, 0, 0.55);
   border-radius: 8px;

@@ -6,7 +6,6 @@ import textwrap
 from dataclasses import dataclass
 from pathlib import Path
 
-
 PAGE_WIDTH = 612
 PAGE_HEIGHT = 792
 MARGIN_X = 54
@@ -128,7 +127,7 @@ def build_pdf(lines: list[StyledLine]) -> bytes:
     page_object_ids: list[int] = []
     content_object_ids: list[int] = []
     first_page_obj_id = 6
-    for index, page in enumerate(pages):
+    for index, _page in enumerate(pages):
         page_object_ids.append(first_page_obj_id + index * 2)
         content_object_ids.append(first_page_obj_id + index * 2 + 1)
     kids = " ".join(f"{page_id} 0 R" for page_id in page_object_ids)
@@ -137,7 +136,7 @@ def build_pdf(lines: list[StyledLine]) -> bytes:
     objects.append(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>")
     objects.append(b"<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>")
 
-    for page_id, content_id, page in zip(page_object_ids, content_object_ids, pages, strict=True):
+    for _page_id, content_id, page in zip(page_object_ids, content_object_ids, pages, strict=True):
         page_obj = (
             f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {PAGE_WIDTH} {PAGE_HEIGHT}] "
             f"/Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >> >> "

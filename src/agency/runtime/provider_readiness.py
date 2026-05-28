@@ -47,6 +47,20 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         ("OPENAI_API_KEY",),
     ),
     ProviderSpec(
+        "local_llm_openwebui",
+        "Raspberry Pi Local LLM",
+        "local_reasoning",
+        (
+            "Optional Open WebUI model on the Raspberry Pi for shadow-mode summaries, "
+            "contradiction checks, and off-hours evidence review."
+        ),
+        (
+            "AGENCY_LOCAL_LLM_BASE_URL",
+            "AGENCY_LOCAL_LLM_API_KEY",
+            "AGENCY_LOCAL_LLM_MODEL",
+        ),
+    ),
+    ProviderSpec(
         "openfigi",
         "OpenFIGI",
         "reference_data",
@@ -159,6 +173,8 @@ def _required_now(spec: ProviderSpec, live_config: Mapping[str, object]) -> bool
             "yes",
             "on",
         }
+    if spec.provider_id == "local_llm_openwebui":
+        return _env_enabled("AGENCY_LOCAL_LLM_ENABLED")
     if spec.provider_id == "alpaca":
         return str(live_config.get("provider", "")).lower() == "alpaca" or _env_enabled(
             "AGENCY_ALPACA_BROKER_ENABLED",
@@ -232,6 +248,8 @@ def _detail(spec: ProviderSpec, status: str, configured: bool) -> str:
     if not spec.keys:
         return "No local API key is expected for this provider."
     if configured:
+        if spec.provider_id == "local_llm_openwebui":
+            return "Configured locally for shadow-mode advisory insights; it cannot change trade gates."
         return "Configured locally; secret values are not exposed."
     if status == BLOCK:
         return f"Required now; add {_key_label(spec)} to local config."
