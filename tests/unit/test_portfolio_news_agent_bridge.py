@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import csv
 import json
 import sqlite3
+from datetime import date
 from pathlib import Path
 from subprocess import CompletedProcess
 
@@ -159,15 +161,27 @@ def test_agency_config_overlay_disables_telegram_without_mutating_user_config(
 ) -> None:
     root = _agent_root(tmp_path)
     _write_agent_config(root, telegram_enabled=True)
+    repo_root = tmp_path / "agency"
+    _write_active_universe(repo_root, ["AAPL", "MSFT"])
 
-    run_config = ensure_portfolio_news_agent_agency_config(root=root)
+    run_config = ensure_portfolio_news_agent_agency_config(
+        root=root,
+        repo_root=repo_root,
+        as_of=date(2026, 5, 28),
+    )
 
     assert run_config == portfolio_news_agent_run_config_path(root)
     assert (root / "config.yaml").read_text(encoding="utf-8").count("telegram_enabled: true") == 1
     text = run_config.read_text(encoding="utf-8")
     assert "telegram_enabled: false" in text
     assert "database_path: \"data/portfolio_news.db\"" in text
+    assert "portfolio_file: \"data/agency_active_universe.csv\"" in text
+    assert "portfolio.xlsx" not in text
     assert "commodity_exposure_overrides:" in text
+    with (root / "data" / "agency_active_universe.csv").open(newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    assert [row["symbol"] for row in rows] == ["AAPL", "MSFT"]
+    assert {row["asset_type"] for row in rows} == {"equity"}
 
 
 def test_export_portfolio_news_agent_events_writes_subscription_email_dataset(
@@ -241,6 +255,99 @@ def test_export_portfolio_news_agent_events_reports_new_affected_tickers(
     assert result["affected_tickers"] == ["MSFT"]
     summary = json.loads((summary_root / "subscription-email-ingest.json").read_text())
     assert summary["affected_tickers"] == ["MSFT"]
+
+
+def test_export_portfolio_news_agent_events_filters_old_non_agency_universe_rows(
+    tmp_path: Path,
+) -> None:
+    root = _agent_root(tmp_path)
+    _write_agent_config(root)
+    _write_agent_db(root / "data" / "portfolio_news.db")
+    _add_agent_summary(
+        root / "data" / "portfolio_news.db",
+        article_id=2,
+        link_id=3,
+        symbol="CGDV",
+        headline="Old standalone portfolio holding rallies",
+        summary="This should not be imported into the agency evidence set.",
+    )
+    repo_root = tmp_path / "agency"
+    _write_active_universe(repo_root, ["AAPL"])
+    parquet_path = tmp_path / "subscription_emails.parquet"
+    manifest_path = tmp_path / "subscription_emails.json"
+    summary_root = tmp_path / "summary"
+
+    result = export_portfolio_news_agent_events(
+        root=root,
+        repo_root=repo_root,
+        parquet_path=parquet_path,
+        manifest_path=manifest_path,
+        summary_root=summary_root,
+    )
+
+    assert result["status"] == "exported"
+    assert result["event_rows"] == 1
+    assert result["active_universe_count"] == 1
+    assert result["ignored_out_of_universe_event_rows"] == 1
+    frame = pd.read_parquet(parquet_path)
+    assert frame["ticker"].tolist() == ["AAPL"]
+    summary = json.loads((summary_root / "subscription-email-ingest.json").read_text())
+    assert summary["ignored_out_of_universe_event_rows"] == 1
+    assert summary["active_universe_count"] == 1
+
+
+def test_export_portfolio_news_agent_events_removes_stale_non_universe_agent_rows(
+    tmp_path: Path,
+) -> None:
+    root = _agent_root(tmp_path)
+    _write_agent_config(root)
+    _write_agent_db(root / "data" / "portfolio_news.db")
+    _add_agent_summary(
+        root / "data" / "portfolio_news.db",
+        article_id=2,
+        link_id=3,
+        symbol="CGDV",
+        headline="Old standalone portfolio holding rallies",
+        summary="This should be removed after the agency universe changes.",
+    )
+    repo_root = tmp_path / "agency"
+    parquet_path = tmp_path / "subscription_emails.parquet"
+    manifest_path = tmp_path / "subscription_emails.json"
+    summary_root = tmp_path / "summary"
+    _write_active_universe(repo_root, ["AAPL", "CGDV"])
+    export_portfolio_news_agent_events(
+        root=root,
+        repo_root=repo_root,
+        parquet_path=parquet_path,
+        manifest_path=manifest_path,
+        summary_root=summary_root,
+    )
+    assert sorted(pd.read_parquet(parquet_path)["ticker"].tolist()) == ["AAPL", "CGDV"]
+    existing = pd.read_parquet(parquet_path)
+    legacy_qqq = existing.iloc[[0]].copy()
+    legacy_qqq["ticker"] = "QQQ"
+    legacy_qqq["source_id"] = "subscription_email:legacy:QQQ"
+    legacy_qqq["event_type"] = "sa_news"
+    pd.concat([existing, legacy_qqq], ignore_index=True).to_parquet(
+        parquet_path,
+        engine="pyarrow",
+        compression="snappy",
+        index=False,
+    )
+    _write_active_universe(repo_root, ["AAPL"])
+
+    result = export_portfolio_news_agent_events(
+        root=root,
+        repo_root=repo_root,
+        parquet_path=parquet_path,
+        manifest_path=manifest_path,
+        summary_root=summary_root,
+    )
+
+    assert result["event_rows"] == 1
+    frame = pd.read_parquet(parquet_path)
+    assert frame["ticker"].tolist() == ["AAPL"]
+    assert result["removed_existing_out_of_universe_event_rows"] == 2
 
 
 def test_email_evidence_post_sync_runs_ticker_scoped_mini_cycles(
@@ -322,6 +429,20 @@ def _write_agent_config(root: Path, *, telegram_enabled: bool = False) -> None:
         ),
         encoding="utf-8",
     )
+
+
+def _write_active_universe(repo_root: Path, tickers: list[str]) -> None:
+    parquet_root = repo_root / "research" / "data" / "parquet"
+    parquet_root.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        {
+            "ticker": tickers,
+            "index_name": ["NASDAQ100"] * len(tickers),
+            "start_date": [date(2020, 1, 1)] * len(tickers),
+            "end_date": [None] * len(tickers),
+            "timestamp_as_of": [date(2020, 1, 1)] * len(tickers),
+        }
+    ).to_parquet(parquet_root / "universe_membership.parquet", index=False)
 
 
 def _write_agent_db(path: Path) -> None:
