@@ -22,6 +22,7 @@ from subscription_email.types import EmailRecord
 from agency.runtime.local_llm import (
     LOCAL_LLM_BASE_URL_ENV,
     LOCAL_LLM_MODEL_ENV,
+    LOCAL_LLM_TIMEOUT_ENV,
     LocalLlmConfig,
 )
 from agency.services.llm_review import looks_like_openai_api_key
@@ -81,6 +82,11 @@ class ArticleLlmAnalyzer:
         if provider == "local_ollama":
             local_config = LocalLlmConfig.from_env()
             model = os.environ.get(LOCAL_LLM_MODEL_ENV, "").strip() or config.article_llm_model
+            timeout_seconds = (
+                int(local_config.timeout_seconds)
+                if os.environ.get(LOCAL_LLM_TIMEOUT_ENV, "").strip()
+                else config.article_llm_timeout_seconds
+            )
             return cls(
                 api_key=None,
                 model=model.strip() or local_config.model,
@@ -90,7 +96,7 @@ class ArticleLlmAnalyzer:
                 ),
                 base_url=local_config.base_url,
                 provider=provider,
-                timeout_seconds=max(1, int(local_config.timeout_seconds)),
+                timeout_seconds=max(1, timeout_seconds),
             )
         model = (
             os.environ.get(OPENAI_ARTICLE_MODEL_ENV)
@@ -761,7 +767,10 @@ def _env_flag(name: str) -> bool:
 
 def _safe_error(exc: Exception) -> str:
     text = str(exc) or exc.__class__.__name__
-    return _clip(text.replace(os.environ.get(OPENAI_API_KEY_ENV, ""), "[REDACTED]"), 160)
+    api_key = os.environ.get(OPENAI_API_KEY_ENV, "").strip()
+    if api_key:
+        text = text.replace(api_key, "[REDACTED]")
+    return _clip(text, 160)
 
 
 def _verify_context() -> ssl.SSLContext | bool:

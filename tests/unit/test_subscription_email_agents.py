@@ -1764,6 +1764,66 @@ def test_article_llm_analyzer_local_ollama_not_configured_keeps_deterministic() 
     assert "AGENCY_LOCAL_LLM_BASE_URL" in str(analysis["local_llm_article_error"])
 
 
+def test_article_llm_analyzer_local_ollama_uses_article_timeout_when_env_timeout_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _config()
+    config = SubscriptionEmailConfig(
+        **{
+            **config.__dict__,
+            "article_llm_provider": "local_ollama",
+            "article_llm_model": "qwen2.5:3b-instruct",
+            "article_llm_timeout_seconds": 123,
+        }
+    )
+    monkeypatch.setenv("AGENCY_LOCAL_LLM_BASE_URL", "http://pi.local:11434")
+    monkeypatch.setenv("AGENCY_LOCAL_LLM_MODEL", "qwen2.5:3b-instruct")
+    monkeypatch.delenv("AGENCY_LOCAL_LLM_TIMEOUT_SECONDS", raising=False)
+
+    analyzer = ArticleLlmAnalyzer.from_config(config)
+
+    assert analyzer.provider == "local_ollama"
+    assert analyzer.timeout_seconds == 123
+
+
+def test_article_llm_analyzer_local_ollama_failure_keeps_readable_error_without_openai_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    page = FetchedArticle(
+        url="https://seekingalpha.com/article/local-msft-failure",
+        status_code=200,
+        title="MSFT upgrade thesis",
+        text="MSFT was upgraded after positive guidance and stronger cloud demand.",
+    )
+    record = _record(
+        "seeking_alpha",
+        "MSFT: analyst article",
+        "Open this link: https://seekingalpha.com/article/local-msft-failure",
+    )
+
+    def fake_request(
+        _self: ArticleLlmAnalyzer,
+        _messages: list[dict[str, str]],
+    ) -> dict[str, object]:
+        raise ValueError("local ollama unavailable")
+
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setattr(ArticleLlmAnalyzer, "_request_local_ollama", fake_request)
+
+    analysis = ArticleLlmAnalyzer(
+        api_key=None,
+        model="qwen2.5:3b-instruct",
+        enabled=True,
+        provider="local_ollama",
+        base_url="http://pi.local:11434",
+    ).analyze(page, config=_config(), record=record)
+
+    assert analysis["local_llm_article_status"] == "failed"
+    assert analysis["local_llm_article_error"] == "local ollama unavailable"
+    assert "[REDACTED]l[REDACTED]" not in str(analysis["local_llm_article_error"])
+    assert analysis["local_llm_article_can_affect_trade_gates"] is False
+
+
 def test_article_llm_analysis_derives_confidence_from_strength_when_local_model_uses_label() -> None:
     config = _config()
     page = FetchedArticle(
