@@ -17,7 +17,7 @@ PREFERRED_MODELS = ("qwen2.5:3b", "llama3.2:3b", "qwen2.5:7b")
 def main() -> int:
     args = _parse_args()
     base_url = args.base_url.rstrip("/") + "/"
-    api_key = getpass("Paste Open WebUI API key: ").strip()
+    api_key = normalize_api_key(getpass("Paste Open WebUI API key: "))
     if not api_key:
         print("No API key entered; .env was not changed.", file=sys.stderr)
         return 2
@@ -25,8 +25,10 @@ def main() -> int:
     try:
         models = fetch_models(base_url, api_key)
     except urllib.error.HTTPError as exc:
+        detail = _http_error_detail(exc)
         print(
-            f"Open WebUI rejected the key or request: HTTP {exc.code}. .env was not changed.",
+            f"Open WebUI rejected the key or request: HTTP {exc.code}. {detail} "
+            ".env was not changed.",
             file=sys.stderr,
         )
         return 2
@@ -61,13 +63,35 @@ def main() -> int:
 
 
 def fetch_models(base_url: str, api_key: str) -> list[str]:
-    request = urllib.request.Request(
+    payload = _get_json_with_api_key(
         base_url.rstrip("/") + "/api/models",
-        headers={"Authorization": f"Bearer {api_key}"},
+        api_key,
     )
-    with urllib.request.urlopen(request, timeout=30) as response:
-        payload = json.loads(response.read().decode("utf-8"))
     return extract_models(payload)
+
+
+def _get_json_with_api_key(url: str, api_key: str) -> Any:
+    errors: list[urllib.error.HTTPError] = []
+    for headers in (
+        {"Authorization": f"Bearer {api_key}"},
+        {"x-api-key": api_key},
+    ):
+        request = urllib.request.Request(url, headers=headers)
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            errors.append(exc)
+            if exc.code not in {401, 403}:
+                raise
+    raise errors[-1]
+
+
+def normalize_api_key(value: str) -> str:
+    key = value.strip().strip("\"'")
+    if key.lower().startswith("bearer "):
+        key = key[7:].strip()
+    return key
 
 
 def extract_models(payload: Any) -> list[str]:
@@ -102,6 +126,21 @@ def update_env_lines(lines: list[str], updates: dict[str, str]) -> list[str]:
         else:
             output.append(f"{key}={value}")
     return output
+
+
+def _http_error_detail(exc: urllib.error.HTTPError) -> str:
+    try:
+        body = exc.read(500).decode("utf-8", errors="replace")
+    except OSError:
+        body = ""
+    if body:
+        return f"Response: {body[:260]}."
+    if exc.code == 403:
+        return (
+            "The API key was refused. Regenerate it from Open WebUI "
+            "Settings -> Account -> API Keys, and make sure API keys are enabled."
+        )
+    return ""
 
 
 def _parse_args() -> argparse.Namespace:

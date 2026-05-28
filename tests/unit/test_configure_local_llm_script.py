@@ -63,3 +63,11 @@ def test_select_model_prefers_small_qwen_then_fallback() -> None:
     assert script.select_model(["llama3.2:3b", "qwen2.5:3b"]) == "qwen2.5:3b"
     assert script.select_model(["llama3.2:3b"]) == "llama3.2:3b"
     assert script.select_model(["custom-model"]) == "custom-model"
+
+
+def test_normalize_api_key_strips_bearer_prefix_and_quotes() -> None:
+    script = _load_script()
+
+    assert script.normalize_api_key("Bearer sk-local") == "sk-local"
+    assert script.normalize_api_key('"Bearer sk-local"') == "sk-local"
+    assert script.normalize_api_key("'sk-local'") == "sk-local"
