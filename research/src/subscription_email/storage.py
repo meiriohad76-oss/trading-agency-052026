@@ -39,6 +39,22 @@ EVENT_COLUMNS = [
     "linked_content_signal_strength",
     "linked_content_context_chars",
     "linked_content_confidence",
+    "local_llm_article_status",
+    "local_llm_article_provider",
+    "local_llm_article_model",
+    "local_llm_article_context_source",
+    "local_llm_article_direction",
+    "local_llm_article_confidence",
+    "local_llm_article_tickers",
+    "local_llm_article_thesis",
+    "local_llm_article_key_points",
+    "local_llm_article_catalysts",
+    "local_llm_article_risk_flags",
+    "local_llm_article_decision_use",
+    "local_llm_article_signal_strength",
+    "local_llm_article_comparison",
+    "local_llm_article_error",
+    "local_llm_article_can_affect_trade_gates",
     "timestamp_observed",
     "timestamp_as_of",
     "freshness",
@@ -101,6 +117,17 @@ def _with_event_defaults(frame: pd.DataFrame) -> pd.DataFrame:
         "linked_content_decision_use": None,
         "linked_content_signal_strength": None,
         "linked_content_confidence": None,
+        "local_llm_article_status": None,
+        "local_llm_article_provider": None,
+        "local_llm_article_model": None,
+        "local_llm_article_context_source": None,
+        "local_llm_article_direction": None,
+        "local_llm_article_confidence": None,
+        "local_llm_article_thesis": None,
+        "local_llm_article_decision_use": None,
+        "local_llm_article_signal_strength": None,
+        "local_llm_article_comparison": None,
+        "local_llm_article_error": None,
     }
     for column, value in defaults.items():
         if column not in output.columns:
@@ -110,11 +137,17 @@ def _with_event_defaults(frame: pd.DataFrame) -> pd.DataFrame:
         "linked_content_risk_flags",
         "linked_content_key_points",
         "linked_content_tickers",
+        "local_llm_article_tickers",
+        "local_llm_article_key_points",
+        "local_llm_article_catalysts",
+        "local_llm_article_risk_flags",
     ):
         if column not in output.columns:
             output[column] = [[] for _ in range(len(output))]
     if "linked_content_context_chars" not in output.columns:
         output["linked_content_context_chars"] = None
+    if "local_llm_article_can_affect_trade_gates" not in output.columns:
+        output["local_llm_article_can_affect_trade_gates"] = False
     return output
 
 

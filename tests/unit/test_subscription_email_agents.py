@@ -1675,6 +1675,128 @@ def test_article_llm_analyzer_calls_provider_with_article_context(
     assert analysis["direction"] == "BULLISH"
 
 
+def test_article_llm_analyzer_attaches_local_ollama_shadow_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    page = FetchedArticle(
+        url="https://seekingalpha.com/article/local-msft",
+        status_code=200,
+        title="MSFT downgrade thesis",
+        text="MSFT was downgraded after weak guidance and margin pressure.",
+    )
+    record = _record(
+        "seeking_alpha",
+        "MSFT: analyst article",
+        "Open this link: https://seekingalpha.com/article/local-msft",
+    )
+    captured_messages: list[dict[str, str]] = []
+
+    def fake_request(
+        self: ArticleLlmAnalyzer,
+        messages: list[dict[str, str]],
+    ) -> dict[str, object]:
+        assert self.provider == "local_ollama"
+        captured_messages.extend(messages)
+        return {
+            "direction": "BULLISH",
+            "confidence": "0.69",
+            "tickers": ["MSFT"],
+            "thesis": "MSFT cloud demand may offset the headline downgrade.",
+            "key_points": ["Cloud demand is the local model's constructive evidence."],
+            "catalysts": ["analyst_rating"],
+            "risk_flags": ["negative_revision"],
+            "decision_use": "Use as a shadow read and verify against deterministic evidence.",
+            "signal_strength": "medium",
+        }
+
+    monkeypatch.setattr(ArticleLlmAnalyzer, "_request_local_ollama", fake_request)
+
+    analysis = ArticleLlmAnalyzer(
+        api_key=None,
+        model="qwen2.5:3b-instruct",
+        enabled=True,
+        provider="local_ollama",
+        base_url="http://pi.local:11434",
+    ).analyze(page, config=_config(), record=record)
+
+    assert captured_messages
+    assert "shadow-only" in captured_messages[0]["content"].lower()
+    assert "MSFT was downgraded" in captured_messages[1]["content"]
+    assert analysis["direction"] == "BEARISH"
+    assert analysis["context_source"] == "title_plus_browser_rendered_text"
+    assert analysis["local_llm_article_status"] == "completed"
+    assert analysis["local_llm_article_provider"] == "local_ollama"
+    assert analysis["local_llm_article_model"] == "qwen2.5:3b-instruct"
+    assert analysis["local_llm_article_context_source"] == (
+        "local_ollama_article_analysis:"
+        "qwen2.5:3b-instruct:subscription-email-article-analysis-v1"
+    )
+    assert analysis["local_llm_article_direction"] == "BULLISH"
+    assert analysis["local_llm_article_confidence"] == 0.69
+    assert analysis["local_llm_article_can_affect_trade_gates"] is False
+    assert "disagrees" in str(analysis["local_llm_article_comparison"]).lower()
+
+
+def test_article_llm_analyzer_local_ollama_not_configured_keeps_deterministic() -> None:
+    page = FetchedArticle(
+        url="https://seekingalpha.com/article/local-aapl",
+        status_code=200,
+        title="AAPL upgrade thesis",
+        text="AAPL was upgraded after positive guidance and strong earnings.",
+    )
+    record = _record(
+        "seeking_alpha",
+        "AAPL: analyst article",
+        "Open this link: https://seekingalpha.com/article/local-aapl",
+    )
+
+    analysis = ArticleLlmAnalyzer(
+        api_key=None,
+        model="",
+        enabled=True,
+        provider="local_ollama",
+        base_url="",
+    ).analyze(page, config=_config(), record=record)
+
+    assert analysis["direction"] == "BULLISH"
+    assert analysis["local_llm_article_status"] == "not_configured"
+    assert analysis["local_llm_article_can_affect_trade_gates"] is False
+    assert "AGENCY_LOCAL_LLM_BASE_URL" in str(analysis["local_llm_article_error"])
+
+
+def test_article_llm_analysis_derives_confidence_from_strength_when_local_model_uses_label() -> None:
+    config = _config()
+    page = FetchedArticle(
+        url="https://seekingalpha.com/article/local-confidence",
+        status_code=200,
+        title="MSFT local confidence",
+        text="MSFT was upgraded after positive guidance.",
+    )
+    fallback = analyze_article(page, config=config)
+
+    analysis = normalize_article_llm_analysis(
+        {
+            "direction": "BULLISH",
+            "confidence": "high",
+            "tickers": ["MSFT"],
+            "thesis": "MSFT guidance is constructive.",
+            "key_points": ["Guidance is constructive."],
+            "catalysts": ["earnings"],
+            "risk_flags": [],
+            "decision_use": "Use as local shadow evidence.",
+            "signal_strength": "high",
+        },
+        page=page,
+        config=config,
+        fallback=fallback,
+        model="qwen2.5:3b-instruct",
+        provider="local_ollama",
+    )
+
+    assert analysis["confidence"] == 0.8
+    assert analysis["signal_strength"] == "high"
+
+
 def test_article_llm_analyzer_caps_article_context_to_portfolio_agent_limit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1735,6 +1857,59 @@ def test_article_llm_analyzer_caps_article_context_to_portfolio_agent_limit(
     assert article_payload["body_truncated"] is True
 
 
+def test_local_ollama_article_prompt_uses_compact_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    long_text = "MSFT cloud demand, analyst upgrade, valuation risk. " * 250
+    page = FetchedArticle(
+        url="https://seekingalpha.com/article/local-long-msft",
+        status_code=200,
+        title="MSFT local thesis",
+        text=long_text,
+    )
+    record = _record(
+        "seeking_alpha",
+        "MSFT: local article",
+        "Open this link: https://seekingalpha.com/article/local-long-msft",
+    )
+    captured_payloads: list[dict[str, object]] = []
+
+    def fake_request(
+        _self: ArticleLlmAnalyzer,
+        messages: list[dict[str, str]],
+    ) -> dict[str, object]:
+        captured_payloads.append(json.loads(messages[1]["content"]))
+        return {
+            "direction": "BULLISH",
+            "confidence": 0.61,
+            "tickers": ["MSFT"],
+            "thesis": "MSFT cloud demand is constructive.",
+            "key_points": ["Cloud demand is constructive."],
+            "catalysts": ["analyst_rating"],
+            "risk_flags": ["valuation"],
+            "decision_use": "Use as a compact shadow-only read.",
+            "signal_strength": "medium",
+        }
+
+    monkeypatch.setattr(ArticleLlmAnalyzer, "_request_local_ollama", fake_request)
+
+    ArticleLlmAnalyzer(
+        api_key=None,
+        model="qwen2.5:3b-instruct",
+        enabled=True,
+        provider="local_ollama",
+        base_url="http://pi.local:11434",
+    ).analyze(page, config=_config(), record=record)
+
+    assert captured_payloads
+    payload = captured_payloads[0]
+    assert len(str(payload["article_text"])) <= 1_000
+    assert payload["body_characters_original"] == len(long_text)
+    assert payload["body_truncated"] is True
+    assert payload["shadow_only"] is True
+    assert payload["allowed"]["direction"] == ["BEARISH", "BULLISH", "NEUTRAL"]
+
+
 def test_article_llm_analyzer_marks_missing_key_as_deterministic_fallback() -> None:
     page = FetchedArticle(
         url="https://seekingalpha.com/article/993",
@@ -1793,6 +1968,74 @@ def test_linked_article_cache_miss_writes_only_safe_analysis(tmp_path: Path) -> 
     assert cache["articles"]["https://seekingalpha.com/article/456"]["tickers"] == ["NVDA"]
     assert "thesis" in cache["articles"]["https://seekingalpha.com/article/456"]
     assert "key_points" in cache["articles"]["https://seekingalpha.com/article/456"]
+
+
+def test_linked_article_cache_persists_local_ollama_shadow_without_raw_text(
+    tmp_path: Path,
+) -> None:
+    cache_path = tmp_path / "article-cache.local.json"
+    config = _config(follow_article_links=True, article_analysis_cache_path=cache_path)
+    records = [
+        _record(
+            "seeking_alpha",
+            "MSFT article",
+            "MSFT analyst article https://seekingalpha.com/article/msft-local",
+        )
+    ]
+
+    def fetcher(url: str, _timeout_seconds: int) -> FetchedArticle:
+        return FetchedArticle(
+            url=url,
+            status_code=200,
+            title="Paid title must not be cached",
+            text="MSFT receives a bullish upgrade with article-only private body details.",
+        )
+
+    def analyzer(
+        page: FetchedArticle,
+        active_config: SubscriptionEmailConfig,
+        _record: EmailRecord,
+    ) -> dict[str, object]:
+        fallback = analyze_article(page, config=active_config)
+        return {
+            **fallback,
+            "local_llm_article_status": "completed",
+            "local_llm_article_provider": "local_ollama",
+            "local_llm_article_model": "qwen2.5:3b-instruct",
+            "local_llm_article_context_source": (
+                "local_ollama_article_analysis:"
+                "qwen2.5:3b-instruct:subscription-email-article-analysis-v1"
+            ),
+            "local_llm_article_direction": "BULLISH",
+            "local_llm_article_confidence": 0.72,
+            "local_llm_article_tickers": ["MSFT"],
+            "local_llm_article_thesis": "MSFT upgrade context is constructive.",
+            "local_llm_article_key_points": ["Upgrade language is constructive."],
+            "local_llm_article_catalysts": ["analyst_rating"],
+            "local_llm_article_risk_flags": ["valuation"],
+            "local_llm_article_decision_use": "Use as shadow-only confirmation.",
+            "local_llm_article_signal_strength": "medium",
+            "local_llm_article_comparison": (
+                "Local LLM agrees with deterministic direction BULLISH."
+            ),
+            "local_llm_article_can_affect_trade_gates": False,
+        }
+
+    result = linked_content.enrich_records_with_linked_content(
+        records,
+        config=config,
+        fetcher=fetcher,
+        analyzer=analyzer,
+    )
+    cache = json.loads(cache_path.read_text(encoding="utf-8"))
+
+    assert result.records[0].local_llm_article_status == "completed"
+    assert result.records[0].local_llm_article_direction == "BULLISH"
+    cached = cache["articles"]["https://seekingalpha.com/article/msft-local"]
+    assert cached["local_llm_article_status"] == "completed"
+    assert cached["local_llm_article_can_affect_trade_gates"] is False
+    assert "Paid title must not be cached" not in json.dumps(cache)
+    assert "article-only private body details" not in json.dumps(cache)
 
 
 def test_linked_article_llm_analyzer_runs_for_each_opened_link(tmp_path: Path) -> None:
@@ -1901,6 +2144,75 @@ def test_llm_enabled_ignores_deterministic_article_cache(tmp_path: Path) -> None
             "seeking_alpha",
             "Seeking Alpha article alert",
             "Read this MSFT article https://seekingalpha.com/article/123",
+        )
+    ]
+    fetched = False
+
+    def fetcher(url: str, _timeout_seconds: int) -> FetchedArticle:
+        nonlocal fetched
+        fetched = True
+        return FetchedArticle(
+            url=url,
+            status_code=200,
+            title="Article",
+            text="MSFT receives a bullish analyst upgrade with strong earnings guidance.",
+        )
+
+    result = linked_content.enrich_records_with_linked_content(
+        records,
+        config=config,
+        fetcher=fetcher,
+        analyzer=lambda page, active_config, _record: analyze_article(
+            page,
+            config=active_config,
+        ),
+    )
+
+    assert fetched is True
+    assert result.stats.cached == 0
+    assert result.stats.attempted == 1
+
+
+def test_local_ollama_provider_ignores_failed_shadow_cache(tmp_path: Path) -> None:
+    cache_path = tmp_path / "article-cache.local.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "0.1.0",
+                "articles": {
+                    "https://seekingalpha.com/article/failed-local": {
+                        "status": "article_analyzed",
+                        "url": "https://seekingalpha.com/article/failed-local",
+                        "title_hash": "title123",
+                        "tickers": ["MSFT"],
+                        "direction": "BULLISH",
+                        "catalysts": ["analyst_rating"],
+                        "text_hash": "text123",
+                        "local_llm_article_status": "failed",
+                        "local_llm_article_context_source": (
+                            "local_ollama_article_analysis:"
+                            "qwen2.5:3b-instruct:subscription-email-article-analysis-v1"
+                        ),
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    config = _config(follow_article_links=True, article_analysis_cache_path=cache_path)
+    config = SubscriptionEmailConfig(
+        **{
+            **config.__dict__,
+            "article_llm_analysis_enabled": True,
+            "article_llm_provider": "local_ollama",
+            "article_llm_model": "qwen2.5:3b-instruct",
+        }
+    )
+    records = [
+        _record(
+            "seeking_alpha",
+            "MSFT article",
+            "Read this MSFT article https://seekingalpha.com/article/failed-local",
         )
     ]
     fetched = False

@@ -16,6 +16,7 @@ from agency.runtime.local_llm import (
 
 def test_local_llm_config_normalizes_open_webui_base_url(monkeypatch) -> None:
     monkeypatch.setenv("AGENCY_LOCAL_LLM_ENABLED", "true")
+    monkeypatch.setenv("AGENCY_LOCAL_LLM_PROVIDER", "openwebui")
     monkeypatch.setenv("AGENCY_LOCAL_LLM_BASE_URL", "http://10.0.0.5:3000")
     monkeypatch.setenv("AGENCY_LOCAL_LLM_API_KEY", "owui-key")
     monkeypatch.setenv("AGENCY_LOCAL_LLM_MODEL", "llama3.1:8b")
@@ -288,6 +289,31 @@ async def test_check_local_llm_health_uses_openwebui_models_endpoint() -> None:
     assert result["reachable"] is True
     assert result["model_count"] == 1
     assert requests == ["http://pi.local:3000/api/models"]
+
+
+async def test_check_local_llm_health_reports_direct_ollama_detail() -> None:
+    requests: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(str(request.url))
+        return httpx.Response(200, json={"models": [{"name": "qwen2.5:3b-instruct"}]})
+
+    config = LocalLlmConfig(
+        enabled=True,
+        provider="ollama",
+        base_url="http://pi.local:11434",
+        api_key="",
+        model="qwen2.5:3b-instruct",
+    )
+    client = OpenWebUIClient(config, transport=httpx.MockTransport(handler))
+
+    result = await check_local_llm_health(config=config, client=client)
+
+    assert result["status"] == "ready"
+    assert result["status_label"] == "Direct Ollama reachable"
+    assert result["detail"] == "Direct Ollama responded to the local model health check."
+    assert result["model_count"] == 1
+    assert requests == ["http://pi.local:11434/api/tags"]
 
 
 def _runtime_input_root(tmp_path: Path) -> Path:

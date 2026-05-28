@@ -47,6 +47,7 @@
     "seeking_alpha"
   ],
   "article_llm_analysis_enabled": false,
+  "article_llm_provider": "openai",
   "article_llm_model": "gpt-5-nano",
   "article_llm_timeout_seconds": 45,
   "mailbox_host": null,

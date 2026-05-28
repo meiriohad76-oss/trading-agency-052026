@@ -202,7 +202,7 @@ async def check_local_llm_health(
         "schema_version": "0.1.0",
         "status": "ready",
         "status_class": "pass",
-        "detail": "Open WebUI responded to the local model health check.",
+        "detail": _provider_health_detail(config.provider),
         "generated_at": _utc_now(),
         **result,
     }
@@ -575,6 +575,12 @@ def _status_label(status: str) -> str:
 
 def _provider_status_label(provider: str) -> str:
     return "Direct Ollama reachable" if provider == "ollama" else "Local LLM reachable"
+
+
+def _provider_health_detail(provider: str) -> str:
+    if provider == "ollama":
+        return "Direct Ollama responded to the local model health check."
+    return "Open WebUI responded to the local model health check."
 
 
 def _model_count(payload: object, provider: str) -> int:

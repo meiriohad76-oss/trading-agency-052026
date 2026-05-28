@@ -418,17 +418,25 @@ def _usable_cached_analysis(
         return None
     context_source = str(analysis.get("context_source", ""))
     llm_enabled = _article_llm_enabled(config)
-    if llm_enabled and not context_source.startswith(
-        "openai_llm_article_analysis:"
-    ):
-        return None
     if llm_enabled:
-        active_model = os.environ.get("OPENAI_ARTICLE_ANALYSIS_MODEL") or config.article_llm_model
-        expected_suffix = (
-            f":{active_model}:subscription-email-article-analysis-v1"
-        )
-        if not context_source.endswith(expected_suffix):
-            return None
+        provider = _article_llm_provider(config)
+        if provider == "local_ollama":
+            if str(analysis.get("local_llm_article_status") or "") != "completed":
+                return None
+            local_context = str(analysis.get("local_llm_article_context_source", ""))
+            active_model = os.environ.get("AGENCY_LOCAL_LLM_MODEL") or config.article_llm_model
+            expected_suffix = f":{active_model}:subscription-email-article-analysis-v1"
+            if not local_context.startswith("local_ollama_article_analysis:"):
+                return None
+            if not local_context.endswith(expected_suffix):
+                return None
+        else:
+            if not context_source.startswith("openai_llm_article_analysis:"):
+                return None
+            active_model = os.environ.get("OPENAI_ARTICLE_ANALYSIS_MODEL") or config.article_llm_model
+            expected_suffix = f":{active_model}:subscription-email-article-analysis-v1"
+            if not context_source.endswith(expected_suffix):
+                return None
     return analysis
 
 
@@ -671,6 +679,44 @@ def _with_analysis(record: EmailRecord, analysis: dict[str, object]) -> EmailRec
             "linked_content_signal_strength": _string(analysis.get("signal_strength")),
             "linked_content_context_chars": _integer(analysis.get("context_chars")),
             "linked_content_confidence": _confidence_value(analysis.get("confidence")),
+            "local_llm_article_status": _string(analysis.get("local_llm_article_status")),
+            "local_llm_article_provider": _string(analysis.get("local_llm_article_provider")),
+            "local_llm_article_model": _string(analysis.get("local_llm_article_model")),
+            "local_llm_article_context_source": _string(
+                analysis.get("local_llm_article_context_source")
+            ),
+            "local_llm_article_direction": _string(
+                analysis.get("local_llm_article_direction")
+            ),
+            "local_llm_article_confidence": _confidence_value(
+                analysis.get("local_llm_article_confidence")
+            ),
+            "local_llm_article_tickers": tuple(
+                _string_items(analysis.get("local_llm_article_tickers"))
+            ),
+            "local_llm_article_thesis": _string(analysis.get("local_llm_article_thesis")),
+            "local_llm_article_key_points": tuple(
+                _string_items(analysis.get("local_llm_article_key_points"))
+            ),
+            "local_llm_article_catalysts": tuple(
+                _string_items(analysis.get("local_llm_article_catalysts"))
+            ),
+            "local_llm_article_risk_flags": tuple(
+                _string_items(analysis.get("local_llm_article_risk_flags"))
+            ),
+            "local_llm_article_decision_use": _sentence_case(
+                _string(analysis.get("local_llm_article_decision_use"))
+            ),
+            "local_llm_article_signal_strength": _string(
+                analysis.get("local_llm_article_signal_strength")
+            ),
+            "local_llm_article_comparison": _string(
+                analysis.get("local_llm_article_comparison")
+            ),
+            "local_llm_article_error": _string(analysis.get("local_llm_article_error")),
+            "local_llm_article_can_affect_trade_gates": bool(
+                analysis.get("local_llm_article_can_affect_trade_gates") is True
+            ),
         }
     )
 
@@ -726,6 +772,14 @@ def _article_llm_enabled(config: SubscriptionEmailConfig) -> bool:
         return True
     value = os.environ.get("SUBSCRIPTION_EMAIL_LLM_ANALYSIS_ENABLED", "")
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _article_llm_provider(config: SubscriptionEmailConfig) -> str:
+    return (
+        os.environ.get("SUBSCRIPTION_EMAIL_ARTICLE_LLM_PROVIDER")
+        or config.article_llm_provider
+        or "openai"
+    ).strip().lower()
 
 
 def _asset_url(url: str) -> bool:

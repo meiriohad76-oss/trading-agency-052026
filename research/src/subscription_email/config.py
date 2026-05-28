@@ -10,6 +10,7 @@ MIN_MONITOR_POLL_SECONDS = 5
 MIN_BROWSER_WAIT_SECONDS = 1
 MIN_MAILBOX_MAX_MESSAGES = 1
 SUPPORTED_ARTICLE_FETCH_MODES = {"auto", "http", "browser"}
+SUPPORTED_ARTICLE_LLM_PROVIDERS = {"openai", "local_ollama"}
 SUPPORTED_BROWSER_CHANNELS = {"chromium", "chrome", "msedge"}
 SUPPORTED_MODES = {"local_eml", "gmail", "outlook", "imap"}
 SUPPORTED_UNMATCHED_TICKER_POLICIES = {"manual_review", "ignore"}
@@ -44,6 +45,7 @@ class SubscriptionEmailConfig:
     article_login_preflight_confirmed: bool = False
     article_cache_ttl_hours: int = 168
     article_llm_analysis_enabled: bool = False
+    article_llm_provider: str = "openai"
     article_llm_model: str = "gpt-5-nano"
     article_llm_timeout_seconds: int = 45
     mailbox_host: str | None = None
@@ -113,6 +115,7 @@ def load_subscription_email_config(path: Path, *, repo_root: Path) -> Subscripti
         article_login_preflight_services=article_login_preflight_services,
         article_cache_ttl_hours=_integer(payload, "article_cache_ttl_hours", 168),
         article_llm_analysis_enabled=_boolean(payload, "article_llm_analysis_enabled", False),
+        article_llm_provider=_string(payload, "article_llm_provider", "openai").lower(),
         article_llm_model=_string(payload, "article_llm_model", "gpt-5-nano"),
         article_llm_timeout_seconds=_integer(payload, "article_llm_timeout_seconds", 45),
         mailbox_host=_optional_string(payload, "mailbox_host"),
@@ -177,6 +180,8 @@ def _validate_article_config(config: SubscriptionEmailConfig) -> None:
         )
     if config.article_llm_timeout_seconds < 1:
         raise ValueError("article_llm_timeout_seconds must be >= 1")
+    if config.article_llm_provider not in SUPPORTED_ARTICLE_LLM_PROVIDERS:
+        raise ValueError("article_llm_provider must be openai or local_ollama")
     if config.article_cache_ttl_hours < 1:
         raise ValueError("article_cache_ttl_hours must be >= 1")
 

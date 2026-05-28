@@ -23,6 +23,22 @@ SAFE_ANALYSIS_KEYS = frozenset(
         "confidence",
         "decision_use",
         "key_points",
+        "local_llm_article_can_affect_trade_gates",
+        "local_llm_article_catalysts",
+        "local_llm_article_comparison",
+        "local_llm_article_confidence",
+        "local_llm_article_context_source",
+        "local_llm_article_decision_use",
+        "local_llm_article_direction",
+        "local_llm_article_error",
+        "local_llm_article_key_points",
+        "local_llm_article_model",
+        "local_llm_article_provider",
+        "local_llm_article_risk_flags",
+        "local_llm_article_signal_strength",
+        "local_llm_article_status",
+        "local_llm_article_thesis",
+        "local_llm_article_tickers",
         "risk_flags",
         "signal_strength",
         "status_code",
@@ -136,6 +152,7 @@ def _safe_analysis(value: Mapping[str, object]) -> dict[str, object] | None:
         output["context_source"] = context_source
     if confidence is not None:
         output["confidence"] = confidence
+    _copy_local_llm_shadow(value, output)
     context_chars = _integer(value.get("context_chars"))
     if context_chars is not None:
         output["context_chars"] = context_chars
@@ -146,6 +163,42 @@ def _safe_analysis(value: Mapping[str, object]) -> dict[str, object] | None:
     if isinstance(fetched_at, str) and fetched_at:
         output["fetched_at"] = fetched_at
     return {key: output[key] for key in output if key in SAFE_ANALYSIS_KEYS}
+
+
+def _copy_local_llm_shadow(
+    value: Mapping[str, object],
+    output: dict[str, object],
+) -> None:
+    for key in (
+        "local_llm_article_status",
+        "local_llm_article_provider",
+        "local_llm_article_model",
+        "local_llm_article_context_source",
+        "local_llm_article_direction",
+        "local_llm_article_thesis",
+        "local_llm_article_decision_use",
+        "local_llm_article_signal_strength",
+        "local_llm_article_comparison",
+        "local_llm_article_error",
+    ):
+        item = value.get(key)
+        if isinstance(item, str) and item:
+            output[key] = item
+    for key in (
+        "local_llm_article_tickers",
+        "local_llm_article_key_points",
+        "local_llm_article_catalysts",
+        "local_llm_article_risk_flags",
+    ):
+        items = _string_list(value.get(key))
+        if items:
+            output[key] = items
+    confidence = _float(value.get("local_llm_article_confidence"))
+    if confidence is not None:
+        output["local_llm_article_confidence"] = confidence
+    gate_flag = value.get("local_llm_article_can_affect_trade_gates")
+    if isinstance(gate_flag, bool):
+        output["local_llm_article_can_affect_trade_gates"] = gate_flag
 
 
 def _string_list(value: Any) -> list[str]:

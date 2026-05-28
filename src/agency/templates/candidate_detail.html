@@ -757,6 +757,19 @@
             </div>
           </div>
           <p class="article-use">{{ card.decision_use }}</p>
+          {% if card.local_llm_status %}
+          <div class="article-judgement article-judgement-{{ card.local_llm_status_class }}">
+            <span>{{ card.local_llm_status_label }}{% if card.local_llm_confidence_pct is not none %} / {{ card.local_llm_confidence_pct }}%{% endif %}</span>
+            <strong>{{ card.local_llm_comparison }}</strong>
+          </div>
+          {% if card.local_llm_thesis %}
+          <p class="article-thesis">Local Pi LLM: {{ card.local_llm_thesis }}</p>
+          {% endif %}
+          {% if card.local_llm_decision_use %}
+          <p class="article-use">{{ card.local_llm_decision_use }}</p>
+          {% endif %}
+          <p class="microcopy">Shadow-only local read. It cannot approve, block, promote, or submit a trade.</p>
+          {% endif %}
         </article>
         {% else %}
         <p class="empty-block">No subscription article evidence currently matches {{ ticker }}</p>

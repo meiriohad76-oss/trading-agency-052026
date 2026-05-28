@@ -20,7 +20,7 @@ from agency.db import MissingDatabaseConfigurationError, get_session
 from agency.runtime import list_candidate_lifecycle_events
 from agency.runtime.artifact_fallbacks import runtime_lifecycle_event_artifacts
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 EMAIL_EVENTS_PATH = REPO_ROOT / "research" / "data" / "parquet" / "subscription_emails.parquet"
 NEWS_RSS_PATH = REPO_ROOT / "research" / "data" / "parquet" / "news_rss.parquet"
 PRICES_DAILY_ROOT = REPO_ROOT / "research" / "data" / "parquet" / "prices_daily"

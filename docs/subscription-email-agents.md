@@ -211,21 +211,45 @@ For deeper article reasoning, enable the article LLM layer:
 
 ```json
 "article_llm_analysis_enabled": true,
+"article_llm_provider": "openai",
 "article_llm_model": "gpt-5-nano",
 "article_llm_timeout_seconds": 45
 ```
 
-The agent then sends each successfully opened article link, up to
+With `article_llm_provider=openai`, the agent sends each successfully opened article link, up to
 `article_max_total_per_run`, to OpenAI using `OPENAI_API_KEY`. It asks for a
 ticker-focused thesis, specific key points, catalyst tags, risk flags, direction,
 signal strength, and how the agency should use the article. The request body is
 capped at 5,000 article-text characters and records whether the body was
 truncated. The raw article text is not written to parquet, summaries, or cache.
 
-If OpenAI is unavailable, the link still falls back to deterministic article
-classification and the context source records that fallback. When LLM article
-analysis is enabled, old deterministic cache entries are ignored so already-seen
-links can be upgraded to LLM-derived thesis rows.
+The local Raspberry Pi Ollama path is available as a shadow reader:
+
+```json
+"article_llm_analysis_enabled": true,
+"article_llm_provider": "local_ollama",
+"article_llm_model": "qwen2.5:3b-instruct",
+"article_llm_timeout_seconds": 180
+```
+
+Set `AGENCY_LOCAL_LLM_ENABLED=true`,
+`AGENCY_LOCAL_LLM_PROVIDER=ollama`,
+`AGENCY_LOCAL_LLM_BASE_URL=http://<pi-host>:11434`, and
+`AGENCY_LOCAL_LLM_MODEL=qwen2.5:3b-instruct`. The local prompt uses the same
+article-analysis schema as the OpenAI path: `direction`, `confidence`,
+`tickers`, `thesis`, `key_points`, `catalysts`, `risk_flags`, `decision_use`,
+and `signal_strength`. It is intentionally compact for Pi CPU inference and is
+stored as `local_llm_article_*` shadow fields beside the deterministic article
+analysis. Those local fields are displayed on candidate email evidence panels,
+but `local_llm_article_can_affect_trade_gates` is always `false`; local Ollama
+cannot approve, block, promote, submit, or feed `subscription_thesis` until it
+has passed repeated quality reviews.
+
+If the selected LLM provider is unavailable, the link still falls back to
+deterministic article classification and records why the LLM read was not used.
+When LLM article analysis is enabled, old deterministic cache entries are
+ignored so already-seen links can be upgraded to LLM-derived thesis rows or
+local shadow rows.
 
 ## Import Command
 

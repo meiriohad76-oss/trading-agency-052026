@@ -973,6 +973,9 @@ def _candidate_email_event_rows(
         key_points = _object_strings(row.get("linked_content_key_points"))
         catalysts = _object_strings(row.get("linked_content_catalysts"))
         risks = _object_strings(row.get("linked_content_risk_flags"))
+        local_status = _clean_text(row.get("local_llm_article_status"))
+        local_direction = _clean_text(row.get("local_llm_article_direction"))
+        local_confidence = _float_or_none(row.get("local_llm_article_confidence"))
         decision_use = _email_dashboard_decision_use(
             ticker=ticker,
             title=title,
@@ -1028,6 +1031,31 @@ def _candidate_email_event_rows(
                 "risks": risks,
                 "risk_text": _human_list([_email_taxonomy_label(item) for item in risks]),
                 "decision_use": _sentence_case(decision_use),
+                "local_llm_status": local_status or "",
+                "local_llm_status_label": _local_article_status_label(local_status),
+                "local_llm_status_class": _local_article_status_class(local_status),
+                "local_llm_direction": _label_text(local_direction)
+                if local_direction
+                else "Not run",
+                "local_llm_direction_class": _direction_class(local_direction or "NEUTRAL"),
+                "local_llm_confidence_pct": (
+                    round(local_confidence * 100) if local_confidence is not None else None
+                ),
+                "local_llm_thesis": _clip_text(
+                    _clean_text(row.get("local_llm_article_thesis")) or "",
+                    260,
+                ),
+                "local_llm_decision_use": _sentence_case(
+                    _clean_text(row.get("local_llm_article_decision_use")) or ""
+                ),
+                "local_llm_comparison": _clip_text(
+                    _clean_text(row.get("local_llm_article_comparison"))
+                    or _local_article_default_comparison(local_status),
+                    300,
+                ),
+                "local_llm_can_affect_trade_gates": bool(
+                    row.get("local_llm_article_can_affect_trade_gates") is True
+                ),
                 "signal_strength": _clean_text(row.get("linked_content_signal_strength")) or "",
                 "context_chars": _int_or_none(row.get("linked_content_context_chars")),
                 "summary": _mailbox_event_summary(
@@ -1739,6 +1767,34 @@ def _candidate_email_insight_cards(
                     "decision_use",
                     _email_default_decision_use(status, direction),
                 ),
+                "local_llm_status": _row_text(event, "local_llm_status", ""),
+                "local_llm_status_label": _row_text(
+                    event,
+                    "local_llm_status_label",
+                    "Local LLM Not Run",
+                ),
+                "local_llm_status_class": _row_text(
+                    event,
+                    "local_llm_status_class",
+                    "neutral",
+                ),
+                "local_llm_direction": _row_text(event, "local_llm_direction", "Not run"),
+                "local_llm_direction_class": _row_text(
+                    event,
+                    "local_llm_direction_class",
+                    "neutral",
+                ),
+                "local_llm_confidence_pct": event.get("local_llm_confidence_pct"),
+                "local_llm_thesis": _row_text(event, "local_llm_thesis", ""),
+                "local_llm_decision_use": _row_text(event, "local_llm_decision_use", ""),
+                "local_llm_comparison": _row_text(
+                    event,
+                    "local_llm_comparison",
+                    "Local LLM article read has not run.",
+                ),
+                "local_llm_can_affect_trade_gates": bool(
+                    event.get("local_llm_can_affect_trade_gates") is True
+                ),
             }
         )
     return cards
@@ -2297,6 +2353,42 @@ def _int_or_none(value: object) -> int | None:
     if isinstance(value, float) and not pd.isna(value):
         return int(value)
     return None
+
+def _float_or_none(value: object) -> float | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if pd.isna(parsed):
+        return None
+    return max(0.0, min(1.0, parsed))
+
+def _local_article_status_label(status: str | None) -> str:
+    if status == "completed":
+        return "Local LLM Read"
+    if status == "failed":
+        return "Local LLM Failed"
+    if status == "not_configured":
+        return "Local LLM Not Configured"
+    if status == "disabled":
+        return "Local LLM Disabled"
+    return "Local LLM Not Run"
+
+def _local_article_status_class(status: str | None) -> str:
+    if status == "completed":
+        return "pass"
+    if status in {"failed", "not_configured"}:
+        return "warn"
+    return "neutral"
+
+def _local_article_default_comparison(status: str | None) -> str:
+    if status == "completed":
+        return "Local LLM completed a shadow article read."
+    if status:
+        return "Local LLM article read is unavailable; deterministic evidence is unchanged."
+    return "Local LLM article read has not run for this email/article row."
 
 def _email_headline(title: str | None) -> str:
     cleaned = _clean_text(title) or "No email headline recorded"

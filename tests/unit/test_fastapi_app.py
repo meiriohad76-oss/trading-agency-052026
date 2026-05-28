@@ -4420,6 +4420,7 @@ def test_provider_readiness_requires_alpaca_when_paper_broker_enabled(
 
     monkeypatch.setenv("AGENCY_ALPACA_BROKER_ENABLED", "true")
     monkeypatch.setenv("AGENCY_ENABLE_LLM_REVIEW", "false")
+    monkeypatch.setenv("AGENCY_LOCAL_LLM_ENABLED", "false")
     monkeypatch.setenv("ALPACA_API_KEY", "paper-key")
     monkeypatch.setenv("ALPACA_SECRET_KEY", "paper-secret")
     monkeypatch.setenv("MASSIVE_API_KEY", "massive-key")
@@ -7199,6 +7200,15 @@ def test_candidate_email_evidence_summarizes_email_and_feed_rows(tmp_path: Path)
                 "timestamp_as_of": "2026-05-08T12:00:00+00:00",
                 "linked_content_status": "article_analyzed",
                 "linked_content_summary": "Linked content thesis: constructive context.",
+                "local_llm_article_status": "completed",
+                "local_llm_article_direction": "BEARISH",
+                "local_llm_article_confidence": 0.66,
+                "local_llm_article_thesis": "Local model sees downgrade risk.",
+                "local_llm_article_decision_use": "Use as caution-only local read.",
+                "local_llm_article_comparison": (
+                    "Local LLM disagrees: deterministic direction BULLISH, local direction BEARISH."
+                ),
+                "local_llm_article_can_affect_trade_gates": False,
             },
             {
                 "ticker": "MSFT",
@@ -7263,6 +7273,10 @@ def test_candidate_email_evidence_summarizes_email_and_feed_rows(tmp_path: Path)
     assert evidence["pipeline_summary"].startswith("Analyzed article rows feed")
     assert evidence["insight_cards"][0]["article_focus"] == "Direct headline focus on MSFT"
     assert "Direct relevance" in str(evidence["insight_cards"][0]["relevance"])
+    assert evidence["insight_cards"][0]["local_llm_status_label"] == "Local LLM Read"
+    assert evidence["insight_cards"][0]["local_llm_direction"] == "Bearish"
+    assert "disagrees" in str(evidence["insight_cards"][0]["local_llm_comparison"])
+    assert evidence["insight_cards"][0]["local_llm_can_affect_trade_gates"] is False
     assert "context-only bullish thesis" in str(
         evidence["paired_rows"][0]["interpretation"]["summary"]
     )
@@ -7290,6 +7304,13 @@ def test_candidate_email_evidence_summarizes_email_and_feed_rows(tmp_path: Path)
     assert "does not change the judgment yet" in str(
         judged["insight_cards"][1]["judgement_contribution"]
     )
+
+
+def test_candidate_email_default_path_points_to_repo_research_data() -> None:
+    expected = REPO_ROOT / "research" / "data" / "parquet" / "subscription_emails.parquet"
+
+    assert expected == shared_module.EMAIL_EVENTS_PATH
+    assert "src/research" not in str(shared_module.EMAIL_EVENTS_PATH).replace("\\", "/")
 
 
 def test_candidate_news_evidence_shows_match_reason_and_confidence(tmp_path: Path) -> None:

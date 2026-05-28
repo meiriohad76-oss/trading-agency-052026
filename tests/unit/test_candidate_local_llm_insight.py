@@ -133,3 +133,14 @@ def test_candidate_template_renders_local_llm_shadow_panel() -> None:
     assert "local_llm_insight" in template
     assert "Local Pi LLM Shadow Insight" in template
     assert "cannot approve or block trades" in template
+
+
+def test_candidate_template_renders_local_article_shadow_read() -> None:
+    template = (REPO_ROOT / "src/agency/templates/candidate_detail.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert "card.local_llm_status_label" in template
+    assert "card.local_llm_comparison" in template
+    assert "Shadow-only local read" in template
+    assert "cannot approve, block, promote, or submit a trade" in template
