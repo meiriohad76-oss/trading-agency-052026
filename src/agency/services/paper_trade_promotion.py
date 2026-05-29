@@ -11,13 +11,11 @@ from agency.services.human_review import (
 )
 from agency.services.risk import PortfolioPolicy
 
-TRADE_PROMOTION_NOTE = (
-    "paper trade promotion: approved WATCH creates a paper BUY order-intent preview"
-)
+TRADE_PROMOTION_NOTE = "paper eligibility: approved WATCH creates a paper BUY order-details preview"
 TRADE_PROMOTION_REQUIRES_ORDER_APPROVAL_FLAG = "paper_trade_promotion_requires_order_approval"
 TRADE_PROMOTION_APPROVAL_NOTE = (
     "candidate approval records the research decision only; broker submission requires "
-    "a separate hash-bound order-intent approval after risk, policy, and freshness pass"
+    "separate approval for the current order details after risk, policy, and freshness pass"
 )
 DEFAULT_MIN_CONVICTION = 0.9
 DEFAULT_MIN_SOURCE_COUNT = 2
@@ -273,8 +271,8 @@ def _promotion_checks(
         _check(
             "promotion_enabled",
             config.enabled and config.max_promotions_per_cycle >= 1,
-            "paper trade promotion is enabled.",
-            "paper trade promotion is disabled or the per-cycle promotion limit is zero.",
+            "paper eligibility review is enabled.",
+            "paper eligibility review is disabled or the per-cycle paper limit is zero.",
             label="Paper promotion switch",
             observed="enabled" if config.enabled else "disabled",
             required="enabled and limit >= 1",
@@ -283,7 +281,7 @@ def _promotion_checks(
             "broker_ready",
             broker_ready,
             "Alpaca paper broker is connected and ready.",
-            "Alpaca paper broker is not ready for paper promotion.",
+            "Alpaca paper broker is not ready for paper eligibility.",
             label="Paper broker readiness",
             observed="ready" if broker_ready else "not ready",
             required="ready",
@@ -301,12 +299,12 @@ def _promotion_checks(
             "conviction",
             conviction >= config.min_conviction,
             (
-                f"conviction {conviction:.2f} meets paper promotion threshold "
+                f"conviction {conviction:.2f} meets paper eligibility threshold "
                 f"{config.min_conviction:.2f}."
             ),
             (
                 f"conviction {conviction:.2f} is below "
-                f"paper promotion threshold {config.min_conviction:.2f}."
+                f"paper eligibility threshold {config.min_conviction:.2f}."
             ),
             label="Conviction threshold",
             observed=f"{conviction:.2f}",
@@ -315,7 +313,7 @@ def _promotion_checks(
         _check(
             "risk_flags",
             not risk_flags,
-            "selection report has no promotion-blocking risk flags.",
+            "selection report has no risk flags that stop paper eligibility.",
             (
                 "selection report has risk flags that require research-only "
                 f"handling: {', '.join(risk_flags)}."
@@ -437,8 +435,9 @@ def _apply_operator_manual_advance(
                     "status": "PASS",
                     "status_class": "warn",
                     "detail": (
-                        "Operator manual advance accepted this paper-promotion "
-                        f"block: {original_detail} Reason: {reason}"
+                    "Operator manual advance acknowledged this caution for paper-only "
+                    f"execution. Original issue remains visible: {original_detail}. "
+                    f"Reason: {reason}"
                     ),
                     "required": "operator acknowledgement",
                     "value_detail": (
@@ -538,7 +537,7 @@ def _approval_check(
             "current human research approval is missing.",
             label="Human research approval",
             observed="missing",
-            required="current APPROVE with matching report hash",
+            required="current approval for these report details",
         )
     payload = _mapping_field(review, "payload")
     decision = str(payload.get("review_decision", "")).upper()
@@ -558,10 +557,10 @@ def _approval_check(
             "human_approval",
             False,
             "current research report is approved.",
-            "human approval is not hash-bound to the current selection report.",
+            "human approval is not tied to the current selection report.",
             label="Human research approval",
-            observed="APPROVE without report hash",
-            required="matching report hash",
+            observed="APPROVE without current report details",
+            required="approval tied to this report",
         )
     hash_matches = approved_hash == selection_report_hash(report)
     return _check(
@@ -570,8 +569,12 @@ def _approval_check(
         "current research report is approved.",
         "human approval belongs to an older or different selection report.",
         label="Human research approval",
-        observed="APPROVE with matching hash" if hash_matches else "APPROVE with stale hash",
-        required="current APPROVE with matching report hash",
+        observed=(
+            "APPROVE tied to current report"
+            if hash_matches
+            else "APPROVE tied to an older report"
+        ),
+        required="current approval tied to this report",
     )
 
 
@@ -586,7 +589,7 @@ def _approval_can_be_recorded(checks: Sequence[Mapping[str, object]]) -> bool:
     return (
         "missing" in detail
         or "older or different" in detail
-        or "not hash-bound" in detail
+        or "not tied to" in detail
     )
 
 
@@ -604,8 +607,8 @@ def _policy_gate_block_detail(report: Mapping[str, object]) -> str:
         if str(gate.get("status")) == "BLOCK"
     ]
     if not blockers:
-        return "one or more selection policy gates blocked promotion."
-    return "selection policy gate blocked promotion: " + "; ".join(blockers) + "."
+        return "one or more selection policy checks stop paper eligibility."
+    return "selection policy check stops paper eligibility: " + "; ".join(blockers) + "."
 
 
 def _policy_gate_observed(report: Mapping[str, object]) -> str:
@@ -657,28 +660,28 @@ def _promotion_state_fields(
             "The portfolio manager can promote this WATCH to a paper BUY preview.",
         ),
         "promoted": (
-            "Promoted",
+            "Paper-ready",
             "pass",
-            "Research approval and promotion checks passed; this row is promoted to a paper BUY preview.",
-            "Approve the hash-bound order intent, then submit only if the broker submit gate is open.",
+            "Research approval and eligibility checks passed; this row is ready as a paper BUY preview.",
+            "Approve the current order details, then submit only if the broker submit gate is open.",
         ),
         "promotion_limit_reached": (
-            "Promotion Limit",
+            "Paper Slot Used",
             "warn",
-            "This WATCH passed promotion checks, but a higher-priority approved row used the per-cycle promotion slot.",
+            "This WATCH passed eligibility checks, but a higher-priority approved row used the per-cycle paper slot.",
             "Review the higher-conviction promoted order first or raise the per-cycle promotion limit intentionally.",
         ),
         "awaiting_research_approval": (
             "Approval Needed",
             "warn",
-            "This WATCH passes paper-promotion checks except current human research approval.",
-            "Approve the current research report; the portfolio manager will recalculate risk and create a paper BUY order-intent preview if the state remains fresh.",
+            "This WATCH passes paper eligibility checks except current human research approval.",
+            "Approve the current research report; the portfolio manager will recalculate risk and create a paper BUY order-details preview if the state remains fresh.",
         ),
         "not_eligible": (
             "Research Only",
             "neutral",
-            "This WATCH is not eligible for paper promotion under the current policy and data checks.",
-            "Keep this candidate in research review until the blocked checks change.",
+            "This WATCH is not eligible for a paper BUY preview under the current policy and data checks.",
+            "Keep this candidate in research review until the must-fix checks change.",
         ),
     }
     label, status_class, detail, next_step = labels[state]
@@ -777,8 +780,9 @@ def _operator_advanced_policy_gates(
             original_reason = str(row.get("reason") or "blocked")
             row["status"] = "WARN"
             row["reason"] = (
-                "Operator manual advance acknowledged this policy block for paper "
-                f"trading. Original: {original_reason}. Reason: {reason}"
+                "Operator manual advance acknowledged this policy issue for paper "
+                f"trading. Original issue remains visible: {original_reason}. "
+                f"Reason: {reason}"
             )
         rows.append(row)
     return rows
@@ -791,7 +795,7 @@ def _operator_advance_notes(
         return []
     return [
         (
-            "operator manual advance: paper-promotion blockers were acknowledged "
+            "operator manual advance: paper eligibility issues were acknowledged "
             f"for this exact selection report. Reason: {_operator_advance_reason(operator_advance)}"
         )
     ]

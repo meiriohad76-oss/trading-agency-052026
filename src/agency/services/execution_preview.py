@@ -124,6 +124,8 @@ def build_execution_preview(
         "as_of": str(risk_decision["as_of"]),
         "generated_at": generated,
         "preview_state": preview_state,
+        "final_action": final_action,
+        "final_conviction": _float_field(risk_decision, "final_conviction"),
         "side": side,
         "quantity": quantity,
         "entry": entry,
@@ -169,7 +171,7 @@ def build_order_approval_event(
     notes: str | None = None,
     event_time: str | None = None,
 ) -> dict[str, object]:
-    """Build the hash-bound approval that authorizes a specific order intent."""
+    """Build the approval that authorizes specific paper order details."""
     validate_contract("execution-preview", preview)
     if preview.get("preview_state") != "READY" or preview.get("side") not in ORDER_SIDES:
         raise ValueError("only READY order previews can be approved for submission")
@@ -187,7 +189,7 @@ def build_order_approval_event(
         event_type="ORDER_APPROVAL",
         event_time=event_time or _now_utc(),
         status="PASSED",
-        reason="paper order intent approved",
+        reason="paper order details approved",
         payload={
             "approval_type": "ORDER_APPROVAL",
             "reviewed_by": reviewed_by,
@@ -396,7 +398,7 @@ def _policy_allows_side(*, side: str, policy: PortfolioPolicy) -> bool:
 def _paper_promotion_reason(risk_decision: Mapping[str, object]) -> str | None:
     for reason in _list_field(risk_decision, "reasons"):
         text = str(reason)
-        if text.startswith("paper trade promotion:"):
+        if text.startswith(("paper trade promotion:", "paper eligibility:")):
             return text
     return None
 

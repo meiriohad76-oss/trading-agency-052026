@@ -5,9 +5,9 @@
 {% set active_nav = "final" %}
 {% set v3_screen = "candidate" %}
 
-{% block title %}{{ ticker }} - {{ decision_brief.action_label }} | Trading Agency v3{% endblock %}
+{% block title %}{{ ticker }} - Agent recommends {{ decision_brief.action_label }} | Trading Agency v3{% endblock %}
 {% block eyebrow %}Candidate Brief{% endblock %}
-{% block page_title %}Review {{ ticker }} - {{ decision_brief.action_label }}{% endblock %}
+{% block page_title %}Review {{ ticker }}: Agent recommends {{ decision_brief.action_label }}{% endblock %}
 {% block topbar_meta %}{{ decision_brief.state_label }} &middot; {{ summary.report_count }} reports{% endblock %}
 {% block workflow_phase %}Candidate deep dive{% endblock %}
 {% block operator_focus %}Read the claim, hard evidence, risk context, and LLM alignment before approving this ticker.{% endblock %}
@@ -330,7 +330,7 @@
           <div class="signal-mini-row signal-mini-row-{{ signal.direction_class }}">
             <span class="tag tag-{{ signal.direction_class }}">{{ signal.direction }}</span>
             <div>
-              <strong>{{ signal.lane }}</strong>
+              <strong>{{ signal.display_name }}</strong>
               <p>{{ signal.trigger_headline or signal.summary }}</p>
               <p class="microcopy">
                 {{ signal.score }} &middot; {{ signal.confidence_pct }}% confidence &middot;
@@ -370,7 +370,7 @@
           <div class="signal-mini-row signal-mini-row-{{ signal.direction_class }}">
             <span class="tag tag-{{ signal.direction_class }}">{{ signal.direction }}</span>
             <div>
-              <strong>{{ signal.lane }}</strong>
+              <strong>{{ signal.display_name }}</strong>
               <p>{{ signal.trigger_headline or signal.summary }}</p>
               <p class="microcopy">
                 Advisory only: {{ signal.reason_text }} {{ signal.score }} &middot;
@@ -410,7 +410,7 @@
           <div class="signal-mini-row signal-mini-row-{{ signal.direction_class }}">
             <span class="tag tag-{{ signal.direction_class }}">{{ signal.direction }}</span>
             <div>
-              <strong>{{ signal.lane }}</strong>
+              <strong>{{ signal.display_name }}</strong>
               <p>{{ signal.trigger_headline or signal.summary }}</p>
               <p class="microcopy">
                 Excluded from score: {{ signal.reason_text }} {{ signal.score }} &middot;
@@ -474,7 +474,7 @@
       </form>
     </span>
     {% if review.decision == "Approve" %}
-    <p class="card-next-step">Approved - execution preview updated. Open Execution Preview to inspect any paper-order intent.</p>
+    <p class="card-next-step">Approved - execution preview updated. Open Execution Preview to inspect any paper-order details.</p>
     {% endif %}
     {% else %}
     <p class="empty-block">No selection report available for review</p>

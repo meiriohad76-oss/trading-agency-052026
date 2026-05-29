@@ -9,8 +9,8 @@
 {% block page_title %}Signal evidence shows why the agent acted{% endblock %}
 {% block topbar_meta %}{{ summary.topbar_label }}{% endblock %}
 {% block workflow_phase %}Signal evidence{% endblock %}
-{% block operator_focus %}Inspect which lanes supported, contradicted, or were excluded from the latest candidate decisions.{% endblock %}
-{% block evidence_contract %}Signal rows include lane, tier, score, ticker relation, timestamp, and confirmed/inferred treatment.{% endblock %}
+{% block operator_focus %}Inspect which signal processes supported, contradicted, or were excluded from the latest candidate decisions.{% endblock %}
+{% block evidence_contract %}Signal rows include process, tier, score, ticker relation, timestamp, and confirmed/inferred treatment.{% endblock %}
 
 {% block content %}
   <section class="next-action hero-info" aria-label="Signals state">
@@ -57,7 +57,7 @@
       <div>
         <h2 id="lane-heading">Signal Data Health</h2>
         <p class="section-subtitle">
-          {{ summary.configured_lanes }} configured lane(s), {{ summary.lanes_with_data }} with latest-cycle data.
+          {{ summary.configured_lanes }} configured process(es), {{ summary.lanes_with_data }} with latest-cycle data.
         </p>
       </div>
       <span class="tag tag-neutral">{{ summary.cycle_label }}</span>
@@ -109,7 +109,7 @@
         <p class="muted-line">{{ lane.runtime_effect }}</p>
       </article>
       {% else %}
-      <p class="empty-block">No signal lanes are configured yet.</p>
+      <p class="empty-block">No signal processes are configured yet.</p>
       {% endfor %}
     </div>
   </section>
@@ -119,7 +119,7 @@
       <div>
         <h2 id="signal-rows-heading">Signal Rows</h2>
         <p class="section-subtitle">
-          Use the column headers to sort by ticker, lane, direction, score,
+          Use the column headers to sort by ticker, process, direction, score,
           conviction, or confidence. Select <strong>Inspect</strong> to expand
           concrete trigger data without leaving this page.
         </p>
@@ -162,7 +162,7 @@
             data-sort-confidence="{{ row.confidence_pct }}"
           >
             <td data-label="Ticker"><strong>{{ row.ticker }}</strong></td>
-            <td data-label="Pipeline / Type">{{ row.lane }}</td>
+            <td data-label="Pipeline / Type">{{ row.display_name }}</td>
             <td data-label="Bucket"><span class="tag tag-{{ row.bucket_class }}">{{ row.bucket }}</span></td>
             <td data-label="Direction"><span class="tag tag-{{ row.direction_class }}">{{ row.direction }}</span></td>
             <td data-label="Score">{{ row.score }}</td>
@@ -181,9 +181,9 @@
             <td colspan="11">
               <details class="signal-inspector" id="{{ row.inspect_id }}">
                 <summary>
-                  <span>Inspect {{ row.ticker }} {{ row.lane }}</span>
+                  <span>Inspect {{ row.ticker }} {{ row.display_name }}</span>
                   <span class="signal-inspector-summary">
-                    {{ row.ticker }} / {{ row.lane }} / {{ row.score }}
+                    {{ row.ticker }} / {{ row.display_name }} / {{ row.score }}
                   </span>
                 </summary>
 

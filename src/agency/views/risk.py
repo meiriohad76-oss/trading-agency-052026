@@ -445,7 +445,7 @@ def _selection_gate_summary(gates: Sequence[Mapping[str, object]]) -> str:
     blockers = [gate for gate in gates if gate["status"] == "BLOCK"]
     warnings = [gate for gate in gates if gate["status"] == "WARN"]
     if blockers:
-        return "Blocked by " + _human_list([str(gate["label"]) for gate in blockers]) + "."
+        return "Stopped by " + _human_list([str(gate["label"]) for gate in blockers]) + "."
     if warnings:
         return "Warning from " + _human_list([str(gate["label"]) for gate in warnings]) + "."
     return "All selection gates passed."
@@ -461,10 +461,10 @@ def _risk_decision_title(
     if decision == "WARN":
         return f"Review required: {final_action} is not automatically executable"
     if blocking_checks:
-        return "Blocked by " + _human_list([str(check["label"]) for check in blocking_checks])
+        return "Stopped by " + _human_list([str(check["label"]) for check in blocking_checks])
     if warning_checks:
-        return "Blocked after warnings"
-    return "Blocked by risk policy"
+        return "Stopped after warnings"
+    return "Stopped by risk policy"
 
 def _risk_decision_meaning(
     decision: str,
@@ -473,7 +473,7 @@ def _risk_decision_meaning(
     warning_checks: Sequence[Mapping[str, object]],
 ) -> str:
     if decision == "ALLOW":
-        return "Risk did not find a blocker; paper preview can be reviewed next."
+        return "Risk did not find a must-fix issue; paper preview can be reviewed next."
     if decision == "WARN":
         return (
             f"{final_action} remains review-only or cautionary. Inspect the warning gates, "
@@ -481,7 +481,7 @@ def _risk_decision_meaning(
         )
     if blocking_checks:
         first = blocking_checks[0]
-        return f"{first['meaning']} Main blocker: {first['reason']}."
+        return f"{first['meaning']} Main issue: {first['reason']}."
     if warning_checks:
         return "Warnings escalated this candidate out of the executable queue."
     return "Risk policy prevented this candidate from moving toward a paper order."
@@ -501,7 +501,7 @@ def _risk_user_action(decision: str, final_action: str) -> str:
         return "Review warning gates before any paper order is allowed."
     if final_action == "NO_TRADE":
         return "No user action is required; this row is kept only for audit traceability."
-    return "This cannot proceed until the blocking gate is cleared by a later cycle."
+    return "This cannot proceed until the must-fix gate is cleared by a later cycle."
 
 def _risk_primary_issue(
     blocking_checks: Sequence[Mapping[str, object]],
@@ -521,10 +521,10 @@ def _risk_plain_check_summary(
     warning_checks: Sequence[Mapping[str, object]],
 ) -> str:
     if decision == "ALLOW":
-        return "No blocker or warning gate is active for this risk row."
+        return "No must-fix or warning gate is active for this risk row."
     if blocking_checks:
         labels = _human_list([str(check["label"]) for check in blocking_checks])
-        return f"Blocked by {labels}."
+        return f"Stopped by {labels}."
     if warning_checks:
         labels = _human_list([str(check["label"]) for check in warning_checks])
         return f"Warnings to inspect: {labels}."
@@ -539,7 +539,7 @@ def _risk_next_step(decision: str, final_action: str) -> str:
         return "Review the warning gates before approving any paper preview."
     if final_action == "NO_TRADE":
         return "No execution action. Revisit only if a later cycle changes the final action."
-    return "Resolve the blocking gate before this can move toward paper execution."
+    return "Resolve the must-fix check before this can move toward paper execution."
 
 def _risk_row_sort_key(row: Mapping[str, object]) -> tuple[int, int, str]:
     decision_priority = {"WARN": 0, "ALLOW": 1, "BLOCK": 2}
@@ -565,7 +565,7 @@ def _risk_summary_next_action(allow_count: int, warn_count: int, block_count: in
     if warn_count > 0:
         return "Start with WARN rows in the review queue; they are research approvals, not orders."
     if block_count > 0:
-        return "There is no actionable risk queue in this cycle; blocked rows are archive material."
+        return "There is no actionable risk queue in this cycle; policy-stopped rows are archive material."
     return "Wait for the next runtime cycle to produce risk decisions."
 
 def _risk_flag_count(report: Mapping[str, object]) -> int:

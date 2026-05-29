@@ -11,7 +11,7 @@
 {% block topbar_meta %}{{ summary.source_count }} sources &middot; {{ summary.candidate_count }} candidates{% endblock %}
 {% block workflow_phase %}Operating picture{% endblock %}
 {% block operator_focus %}Start with the next-action card and the top review queue before scanning lower diagnostics.{% endblock %}
-{% block evidence_contract %}Health, lane progress, source proof, ETA, and review queue state come from current runtime artifacts.{% endblock %}
+{% block evidence_contract %}Health, data-progress proof, source proof, ETA, and review queue state come from current runtime artifacts.{% endblock %}
 
 {% block content %}
   <section class="command-act-zone" aria-label="Today's operator workflow">
@@ -154,7 +154,7 @@
     <article class="kpi kpi-{{ status_overview.issue_summary.status_class }}">
       <span class="metric-label">Trade Gate <span class="info-tip" title="{{ status_overview.issue_summary.tooltip }}" aria-label="Trade gate help">?</span></span>
       <strong>{{ "Open" if full_live_readiness.tradable_ready else "Needs attention" }}</strong>
-      <p>{{ status_overview.issue_summary.blocker_count }} blocker(s) &middot; {{ status_overview.issue_summary.warning_count }} warning(s)</p>
+      <p>{{ status_overview.issue_summary.blocker_count }} must-fix issue(s) &middot; {{ status_overview.issue_summary.warning_count }} warning(s)</p>
     </article>
   </section>
 
@@ -369,7 +369,7 @@
         <div>
           <span class="metric-label">ETA</span>
           <strong>{{ overview_trade_pull.eta_label }}</strong>
-          <span>trade-slice lane</span>
+          <span>trade-slice feed</span>
         </div>
         <div>
           <span class="metric-label">Freshness</span>
@@ -453,7 +453,7 @@
             <strong data-full-live-verdict title="{{ full_live_readiness.mode_tooltip }}">{{ full_live_readiness.mode_summary }}</strong>
           </div>
           <div>
-            <span class="metric-label">Scope <span class="info-tip" title="Full Universe means all active-universe lanes are ready. Review Operational means candidate review can continue with known warnings. Loading means an active refresh is still running. Blocked means at least one required data, provider, or config gate is closed." aria-label="Agency readiness scope help">?</span></span>
+            <span class="metric-label">Scope <span class="info-tip" title="Full Universe means all active-universe data and agents are ready. Review Operational means candidate review can continue with known warnings. Loading means an active refresh is still running. Blocked means at least one required data, provider, or config gate is closed." aria-label="Agency readiness scope help">?</span></span>
             <strong data-full-live-scope>{{ full_live_readiness.readiness_scope_label }}</strong>
           </div>
           <div>
@@ -535,7 +535,7 @@
         </div>
 
         <details class="data-load-issues">
-          <summary>Inspect full-live blockers, warnings, and refresh jobs</summary>
+          <summary>Inspect full-live issues, warnings, and refresh jobs</summary>
           <div class="split-panel data-load-split">
             <div>
               <h3>Issues</h3>
@@ -547,7 +547,7 @@
                   <span>{{ issue.reason }}</span>
                 </div>
                 {% else %}
-                <p class="empty-block">No full-live blockers or warnings.</p>
+                <p class="empty-block">No full-live issues or warnings.</p>
                 {% endfor %}
               </div>
             </div>
@@ -638,7 +638,7 @@
           <span>As of <strong data-load-asof>{{ data_load_status.as_of_label }}</strong></span>
           <span>Status checked <strong data-load-checked>{{ data_load_status.status_checked_at_label }}</strong></span>
           <span title="{{ data_load_status.source_health_kpi.tooltip }}">Health monitor <strong data-load-health-monitor>{{ data_load_status.health_monitor.status_label|default("not verified") }}</strong></span>
-          <span><strong data-load-blockers>{{ data_load_status.blocker_count }}</strong> blockers</span>
+          <span><strong data-load-blockers>{{ data_load_status.blocker_count }}</strong> must-fix</span>
           <span><strong data-load-warnings>{{ data_load_status.warning_count }}</strong> warnings</span>
           <span>Refresh ETA <strong data-load-eta>{{ data_load_status.progress.eta_label }}</strong></span>
         </div>
@@ -671,7 +671,7 @@
         </div>
 
         <details class="data-load-details">
-          <summary>Inspect dataset, freshness, and agent-lane coverage</summary>
+          <summary>Inspect dataset, freshness, and agent coverage</summary>
           <div class="split-panel data-load-split">
             <div>
               <h3>Datasets</h3>
@@ -749,7 +749,7 @@
                     </tr>
                     {% else %}
                     <tr>
-                      <td class="empty-row" colspan="4">No lane-state registry rows are available.</td>
+                      <td class="empty-row" colspan="4">No data-source state rows are available.</td>
                     </tr>
                     {% endfor %}
                   </tbody>
@@ -809,7 +809,7 @@
               <span>{{ issue.reason }}</span>
             </div>
             {% else %}
-            <p class="empty-block">No data-load blockers or warnings in the latest cycle.</p>
+            <p class="empty-block">No data-load issues or warnings in the latest cycle.</p>
             {% endfor %}
           </div>
         </details>
@@ -832,8 +832,8 @@
         </div>
 
         <div class="readiness-grid">
-          <div title="Market Phase tells which exchange window controls refresh priorities and lane cadence.">
-            <span class="metric-label">Market Phase <span class="info-tip" title="Market Phase tells which exchange window controls refresh priorities and lane cadence." aria-label="Market phase help">?</span></span>
+          <div title="Market Phase tells which exchange window controls refresh priorities and cadence.">
+            <span class="metric-label">Market Phase <span class="info-tip" title="Market Phase tells which exchange window controls refresh priorities and cadence." aria-label="Market phase help">?</span></span>
             <strong data-scheduler-phase>{{ scheduler.market_phase | replace("_", " ") | title }}</strong>
           </div>
           <div title="{{ scheduler.automation_status.tooltip }}">
@@ -841,28 +841,28 @@
             <strong data-scheduler-automation>{{ scheduler.automation_status.status_label }}</strong>
           </div>
           <div title="{{ scheduler.trading_freshness_gate.tooltip }}">
-            <span class="metric-label">Trading Freshness Gate <span class="info-tip" title="{{ scheduler.trading_freshness_gate.tooltip }}" aria-label="Trading freshness gate help">?</span></span>
+            <span class="metric-label">Data Currency Check <span class="info-tip" title="{{ scheduler.trading_freshness_gate.tooltip }}" aria-label="Data currency check help">?</span></span>
             <strong data-scheduler-gate>{{ scheduler.trading_freshness_gate.status_label }}</strong>
           </div>
           <div title="{{ scheduler.refresh_workload.tooltip }}">
             <span class="metric-label">Urgent refresh due <span class="info-tip" title="{{ scheduler.refresh_workload.tooltip }}" aria-label="Urgent refresh help">?</span></span>
             <strong data-scheduler-due>{{ scheduler.refresh_workload.live_critical_due_count }}</strong>
           </div>
-          <div title="Context refresh pending counts jobs that improve context, research, or non-blocking evidence. These do not automatically block review.">
-            <span class="metric-label">Context refresh pending <span class="info-tip" title="Context refresh pending counts jobs that improve context, research, or non-blocking evidence. These do not automatically block review." aria-label="Context refresh pending help">?</span></span>
+          <div title="Context refresh pending counts jobs that improve context, research, or advisory evidence. These do not automatically stop review.">
+            <span class="metric-label">Context refresh pending <span class="info-tip" title="Context refresh pending counts jobs that improve context, research, or advisory evidence. These do not automatically stop review." aria-label="Context refresh pending help">?</span></span>
             <strong data-scheduler-support-due>{{ scheduler.refresh_workload.support_due_count }}</strong>
           </div>
           <div title="Backfill pending counts off-hours baseline or historical coverage jobs. Backfill improves completeness but should not be confused with live-trading readiness.">
             <span class="metric-label">Backfill pending <span class="info-tip" title="Backfill pending counts off-hours baseline or historical coverage jobs. Backfill improves completeness but should not be confused with live-trading readiness." aria-label="Backfill pending help">?</span></span>
             <strong data-scheduler-repair-due>{{ scheduler.refresh_workload.repair_due_count }}</strong>
           </div>
-          <div title="Running Jobs counts active scheduler, lane, and repair jobs currently in progress.">
-            <span class="metric-label">Running Jobs <span class="info-tip" title="Running Jobs counts active scheduler, lane, and repair jobs currently in progress." aria-label="Running jobs help">?</span></span>
+          <div title="Running Jobs counts active scheduler, data, and repair jobs currently in progress.">
+            <span class="metric-label">Running Jobs <span class="info-tip" title="Running Jobs counts active scheduler, data, and repair jobs currently in progress." aria-label="Running jobs help">?</span></span>
             <strong data-scheduler-running>{{ scheduler.refresh_workload.running_count }}</strong>
           </div>
-          <div title="Dataset coverage shows the raw large-dataset refresh work owned by the coverage coordinator, separate from generic batch jobs.">
-            <span class="metric-label">Dataset coverage <span class="info-tip" title="Dataset coverage shows the raw large-dataset refresh work owned by the coverage coordinator, separate from generic batch jobs." aria-label="Dataset coverage help">?</span></span>
-            <strong data-massive-lanes>{{ scheduler.massive_orchestrator.due_now_count }} due / {{ scheduler.massive_orchestrator.blocked_count }} blocked</strong>
+          <div title="Dataset coverage shows large market-data refresh work owned by the coverage coordinator, separate from generic batch jobs.">
+            <span class="metric-label">Dataset coverage <span class="info-tip" title="Dataset coverage shows large market-data refresh work owned by the coverage coordinator, separate from generic batch jobs." aria-label="Dataset coverage help">?</span></span>
+            <strong data-massive-lanes>{{ scheduler.massive_orchestrator.due_now_count }} due / {{ scheduler.massive_orchestrator.blocked_count }} need attention</strong>
           </div>
         </div>
 
@@ -880,7 +880,7 @@
           class="massive-orchestrator-card"
           data-massive-orchestrator
           data-massive-status="{{ massive.state }}"
-          aria-label="Massive multi-lane data orchestrator"
+          aria-label="Market data coverage coordinator"
         >
           <div class="trade-pull-head">
             <div>
@@ -892,21 +892,21 @@
             </span>
           </div>
           <p class="panel-note" data-massive-detail>{{ massive.detail }}</p>
-          <div class="readiness-grid massive-lane-summary" aria-label="Massive data lane impact summary">
+          <div class="readiness-grid massive-lane-summary" aria-label="Market data pipeline impact summary">
             <div title="{{ massive.lane_summary.execution_ready_tooltip }}">
-              <span class="metric-label">Execution-Critical Ready <span class="info-tip" title="{{ massive.lane_summary.execution_ready_tooltip }}" aria-label="Execution-critical ready help">?</span></span>
+              <span class="metric-label">Paper-ready data loaded <span class="info-tip" title="{{ massive.lane_summary.execution_ready_tooltip }}" aria-label="Paper-ready data loaded help">?</span></span>
               <strong data-massive-critical-ready>{{ massive.lane_summary.execution_ready_count }}</strong>
             </div>
             <div title="{{ massive.lane_summary.execution_needs_refresh_tooltip }}">
-              <span class="metric-label">Execution-Critical Needs Refresh <span class="info-tip" title="{{ massive.lane_summary.execution_needs_refresh_tooltip }}" aria-label="Execution-critical needs refresh help">?</span></span>
+              <span class="metric-label">Needs refresh before paper <span class="info-tip" title="{{ massive.lane_summary.execution_needs_refresh_tooltip }}" aria-label="Needs refresh before paper help">?</span></span>
               <strong data-massive-critical-refresh>{{ massive.lane_summary.execution_needs_refresh_count }}</strong>
             </div>
             <div title="{{ massive.lane_summary.support_due_tooltip }}">
-              <span class="metric-label">Support / Context Due <span class="info-tip" title="{{ massive.lane_summary.support_due_tooltip }}" aria-label="Support context due help">?</span></span>
+              <span class="metric-label">Context refresh due <span class="info-tip" title="{{ massive.lane_summary.support_due_tooltip }}" aria-label="Context refresh due help">?</span></span>
               <strong data-massive-support-due>{{ massive.lane_summary.support_due_count }}</strong>
             </div>
             <div title="{{ massive.lane_summary.research_disabled_tooltip }}">
-              <span class="metric-label">Research / Disabled / Not Entitled <span class="info-tip" title="{{ massive.lane_summary.research_disabled_tooltip }}" aria-label="Research disabled not entitled help">?</span></span>
+              <span class="metric-label">Research / optional / entitlement <span class="info-tip" title="{{ massive.lane_summary.research_disabled_tooltip }}" aria-label="Research optional entitlement help">?</span></span>
               <strong data-massive-research-disabled>{{ massive.lane_summary.research_disabled_count }}</strong>
             </div>
           </div>
@@ -948,14 +948,14 @@
                       <br><span class="muted-line">{{ lane.batch_ticker_count }} in next safe batch</span>
                     {% endif %}
                     <br><span class="muted-line">{{ lane.progress_detail_label }}</span>
-                    <br><span class="muted-line">Tier {{ lane.ticker_tier }}; manifest {{ lane.manifest_status }} / {{ lane.manifest_coverage_pct }}%</span>
+                    <br><span class="muted-line">Priority group {{ lane.ticker_tier }}; coverage record {{ lane.manifest_status }} / {{ lane.manifest_coverage_pct }}%</span>
                   </td>
                   <td data-label="Cadence / Budget" title="{{ lane.budget_tooltip }}">{{ lane.cadence_minutes or "window" }} &middot; ETA {{ lane.eta_label }}<br>{{ lane.request_budget_label }}</td>
                   <td data-label="Next Action" title="{{ lane.action_tooltip }}"><strong>{{ lane.action_label }}</strong></td>
                   <td data-label="Refresh" title="{{ lane.refresh_tooltip }}">
                     {% if lane.refresh_enabled %}
                       <form class="inline-actions" method="post" action="{{ lane.refresh_action_url }}">
-                        <button class="mini-button" type="submit" aria-label="Refresh {{ lane.label }} data lane">{{ lane.refresh_button_label }}</button>
+                        <button class="mini-button" type="submit" aria-label="Refresh {{ lane.label }} data pipeline">{{ lane.refresh_button_label }}</button>
                       </form>
                       <span class="muted-line">{{ lane.refresh_scope_label }}</span>
                     {% else %}
@@ -967,7 +967,7 @@
                 </tr>
                 {% else %}
                 <tr>
-                  <td class="empty-row" colspan="8">No Massive lanes are configured in the current scheduler plan.</td>
+                  <td class="empty-row" colspan="8">No market-data pipelines are configured in the current scheduler plan.</td>
                 </tr>
                 {% endfor %}
               </tbody>
@@ -978,7 +978,7 @@
               <thead>
                 <tr>
                   <th>Derived signal</th>
-                  <th>Raw lane requirement</th>
+                  <th>Source data requirement</th>
                   <th>Status</th>
                   <th>Impact</th>
                   <th>Meaning</th>
@@ -988,14 +988,14 @@
                 {% for signal in scheduler.massive_signal_rows %}
                 <tr title="{{ signal.tooltip }}">
                   <td data-label="Derived signal"><strong>{{ signal.label }}</strong></td>
-                  <td data-label="Raw lane requirement">{{ signal.requires_raw_lanes | join(", ") }}</td>
+                  <td data-label="Source data requirement">{{ signal.requires_raw_lanes | join(", ") }}</td>
                   <td data-label="Status"><span class="tag tag-{{ signal.status_class }}">{{ signal.status }}</span></td>
                   <td data-label="Impact"><strong>{{ signal.impact_label }}</strong><br>{{ signal.requirement_summary }}</td>
                   <td data-label="Meaning">{{ signal.impact_detail }} {{ signal.reason }}</td>
                 </tr>
                 {% else %}
                 <tr>
-                  <td class="empty-row" colspan="5">No Massive-backed derived signal requirements are active in this plan.</td>
+                  <td class="empty-row" colspan="5">No market-data-backed derived signal requirements are active in this plan.</td>
                 </tr>
                 {% endfor %}
               </tbody>
@@ -1113,7 +1113,7 @@
             <strong>{{ operational_readiness.mode }}</strong>
           </div>
           <div>
-            <span class="metric-label">Blockers</span>
+            <span class="metric-label">Must-Fix Issues</span>
             <strong>{{ operational_readiness.blocker_count }}</strong>
           </div>
           <div>
@@ -1218,7 +1218,7 @@
           class="trade-pull-card"
           data-trade-pull
           data-trade-state="{{ trade_pull.state }}"
-          aria-label="Massive live trade-slice coverage"
+          aria-label="Current trade-data coverage"
           title="{{ trade_pull.tooltip }}"
         >
           <div class="trade-pull-head">
@@ -1236,7 +1236,7 @@
             aria-valuemin="0"
             aria-valuemax="100"
             aria-valuenow="{{ trade_pull.percent_complete }}"
-            aria-label="Massive trade pull progress"
+            aria-label="Current trade-data pull progress"
             data-trade-track
           >
             <div class="progress-fill" style="{{ trade_pull.progress_style }}" data-trade-fill></div>
@@ -1276,16 +1276,16 @@
         </article>
 
         <details class="data-load-details">
-          <summary>Inspect Massive lane progress</summary>
+          <summary>Inspect market-data pipeline progress</summary>
           <div class="table-wrap massive-lane-table">
             <table>
               <thead>
                 <tr>
                   <th>Data pipeline</th>
-                  <th>Status <span class="info-tip" title="Status translates the raw lane manifest into operator language such as Verified Current, Usable With Gaps, or Disabled / Entitlement Not Verified." aria-label="Massive lane status help">?</span></th>
-                  <th>Progress <span class="info-tip" title="Progress is based on the lane manifest and latest lane progress file." aria-label="Massive lane progress help">?</span></th>
-                  <th>Rows <span class="info-tip" title="Rows is the latest persisted row count for this lane." aria-label="Massive lane rows help">?</span></th>
-                  <th>Updated <span class="info-tip" title="Updated is the latest manifest or active progress timestamp for this lane." aria-label="Massive lane updated help">?</span></th>
+                  <th>Status <span class="info-tip" title="Status translates the data coverage record into operator language such as Verified Current, Usable With Gaps, or Disabled / Entitlement Not Verified." aria-label="Data pipeline status help">?</span></th>
+                  <th>Progress <span class="info-tip" title="Progress is based on the coverage record and latest pipeline progress file." aria-label="Data pipeline progress help">?</span></th>
+                  <th>Rows <span class="info-tip" title="Rows is the latest persisted row count for this data pipeline." aria-label="Data pipeline rows help">?</span></th>
+                  <th>Updated <span class="info-tip" title="Updated is the latest coverage record or active progress timestamp for this data pipeline." aria-label="Data pipeline updated help">?</span></th>
                   <th>Meaning</th>
                 </tr>
               </thead>
@@ -1301,7 +1301,7 @@
                 </tr>
                 {% else %}
                 <tr>
-                  <td class="empty-row" colspan="6">No Massive lane progress rows are available yet.</td>
+                  <td class="empty-row" colspan="6">No market-data pipeline progress rows are available yet.</td>
                 </tr>
                 {% endfor %}
               </tbody>
@@ -1339,7 +1339,7 @@
             <strong>{{ live_config.ticker_count }}</strong>
           </div>
           <div>
-            <span class="metric-label">Blockers <span class="info-tip" title="{{ live_config.blockers_tooltip }}" aria-label="Live config blockers help">?</span></span>
+            <span class="metric-label">Must-Fix Issues <span class="info-tip" title="{{ live_config.blockers_tooltip }}" aria-label="Live config issues help">?</span></span>
             <strong>{{ live_config.blocker_count }}</strong>
           </div>
         </div>
@@ -1449,7 +1449,7 @@
         </div>
         <div class="readiness-grid">
           <div>
-            <span class="metric-label">Cycle <span class="info-tip" title="Latest persisted runtime cycle used for review queue, risk decisions, and blocker checks." aria-label="Latest cycle help">?</span></span>
+            <span class="metric-label">Cycle <span class="info-tip" title="Latest persisted runtime cycle used for review queue, risk decisions, and must-fix checks." aria-label="Latest cycle help">?</span></span>
             <strong>{{ readiness.cycle_id or "None" }}</strong>
           </div>
           <div>
@@ -1457,11 +1457,11 @@
             <strong>{{ readiness.reviewable_candidate_count }}</strong>
           </div>
           <div>
-            <span class="metric-label">Open Risk <span class="info-tip" title="Risk rows that are not fully blocked and can still be reviewed downstream." aria-label="Open risk help">?</span></span>
+            <span class="metric-label">Open Risk <span class="info-tip" title="Risk rows that are not fully stopped and can still be reviewed downstream." aria-label="Open risk help">?</span></span>
             <strong>{{ readiness.open_risk_decision_count }}</strong>
           </div>
           <div>
-            <span class="metric-label">Blockers <span class="info-tip" title="Cycle-level blockers from source-health proof, missing selection reports, missing risk decisions, or all-risk-blocked cycles." aria-label="Latest cycle blockers help">?</span></span>
+            <span class="metric-label">Must-Fix Issues <span class="info-tip" title="Cycle-level must-fix issues from source-health proof, missing selection reports, missing risk decisions, or all-risk-stopped cycles." aria-label="Latest cycle issues help">?</span></span>
             <strong>{{ readiness.blockers | length }}</strong>
           </div>
         </div>
@@ -1470,7 +1470,7 @@
           <table>
             <thead>
               <tr>
-                <th>Blocker</th>
+                <th>Issue</th>
                 <th>Item</th>
                 <th>Reason</th>
               </tr>
@@ -1478,13 +1478,13 @@
             <tbody>
               {% for blocker in readiness.blocker_rows %}
               <tr>
-                <td data-label="Blocker"><span class="tag tag-{{ blocker.status_class }}">{{ blocker.kind }}</span></td>
+                <td data-label="Issue"><span class="tag tag-{{ blocker.status_class }}">{{ blocker.kind }}</span></td>
                 <td data-label="Item">{{ blocker.item }}</td>
                 <td data-label="Reason">{{ blocker.reason }}</td>
               </tr>
               {% else %}
               <tr>
-                <td class="empty-row" colspan="3">No readiness blockers</td>
+                <td class="empty-row" colspan="3">No must-fix readiness issues</td>
               </tr>
               {% endfor %}
             </tbody>

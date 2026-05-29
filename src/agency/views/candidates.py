@@ -888,7 +888,7 @@ def _direct_email_contribution(
     if caution and direction == "BEARISH":
         detail += f" It reinforces existing caution: {caution}"
     if gate_status == "BLOCK":
-        detail += " It does not override the active blocking gate."
+        detail += " It does not override the active must-fix policy check."
         tone = "block"
     return detail, tone
 
@@ -1324,7 +1324,7 @@ def _candidate_news_consumption_note(entry: Mapping[str, object]) -> str:
     used_at = _format_timestamp_label(entry.get("used_at"))
     return (
         f"Already used by cycle {cycle_id} at {used_at}; "
-        "the live news lane will not reuse this headline automatically."
+        "the live news process will not reuse this headline automatically."
     )
 
 
@@ -1894,7 +1894,7 @@ def _email_pipeline_summary(
     if analyzed_count:
         pending = _email_analysis_gap_sentence(status_counts)
         return _clip_text(
-            "Analyzed article rows feed the subscription thesis context lane in the "
+            "Analyzed article rows feed the subscription thesis context process in the "
             "next runtime cycle. They help explain candidates but do not satisfy "
             f"evidence breadth by themselves. {pending}",
             420,
@@ -1902,7 +1902,7 @@ def _email_pipeline_summary(
     if event_count:
         pending = _email_analysis_gap_sentence(status_counts)
         return _clip_text(
-            "Matched headlines are stored as paid-email evidence. The thesis lane waits "
+            "Matched headlines are stored as paid-email evidence. The thesis process waits "
             f"until an article body is analyzed. {pending}",
             420,
         )
@@ -2632,7 +2632,7 @@ def _candidate_action_label(action: str) -> str:
 
 def _candidate_brief_headline(ticker: str, action: str, gate_status: str) -> str:
     if gate_status == "BLOCK":
-        return f"{ticker} was blocked by policy gates."
+        return f"{ticker} was stopped by policy checks."
     headlines = {
         "WATCH": f"{ticker} is selected for human review, not automatic trading.",
         "NO_TRADE": f"{ticker} was rejected for now.",
@@ -2679,7 +2679,7 @@ def _candidate_next_step(
     review: Mapping[str, object],
 ) -> str:
     if gate_status == "BLOCK":
-        return "Do not approve. Fix the blocking gate or wait for stronger evidence."
+        return "Do not approve. Fix the must-fix policy check or wait for stronger evidence."
     if action == "WATCH":
         decision = str(review.get("decision", "Pending"))
         if decision == "Pending":
@@ -2770,7 +2770,7 @@ def _signal_driver_cards(
         ]
     cards: list[dict[str, object]] = [
         {
-            "label": str(signal["lane"]),
+            "label": _label_text(str(signal.get("display_name") or signal["lane"])),
             "detail": _signal_driver_detail(signal),
             "meta": _signal_driver_meta(signal),
             "tone": default_tone,
@@ -2877,7 +2877,7 @@ def _decision_points(latest_report: Mapping[str, object]) -> list[dict[str, obje
         points.append(
             {
                 "label": "Policy gates",
-                "detail": "No blocking policy gate is active for the latest report.",
+                "detail": "No must-fix policy check is active for the latest report.",
                 "tone": "pass",
             }
         )

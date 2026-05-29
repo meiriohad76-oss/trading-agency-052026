@@ -283,7 +283,7 @@ def _order_approval_event() -> dict[str, object]:
         "event_type": "ORDER_APPROVAL",
         "event_time": "2026-05-07T10:01:00Z",
         "status": "PASSED",
-        "reason": "paper order intent approved",
+        "reason": "paper order details approved",
         "payload": {
             "approval_type": "ORDER_APPROVAL",
             "reviewed_by": "local-user",

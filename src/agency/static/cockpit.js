@@ -660,7 +660,8 @@
       const summary = document.createElement("p");
       const hardEvidence = document.createElement("p");
       const meta = document.createElement("small");
-      title.textContent = `${signal.lane || "Signal"} / ${signal.direction || "NEUTRAL"}`;
+      const signalName = signal.display_name || signal.label || "Signal process";
+      title.textContent = `${signalName} / ${signal.direction || "NEUTRAL"}`;
       summary.textContent = signal.summary || "Signal summary unavailable.";
       hardEvidence.textContent = signal.hard_evidence ? `Hard evidence: ${signal.hard_evidence}` : signal.detail || "";
       meta.textContent = [

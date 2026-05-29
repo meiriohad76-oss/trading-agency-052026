@@ -137,6 +137,40 @@ def test_root_route_redirects_to_pending_review(monkeypatch: MonkeyPatch) -> Non
     assert response.headers["location"] == "/command#review-queue-heading"
 
 
+def test_root_route_redirects_to_execution_when_orders_are_ready(monkeypatch: MonkeyPatch) -> None:
+    async def fake_command_context() -> dict[str, object]:
+        return {"review_progress": {"pending_count": 0}}
+
+    async def fake_execution_context() -> dict[str, object]:
+        return {"summary": {"ready_count": 1}, "orderable_rows": [{"ticker": "AAPL"}]}
+
+    monkeypatch.setattr(dashboard_module, "_command_dashboard_route_context", fake_command_context)
+    monkeypatch.setattr(dashboard_module, "_execution_preview_route_base_context", fake_execution_context)
+    client = TestClient(create_app())
+
+    response = client.get("/", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/execution-preview"
+
+
+def test_root_route_redirects_to_command_when_no_action_is_waiting(monkeypatch: MonkeyPatch) -> None:
+    async def fake_command_context() -> dict[str, object]:
+        return {"review_progress": {"pending_count": 0}}
+
+    async def fake_execution_context() -> dict[str, object]:
+        return {"summary": {"ready_count": 0}, "orderable_rows": []}
+
+    monkeypatch.setattr(dashboard_module, "_command_dashboard_route_context", fake_command_context)
+    monkeypatch.setattr(dashboard_module, "_execution_preview_route_base_context", fake_execution_context)
+    client = TestClient(create_app())
+
+    response = client.get("/", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/command"
+
+
 def test_root_cockpit_exposes_displayed_data_health(monkeypatch: MonkeyPatch) -> None:
     client = _client(monkeypatch)
 

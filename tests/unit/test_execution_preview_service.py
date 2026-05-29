@@ -484,9 +484,22 @@ def test_execution_preview_row_exposes_watch_promotion_check_diagnostics() -> No
     assert checks["confirmed_signal_count"]["label"] == "Confirmed signals"
     assert checks["confirmed_signal_count"]["status"] == "BLOCK"
     assert checks["confirmed_signal_count"]["value_detail"] == "1 / required >= 2"
-    assert row["paper_promotion_check_summary"] == "11 passed, 1 blocked"
+    assert row["paper_promotion_check_summary"] == "11 passed, 1 need attention"
     assert "confirmed signal count 1 is below required 2" in row["reason"]
     assert "research approval is recorded" in row["next_step"].lower()
+    assert [step["label"] for step in row["pipeline_chain"]] == [
+        "Evidence pack",
+        "Deterministic rules",
+        "LLM review",
+        "Final selection",
+        "Risk decision",
+        "Research approval",
+        "Paper eligibility",
+        "Paper submit",
+    ]
+    deterministic_step = row["pipeline_chain"][1]
+    assert "score" in deterministic_step["detail"].lower()
+    assert "confidence" in deterministic_step["detail"].lower()
 
 
 def test_execution_preview_blocks_when_risk_blocks() -> None:

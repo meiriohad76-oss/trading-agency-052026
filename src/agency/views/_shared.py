@@ -592,7 +592,27 @@ def _source_is_degraded(source: Mapping[str, object]) -> bool:
     )
 
 def _label_text(value: str) -> str:
-    return value.replace("_", " ").title()
+    cleaned = value.strip()
+    key = cleaned.casefold().replace("-", "_").replace(" ", "_")
+    labels = {
+        "abnormal_volume": "Abnormal Volume",
+        "activity_alert": "Activity Alert",
+        "analyst_action": "Analyst Action",
+        "backtest_feature_builder": "Backtest Feature Builder",
+        "block_trade_pressure": "Block Trade Pressure",
+        "buy_sell_pressure": "Buy/Sell Pressure",
+        "fundamentals": "Fundamentals",
+        "insider": "Insider Activity",
+        "institutional": "Institutional Flow",
+        "market_flow_trend": "Market Flow Trend",
+        "news": "News",
+        "pre_market_unusual_activity": "Pre-Market Unusual Activity",
+        "sector_momentum": "Sector Momentum",
+        "subscription_thesis": "Email/Article Thesis",
+        "technical_analysis": "Technical Analysis",
+        "unusual_trade_activity": "Unusual Trade Activity",
+    }
+    return labels.get(key, cleaned.replace("_", " ").title())
 
 
 def operator_status_label(raw_status: object) -> tuple[str, str]:
@@ -1021,7 +1041,7 @@ def dashboard_data_health(
             {"label": "As of", "value": _format_timestamp_or_text(status.get("as_of"))},
             {"label": "Decision status", "value": status_label},
             {
-                "label": "Blocking reason",
+                "label": "Main issue",
                 "value": primary_blocker,
                 "tooltip": primary_blocker_detail,
             },
@@ -1173,6 +1193,15 @@ def _operator_text(value: object, default: str = "") -> str:
         (r"\bstale data\b", "data that needs refresh"),
         (r"\bdata stale\b", "data needs refresh"),
         (r"\bstale\b", "needs refresh"),
+        (r"\bpaper[- ]promotion\b", "paper eligibility"),
+        (r"\bpromotion checks\b", "eligibility checks"),
+        (r"\bpromotion threshold\b", "eligibility threshold"),
+        (r"\bpromotion-blocking\b", "eligibility-stopping"),
+        (r"\border hash\b", "order details"),
+        (r"\breport hash\b", "current report details"),
+        (r"\bmatching hash\b", "matching report details"),
+        (r"\bstale hash\b", "older report details"),
+        (r"\bhash[- ]bound\b", "tied to the current details"),
     )
     cleaned = text
     for pattern, replacement in replacements:
@@ -1250,7 +1279,7 @@ def _operator_issue_state(
     if any(token in status_label or token in detail_lc for token in unavailable_tokens):
         return "data_unavailable"
 
-    if kind == "Agent lane" and (
+    if kind == "Agent process" and (
         produced_count == 0
         or (expected_count > 0 and row_count == 0 and "produced" in detail_lc)
         or "no analysis rows" in status_label
@@ -1340,7 +1369,7 @@ def _operator_recommended_action(
             f"Fix access for {name}, then refresh that source and reload this dashboard."
         )
     if issue_state == "waiting_for_analysis":
-        return f"Run the {name} lane, then re-run the affected candidate cycle."
+        return f"Run the {name} analysis, then re-run the affected candidate cycle."
     if issue_state == "refresh_recommended":
         return f"Refresh {name}, then re-run the affected candidate cycle."
     if issue_state in {"health_proof_needs_refresh", "health_proof_unavailable"}:
@@ -1406,23 +1435,23 @@ def _dashboard_lane_health_rows(
 ) -> list[dict[str, object]]:
     output: list[dict[str, object]] = []
     for row in rows:
-        name = str(row.get("label") or row.get("lane") or "Unknown lane")
+        name = str(row.get("label") or row.get("lane") or "Unknown process")
         detail = _humanize_seconds_in_text(
-            str(row.get("detail") or "No lane detail recorded.")
+            str(row.get("detail") or "No agent-process detail recorded.")
         )
         status_class = str(row.get("status_class") or "neutral")
         issue_state = _operator_issue_state(
             row,
-            kind="Agent lane",
+            kind="Agent process",
             status_class=status_class,
             detail=detail,
         )
         health_row: dict[str, object] = {
-            "kind": "Agent lane",
+            "kind": "Agent process",
             "name": name,
             "status_label": _operator_row_status_label(
                 row,
-                kind="Agent lane",
+                kind="Agent process",
                 issue_state=issue_state,
             ),
             "status_class": status_class,
@@ -1434,22 +1463,22 @@ def _dashboard_lane_health_rows(
                 or row.get("source_dataset")
                 or "runtime signal output"
             ),
-            "detail": _row_display_detail("Agent lane", name, status_class, _operator_text(detail)),
+            "detail": _row_display_detail("Agent process", name, status_class, _operator_text(detail)),
             "diagnostic_detail": _operator_text(detail),
             "blocking_reason": _operator_issue_reason(
                 issue_state,
                 name=name,
-                kind="Agent lane",
+                kind="Agent process",
                 status_class=status_class,
                 detail=detail,
             ),
             "recommended_action": _operator_recommended_action(
                 issue_state,
-                kind="Agent lane",
+                kind="Agent process",
                 name=name,
                 status_class=status_class,
             ),
-            "why_it_matters": _row_why_it_matters("Agent lane", name),
+            "why_it_matters": _row_why_it_matters("Agent process", name),
             "tooltip": _lane_health_tooltip(row),
             "issue_state": issue_state,
             "refresh_lane_id": _refresh_lane_id_for_row(row),
@@ -1469,7 +1498,7 @@ def _data_health_lane_state_rows(
         status_class = str(row.get("status_class") or "neutral")
         status_label = _operator_text(row.get("status_label"), default="Status not reported")
         progress_label = _operator_text(row.get("progress_label"), default="not tracked")
-        detail = _operator_text(row.get("detail"), default="No lane-state detail reported.")
+        detail = _operator_text(row.get("detail"), default="No data-source detail reported.")
         refresh_action = _data_health_lane_refresh_action(
             row,
             lane_id=lane_id,
@@ -1514,11 +1543,11 @@ def _data_health_lane_refresh_action(
     if explicit_url is not None:
         return {
             "enabled": True,
-            "label": explicit_label or "Refresh lane",
+            "label": explicit_label or "Refresh data source",
             "action": explicit_url,
             "method": "post",
             "detail": _clean_text(row.get("refresh_action_detail"))
-            or "Runs this data lane through the scheduler policy.",
+            or "Runs this data source refresh through the scheduler policy.",
             "disabled_reason": "",
         }
     massive_lane = _refresh_massive_lane_id_for_action(lane_id, source_dataset)
@@ -1526,10 +1555,10 @@ def _data_health_lane_refresh_action(
         if massive_lane in RUNNABLE_MASSIVE_LANES:
             return {
                 "enabled": True,
-                "label": REFRESHABLE_MASSIVE_LANES.get(massive_lane, "Refresh lane"),
+                "label": REFRESHABLE_MASSIVE_LANES.get(massive_lane, "Refresh data source"),
                 "action": f"/scheduler/massive-lanes/{massive_lane}/refresh",
                 "method": "post",
-                "detail": "Runs this data lane through the scheduler's trade-aware policy.",
+                "detail": "Runs this data source refresh through the scheduler's trade-aware policy.",
                 "disabled_reason": "",
             }
         return {
@@ -1537,10 +1566,10 @@ def _data_health_lane_refresh_action(
             "label": "Policy locked",
             "action": "",
             "method": "post",
-            "detail": "This lane is visible for health tracking but has no runnable refresh job.",
+            "detail": "This data source is visible for health tracking but has no runnable refresh job.",
             "disabled_reason": (
                 f"{REFRESHABLE_MASSIVE_LANES.get(massive_lane, massive_lane)} is "
-                "not exposed as a runnable scheduler lane in the current policy."
+                "not exposed as a runnable scheduler refresh in the current policy."
             ),
         }
     return {
@@ -1548,8 +1577,8 @@ def _data_health_lane_refresh_action(
         "label": "Open Refresh Queue",
         "action": "",
         "method": "get",
-        "detail": "Open Command to inspect scheduler policy for this lane.",
-        "disabled_reason": "No direct lane refresh action is attached to this health row.",
+        "detail": "Open Command to inspect scheduler policy for this data source.",
+        "disabled_reason": "No direct refresh action is attached to this health row.",
     }
 
 
@@ -1565,11 +1594,11 @@ def _refresh_massive_lane_id_for_action(lane_id: str, source_dataset: str) -> st
 def _lane_state_recommended_action(status_label: str, progress_label: str) -> str:
     text = f"{status_label} {progress_label}".casefold()
     if "still loading" in text or "running" in text:
-        return "Wait for this lane to finish or open the refresh queue for progress."
+        return "Wait for this data source to finish or open the refresh queue for progress."
     if "needs refresh" in text or "refresh" in text:
-        return "Refresh this lane, then rerun the affected agent cycle."
+        return "Refresh this data source, then rerun the affected agent cycle."
     if "unavailable" in text or "failed" in text or "missing" in text:
-        return "Fix the provider or manifest issue before trusting this lane."
+        return "Fix the provider or coverage issue before trusting this data source."
     if "not required" in text:
         return "No action required for the current workflow."
     return "Continue normal review."
@@ -1740,7 +1769,7 @@ def _data_health_action_buttons(
                 "action": f"/scheduler/massive-lanes/{refresh_lane_id}/refresh",
                 "method": "post",
                 "detail": (
-                    "Runs the trade-aware lane refresh, then updates runtime health proof."
+                    "Runs the trade-aware data refresh, then updates runtime health proof."
                 ),
             }
         )
@@ -1751,7 +1780,7 @@ def _data_health_action_buttons(
                 "action": "/scheduler/massive-lanes/massive_live_trade_slices/refresh",
                 "method": "post",
                 "detail": (
-                    "Runs the trade-aware Massive live trade slice refresh, then updates "
+                    "Runs the trade-aware live trade-slice refresh, then updates "
                     "runtime health proof."
                 ),
             }
@@ -1763,7 +1792,7 @@ def _data_health_action_buttons(
                 "action": "/scheduler/massive-lanes/massive_daily_bars/refresh",
                 "method": "post",
                 "detail": (
-                    "Runs the trade-aware Massive daily bar refresh, then updates "
+                    "Runs the trade-aware daily bar refresh, then updates "
                     "runtime health proof."
                 ),
             }
@@ -1784,7 +1813,7 @@ def _data_health_action_buttons(
                 "label": "Open Refresh Queue",
                 "href": "/#scheduler-heading",
                 "method": "get",
-                "detail": "Opens Command at the scheduler and lane refresh controls.",
+                "detail": "Opens Command at the scheduler and data-refresh controls.",
             }
         )
     return buttons
@@ -1891,17 +1920,17 @@ def _row_blocking_reason(name: str, status_class: str, detail: str) -> str:
     if status_class == "block":
         if cleaned:
             if lowered.startswith("blocked") or " is blocked because " in lowered:
-                return f"{cleaned[:1].upper()}{cleaned[1:]}"
-            return f"Blocked because {cleaned}"
-        return f"Blocked because {name} did not pass a freshness or coverage gate."
+                return _operator_text(f"{cleaned[:1].upper()}{cleaned[1:]}")
+            return f"Must-fix issue: {cleaned}"
+        return f"Must-fix issue: {name} did not pass a freshness or coverage gate."
     if status_class in {"warn", "warning"}:
         return cleaned if cleaned else f"{name} is usable but has a warning."
-    return "No blocking reason; this input passed the displayed-data checks."
+    return "No must-fix issue; this input passed the displayed-data checks."
 
 def _row_recommended_action(kind: str, name: str, status_class: str) -> str:
     if status_class == "block":
-        if kind == "Agent lane":
-            return f"Refresh the {name} lane, then re-run the affected candidate cycle."
+        if kind == "Agent process":
+            return f"Refresh {name}, then re-run the affected candidate cycle."
         if kind == "Dataset":
             return f"Refresh the {name} data source, then reload this dashboard."
         if kind == "Health monitor":
@@ -1914,14 +1943,14 @@ def _row_recommended_action(kind: str, name: str, status_class: str) -> str:
     return f"Verify {name} before using this dashboard for execution."
 
 def _row_why_it_matters(kind: str, name: str) -> str:
-    if kind == "Agent lane":
+    if kind == "Agent process":
         return (
             f"{name} can change the evidence, conviction, and actionability shown "
             "to the reviewer."
         )
     if kind == "Dataset":
         return (
-            f"{name} feeds one or more signal lanes. Missing coverage can make "
+            f"{name} feeds one or more signal processes. Missing coverage can make "
             "scores, gates, or explanations incomplete."
         )
     if kind == "Health monitor":
@@ -2023,7 +2052,7 @@ def _data_health_detail(
     recommended_action: str,
     primary_blocker_detail: str,
 ) -> str:
-    if primary_blocker_detail and primary_blocker_detail != "No blocker detected.":
+    if primary_blocker_detail and primary_blocker_detail != "No must-fix issue detected.":
         return f"{meaning} {recommended_action} Reason: {primary_blocker_detail}"
     return f"{meaning} {recommended_action}"
 
@@ -2062,7 +2091,7 @@ def _data_health_primary_blocker_label(
     health_state: str,
 ) -> str:
     if primary_issue is None:
-        return "No blocker detected."
+        return "No must-fix issue detected."
     name = str(primary_issue.get("name") or "Displayed data")
     status = str(primary_issue.get("status_label") or primary_issue.get("status_class") or "").strip()
     if health_state == "health_proof_needs_refresh":
@@ -2077,7 +2106,7 @@ def _data_health_primary_blocker_detail(
     primary_issue: Mapping[str, object] | None,
 ) -> str:
     if primary_issue is None:
-        return "No blocker detected."
+        return "No must-fix issue detected."
     return str(
         primary_issue.get("blocking_reason")
         or primary_issue.get("detail")
@@ -2108,8 +2137,8 @@ def _data_health_meaning(
         )
     if health_state == "data_blocked":
         return (
-            f"This dashboard is not execution-ready because {issue_name} is blocked. "
-            "Use it for review context only until the blocker is cleared."
+            f"This dashboard is not execution-ready because {issue_name} has a must-fix issue. "
+            "Use it for review context only until the issue is cleared."
         )
     if health_state == "health_proof_needs_refresh":
         return (
@@ -2136,11 +2165,11 @@ def _data_health_recommended_action(
     if health_state == "data_unavailable":
         return "Fix the data access problem, refresh that source, then reload this dashboard."
     if health_state == "waiting_for_analysis":
-        return "Run the relevant agent lane, then re-run the affected candidate cycle."
+        return "Run the relevant agent process, then re-run the affected candidate cycle."
     if health_state == "refresh_recommended":
-        return "Refresh the relevant data lane, then re-run the affected candidate cycle."
+        return "Refresh the relevant data source, then re-run the affected candidate cycle."
     if health_state == "data_blocked":
-        return "Refresh the relevant data lane, then reload the dashboard before acting."
+        return "Refresh the relevant data source, then reload the dashboard before acting."
     if health_state in {"health_proof_needs_refresh", "health_proof_unavailable"}:
         return "Refresh source-health monitoring, then reload this dashboard."
     return "No immediate action required; continue normal review."

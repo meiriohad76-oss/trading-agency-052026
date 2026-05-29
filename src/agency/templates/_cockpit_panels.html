@@ -8,13 +8,13 @@
       <div class="cockpit-panel-stat-grid" aria-label="Universe summary">
         <article><span>Universe</span><strong class="cockpit-mono">{{ funnel.universe }}</strong></article>
         <article><span>Ready</span><strong class="cockpit-mono">{{ funnel.universe_ready }}</strong></article>
-        <article><span>Blocked</span><strong class="cockpit-mono">{{ universe_blocked|length }}</strong></article>
+        <article><span>Needs attention</span><strong class="cockpit-mono">{{ universe_blocked|length }}</strong></article>
         <article><span>Refreshed</span><strong class="cockpit-mono">{{ cycle.as_of }}</strong></article>
       </div>
-      <section class="cockpit-lane-board" aria-label="Data Pipeline State Board">
+      <section class="cockpit-lane-board" aria-label="Data Source State Board">
         <div class="cockpit-lane-board-heading">
           <div>
-            <h3>Data Pipeline State Board</h3>
+            <h3>Data Source State Board</h3>
             <p class="muted">This is the operator proof for loading, analysis, progress, latest timestamp, and remaining gaps.</p>
           </div>
           <div class="cockpit-lane-board-summary">
@@ -29,7 +29,7 @@
           <strong role="columnheader">State</strong>
           <strong role="columnheader">Progress</strong>
           <strong role="columnheader">Required now?</strong>
-          <strong role="columnheader">Blocks paper?</strong>
+          <strong role="columnheader">Stops execution?</strong>
           <strong role="columnheader">Latest proof/as-of</strong>
           <strong role="columnheader">Gap / next action</strong>
         </div>
@@ -37,7 +37,7 @@
           <article class="cockpit-lane-row cockpit-lane-row-{{ lane.status_class }}" role="row" title="{{ lane.tooltip }}">
             <span role="cell">
               <strong>{{ lane.name }}</strong>
-              <small>{{ lane.lane_kind_label }} / requires {{ lane.requirement_label }}</small>
+              <small>{{ lane.lane_kind_label }} / needs {{ lane.requirement_label }}</small>
             </span>
             <span role="cell">
               <span class="status-pill status-pill-{{ lane.status_class }}">{{ lane.status_label }}</span>
@@ -67,7 +67,7 @@
             </span>
           </article>
         {% else %}
-          <p class="empty-state">No lane-state rows are available for this cycle.</p>
+          <p class="empty-state">No data-source state rows are available for this cycle.</p>
         {% endfor %}
       </section>
       <div class="cockpit-panel-two-col">
@@ -105,15 +105,15 @@
           </div>
         </section>
         <aside>
-          <h3>Blocked tickers</h3>
+          <h3>Tickers needing attention</h3>
           <div class="cockpit-panel-list">
             {% for ticker in universe_blocked %}
               <article>
                 <strong>{{ ticker.ticker|default(ticker.symbol|default("Ticker", true), true) }}</strong>
-                <p>{{ ticker.reason|default(ticker.detail|default("Blocked by the active universe policy.", true), true) }}</p>
+                <p>{{ ticker.reason|default(ticker.detail|default("Stopped by the active universe policy.", true), true) }}</p>
               </article>
             {% else %}
-              <p class="empty-state">No blocked tickers were reported for this cycle.</p>
+              <p class="empty-state">No tickers needing attention were reported for this cycle.</p>
             {% endfor %}
           </div>
           <article class="cockpit-integrity-card">
@@ -144,7 +144,7 @@
         </article>
         <article>
           <h3>Breadth rule</h3>
-          <p>A recommendation is strongest when price, flow, risk, and narrative lanes agree inside their freshness policy.</p>
+          <p>A recommendation is strongest when price, flow, risk, and narrative evidence agree inside their freshness policy.</p>
         </article>
       </div>
       <h3>Signal log</h3>
@@ -156,7 +156,7 @@
             <p>{{ signal.detail }}</p>
           </article>
         {% else %}
-          <p class="empty-state">No signal lane rows are available for this cycle.</p>
+          <p class="empty-state">No signal-process rows are available for this cycle.</p>
         {% endfor %}
       </div>
     </article>
@@ -171,21 +171,21 @@
       {% if audit_traces is not mapping %}
         {% set audit_traces = {} %}
       {% endif %}
-      <p class="muted">Cycle {{ audit_lifecycle.cycle_id|default("not recorded") }}. Evidence hash values are shown when the runtime persisted them.</p>
+      <p class="muted">Cycle {{ audit_lifecycle.cycle_id|default("not recorded") }}. Evidence proof fingerprints are shown when the runtime persisted them.</p>
       <div class="cockpit-panel-list cockpit-audit-timeline">
         {% for ticker, events in audit_traces.items() %}
           <article>
             <strong>{{ ticker }}</strong>
             {% for event in events %}
               <p>{{ event.message }}</p>
-              <small>Status {{ event.status }}{% if event.evidence_hash %} / evidence pack hash {{ event.evidence_hash }}{% endif %}</small>
+              <small>Status {{ event.status }}{% if event.evidence_hash %} / evidence proof fingerprint {{ event.evidence_hash }}{% endif %}</small>
             {% endfor %}
           </article>
         {% else %}
           <p class="empty-state">No audit trace is available for this cycle.</p>
         {% endfor %}
       </div>
-      <p class="panel-note">All state transitions are deterministic given the same input pack, policy version, and evidence pack hash.</p>
+      <p class="panel-note">All state transitions are deterministic given the same input pack, policy version, and evidence proof fingerprint.</p>
     </article>
   </section>
 

@@ -9,7 +9,7 @@
 {% block page_title %}Clearance guards the paper submit gate{% endblock %}
 {% block topbar_meta %}{{ summary.broker_mode }} broker &middot; readiness gate {{ summary.submit_gate_label | lower }}{% endblock %}
 {% block workflow_phase %}Order clearance{% endblock %}
-{% block operator_focus %}Submit only after research approval, order-intent approval, and broker/readiness gates are open.{% endblock %}
+{% block operator_focus %}Submit only after research approval, order-detail approval, and broker/readiness gates are open.{% endblock %}
 {% block evidence_contract %}Order verification, broker state, policy reasons, data freshness, and paper-only mode remain attached to each preview.{% endblock %}
 
 {% macro preview_card(row, card_id="") %}
@@ -93,7 +93,7 @@
       &middot;
       {{ row.paper_promotion_detail }}
       {% if row.paper_promotion_reasons %}
-      Blocker: {{ row.paper_promotion_reasons[0] }}
+      Main issue: {{ row.paper_promotion_reasons[0] }}
       {% endif %}
     </p>
     {% endif %}
@@ -166,7 +166,7 @@
     {% endif %}
     {% if row.order_approval_available and not row.order_approved %}
     <form method="post" action="{{ row.approve_order_action }}">
-      <button class="mini-button" type="submit">Approve order intent</button>
+      <button class="mini-button" type="submit">Approve order details</button>
     </form>
     <p class="microcopy">
       <span class="tag tag-{{ row.order_integrity_status_class }}">{{ row.order_integrity_label }}</span>
@@ -220,7 +220,7 @@
     <strong>No real money is at risk.</strong>
     All orders shown here are paper-only.
     {% if summary.submit_gate_open %}
-      Broker submit is open for approved READY order-intent rows only.
+      Broker submit is open for approved READY paper-order rows only.
     {% else %}
       Broker submit is closed until policy, broker, freshness, and approval gates are open.
     {% endif %}
@@ -346,9 +346,9 @@
       <p>orderable paper previews</p>
     </article>
     <article class="kpi">
-      <span class="metric-label">Blocked</span>
+      <span class="metric-label">Policy-stopped / context-only</span>
       <strong>{{ summary.blocked_count }}</strong>
-      <p>stopped by risk; {{ summary.disabled_count }} review-only/no-order</p>
+      <p>stopped by risk; {{ summary.disabled_count }} review-only/context-only</p>
     </article>
     <article class="kpi kpi-urgent">
       <span class="metric-label">Submit Gate</span>
@@ -361,7 +361,7 @@
     <div class="section-heading">
       <div>
         <h2 id="execution-followup-title">Actionable Execution Follow-Up</h2>
-        <p class="section-subtitle">Start here after approving research. READY rows can move toward paper submission; approved WATCH/HOLD rows explain the exact blocker. Open ticker-specific review for full card detail.</p>
+        <p class="section-subtitle">Start here after approving research. READY rows can move toward paper submission; approved WATCH/HOLD rows explain the exact issue. Open ticker-specific review for full card detail.</p>
       </div>
       {% if orderable_rows %}
       <span class="tag tag-pass">{{ summary.ready_count }} ready</span>
@@ -373,7 +373,7 @@
     </div>
     <div class="bulk-action-bar">
       <span class="mini-button action-approve primary-action-disabled">Submit each ready order from its card</span>
-      <span class="microcopy">Paper submission is intentionally one order at a time: each card must have current research approval, hash-bound order approval, and the final confirmation phrase.</span>
+      <span class="microcopy">Paper submission is intentionally one order at a time: each card must have current research approval, approval for the current order details, and the final confirmation phrase.</span>
     </div>
     <div class="review-card-list execution-card-list" aria-label="Immediate execution follow-up cards">
       {% for row in orderable_rows %}
@@ -383,7 +383,7 @@
         {{ preview_card(row) }}
       {% endfor %}
       {% if not orderable_rows and not approved_review_only_rows %}
-      <p class="empty-block">No approved research row can become a paper order right now. Review-only rows remain below with their promotion blockers.</p>
+      <p class="empty-block">No approved research row can become a paper order right now. Review-only rows remain below with their eligibility issues.</p>
       {% elif approved_review_only_rows | length > 8 %}
       <p class="empty-block">Showing 8 approved research follow-ups out of {{ approved_review_only_rows | length }}. Open a ticker-specific review from Command to keep one stock in focus.</p>
       {% endif %}
@@ -446,12 +446,12 @@
       <article class="guidance-card guidance-card-warn">
         <span class="metric-label">WATCH / HOLD</span>
         <strong>Research approval, then portfolio check</strong>
-        <p>Some WATCH rows can become paper BUY previews after current report approval; every card shows its promotion status and blocker.</p>
+        <p>Some WATCH rows can become paper BUY previews after current report approval; every card shows its eligibility status and main issue.</p>
       </article>
       <article class="guidance-card guidance-card-block">
-        <span class="metric-label">NO_TRADE / BLOCKED</span>
-        <strong>No action</strong>
-        <p>These rows explain why no order exists. A later cycle must change the action before execution can proceed.</p>
+        <span class="metric-label">Context-only / policy stopped</span>
+        <strong>No transaction / stopped by policy</strong>
+        <p>These rows explain why no paper transaction exists. A later cycle must change the action before execution can proceed.</p>
       </article>
     </div>
   </section>
@@ -571,12 +571,12 @@
     <div class="section-heading">
       <div>
         <h2 id="preview-heading">Preview Queue</h2>
-        <p class="section-subtitle">Full preview audit, with blocked rows collapsed below.</p>
+        <p class="section-subtitle">Preview archive, with policy-stopped and context-only rows collapsed below.</p>
       </div>
       <span class="tag tag-{{ summary.submit_gate_class }}">Paper broker {{ summary.submit_gate_label }}</span>
     </div>
     <details class="details-panel">
-      <summary>Show blocked/no-order preview table</summary>
+      <summary>Show preview archive</summary>
       <div class="table-wrap">
         <table>
           <thead>
@@ -614,7 +614,7 @@
         </table>
       </div>
       {% if blocked_rows | length > 25 %}
-      <p class="empty-block">Showing 25 blocked/no-order rows out of {{ blocked_rows | length }}. Open ticker-specific review for one stock instead of scanning the full queue.</p>
+      <p class="empty-block">Showing 25 policy-stopped/context-only rows out of {{ blocked_rows | length }}. Open ticker-specific review for one stock instead of scanning the full queue.</p>
       {% endif %}
     </details>
   </section>
@@ -641,7 +641,7 @@
         <span class="gate-indicator" aria-hidden="true"></span>
         <span>Order approval</span>
         <strong>Required</strong>
-        <em>READY previews require a hash-bound order approval before paper submission.</em>
+        <em>READY previews require approval for the current order details before paper submission.</em>
       </div>
     </div>
   </section>

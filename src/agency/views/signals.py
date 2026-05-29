@@ -246,11 +246,14 @@ def _signal_rows(evidence_pack: Mapping[str, object], key: str) -> list[dict[str
         verification = str(signal["verification_level"])
         timestamp_as_of = str(provenance.get("timestamp_as_of") or "unknown")
         signal_as_of = str(signal["as_of"])
+        lane_key = str(signal["lane"])
+        display_name = _label_text(lane_key)
         rows.append(
             {
                 "ticker": str(signal["ticker"]),
-                "lane": _label_text(str(signal["lane"])),
-                "lane_key": str(signal["lane"]),
+                "lane": display_name,
+                "display_name": display_name,
+                "lane_key": lane_key,
                 "cycle_id": str(signal["cycle_id"]),
                 "signal_as_of": signal_as_of,
                 "signal_as_of_label": _format_timestamp_label(signal_as_of),
@@ -285,6 +288,7 @@ def _signal_lane_row(
     signals: Sequence[Mapping[str, object]],
 ) -> dict[str, object]:
     lane_key = str(lane["lane"])
+    display_name = _label_text(lane_key)
     actionable = sum(1 for signal in signals if signal["bucket"] == "Actionable")
     context = sum(1 for signal in signals if signal["bucket"] == "Context")
     suppressed = sum(1 for signal in signals if signal["bucket"] == "Suppressed")
@@ -296,7 +300,8 @@ def _signal_lane_row(
     avg_score = _average_float(signals, "score_value")
     state = str(lane["state"])
     return {
-        "lane": _label_text(lane_key),
+        "lane": display_name,
+        "display_name": display_name,
         "lane_key": lane_key,
         "state": state,
         "state_label": _label_text(state),

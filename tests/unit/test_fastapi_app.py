@@ -337,7 +337,7 @@ def test_shared_dashboard_data_health_exposes_lane_state_rows() -> None:
                     "latest_as_of": "2026-05-22T13:25:29+00:00",
                     "checked_at": "2026-05-22T13:26:00+00:00",
                     "detail": "Live trade slices are running for APP.",
-                    "recommended_action": "Wait for the lane to finish.",
+                    "recommended_action": "Wait for the data source to finish.",
                 }
             ],
         },
@@ -352,7 +352,7 @@ def test_shared_dashboard_data_health_exposes_lane_state_rows() -> None:
         "label": "Refresh Live Trade Slices",
         "action": "/scheduler/massive-lanes/massive_live_trade_slices/refresh",
         "method": "post",
-        "detail": "Runs this data lane through the scheduler's trade-aware policy.",
+            "detail": "Runs this data source refresh through the scheduler's trade-aware policy.",
         "disabled_reason": "",
     }
 
@@ -394,7 +394,7 @@ def test_shared_dashboard_data_health_does_not_offer_unrunnable_massive_lanes() 
     assert action["enabled"] is False
     assert action["action"] == ""
     assert action["label"] == "Policy locked"
-    assert "not exposed as a runnable scheduler lane" in action["disabled_reason"]
+    assert "not exposed as a runnable scheduler refresh" in action["disabled_reason"]
 
 
 def test_shared_dashboard_data_health_offers_trade_lane_refresh_for_old_massive_monitor() -> None:
@@ -428,7 +428,7 @@ def test_shared_dashboard_data_health_offers_trade_lane_refresh_for_old_massive_
         "action": "/scheduler/massive-lanes/massive_live_trade_slices/refresh",
         "method": "post",
         "detail": (
-            "Runs the trade-aware Massive live trade slice refresh, then updates "
+            "Runs the trade-aware live trade-slice refresh, then updates "
             "runtime health proof."
         ),
     }
@@ -509,7 +509,7 @@ def test_shared_dashboard_data_health_identifies_available_data_waiting_for_anal
 
     assert health["status_label"] == "Waiting for analysis"
     assert "agent has not produced analysis" in str(health["meaning"]).lower()
-    assert "Run the Technical Analysis lane" in str(health["recommended_action"])
+    assert "Run the Technical Analysis analysis" in str(health["recommended_action"])
     assert "stale" not in str(health).lower()
 
 
@@ -567,7 +567,7 @@ def test_shared_human_review_index_ignores_order_approval_events() -> None:
         "ticker": "AMZN",
         "event_type": "ORDER_APPROVAL",
         "status": "PASSED",
-        "reason": "paper order intent approved",
+        "reason": "paper order details approved",
         "event_time": "2026-05-22T16:15:00Z",
         "payload": {
             "as_of": "2026-05-22T00:00:00+00:00",
@@ -674,7 +674,7 @@ def test_shared_dashboard_data_health_offers_refresh_queue_for_warning_issue() -
             "label": "Open Refresh Queue",
             "href": "/#scheduler-heading",
             "method": "get",
-            "detail": "Opens Command at the scheduler and lane refresh controls.",
+            "detail": "Opens Command at the scheduler and data-refresh controls.",
         }
     ]
     assert health["email_login_alert"] == {
@@ -764,7 +764,7 @@ def test_shared_dashboard_data_health_explains_blocked_lanes_actionably() -> Non
     )
 
     summary = {item["label"]: item["value"] for item in health["summary_items"]}
-    lane_row = next(row for row in health["rows"] if row["kind"] == "Agent lane")
+    lane_row = next(row for row in health["rows"] if row["kind"] == "Agent process")
 
     assert health["meaning"].startswith("This dashboard is not execution-ready")
     assert "Refresh" in health["recommended_action"]
@@ -773,7 +773,7 @@ def test_shared_dashboard_data_health_explains_blocked_lanes_actionably() -> Non
     assert "Runtime mode" not in health["detail"]
     assert "Cycle:" not in health["detail"]
     assert summary["Decision status"] == "Blocked"
-    assert "Abnormal Volume" in summary["Blocking reason"]
+    assert "Abnormal Volume" in summary["Main issue"]
     assert summary["Last verified"] == "2026-05-18 13:56 UTC"
     assert "refresh" in summary["Next action"].lower()
     assert lane_row["blocking_reason"].startswith("Blocked because")
@@ -837,8 +837,8 @@ def test_cockpit_renders_order_intent_review_control(monkeypatch: MonkeyPatch) -
     response = TestClient(create_app()).get("/cockpit")
 
     assert response.status_code == HTTP_OK
-    assert "Order intent needs approval" in response.text
-    assert 'href="/execution-preview?ticker=AMZN">Review order intent</a>' in response.text
+    assert "Order details need approval" in response.text
+    assert 'href="/execution-preview?ticker=AMZN">Review order details</a>' in response.text
 
 
 def test_dashboard_renders_status_overview(monkeypatch: MonkeyPatch) -> None:
@@ -880,7 +880,7 @@ def test_dashboard_renders_status_overview(monkeypatch: MonkeyPatch) -> None:
     response = client.get("/command")
 
     assert root_response.status_code == HTTP_OK
-    assert "Pre-Flight Cockpit" in root_response.text
+    assert "Command" in root_response.text
     assert response.status_code == HTTP_OK
     assert "Command" in response.text
     assert "Paper trading" in response.text
@@ -890,43 +890,40 @@ def test_dashboard_renders_status_overview(monkeypatch: MonkeyPatch) -> None:
     assert "Provider Readiness" in response.text
     assert "Agency Data Readiness" in response.text
     assert "Automation &amp; Refresh Queue" in response.text
-    assert "Massive Data Lanes" in response.text
-    assert "Execution-Critical Ready" in response.text
-    assert "Execution-Critical Needs Refresh" in response.text
-    assert "Support / Context Due" in response.text
-    assert "Research / Disabled / Not Entitled" in response.text
-    assert "Trading Freshness Gate" in response.text
-    assert "Live-Critical Due" in response.text
-    assert "Support Due" in response.text
-    assert "Repair Due" in response.text
+    assert "Dataset coverage" in response.text
+    assert "Paper-ready data loaded" in response.text
+    assert "Needs refresh before paper" in response.text
+    assert "Context refresh due" in response.text
+    assert "Research / optional / entitlement" in response.text
+    assert "Data Currency Check" in response.text
+    assert "Urgent refresh due" in response.text
+    assert "Context refresh pending" in response.text
+    assert "Backfill pending" in response.text
     assert "Review Operational" in response.text
     assert "Tradable Ready" in response.text
     assert "Live Trade Slice Coverage" in response.text
     assert "operator-briefing" in response.text
-    assert "Trade eligibility" in response.text
-    assert "What to do now" in response.text
-    assert "Provider Connections" in response.text
+    assert "Trade Gate" in response.text
+    assert "Operational Detail" in response.text
+    assert "Providers" in response.text
     assert "Credential readiness" in response.text
     assert "not a freshness or connectivity proof" in response.text
     assert "Next Action" in response.text
     assert "Secrets" in response.text
-    assert "Latest Cycle Review Readiness" in response.text
-    assert "persisted selection reports, risk decisions, and source-health proof" in response.text
+    assert "Latest-cycle proof before you start paper review." in response.text
     assert "Broker Config" not in response.text
     assert "Review Queue" in response.text
     assert "System status" in response.text
-    assert "Data readiness" in response.text
     assert "Scheduler" in response.text
-    assert "Lane Refresh" in response.text
+    assert "Data refresh" in response.text
     assert "Configuration readiness" in response.text
     assert "Runtime Signals" in response.text
     assert "Next Action" in response.text
     assert "Agency Process Health" in response.text
     assert "Agency Readiness Mode" in response.text
-    assert "Review data sources" in response.text
-    assert "Source Health" in response.text
+    assert "Datasets" in response.text
+    assert "Freshness Proof" in response.text
     assert "No reviewable paper candidates" in response.text
-    assert "No candidates yet" in response.text
     assert "SelectionReport" in response.text
 
 
@@ -1104,7 +1101,7 @@ def test_signals_page_renders_empty_state() -> None:
 
     assert response.status_code == HTTP_OK
     assert "Signals" in response.text
-    assert "Lane Health" in response.text
+    assert "Signal Data Health" in response.text
     assert "Signal Rows" in response.text
     assert "Inspect" in response.text
     assert "No signal rows are available for the latest cycle" in response.text
@@ -1194,12 +1191,12 @@ def test_execution_preview_status_endpoint_summarizes_orderability(
                     "submit_enabled": False,
                     "order_approval_available": False,
                     "submit_blocker": "review-only action",
-                    "paper_promotion_status_label": "Blocked checks",
+                    "paper_promotion_status_label": "Must-fix checks",
                     "paper_promotion_reasons": ["confirmed signal count 1 is below required 2."],
                     "order_intent_hash_label": "def456",
                     "order_value_label": "No paper order",
                     "approval_label": "Needs research review",
-                    "next_step": "Wait for blocked checks to clear.",
+                    "next_step": "Wait for must-fix checks to clear.",
                 },
             ],
             "execution_freshness_gate": {
@@ -2333,7 +2330,7 @@ def test_scheduler_work_queue_endpoint_returns_payload() -> None:
     assert "jobs" in payload
     assert "tradability" in payload
     assert payload["automation_status"]["label"] == "Automation Status"
-    assert payload["trading_freshness_gate"]["label"] == "Trading Freshness Gate"
+    assert payload["trading_freshness_gate"]["label"] == "Data Currency Check"
     assert payload["refresh_workload"]["label"] == "Refresh Workload"
     assert "lane_summary" in payload["massive_orchestrator"]
     assert "display_status_label" in payload["massive_orchestrator"]["lanes"][0]
@@ -2470,7 +2467,7 @@ def test_candidate_review_post_rejects_hashless_review(
     )
 
     assert response.status_code == 409
-    assert "hash-bound review" in response.json()["detail"]
+    assert "approval for these report details" in response.json()["detail"]
 
 
 def test_candidate_review_post_rejects_missing_required_caution_ack(
@@ -2767,7 +2764,7 @@ def test_candidate_detail_light_audit_shell_renders_without_rich_reconstruction(
     response = TestClient(create_app()).get("/candidates/PLTR?audit=light")
 
     assert response.status_code == HTTP_OK
-    assert "PLTR - Watch" in response.text
+    assert "PLTR - Agent recommends Watch" in response.text
     assert "Rich article/email evidence was skipped for the audit shell." in response.text
     assert "RSS/news ticker evidence" in response.text
     assert "Email/article evidence" in response.text
@@ -3291,7 +3288,7 @@ def test_scheduler_work_queue_view_splits_automation_gate_and_workload() -> None
     assert view["automation_status"]["label"] == "Automation Status"
     assert view["automation_status"]["status_label"] == "Running"
     assert "scheduler heartbeat" in view["automation_status"]["tooltip"]
-    assert view["trading_freshness_gate"]["label"] == "Trading Freshness Gate"
+    assert view["trading_freshness_gate"]["label"] == "Data Currency Check"
     assert view["trading_freshness_gate"]["status_label"] == "Context Only"
     workload = view["refresh_workload"]
     assert workload["label"] == "Refresh Workload"
@@ -3417,9 +3414,9 @@ def test_scheduler_work_queue_view_translates_massive_lanes_for_users() -> None:
     assert daily["coverage_label"] == "Manifest complete / 100% coverage"
     assert daily["progress_percent"] == 100
     assert daily["progress_style"] == "width: 100%"
-    assert daily["progress_meter_label"] == "100% lane progress"
+    assert daily["progress_meter_label"] == "100% data-pipeline progress"
     assert daily["show_live_ticker_progress"] is False
-    assert daily["impact_label"] == "Execution-critical"
+    assert daily["impact_label"] == "Paper-critical"
     assert daily["refresh_enabled"] is False
     assert daily["refresh_button_label"] == "Refresh Daily Bars"
     assert "policy" in daily["refresh_tooltip"].lower()
@@ -3431,7 +3428,7 @@ def test_scheduler_work_queue_view_translates_massive_lanes_for_users() -> None:
     assert premarket["progress_style"] == "width: 36%"
     assert "ETA 6m" in premarket["progress_detail_label"]
     assert premarket["show_live_ticker_progress"] is True
-    assert premarket["action_label"] == "Run lane refresh"
+    assert premarket["action_label"] == "Run data refresh"
     assert premarket["refresh_enabled"] is True
     assert (
         premarket["refresh_action_url"]
@@ -3442,13 +3439,13 @@ def test_scheduler_work_queue_view_translates_massive_lanes_for_users() -> None:
 
     assert options["display_status_label"] == "Disabled / Entitlement Not Verified"
     assert options["impact_label"] == "Optional / entitlement"
-    assert options["bucket_label"] == "Research / Disabled / Not Entitled"
+    assert options["bucket_label"] == "Research / Optional / Entitlement"
     assert options["progress_percent"] == 0
     assert options["refresh_enabled"] is False
     assert options["refresh_button_label"] == "Refresh Options Flow"
 
     signal = view["massive_signal_rows"][0]
-    assert signal["impact_label"] == "Execution-critical signal"
+    assert signal["impact_label"] == "Paper-critical signal"
     assert "blocks or weakens paper-trading evidence" in signal["impact_detail"]
 
 
@@ -4003,7 +4000,7 @@ def test_data_refresh_progress_view_translates_massive_lane_progress() -> None:
 
     assert live_lane["display_status_label"] == "Usable With Gaps"
     assert live_lane["display_status_class"] == "warn"
-    assert live_lane["impact_label"] == "Execution-critical"
+    assert live_lane["impact_label"] == "Paper-critical"
     assert "paper-order readiness" in live_lane["tooltip"]
     assert options_lane["display_status_label"] == "Disabled / Entitlement Not Verified"
     assert options_lane["impact_label"] == "Optional / entitlement"
@@ -4082,7 +4079,7 @@ def test_data_load_status_view_prepares_dashboard_rows() -> None:
                     "latest_as_of": "2026-05-22T13:25:00+00:00",
                     "checked_at": "2026-05-22T13:26:00+00:00",
                     "operator_message": "Massive Live Trade Slices data is still loading.",
-                    "recommended_action": "Wait for the lane refresh to finish.",
+                    "recommended_action": "Wait for the data refresh to finish.",
                 }
             ],
             "blockers": [],
@@ -4094,7 +4091,7 @@ def test_data_load_status_view_prepares_dashboard_rows() -> None:
     assert view["dataset_rows"][0]["count_label"] == "2/2 tickers"
     assert view["lane_rows"][0]["coverage_style"] == "width: 50%"
     assert view["lane_state_rows"][0]["progress_style"] == "width: 36%"
-    assert view["lane_state_rows"][0]["progress_meter_label"] == "36% lane progress"
+    assert view["lane_state_rows"][0]["progress_meter_label"] == "36% data-pipeline progress"
     assert view["lane_state_rows"][0]["eta_label"] == "6m"
     assert view["issue_rows"][0]["kind"] == "Agent Lane"
     assert view["issue_rows"][0]["status_class"] == "warn"
@@ -4183,7 +4180,7 @@ def test_data_load_status_view_explains_source_health_rows() -> None:
     )
 
     daily, news = view["freshness_rows"]
-    assert daily["impact_label"] == "Execution-critical"
+    assert daily["impact_label"] == "Paper-critical"
     assert daily["validity_label"] == "Current and usable"
     assert "No action needed" in daily["next_action"]
     assert "why" in daily["tooltip"].lower()
@@ -4207,7 +4204,7 @@ def test_live_config_view_exposes_check_rows() -> None:
     assert view["check_rows"][0]["label"] == "Market data"
     assert view["check_rows"][0]["status"] == "BLOCK"
     assert view["check_rows"][0]["category"] == "Provider"
-    assert view["check_rows"][0]["impact_label"] == "Execution-critical"
+    assert view["check_rows"][0]["impact_label"] == "Paper-critical"
     assert "missing or incomplete" in view["check_rows"][0]["meaning"]
 
 
@@ -4250,12 +4247,12 @@ def test_live_config_view_explains_scope_and_check_actions() -> None:
     assert view["scope_label"] == "Configuration readiness"
     assert "not data freshness" in view["scope_detail"]
     assert view["runtime_signal_label"] == "13"
-    assert "runtime signal lanes" in view["runtime_signals_tooltip"]
+    assert "runtime signal processes" in view["runtime_signals_tooltip"]
     assert "credentials" in view["provider_tooltip"].lower()
 
     coverage, email, market_data = view["check_rows"]
     assert coverage["category"] == "Coverage"
-    assert coverage["impact_label"] == "Execution-critical"
+    assert coverage["impact_label"] == "Paper-critical"
     assert coverage["meaning"] == "Configured core ticker coverage, not freshness proof."
     assert coverage["next_action"] == "Check Agency Data Readiness for freshness."
     assert "not freshness proof" in coverage["tooltip"]
@@ -4263,7 +4260,7 @@ def test_live_config_view_explains_scope_and_check_actions() -> None:
     assert email["impact_label"] == "Support/context"
     assert email["next_action"] == "No action; email configuration is usable."
     assert market_data["category"] == "Provider"
-    assert market_data["impact_label"] == "Execution-critical"
+    assert market_data["impact_label"] == "Paper-critical"
     assert market_data["next_action"] == "Add the required provider key in .env."
 
 
@@ -4394,7 +4391,7 @@ def test_provider_readiness_view_explains_scope_actions_and_secret_state() -> No
 
     rows = {row["label"]: row for row in view["provider_rows"]}
     assert rows["Alpaca"]["required_label"] == "Active required"
-    assert rows["Alpaca"]["impact_label"] == "Execution-critical broker/provider"
+    assert rows["Alpaca"]["impact_label"] == "Paper-critical broker/provider"
     assert rows["Alpaca"]["secret_status_label"] == "Missing required keys"
     assert rows["Alpaca"]["next_action"] == (
         "Add ALPACA_API_KEY, ALPACA_SECRET_KEY in .env before broker submission."
@@ -5161,7 +5158,7 @@ def test_execution_preview_rows_explain_watch_promotion_path() -> None:
     )
 
     row = rows[0]
-    assert row["paper_promotion_status_label"] == "Approval Needed"
+    assert row["paper_promotion_status_label"] == "Awaiting research approval"
     assert row["submit_label"] == "Approve research first"
     assert row["order_intent"] == "Eligible paper BUY after research approval"
     assert row["research_approval_available"] is True
@@ -5593,7 +5590,7 @@ def test_approve_execution_order_records_intent_while_execution_gate_closed(
         recorded.append(event)
 
     def fail_if_freshness_required(*_args: object, **_kwargs: object) -> None:
-        raise AssertionError("order intent approval must not require submit freshness")
+        raise AssertionError("order details approval must not require submit freshness")
 
     monkeypatch.setattr(dashboard_module, "_fresh_broker_status_context", fake_broker)
     monkeypatch.setattr(dashboard_module, "runtime_data_source_status", fake_sources)
@@ -5664,8 +5661,8 @@ def test_execution_preview_rows_do_not_label_pending_watch_as_research_approved(
     assert row["order_value_label"] == "No order - research only"
     assert row["size_label"] == "Not sized until trade action"
     assert row["deterministic_score_label"] == "WARN risk / final action is WATCH"
-    assert row["paper_promotion_status_label"] == "Blocked checks"
-    assert "blocked checks clear" in str(row["next_step"])
+    assert row["paper_promotion_status_label"] == "Not eligible"
+    assert "must-fix checks clear" in str(row["next_step"])
     assert row["paper_promotion_blockers"] == [
         "critical evidence freshness needs refresh.",
         "current human research approval is missing.",
@@ -6192,7 +6189,7 @@ def test_submit_execution_order_requires_persisted_order_approval_when_env_bypas
 
     assert response.status_code == HTTP_SEE_OTHER
     assert response.headers["location"].startswith(
-        "/execution-preview?execution_notice=hash-bound+order+approval+required"
+        "/execution-preview?execution_notice=approval+for+the+current+order+details+is+required"
     )
     assert "ticker=AAPL" in response.headers["location"]
 
@@ -7438,7 +7435,7 @@ def test_candidate_news_evidence_labels_already_used_rss_rows(tmp_path: Path) ->
     assert used_row["signal_use"] == "Already used in prior live decision"
     assert used_row["consumption_note"] == (
         "Already used by cycle cycle-1 at 2026-05-08 13:00 UTC; "
-        "the live news lane will not reuse this headline automatically."
+        "the live news process will not reuse this headline automatically."
     )
     assert unused_row["signal_use"] == "Ticker news signal"
 
@@ -7730,7 +7727,8 @@ def test_candidate_detail_sticky_bar_uses_current_review_state() -> None:
     template = (REPO_ROOT / "src/agency/templates/candidate_detail.html").read_text()
 
     assert "pending review</span>" not in template
-    assert "Review: {{ review.decision }}" in template
+    assert "{{ decision_brief.conviction_pct }}%" in template
+    assert "{{ decision_brief.top_reason_brief }}" in template
 
 
 def test_candidate_detail_caution_requires_real_checkbox_acknowledgement() -> None:
@@ -7755,7 +7753,7 @@ def test_execution_preview_banner_uses_submit_gate_state() -> None:
 
     assert "Broker submit is disabled until you explicitly enable it in Policy." not in template
     assert "summary.submit_gate_open" in template
-    assert "approved READY order-intent rows only" in template
+    assert "approved READY paper-order rows only" in template
 
 
 def test_candidate_review_summary_handles_missing_report() -> None:

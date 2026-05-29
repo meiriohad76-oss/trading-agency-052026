@@ -200,7 +200,7 @@
     <div class="next-action-copy">
       <p class="eyebrow">Decision queue / staged research approvals</p>
       <h2>{{ summary.headline }}</h2>
-      <p>{{ summary.detail }} Start with the actionable review queue below. Rejected or blocked rows stay separate for traceability.</p>
+      <p>{{ summary.detail }} Start with the actionable review queue below. Rejected or policy-stopped rows stay separate for traceability.</p>
       <p class="next-action-sub">Read-only audit history remains available; current WATCH rows can be staged for research approval.</p>
     </div>
     <div class="next-action-buttons">
@@ -311,16 +311,16 @@
   <section class="panel" aria-labelledby="trace-heading">
     <div class="section-heading">
       <div>
-        <h2 id="trace-heading">NO_TRADE - Context Only</h2>
-        <p class="section-subtitle">{{ summary.scope_detail }} These rows are not the review queue.</p>
+        <h2 id="trace-heading">Context-Only Archive</h2>
+        <p class="section-subtitle">{{ summary.scope_detail }} These rows are archived for context, not the review queue.</p>
       </div>
-      <span class="tag tag-neutral">{{ no_trade_rows | length }} rows</span>
+      <span class="tag tag-neutral">No-trade context rows: {{ no_trade_rows | length }}</span>
     </div>
     <div class="selection-list">
       {% for row in no_trade_rows[:12] %}
         {{ selection_card(row) }}
       {% else %}
-      <p class="empty-block">No NO_TRADE rows in this cycle.</p>
+      <p class="empty-block">No context-only rows in this cycle.</p>
       {% endfor %}
       {% if no_trade_rows | length > 12 %}
       <p class="empty-block">Showing 12 context-only rows out of {{ no_trade_rows | length }}. Use ticker focus for detailed traceability.</p>
@@ -331,21 +331,21 @@
   <section class="panel" aria-labelledby="blocked-selection-heading">
     <div class="section-heading">
       <div>
-        <h2 id="blocked-selection-heading">BLOCKED - Policy Traceability</h2>
-        <p class="section-subtitle">Blocked rows stay last so the review queue remains focused.</p>
+        <h2 id="blocked-selection-heading">Policy-Gated Archive</h2>
+        <p class="section-subtitle">Policy-gated rows stay last so the review queue remains focused.</p>
       </div>
-      <span class="tag tag-block">{{ blocked_rows | length }} rows</span>
+      <span class="tag tag-block">Policy-gated rows: {{ blocked_rows | length }}</span>
     </div>
     <details class="details-panel shared-disclosure">
-      <summary>Show details: blocked latest-cycle reports</summary>
+      <summary>Show details: policy-stopped latest-cycle reports</summary>
       <div class="selection-list">
         {% for row in blocked_rows[:20] %}
           {{ selection_card(row) }}
         {% else %}
-        <p class="empty-block">No BLOCKED rows in this cycle.</p>
+        <p class="empty-block">No policy-gated rows in this cycle.</p>
         {% endfor %}
         {% if blocked_rows | length > 20 %}
-        <p class="empty-block">Showing 20 blocked rows out of {{ blocked_rows | length }}. Use ticker focus for detailed traceability.</p>
+        <p class="empty-block">Showing 20 policy-gated rows out of {{ blocked_rows | length }}. Use ticker focus for detailed traceability.</p>
         {% endif %}
       </div>
     </details>

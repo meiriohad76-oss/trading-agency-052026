@@ -199,7 +199,7 @@ def test_cockpit_submit_rejects_tampered_hidden_fields(monkeypatch: MonkeyPatch)
     )
 
     assert response.status_code == 409
-    assert response.json()["detail"] == "order intent changed; refresh cockpit and approve again"
+    assert response.json()["detail"] == "order details changed; refresh cockpit and approve again"
 
 
 def test_cockpit_submit_handles_partial_broker_failure(monkeypatch: MonkeyPatch) -> None:
@@ -277,7 +277,7 @@ def test_cockpit_submit_requires_order_intent_hash_match(monkeypatch: MonkeyPatc
     )
 
     assert response.status_code == 409
-    assert "order intent changed" in response.json()["detail"]
+    assert "order details changed" in response.json()["detail"]
 
 
 def test_cockpit_submit_rejects_live_trading(monkeypatch: MonkeyPatch) -> None:

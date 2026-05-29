@@ -94,12 +94,12 @@ SCHEDULER_DATASET_REFRESH_ACTIONS = {
     "prices_daily": {
         "url": "/scheduler/massive-lanes/massive_daily_bars/refresh",
         "label": "Refresh daily bars",
-        "detail": "Runs the Massive daily-bars lane under the trade-aware lane policy.",
+        "detail": "Refreshes daily market bars through the trade-aware scheduler.",
     },
     "stock_trades": {
         "url": "/scheduler/massive-lanes/massive_live_trade_slices/refresh",
         "label": "Refresh live trades",
-        "detail": "Runs the Massive live-trade-slices lane under the trade-aware lane policy.",
+        "detail": "Refreshes current trade data through the trade-aware scheduler.",
     },
 }
 
@@ -349,9 +349,9 @@ def operator_checklist_context(
                 "state": system_state,
                 "href": "#system-diagnostics",
                 "detail": (
-                    "No blockers detected."
+                    "No must-fix issues detected."
                     if blocker_count == 0
-                    else f"{blocker_count} blocker(s) need attention before paper execution."
+                    else f"{blocker_count} must-fix issue(s) need attention before paper execution."
                 ),
             },
             {
@@ -641,7 +641,7 @@ def _data_refresh_display(progress: Mapping[str, object]) -> dict[str, object]:
             "the label shows the failed job count instead of implying success."
         ),
         "dataset_tooltip": (
-            "Dataset shows the current or failed dataset/lane from the latest "
+            "Dataset shows the current or failed dataset/process from the latest "
             "refresh status file."
         ),
         "jobs_tooltip": (
@@ -653,7 +653,7 @@ def _data_refresh_display(progress: Mapping[str, object]) -> dict[str, object]:
         ),
         "impact_tooltip": (
             "Refresh Impact separates live-critical failures from support and repair "
-            "work so background repairs do not look like paper-trading blockers."
+            "work so background repairs do not look like paper-trading issues."
         ),
         "next_action_tooltip": (
             "Next Action tells the operator what to do with this refresh state before "
@@ -797,17 +797,17 @@ def _data_refresh_current_job_label(progress: Mapping[str, object]) -> str:
 def _data_refresh_impact(scope: str, state: str) -> dict[str, str]:
     if state in {"idle", "complete", "planned"}:
         return {
-            "label": "No active load blocker",
+            "label": "No active load issue",
             "status_class": "pass" if state == "complete" else "neutral",
             "detail": "No active refresh failure is recorded for the latest status snapshot.",
         }
     if state == "running":
         if scope == "live_critical":
             return {
-                "label": "Live-critical refresh running",
+                "label": "Paper-critical refresh running",
                 "status_class": "warn",
                 "detail": (
-                    "A live-critical lane is actively loading. Wait for it to finish before "
+                    "Paper-critical market data is actively loading. Wait for it to finish before "
                     "submitting paper orders that depend on fresh market evidence."
                 ),
             }
@@ -826,7 +826,7 @@ def _data_refresh_impact(scope: str, state: str) -> dict[str, str]:
                 "status_class": "neutral",
                 "detail": (
                     "Historical repair or backtest coverage is actively loading. Live review "
-                    "can continue unless a downstream agent explicitly requires this lane."
+                    "can continue unless a downstream agent explicitly requires that dataset."
                 ),
             }
         return {
@@ -836,10 +836,10 @@ def _data_refresh_impact(scope: str, state: str) -> dict[str, str]:
         }
     if scope == "live_critical":
         return {
-            "label": "Live-critical affected",
+            "label": "Paper-critical affected",
             "status_class": "block",
             "detail": (
-                "The affected lane can change review, risk, or paper-order readiness. "
+                "The affected market data can change review, risk, or paper-order readiness. "
                 "Fix and rerun it before submitting paper orders that depend on it."
             ),
         }
@@ -865,26 +865,29 @@ def _data_refresh_impact(scope: str, state: str) -> dict[str, str]:
     return {
         "label": "Impact unknown",
         "status_class": "block" if state in {"failed", "blocked", "stale"} else "neutral",
-        "detail": "The refresh scope is not recognized, so treat the status as blocking until inspected.",
+        "detail": (
+            "The refresh scope is not recognized, so treat the status as a "
+            "must-fix issue until inspected."
+        ),
     }
 
 
 def _data_refresh_next_action(scope: str, state: str) -> str:
     if state == "running":
-        return "Wait for the active lane refresh to finish, then re-check data health."
+        return "Wait for the active data refresh to finish, then re-check data health."
     if state == "stale":
         return "Restart or inspect the refresh monitor before trusting the progress state."
     if state in {"failed", "blocked"}:
         if scope == "live_critical":
-            return "Fix the failed live-critical lane and rerun it before paper-order submission."
+            return "Fix the failed paper-critical refresh and rerun it before paper-order submission."
         if scope == "support":
             return "Review can continue with current health gates; rerun the support refresh for complete context."
         if scope == "repair":
             return "Keep live work moving; schedule or resume the repair job off-hours."
         return "Inspect logs and rerun the failed refresh before relying on affected data."
     if state == "complete":
-        return "Use the loaded data, subject to each lane's freshness badge."
-    return "No refresh action is required unless a lane or source falls outside policy."
+        return "Use the loaded data, subject to each source's freshness badge."
+    return "No refresh action is required unless a data source falls outside policy."
 
 
 def _data_refresh_failure_label(
@@ -927,7 +930,7 @@ def _data_refresh_massive_lane_view(row: Mapping[str, object]) -> dict[str, obje
         f"{status_label}. {impact_detail} "
         f"Manifest status: {row.get('manifest_status', 'missing')}; "
         f"coverage: {row.get('manifest_coverage_pct', 0)}%; "
-        f"detail: {row.get('detail', 'No lane detail recorded.')}"
+        f"detail: {row.get('detail', 'No data-pipeline detail recorded.')}"
     )
     view.update(
         {
@@ -938,11 +941,11 @@ def _data_refresh_massive_lane_view(row: Mapping[str, object]) -> dict[str, obje
             "impact_detail": impact_detail,
             "tooltip": _humanize_seconds_in_text(tooltip),
             "progress_tooltip": (
-                "Lane progress is based on the lane manifest and, when available, "
-                "the active lane progress file."
+                "Pipeline progress is based on the coverage record and, when available, "
+                "the active progress file."
             ),
-            "rows_tooltip": "Rows is the latest persisted row count from the lane manifest.",
-            "updated_tooltip": "Updated is the latest progress or manifest timestamp for this lane.",
+            "rows_tooltip": "Rows is the latest persisted row count from the coverage record.",
+            "updated_tooltip": "Updated is the latest progress or coverage timestamp for this data pipeline.",
         }
     )
     return view
@@ -1012,22 +1015,22 @@ def _data_refresh_massive_lane_impact(row: Mapping[str, object]) -> tuple[str, s
         "massive_block_trade_feed",
     }:
         return (
-            "Execution-critical",
-            "This lane can affect paper-order readiness because live decisions depend on its market data.",
+            "Paper-critical",
+            "This data pipeline can affect paper-order readiness because live decisions depend on its market data.",
         )
     if "options" in lane_id:
         return (
             "Optional / entitlement",
-            "This lane is optional until the Massive options entitlement is verified and enabled.",
+            "This options feed is optional until the provider entitlement is verified and enabled.",
         )
     if "backtest" in lane_id or "trade_tape" in lane_id:
         return (
             "Research/repair",
-            "This lane supports backtesting and historical research; it should not block live paper trading.",
+            "This data pipeline supports backtesting and historical research; it should not block live paper trading.",
         )
     return (
         "Support/context",
-        "This lane supports context, reference data, or source hygiene for the agency.",
+        "This data pipeline supports context, reference data, or source hygiene for the agency.",
     )
 
 def trade_pull_progress_view(trade_pull: Mapping[str, object]) -> dict[str, object]:
@@ -1045,7 +1048,7 @@ def trade_pull_progress_view(trade_pull: Mapping[str, object]) -> dict[str, obje
         "latest_as_of": "not recorded",
         "window_label": "not recorded",
         "guardrail_label": "not configured",
-        "detail": "No Massive stock-trades pull status is available yet.",
+        "detail": "No current trade-data pull status is available yet.",
         "updated_at": "not recorded",
         "job_position_label": "not in latest batch",
     }
@@ -1113,7 +1116,7 @@ def command_status_overview(
             str(data_load_status.get("status_class") or "neutral"),
             (
                 f"{data_load_status.get('overall_percent', 0)}% ready; "
-                f"{data_load_status.get('blocker_count', 0)} blocker(s), "
+                f"{data_load_status.get('blocker_count', 0)} must-fix issue(s), "
                 f"{data_load_status.get('warning_count', 0)} warning(s)."
             ),
         ),
@@ -1177,7 +1180,7 @@ def command_status_overview(
             if refresh_eta not in {"", "not available"}
             else refresh_status,
             "tooltip": (
-                "Hard blockers stop review or operation. Execution gates can allow "
+                "Must-fix issues stop review or operation. Execution gates can allow "
                 "review while blocking paper-order submission. Warnings require review "
                 "but may still allow candidate analysis."
             ),
@@ -1193,7 +1196,7 @@ def command_status_overview(
             "detail": _humanize_seconds_in_text(
                 str(
                     trade_pull.get("detail")
-                    or "No Massive stock-trades pull status is available yet."
+                    or "No current trade-data pull status is available yet."
                 )
             ),
             "ticker_progress_label": str(
@@ -1266,7 +1269,7 @@ def _system_process_rows(
             "live response",
             str(data_load_status.get("status_checked_at") or "not checked"),
             "FastAPI rendered the command page and loaded the runtime readers for this request.",
-            "Use the health, lane, and readiness rows below to decide whether the agency can trade.",
+            "Use the health, data-pipeline, and readiness rows below to decide whether the agency can trade.",
         ),
         _process_row(
             "process-health-monitor",
@@ -1297,7 +1300,7 @@ def _system_process_rows(
         ),
         _process_row(
             "process-massive-orchestrator",
-            "Massive multi-lane orchestrator",
+            "Market data coverage coordinator",
             str(massive_orchestrator.get("status_label") or "Unknown"),
             str(massive_orchestrator.get("status_class") or "neutral"),
             (
@@ -1310,7 +1313,7 @@ def _system_process_rows(
             str(massive_orchestrator.get("generated_at") or "not recorded"),
             str(
                 massive_orchestrator.get("detail")
-                or "Massive lane orchestration detail is unavailable."
+                or "Market-data coverage detail is unavailable."
             ),
             _massive_orchestrator_action(massive_orchestrator),
         ),
@@ -1331,7 +1334,7 @@ def _system_process_rows(
         ),
         _process_row(
             "process-massive-live",
-            "Massive live trade slices",
+            "Current trade-data refresh",
             str(trade_pull.get("status_label") or "No Pull"),
             str(trade_pull.get("status_class") or "neutral"),
             (
@@ -1341,12 +1344,12 @@ def _system_process_rows(
             str(data_refresh.get("eta_label") or "not available"),
             str(trade_pull.get("latest_as_of") or "not recorded"),
             str(trade_pull.get("updated_at") or "not recorded"),
-            str(trade_pull.get("detail") or "Massive live trade-pull detail is unavailable."),
+            str(trade_pull.get("detail") or "Current trade-data refresh detail is unavailable."),
             _trade_pull_action(trade_pull),
         ),
         _process_row(
             "process-massive-repair",
-            "Massive full-depth repair and backtest tape",
+            "Historical trade backfill and backtest tape",
             str(repair.get("status_label") or "Unknown"),
             str(repair.get("status_class") or "neutral"),
             f"{repair.get('job_count', 0)} repair job(s)",
@@ -1366,13 +1369,13 @@ def _system_process_rows(
             "process-market-flow",
             "Market-flow trade workers",
             [*_select_rows(dataset_rows, "dataset", {"stock_trades"}), *_select_rows(lane_rows, "lane", {"buy_sell_pressure", "block_trade_pressure", "unusual_trade_activity", "pre_market_unusual_activity", "market_flow_trend"})],
-            "Massive trade prints feed buy/sell pressure, blocks, unusual trades, pre-market activity, and market-flow trend.",
+            "Current trade prints feed buy/sell pressure, block-trade pressure, unusual trades, pre-market activity, and market-flow trend.",
         ),
         _process_row_for_rows(
             "process-sec-filings",
             "SEC and filing workers",
             [*_select_rows(dataset_rows, "dataset", {"sec_company_facts", "sec_form4", "sec_13f"}), *_select_rows(lane_rows, "lane", {"fundamentals", "insider", "institutional"})],
-            "SEC company facts, insider Form 4, and 13F evidence supply slower-moving confirmation lanes.",
+            "SEC company facts, insider Form 4, and 13F evidence supply slower-moving confirmation evidence.",
         ),
         _process_row_for_rows(
             "process-news",
@@ -1407,7 +1410,7 @@ def _system_process_rows(
             str(operational_readiness.get("status_label") or "Unknown"),
             str(operational_readiness.get("status_class") or "neutral"),
             (
-                f"{operational_readiness.get('blocker_count', 0)} blockers; "
+                f"{operational_readiness.get('blocker_count', 0)} must-fix issue(s); "
                 f"{operational_readiness.get('warning_count', 0)} warnings"
             ),
             "per review cycle",
@@ -1625,8 +1628,8 @@ def _combined_action(status_class: str) -> str:
     if status_class == "warn":
         return "Use for review, but inspect the data-health detail before acting."
     if status_class == "block":
-        return "Refresh this lane before relying on it for execution."
-    return "Run the relevant refresh or runtime cycle to verify this lane."
+        return "Refresh this source before relying on it for execution."
+    return "Run the relevant refresh or runtime cycle to verify this source."
 
 def _next_job_eta(scheduler: Mapping[str, object]) -> str:
     for row in _mapping_list_field_or_empty(scheduler, "next_job_rows"):
@@ -1641,23 +1644,23 @@ def _scheduler_action(scheduler: Mapping[str, object]) -> str:
         return "Scheduler does not block paper-order readiness."
     if status_class == "warn":
         return "Run due jobs or inspect datasets that need refresh before paper submission."
-    return "Fix scheduler or freshness blockers before using execution."
+    return "Fix scheduler or data-currency issues before using execution."
 
 def _massive_orchestrator_eta(orchestrator: Mapping[str, object]) -> str:
     for row in _mapping_list_field_or_empty(orchestrator, "lanes"):
         if str(row.get("status") or "") in {"RUNNING", "DUE_NOW"}:
             return str(row.get("eta_label") or "not available")
-    return "no due lane"
+    return "no due data refresh"
 
 def _massive_orchestrator_action(orchestrator: Mapping[str, object]) -> str:
     status_class = str(orchestrator.get("status_class") or "neutral")
     if status_class == "pass":
-        return "Use Massive-backed lanes normally in review and paper-gate checks."
+        return "Use current market-data pipelines normally in review and paper-gate checks."
     if status_class == "warn":
-        return "Run due Massive lanes in priority order; live lanes take precedence over repair."
+        return "Run due market-data refreshes in priority order; current-data refreshes take precedence over repair."
     if status_class == "block":
         return "Fix Massive credentials or source-health before relying on market-flow evidence."
-    return "Run the scheduler status check to verify Massive lane readiness."
+    return "Run the scheduler status check to verify market-data readiness."
 
 def _refresh_action(data_refresh: Mapping[str, object]) -> str:
     state = str(data_refresh.get("state") or "idle")
@@ -1677,7 +1680,7 @@ def _trade_pull_action(trade_pull: Mapping[str, object]) -> str:
 
 def _health_monitor_action(health_monitor: Mapping[str, object]) -> str:
     if str(health_monitor.get("status_class") or "") == "pass":
-        return "Health badges can be used; still follow each lane's freshness gate."
+        return "Health badges can be used; still follow each source's freshness gate."
     if str(health_monitor.get("status_class") or "") == "warn":
         return "Use as review context only until the live source-health reader is available."
     return "Do not rely on dashboard health badges for execution until monitoring refreshes."
@@ -2154,15 +2157,15 @@ def _scheduler_trading_freshness_gate(
 ) -> dict[str, object]:
     status_label = str(tradability.get("status_label") or "Unknown")
     status_class = str(tradability.get("status_class") or "neutral")
-    detail = str(tradability.get("detail") or "Trading freshness gate is not checked.")
+    detail = str(tradability.get("detail") or "Data currency check is not checked.")
     return {
-        "label": "Trading Freshness Gate",
+        "label": "Data Currency Check",
         "status_label": status_label,
         "status_class": status_class,
         "detail": detail,
         "tooltip": (
-            "Trading Freshness Gate uses broker freshness and live-critical evidence "
-            "freshness. It answers whether review or paper-order submission can proceed."
+            "Checks whether broker state and required market evidence are current enough "
+            "for review or paper submission."
         ),
     }
 
@@ -2202,13 +2205,13 @@ def _scheduler_refresh_workload(
     if not live_critical_due and (support_due or repair_due or running_count):
         status_class = "neutral"
     detail = (
-        f"{len(live_critical_due)} live-critical due; "
-        f"{len(support_due)} support due; "
-        f"{len(repair_due)} repair due; "
+        f"{len(live_critical_due)} urgent refresh due; "
+        f"{len(support_due)} context refresh pending; "
+        f"{len(repair_due)} backfill pending; "
         f"{running_count} running."
     )
     if next_live_eta_label != "not needed":
-        detail = f"{detail} Next live-critical ETA: {next_live_eta_label}."
+        detail = f"{detail} Next urgent refresh ETA: {next_live_eta_label}."
     return {
         "label": "Refresh Workload",
         "status_label": status_label,
@@ -2220,8 +2223,8 @@ def _scheduler_refresh_workload(
         "running_count": running_count,
         "next_live_eta_label": next_live_eta_label,
         "tooltip": (
-            "Refresh Workload separates live-critical due jobs from support and repair jobs. "
-            "Live-critical due jobs can block paper orders; support and repair jobs improve "
+            "Refresh Workload separates urgent paper-data jobs from support and repair jobs. "
+            "Urgent paper-data jobs can block paper orders; support and repair jobs improve "
             "coverage without automatically blocking review."
         ),
     }
@@ -2257,9 +2260,9 @@ def _scheduler_workload_status_label(
     running_count: int,
 ) -> str:
     if live_count:
-        return f"{live_count} live-critical due"
+        return f"{live_count} urgent refresh due"
     if support_count or repair_count:
-        return "Support/repair due"
+        return "Context or backfill pending"
     if running_count:
         return "Refresh running"
     return "Queue clear"
@@ -2302,7 +2305,7 @@ def _massive_lane_view(row: Mapping[str, object]) -> dict[str, object]:
             "coverage_label": coverage_label,
             "progress_percent": progress_percent,
             "progress_style": f"width: {progress_percent}%",
-            "progress_meter_label": f"{progress_percent}% lane progress",
+            "progress_meter_label": f"{progress_percent}% data-pipeline progress",
             "progress_detail_label": _massive_lane_progress_detail_label(
                 row,
                 coverage_label=coverage_label,
@@ -2337,15 +2340,15 @@ def _massive_signal_view(
     required_rows = [lane_index[lane] for lane in required_lanes if lane in lane_index]
     is_execution_critical = any(lane.get("blocks_execution") is True for lane in required_rows)
     if is_execution_critical:
-        impact_label = "Execution-critical signal"
+        impact_label = "Paper-critical signal"
         impact_detail = (
-            "This signal depends on execution-critical Massive raw lanes; waiting or "
-            "missing raw data blocks or weakens paper-trading evidence."
+            "This signal depends on paper-critical market source data; waiting or "
+            "missing source data blocks or weakens paper-trading evidence."
         )
     else:
         impact_label = "Context signal"
         impact_detail = (
-            "This signal uses Massive context lanes. Missing data weakens context but "
+            "This signal uses market-data context pipelines. Missing data weakens context but "
             "does not by itself close paper-order execution."
         )
     missing_lanes = [lane for lane in required_lanes if lane not in lane_index]
@@ -2362,7 +2365,7 @@ def _massive_signal_view(
                 is_execution_critical=is_execution_critical,
             ),
             "tooltip": (
-                f"{impact_detail} Required raw lanes: "
+                f"{impact_detail} Required source data: "
                 f"{', '.join(required_lanes) if required_lanes else 'none'}."
             ),
         }
@@ -2372,20 +2375,20 @@ def _massive_signal_view(
 
 def _massive_lane_summary(rows: Sequence[Mapping[str, object]]) -> dict[str, object]:
     execution_ready = [
-        row for row in rows if row.get("bucket_label") == "Execution-Critical Ready"
+        row for row in rows if row.get("bucket_label") == "Paper-ready data loaded"
     ]
     execution_needs_refresh = [
         row
         for row in rows
-        if row.get("bucket_label") == "Execution-Critical Needs Refresh"
+        if row.get("bucket_label") == "Needs refresh before paper"
     ]
     support_due = [
-        row for row in rows if row.get("bucket_label") == "Support / Context Due"
+        row for row in rows if row.get("bucket_label") == "Context refresh due"
     ]
     research_disabled = [
         row
         for row in rows
-        if row.get("bucket_label") == "Research / Disabled / Not Entitled"
+        if row.get("bucket_label") == "Research / Optional / Entitlement"
     ]
     return {
         "execution_ready_count": len(execution_ready),
@@ -2393,19 +2396,19 @@ def _massive_lane_summary(rows: Sequence[Mapping[str, object]]) -> dict[str, obj
         "support_due_count": len(support_due),
         "research_disabled_count": len(research_disabled),
         "execution_ready_tooltip": (
-            "Execution-critical lanes with enough local data loaded for their current "
+            "Paper-critical data feeds with enough local data loaded for their current "
             "window. Health proof may still require verification before paper orders."
         ),
         "execution_needs_refresh_tooltip": (
-            "Execution-critical lanes that are due, running, waiting, or blocked. These "
+            "Paper-critical data feeds that are due, running, waiting, or unavailable. These "
             "can affect paper-trading evidence freshness."
         ),
         "support_due_tooltip": (
-            "Non-execution lanes that improve context or source hygiene. These should "
+            "Context feeds that improve source hygiene or research detail. These should "
             "not be confused with live-trading blockers."
         ),
         "research_disabled_tooltip": (
-            "Research, repair, optional, disabled, or entitlement-dependent lanes. These "
+            "Research, repair, optional, disabled, or entitlement-dependent data feeds. These "
             "are tracked separately so they do not look like live failures."
         ),
     }
@@ -2417,7 +2420,7 @@ def _massive_lane_display_status_label(row: Mapping[str, object]) -> str:
     manifest_status = str(row.get("manifest_status") or "").lower()
     manifest_coverage = _optional_int(row, "manifest_coverage_pct")
     if status == "READY_FROM_RAW":
-        return "Ready From Live Slices"
+        return "Derived From Current Trade Data"
     if status == "SKIPPED" and (
         manifest_status in {"complete", "partial_usable"} or manifest_coverage > 0
     ):
@@ -2429,14 +2432,14 @@ def _massive_lane_display_status_label(row: Mapping[str, object]) -> str:
     if status == "DEFERRED":
         return "Scheduled Later"
     if status == "WAITING":
-        return "Waiting For Raw Lane"
+        return "Waiting For Source Data"
     if status == "BLOCKED":
-        return "Blocked"
+        return "Needs Attention"
     if status == "DISABLED":
         if "options" in lane_id:
             return "Disabled / Entitlement Not Verified"
         if "backtest" in lane_id:
-            return "Disabled / Research Lane"
+            return "Disabled / Research Only"
         return "Disabled / Not Enabled"
     return status.replace("_", " ").title() if status else "Unknown"
 
@@ -2464,22 +2467,22 @@ def _massive_lane_impact(row: Mapping[str, object]) -> tuple[str, str]:
     lane_id = str(row.get("lane_id") or row.get("name") or "")
     if row.get("blocks_execution") is True:
         return (
-            "Execution-critical",
-            "This lane can affect paper-order readiness when its data or health proof needs refresh, is due, or is blocked.",
+            "Paper-critical",
+            "This data pipeline can affect paper-order readiness when its data or health proof needs refresh, is due, or has a provider or policy issue.",
         )
     if "options" in lane_id:
         return (
             "Optional / entitlement",
-            "This lane is optional until the provider entitlement is verified and enabled.",
+            "This options feed is optional until the provider entitlement is verified and enabled.",
         )
     if "backtest" in lane_id:
         return (
             "Research/repair",
-            "This lane supports research and backtesting. It should not block live review or paper orders.",
+            "This data pipeline supports research and backtesting. It should not block live review or paper orders.",
         )
     return (
         "Support/context",
-        "This lane improves context or source hygiene. It does not directly block paper-order submission.",
+        "This data pipeline improves context or source hygiene. It does not directly block paper-order submission.",
     )
 
 
@@ -2497,19 +2500,19 @@ def _massive_lane_bucket_label(
             or "options" in lane_id
         )
     ):
-        return "Research / Disabled / Not Entitled"
+        return "Research / Optional / Entitlement"
     if row.get("blocks_execution") is True:
         if status_label in {
             "Blocked",
             "Refresh Due",
             "Refreshing",
-            "Waiting For Raw Lane",
+            "Waiting For Source Data",
         }:
-            return "Execution-Critical Needs Refresh"
-        return "Execution-Critical Ready"
+            return "Needs refresh before paper"
+        return "Paper-ready data loaded"
     if _scheduler_row_status(row) in {"DUE_NOW", "RUNNING", "WAITING"}:
-        return "Support / Context Due"
-    return "Research / Disabled / Not Entitled"
+        return "Context refresh due"
+    return "Research / Optional / Entitlement"
 
 
 def _massive_lane_action_label(
@@ -2518,24 +2521,24 @@ def _massive_lane_action_label(
     status_label: str,
 ) -> str:
     if status_label == "Refresh Due":
-        return "Run lane refresh"
+        return "Run data refresh"
     if status_label == "Refreshing":
         return "Wait for refresh"
     if status_label == "Blocked":
-        return "Fix lane blocker"
+        return "Fix data access or policy issue"
     if status_label == "Scheduled Later":
         return "No action now"
     if status_label == "Disabled / Entitlement Not Verified":
         return "Verify entitlement"
-    if status_label == "Disabled / Research Lane":
+    if status_label == "Disabled / Research Only":
         return "Enable only for research"
     if status_label == "Loaded / No Pull Needed":
         return "No pull needed"
-    if status_label == "Ready From Live Slices":
+    if status_label == "Derived From Current Trade Data":
         return "Derived locally"
-    if status_label == "Waiting For Raw Lane":
-        return "Wait for raw lane"
-    return str(row.get("reason") or "Inspect lane detail")
+    if status_label == "Waiting For Source Data":
+        return "Wait for source data"
+    return str(row.get("reason") or "Inspect data-pipeline detail")
 
 
 def _massive_lane_refresh_control(row: Mapping[str, object]) -> dict[str, object]:
@@ -2547,11 +2550,11 @@ def _massive_lane_refresh_control(row: Mapping[str, object]) -> dict[str, object
     scope_label = _massive_lane_refresh_scope_label(row)
     disabled_reason = "" if enabled else _massive_lane_refresh_disabled_reason(row)
     tooltip = (
-        f"Starts only this data lane through the scheduler's trade-aware policy. "
+        f"Starts only this data pipeline through the scheduler's trade-aware policy. "
         f"Scope: {scope_label}. Budget: {row.get('request_budget_label', 'not recorded')}."
         if enabled
         else (
-            f"Lane refresh is unavailable because the current trade-aware policy "
+            f"Pipeline refresh is unavailable because the current trade-aware policy "
             f"does not expose a runnable command for status {status or 'UNKNOWN'}. "
             f"{disabled_reason}"
         )
@@ -2570,7 +2573,7 @@ def _massive_lane_refresh_button_label(lane_id: str, *, enabled: bool) -> str:
     label = REFRESHABLE_MASSIVE_LANES.get(lane_id)
     if label:
         return label
-    return "Refresh lane" if enabled else "Policy locked"
+    return "Refresh data pipeline" if enabled else "Policy locked"
 
 
 def _massive_lane_refresh_scope_label(row: Mapping[str, object]) -> str:
@@ -2585,26 +2588,26 @@ def _massive_lane_refresh_scope_label(row: Mapping[str, object]) -> str:
         return f"next safe batch {batch_count} ticker(s)"
     if ticker_count:
         return f"{ticker_count} planned ticker(s)"
-    return "lane-level scope only"
+    return "data-pipeline scope only"
 
 
 def _massive_lane_refresh_disabled_reason(row: Mapping[str, object]) -> str:
     status = _scheduler_row_status(row)
-    reason = str(row.get("reason") or "No lane reason recorded.")
+    reason = str(row.get("reason") or "No data-pipeline reason recorded.")
     if status == "RUNNING":
-        return "This lane is already refreshing."
+        return "This data pipeline is already refreshing."
     if status == "DEFERRED":
         return f"Scheduled later by market-session policy. {reason}"
     if status == "WAITING":
-        return f"Waiting for the required raw lane or prerequisite data. {reason}"
+        return f"Waiting for the required source data or prerequisite data. {reason}"
     if status == "BLOCKED":
-        return f"Blocked by lane policy. {reason}"
+        return f"Stopped by data policy or provider access. {reason}"
     if status == "DISABLED":
         return f"Disabled by configuration or entitlement policy. {reason}"
     if status in {"SKIPPED", "READY", "READY_FROM_RAW"}:
-        return f"The lane is fresh enough or derived locally; no pull is needed now. {reason}"
+        return f"The data is current enough or derived locally; no pull is needed now. {reason}"
     if status == "DUE_NOW":
-        return f"The lane is due, but no safe lane command is available. {reason}"
+        return f"The data pipeline is due, but no safe refresh command is available. {reason}"
     return reason
 
 
@@ -2664,9 +2667,9 @@ def _massive_lane_progress_detail_label(
 def _massive_display_status_class(status_label: str) -> str:
     if status_label == "Blocked":
         return "block"
-    if status_label in {"Refresh Due", "Refreshing", "Waiting For Raw Lane"}:
+    if status_label in {"Refresh Due", "Refreshing", "Waiting For Source Data"}:
         return "warn"
-    if status_label in {"Loaded / No Pull Needed", "Ready From Live Slices"}:
+    if status_label in {"Loaded / No Pull Needed", "Derived From Current Trade Data"}:
         return "pass"
     return "neutral"
 
@@ -2683,8 +2686,8 @@ def _massive_display_health_class(health_label: str) -> str:
 
 def _massive_lane_status_tooltip(row: Mapping[str, object], status_label: str) -> str:
     return (
-        f"{status_label}. Raw scheduler status: {row.get('status', 'unknown')}. "
-        f"Reason: {row.get('reason', 'No Massive lane rationale recorded.')}"
+        f"{status_label}. Scheduler status: {row.get('status', 'unknown')}. "
+        f"Reason: {row.get('reason', 'No data-pipeline rationale recorded.')}"
     )
 
 
@@ -2699,8 +2702,8 @@ def _massive_lane_health_tooltip(row: Mapping[str, object], health_label: str) -
 
 def _massive_lane_coverage_tooltip(row: Mapping[str, object], coverage_label: str) -> str:
     return (
-        f"{coverage_label}. Manifest: {row.get('manifest_status', 'missing')} / "
-        f"{row.get('manifest_coverage_pct', 0)}%. Planned ticker tier: "
+        f"{coverage_label}. Coverage record: {row.get('manifest_status', 'missing')} / "
+        f"{row.get('manifest_coverage_pct', 0)}%. Planned priority group: "
         f"{row.get('ticker_tier', 'not recorded')}."
     )
 
@@ -2715,7 +2718,7 @@ def _massive_lane_budget_tooltip(row: Mapping[str, object]) -> str:
 
 def _massive_lane_action_tooltip(row: Mapping[str, object], action_label: str) -> str:
     return (
-        f"{action_label}. This action is derived from lane status "
+        f"{action_label}. This action is derived from data-pipeline status "
         f"{row.get('status', 'unknown')} and execution impact."
     )
 
@@ -2728,14 +2731,14 @@ def _massive_signal_requirement_summary(
     is_execution_critical: bool,
 ) -> str:
     if missing_lanes:
-        return f"Missing raw lane declaration: {', '.join(missing_lanes)}"
+        return f"Missing source-data declaration: {', '.join(missing_lanes)}"
     if status.upper() == "READY":
-        return "Required raw lanes are ready."
+        return "Required source data is ready."
     if status.upper() == "WAITING":
         prefix = "Execution evidence waiting" if is_execution_critical else "Context waiting"
-        return f"{prefix}: {', '.join(required_lanes) if required_lanes else 'no raw lanes'}"
+        return f"{prefix}: {', '.join(required_lanes) if required_lanes else 'no source-data requirement'}"
     if status.upper() == "BLOCKED":
-        return "Required raw lane is blocked."
+        return "Required source data has a provider or policy issue."
     return status.replace("_", " ").title() if status else "Requirement unverified."
 
 
@@ -2744,7 +2747,7 @@ def live_config_view(readiness: Mapping[str, object]) -> dict[str, object]:
     view["scope_label"] = "Configuration readiness"
     view["scope_detail"] = (
         "This panel checks whether the agency is configured to run; it is not data "
-        "freshness proof. Use Agency Data Readiness and Lane Refresh for freshness, "
+        "freshness proof. Use Agency Data Readiness and Refresh Queue for freshness, "
         "coverage health, and active load progress."
     )
     view["provider_tooltip"] = (
@@ -2759,12 +2762,12 @@ def live_config_view(readiness: Mapping[str, object]) -> dict[str, object]:
         "Tickers is the configured universe size from explicit tickers or active universe membership."
     )
     view["blockers_tooltip"] = (
-        "Blockers are missing required configuration items. A blocker prevents the configured "
+        "Must-fix issues are missing required configuration items. A must-fix issue prevents the configured "
         "workflow from being considered ready."
     )
     view["runtime_signal_label"] = str(_optional_int(view, "runtime_signal_count"))
     view["runtime_signals_tooltip"] = (
-        "Runtime Signals counts configured runtime signal lanes that the live cycle may evaluate. "
+        "Runtime Signals counts configured runtime signal processes that the live cycle may evaluate. "
         "Signal freshness and health are shown in Agency Data Readiness and Signals."
     )
     view["config_tooltip"] = (
@@ -2832,7 +2835,7 @@ def _live_config_check_impact(label: str, status: str) -> tuple[str, str]:
         or "coverage" in normalized
     ):
         return (
-            "Execution-critical",
+            "Paper-critical",
             "This configuration can affect live evidence, review readiness, or paper-order gates.",
         )
     if "options" in normalized:
@@ -2847,7 +2850,7 @@ def _live_config_check_impact(label: str, status: str) -> tuple[str, str]:
         )
     if status == "BLOCK":
         return (
-            "Execution-critical",
+            "Paper-critical",
             "This missing configuration blocks the configured workflow until fixed.",
         )
     return (
@@ -2947,7 +2950,7 @@ def provider_readiness_view(readiness: Mapping[str, object]) -> dict[str, object
     view["scope_detail"] = (
         "Checks whether local provider credentials and config are present. This does "
         "not prove live API connectivity or data freshness; use the data-source "
-        "health and lane refresh panels for that."
+        "health and refresh panels for that."
     )
     view["configured_label"] = f"{configured_count}/{provider_count} total configured"
     view["required_ready_count"] = required_ready
@@ -3012,17 +3015,17 @@ def _lane_state_row(row: Mapping[str, object]) -> dict[str, object]:
     view["lane_kind_label"] = _label_text(str(row.get("lane_kind") or "lane"))
     view["status_label"] = _operator_text(row.get("status_label") or "Unknown")
     view["operator_message"] = _operator_text(
-        row.get("operator_message") or "No lane-state explanation recorded."
+        row.get("operator_message") or "No data-source explanation recorded."
     )
     view["recommended_action"] = _operator_text(
-        row.get("recommended_action") or "No lane action recorded."
+        row.get("recommended_action") or "No data-source action recorded."
     )
     view["latest_as_of_label"] = _format_timestamp_or_text(row.get("latest_as_of"))
     view["checked_at_label"] = _format_timestamp_or_text(row.get("checked_at"))
     progress_percent = _bounded_lane_state_progress(row)
     view["progress_percent"] = progress_percent
     view["progress_style"] = f"width: {progress_percent}%"
-    view["progress_meter_label"] = f"{progress_percent}% lane progress"
+    view["progress_meter_label"] = f"{progress_percent}% data-pipeline progress"
     view["eta_label"] = _operator_text(row.get("eta_label") or "not available")
     requirements = [
         str(item)
@@ -3120,7 +3123,7 @@ def _count_phrase(count: int, label: str) -> str:
 def _source_impact_label(row: Mapping[str, object]) -> str:
     source = str(row.get("source") or "").lower()
     if row.get("critical") is True or source in {"daily-market-bars", "massive-stock-trades"}:
-        return "Execution-critical"
+        return "Paper-critical"
     if source in {"rss-news", "subscription-email-thesis"}:
         return "Current-context"
     if source in {"sec-company-facts", "sec-form4", "sec-13f"}:
@@ -3156,7 +3159,7 @@ def _source_next_action(row: Mapping[str, object], *, impact_label: str) -> str:
     detail = str(row.get("detail") or "").lower()
     if status_class == "block":
         if source in {"daily-market-bars", "massive-stock-trades"}:
-            return "Refresh the Massive lane before paper-trading decisions."
+            return "Refresh this market-data pipeline before paper-trading decisions."
         return "Refresh this source before relying on its evidence."
     if source in {"rss-news", "subscription-email-thesis"} and (
         status_class == "warn" or freshness == "STALE" or status == "STALE"
@@ -3165,7 +3168,7 @@ def _source_next_action(row: Mapping[str, object], *, impact_label: str) -> str:
             return "Rerun the news refresh so headline context reflects the latest session."
         return "Rerun email ingest and article analysis, including any required login step."
     if freshness == "PARTIAL" or status == "DEGRADED":
-        return "Use covered tickers for review and let the repair lane finish."
+        return "Use covered tickers for review and let the backfill job finish."
     if "source-health row is" in detail or "older than" in detail:
         return "Refresh source-health monitoring proof."
     if impact_label == "Slow-moving support":
@@ -3220,9 +3223,9 @@ def _full_live_command_rows(readiness: Mapping[str, object]) -> list[dict[str, o
             ),
             "status_class": agent_class,
             "detail": (
-                f"{coverage.get('critical_lane_percent', 0)}% critical-lane output coverage; "
+                f"{coverage.get('critical_lane_percent', 0)}% critical-agent output coverage; "
                 f"{coverage.get('agent_ready_count', 0)}/"
-                f"{coverage.get('agent_total_count', 0)} total lanes fully ready."
+                f"{coverage.get('agent_total_count', 0)} total agents fully ready."
             ),
             "tooltip": _signal_worker_tooltip(coverage),
         },
@@ -3340,7 +3343,7 @@ def _signal_worker_tooltip(coverage: Mapping[str, object]) -> str:
         "Fully ready means the worker produced output and source freshness passed. "
         "Usable with warnings means rows exist but source freshness, coverage, or health "
         "proof is partial. "
-        f"Critical lanes: {ready}/{total} fully ready, {usable}/{total} usable with warnings; "
+        f"Critical agents: {ready}/{total} fully ready, {usable}/{total} usable with warnings; "
         f"output coverage {coverage.get('critical_lane_percent', 0)}%."
     )
 
@@ -3352,7 +3355,7 @@ def _active_refresh_value(active_refresh: Mapping[str, object]) -> str:
         if dataset in {"sec_form4", "sec_company_facts", "sec_13f", "news_rss", "subscription_emails"}:
             return "Support refresh running"
         if dataset:
-            return "Live-critical loading"
+            return "Paper-critical loading"
         return "Refresh running"
     if state in {"failed", "blocked"}:
         return "Refresh failed"
@@ -3368,9 +3371,9 @@ def _active_refresh_detail(active_refresh: Mapping[str, object], refresh_state: 
     eta = str(active_refresh.get("eta_label") or "not available")
     value = _active_refresh_value(active_refresh)
     if value == "Support refresh running":
-        return f"{dataset} running · ETA {eta} · support lane · review can continue."
-    if value == "Live-critical loading":
-        return f"{dataset} running · ETA {eta} · live-critical lane may gate execution."
+        return f"{dataset} running · ETA {eta} · support refresh · review can continue."
+    if value == "Paper-critical loading":
+        return f"{dataset} running · ETA {eta} · paper-critical data may gate execution."
     if value == "Refresh needs attention":
         return f"{dataset} refresh monitor needs attention; ETA {eta}."
     return f"ETA {eta}; state {refresh_state}."
@@ -3974,7 +3977,7 @@ def _provider_impact_label(
     if not required_now and not configured and status == "PLANNED":
         return "Optional/roadmap"
     return {
-        "alpaca": "Execution-critical broker/provider",
+        "alpaca": "Paper-critical broker/provider",
         "sec_edgar": "Filings and ownership evidence",
         "openai": "LLM review/explanation",
         "openfigi": "Reference-data support",

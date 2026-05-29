@@ -13,11 +13,16 @@ from tests.unit.test_cockpit_contract import _sample_sources
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 TEMPLATE = PROJECT_ROOT / "src/agency/templates/cockpit.html"
+EVIDENCE_LEGEND = PROJECT_ROOT / "src/agency/templates/_evidence_legend.html"
 STYLES = PROJECT_ROOT / "src/agency/static/styles.css"
 
 
 def _template() -> str:
     return TEMPLATE.read_text(encoding="utf-8")
+
+
+def _evidence_legend() -> str:
+    return EVIDENCE_LEGEND.read_text(encoding="utf-8")
 
 
 def _styles() -> str:
@@ -169,7 +174,7 @@ def test_candidate_row_uses_reference_missing_copy_when_sector_is_absent() -> No
     context = cockpit_context_from_sources(sources)
     row = context["candidates"][0]
 
-    assert row["sector"] == "Reference lane not loaded"
+    assert row["sector"] == "Reference data not loaded"
 
 
 def test_candidate_row_uses_cached_ticker_reference_metadata() -> None:
@@ -226,9 +231,12 @@ def test_candidate_evidence_tiers_are_visually_distinct() -> None:
 
 def test_candidate_evidence_thresholds_have_whymark_tips() -> None:
     html = _template()
+    legend = _evidence_legend()
 
-    assert "Evidence tiers: confirmed uses direct source data" in html
-    assert "data-cockpit-tip=\"evidence-tier-thresholds\"" in html
+    assert "{{ evidence_legend(compact=true) }}" in html
+    assert "Evidence tiers" in legend
+    assert "confirmed direct data" in legend
+    assert "data-cockpit-tip=\"evidence-tier-thresholds\"" in legend
 
 
 def test_candidate_row_layout_keeps_decision_controls_from_compressing_evidence() -> None:
@@ -733,8 +741,8 @@ def test_ready_preview_without_submit_is_order_intent_review_not_paper_ready() -
     assert row["actionable"] is False
     assert row["order_reviewable"] is True
     assert row["status"] == "pending"
-    assert row["status_label"] == "Order intent needs approval"
-    assert row["action_label"] == "Review order intent"
+    assert row["status_label"] == "Order details need approval"
+    assert row["action_label"] == "Review order details"
     assert context["scenario"]["state"] == "review"
 
 

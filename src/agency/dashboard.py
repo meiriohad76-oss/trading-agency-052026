@@ -381,7 +381,7 @@ async def cockpit_submit(request: Request) -> JSONResponse:
         if row is None:
             raise HTTPException(status_code=404, detail=f"execution preview not found for {order['ticker']}")
         if str(row.get("order_intent_hash") or "") != str(order["order_intent_hash"]):
-            raise HTTPException(status_code=409, detail="order intent changed; refresh cockpit and approve again")
+            raise HTTPException(status_code=409, detail="order details changed; refresh cockpit and approve again")
         _reject_tampered_cockpit_order_hints(row, order)
         try:
             await submit_execution_order(
@@ -711,7 +711,7 @@ async def record_candidate_review(
             status_code=409,
             detail=(
                 "current selection report not found; refresh the candidate page "
-                "before recording a hash-bound review"
+                "before recording approval for these report details"
             ),
         )
     caution_acknowledged = caution_acknowledged or await _request_form_bool(
@@ -955,7 +955,7 @@ async def record_operator_manual_advance(
             status_code=409,
             detail=(
                 "current selection report not found; refresh the execution preview "
-                "before recording a hash-bound manual advance"
+                "before recording a manual advance for these report details"
             ),
         )
     reason = override_reason or await _request_form_text(request, "override_reason")
@@ -1268,7 +1268,7 @@ async def approve_execution_order(
         if str(row["order_intent_hash"]) != order_intent_hash:
             raise HTTPException(
                 status_code=409,
-                detail="order intent changed; refresh and approve again",
+                detail="order details changed; refresh and approve again",
             )
         try:
             event = build_order_approval_event(_mapping_field(row, "preview"))
@@ -1331,12 +1331,12 @@ async def submit_execution_order(
         return _execution_preview_notice_redirect("execution preview not found", ticker=normalized_ticker)
     if str(row["order_intent_hash"]) != order_intent_hash:
         return _execution_preview_notice_redirect(
-            "order intent changed; refresh and approve again",
+            "order details changed; refresh and approve again",
             ticker=normalized_ticker,
         )
     if row["order_approved"] is not True:
         return _execution_preview_notice_redirect(
-            "hash-bound order approval required",
+            "approval for the current order details is required",
             ticker=normalized_ticker,
         )
     if row["submit_enabled"] is not True:
@@ -1396,7 +1396,7 @@ async def submit_execution_order(
                 ticker=normalized_ticker,
             )
         return _execution_preview_notice_redirect(
-            "order intent or submission audit persistence failed",
+            "order details or submission audit persistence failed",
             status_class="block",
             ticker=normalized_ticker,
         )

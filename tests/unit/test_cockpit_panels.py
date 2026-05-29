@@ -60,7 +60,7 @@ def test_universe_panel_has_expert_stat_grid_source_table_blocked_and_pit_sectio
 
     assert "cockpit-panel-stat-grid" in html
     assert "Data sources" in html
-    assert "Blocked tickers" in html
+    assert "Tickers needing attention" in html
     assert "PIT integrity" in html
     assert "source.coverage" in html
     assert "universe_blocked" in html
@@ -114,14 +114,16 @@ def test_ticker_panel_has_rich_evidence_targets() -> None:
     assert 'data-ux-feature="rich-ticker-detail"' in template
 
 
-def test_audit_panel_shows_cycle_and_evidence_hash_when_available() -> None:
+def test_audit_panel_shows_cycle_and_evidence_proof_when_available() -> None:
     sources = _sample_sources()
     sources["dashboard"]["review_queue"][0]["evidence_hash"] = "hash-bbb"  # type: ignore[index]
     context = cockpit_context_from_sources(sources)
 
     assert context["audit_lifecycle"]["cycle_id"] == "cycle-live-20260522-1530"
     assert context["audit_lifecycle"]["traces"]["BBB"][0]["evidence_hash"] == "hash-bbb"
-    assert "evidence hash" in _panels().lower()
+    panel_text = _panels().lower()
+    assert "evidence proof fingerprint" in panel_text
+    assert "evidence hash" not in panel_text
 
 
 def test_audit_panel_uses_timeline_and_reproducibility_note() -> None:
@@ -129,7 +131,8 @@ def test_audit_panel_uses_timeline_and_reproducibility_note() -> None:
 
     assert "cockpit-audit-timeline" in html
     assert "state transitions are deterministic" in html
-    assert "evidence pack hash" in html.lower()
+    assert "evidence proof fingerprint" in html.lower()
+    assert "evidence pack hash" not in html.lower()
 
 
 def test_audit_panel_defaults_missing_trace_mapping_to_empty_state() -> None:

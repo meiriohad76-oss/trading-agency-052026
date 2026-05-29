@@ -83,7 +83,7 @@
         <small>{{ data_state.active_universe_label|default("Active-universe size not reported", true) }}</small>
       </article>
       <article>
-        <span>Critical lanes</span>
+        <span>Critical agents</span>
         <strong class="cockpit-mono">{{ data_state.critical_lane_percent|default(0, true) }}%</strong>
         <small>Proof {{ data_state.proof_label|default("not checked", true) }}</small>
       </article>
@@ -98,7 +98,7 @@
         </p>
       {% else %}
         {% if data_state.lane_rows|default([], true) %}
-          <p>No required lane gaps are reported for the current workflow.</p>
+          <p>No required data or agent gaps are reported for the current workflow.</p>
         {% else %}
           <p>Data-pipeline proof is unavailable for this cockpit request.</p>
         {% endif %}
@@ -242,6 +242,14 @@
 
     {{ evidence_legend(compact=true) }}
 
+    <aside class="candidate-action-legend" aria-label="Candidate action guide">
+      <strong>Why buttons change</strong>
+      <span><b>Review manifest</b>: this stock is already staged for the current cockpit flow.</span>
+      <span><b>Review order details</b>: research was approved and the next step is approving the current paper order details.</span>
+      <span><b>Approve / Defer / Reject</b>: this stock is waiting for your research decision.</span>
+      <span><b>Open audit</b>: no action is available; use it only to inspect the record.</span>
+    </aside>
+
     {% if scenario.state == "outage" %}
       <section class="cockpit-scenario-panel cockpit-scenario-outage" data-cockpit-scenario-panel="outage">
         <p class="eyebrow">Selection blocked</p>
@@ -292,7 +300,7 @@
             <span class="cockpit-rank cockpit-mono">{{ "%02d"|format(candidate.rank|default(loop.index, true)) }}</span>
             <span class="cockpit-identity">
               <strong>{{ candidate.ticker }}</strong>
-              <small>{{ candidate.name|default(candidate.ticker, true) }} - {{ candidate.sector|default("Reference lane not loaded", true) }}</small>
+              <small>{{ candidate.name|default(candidate.ticker, true) }} - {{ candidate.sector|default("Reference data not loaded", true) }}</small>
             </span>
             <span class="cockpit-conviction" data-conviction-dial data-tooltip="conviction-help" aria-label="Conviction combines signal direction, confidence, source quality, data freshness, and policy gates.">
               <span class="cockpit-mini-dial"><span class="cockpit-arc-needle" style="--needle: {{ candidate.conviction_dial_degrees|default(0, true) }}deg"></span></span>
@@ -326,7 +334,7 @@
                 data-cockpit-ticker-payload='{{ candidate|tojson }}'
               >Open ticker detail</button>
             {% elif candidate.order_reviewable %}
-              <a class="button button-primary" href="/execution-preview?ticker={{ candidate.ticker }}">Review order intent</a>
+              <a class="button button-primary" href="/execution-preview?ticker={{ candidate.ticker }}">Review order details</a>
               <button
                 type="button"
                 class="button button-secondary"
@@ -382,7 +390,7 @@
       {% else %}
         <div class="empty-state">
           <h3>Nothing actionable today.</h3>
-          <p>The agent has no reviewable candidates in the current cycle. Open the monitor to check data lanes and next scheduled refresh.</p>
+          <p>The agent has no reviewable candidates in the current cycle. Open the monitor to check data sources and next scheduled refresh.</p>
         </div>
       {% endfor %}
     </div>
@@ -460,8 +468,8 @@
         <span>I understand this sends paper orders only after server-side revalidation.</span>
       </label>
       <label class="cockpit-submit-phrase">
-        <span>Type submit paper orders</span>
-        <input id="cockpit-submit-phrase" type="text" name="submit_phrase" autocomplete="off" placeholder="submit paper orders" data-cockpit-submit-text>
+        <span>Confirmation phrase</span>
+        <input id="cockpit-submit-phrase" type="text" name="submit_phrase" autocomplete="off" placeholder="type: submit paper orders" data-cockpit-submit-text>
         <small data-cockpit-submit-feedback>Type the exact phrase to unlock the paper-only submit button.</small>
       </label>
       <button type="submit" class="button button-primary" title="Acknowledge paper-only mode and type the exact phrase first." data-cockpit-submit-button disabled>Confirm &amp; Submit Paper Orders</button>

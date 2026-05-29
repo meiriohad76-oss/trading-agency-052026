@@ -252,10 +252,10 @@ def _order_reason(state: str) -> str:
 
 def _intent_reason(state: str) -> str:
     labels = {
-        "READY": "Paper order intent recorded before broker submit",
+        "READY": "Paper order details recorded before broker submit",
         "FAILED": "Paper order submission failed after intent recording",
     }
-    return labels.get(state, "Paper order intent state recorded")
+    return labels.get(state, "Paper order details state recorded")
 
 
 def _intent_reconciliation_state(state: str) -> str:

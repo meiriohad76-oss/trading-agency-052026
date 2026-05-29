@@ -31,11 +31,11 @@
           <span class="nav-section">Research</span>
           <a class="nav-link nav-secondary {% if active_nav == 'market' %}active{% endif %}" href="/market-regime">
             <span class="nav-icon" aria-hidden="true">M</span>
-            <span>Universe &amp; market</span>
+            <span>Market &amp; Universe</span>
           </a>
           <a class="nav-link nav-secondary {% if active_nav == 'signals' %}active{% endif %}" href="/signals">
             <span class="nav-icon" aria-hidden="true">G</span>
-            <span>Signals</span>
+            <span>Signal Analysis</span>
           </a>
 
           <span class="nav-section">Core workflow</span>
@@ -57,21 +57,21 @@
           <span class="nav-section">Controls</span>
           <a class="nav-link nav-secondary {% if active_nav == 'risk' %}active{% endif %}" href="/risk">
             <span class="nav-icon" aria-hidden="true">K</span>
-            <span>Risk</span>
+            <span>Risk Rules</span>
           </a>
           <a class="nav-link nav-secondary {% if active_nav == 'policy' %}active{% endif %}" href="/policy">
             <span class="nav-icon" aria-hidden="true">Y</span>
-            <span>Policy</span>
+            <span>Trading Policy</span>
           </a>
 
           <span class="nav-section">Trust</span>
           <a class="nav-link nav-secondary {% if active_nav == 'learning' %}active{% endif %}" href="/learning">
             <span class="nav-icon" aria-hidden="true">L</span>
-            <span>Learning</span>
+            <span>Learning Log</span>
           </a>
           <a class="nav-link nav-secondary {% if active_nav == 'audit' %}active{% endif %}" href="/audit">
             <span class="nav-icon" aria-hidden="true">A</span>
-            <span>Audit</span>
+            <span>Audit Trail</span>
           </a>
         </nav>
         {% set workflow = workflow_summary|default({}, true) %}
@@ -128,24 +128,20 @@
 
         <nav class="v3-phase-rail" aria-label="V3 paper-trading workflow">
           <a class="v3-phase {% if active_nav == 'final' %}active{% endif %}" href="/final-selection">
-            <span class="v3-phase-index">01</span>
-            <strong>Candidates</strong>
+            <strong>Review Candidates</strong>
             <small>Audit evidence and approve the agent's research queue.</small>
           </a>
           <a class="v3-phase {% if active_nav == 'portfolio' %}active{% endif %}" href="/portfolio-monitor">
-            <span class="v3-phase-index">02</span>
-            <strong>Portfolio</strong>
+            <strong>Portfolio Check</strong>
             <small>Check exposure, exits, capacity, and current holdings.</small>
           </a>
           <a class="v3-phase {% if active_nav in ['execution', 'policy'] %}active{% endif %}" href="/execution-preview">
-            <span class="v3-phase-index">03</span>
-            <strong>Clearance</strong>
+            <strong>Order Clearance</strong>
             <small>Review staged paper orders and open the submit gate deliberately.</small>
           </a>
           <a class="v3-phase {% if active_nav in ['audit', 'cleared'] %}active{% endif %}" href="/audit#execution-state-heading">
-            <span class="v3-phase-index">04</span>
-            <strong>Cleared</strong>
-            <small>Verify transmitted paper orders and lifecycle audit records.</small>
+            <strong>Order Audit</strong>
+            <small>Verify Cleared paper orders and lifecycle audit records.</small>
           </a>
         </nav>
 

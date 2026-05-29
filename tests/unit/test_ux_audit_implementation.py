@@ -154,7 +154,7 @@ def test_risk_and_execution_templates_show_llm_and_order_workflow_status() -> No
     execution_html = _template("execution_preview.html")
 
     assert "Ready to review" in risk_html
-    assert "Blocked by policy" in risk_html
+    assert "Stopped by policy" in risk_html
     assert "Needs data" in risk_html
     assert "Agent checked - OK" in risk_html
     assert "Risk matrix" in risk_html
@@ -208,7 +208,7 @@ def test_data_health_panel_uses_actionable_user_copy_not_internal_telemetry() ->
 
     assert "What this means" in html
     assert "Recommended action" in html
-    assert "Blocking reason" in html
+    assert "Main issue" in html
     assert "Show operational diagnostics" in html
     assert "row.blocking_reason" in html
     assert "row.recommended_action" in html
@@ -216,7 +216,7 @@ def test_data_health_panel_uses_actionable_user_copy_not_internal_telemetry() ->
     assert "data_health.action_buttons" in html
     assert "button" in html
     assert "data_health.lane_state_rows" in html
-    assert "Extraction lane states" in html
+    assert "Data pipeline states" in html
 
 
 def test_operator_data_health_copy_does_not_use_stale_wording() -> None:

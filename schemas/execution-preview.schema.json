@@ -50,6 +50,14 @@
       "type": "string",
       "enum": ["READY", "BLOCKED", "DISABLED"]
     },
+    "final_action": {
+      "type": "string",
+      "minLength": 1
+    },
+    "final_conviction": {
+      "type": "number",
+      "minimum": 0
+    },
     "side": {
       "type": "string",
       "enum": ["BUY", "SELL", "SHORT", "COVER", "NONE"]

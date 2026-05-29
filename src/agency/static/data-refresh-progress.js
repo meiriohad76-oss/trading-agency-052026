@@ -192,10 +192,10 @@ if (document.readyState === "loading") {
       "[data-full-live-freshness-detail]",
       `${coverage.fresh_source_count || 0}/${coverage.source_count || 0} sources fresh; ${coverage.stale_source_count || 0} need refresh.`
     );
-    setText("[data-full-live-agents]", coverage.critical_agent_ready_label || "critical lanes unknown");
+    setText("[data-full-live-agents]", coverage.critical_agent_ready_label || "critical agents unknown");
     setText(
       "[data-full-live-agents-detail]",
-      `${coverage.agent_ready_count || 0}/${coverage.agent_total_count || 0} total lanes ready.`
+      `${coverage.agent_ready_count || 0}/${coverage.agent_total_count || 0} total agents ready.`
     );
     setText("[data-full-live-loading]", refresh.status_label || "Unknown");
     setText("[data-full-live-loading-detail]", `ETA ${refresh.eta_label || "not available"}; state ${refresh.state || "unknown"}.`);
@@ -354,7 +354,7 @@ if (document.readyState === "loading") {
     if (payload.refresh_impact) return payload.refresh_impact;
     if (["idle", "complete", "planned"].includes(state)) {
       return {
-        label: "No active load blocker",
+        label: "No active load issue",
         status_class: state === "complete" ? "pass" : "neutral",
         detail: "No active refresh failure is recorded for the latest status snapshot.",
       };
@@ -362,9 +362,9 @@ if (document.readyState === "loading") {
     if (state === "running") {
       if (scope === "live_critical") {
         return {
-          label: "Live-critical refresh running",
+          label: "Paper-critical refresh running",
           status_class: "warn",
-          detail: "A live-critical lane is actively loading. Wait for it to finish before submitting paper orders that depend on fresh market evidence.",
+          detail: "Paper-critical market data is actively loading. Wait for it to finish before submitting paper orders that depend on fresh market evidence.",
         };
       }
       if (scope === "support") {
@@ -378,7 +378,7 @@ if (document.readyState === "loading") {
         return {
           label: "Repair refresh running",
           status_class: "neutral",
-          detail: "Historical repair or backtest coverage is actively loading. Live review can continue unless a downstream agent explicitly requires this lane.",
+          detail: "Historical repair or backtest coverage is actively loading. Live review can continue unless a downstream agent explicitly requires that dataset.",
         };
       }
       return {
@@ -389,9 +389,9 @@ if (document.readyState === "loading") {
     }
     if (scope === "live_critical") {
       return {
-        label: "Live-critical affected",
+        label: "Paper-critical affected",
         status_class: "block",
-        detail: "The affected lane can change review, risk, or paper-order readiness. Fix and rerun it before submitting paper orders that depend on it.",
+        detail: "The affected market data can change review, risk, or paper-order readiness. Fix and rerun it before submitting paper orders that depend on it.",
       };
     }
     if (scope === "support") {
@@ -411,22 +411,22 @@ if (document.readyState === "loading") {
     return {
       label: "Impact unknown",
       status_class: ["failed", "blocked", "stale"].includes(state) ? "block" : "neutral",
-      detail: "The refresh scope is not recognized, so treat the status as blocking until inspected.",
+      detail: "The refresh scope is not recognized, so treat the status as a must-fix issue until inspected.",
     };
   };
 
   const refreshNextAction = (payload, scope, state) => {
     if (payload.next_action_label) return payload.next_action_label;
-    if (state === "running") return "Wait for the active lane refresh to finish, then re-check data health.";
+    if (state === "running") return "Wait for the active data refresh to finish, then re-check data health.";
     if (state === "stale") return "Restart or inspect the refresh monitor before trusting the progress state.";
     if (["failed", "blocked"].includes(state)) {
-      if (scope === "live_critical") return "Fix the failed live-critical lane and rerun it before paper-order submission.";
+      if (scope === "live_critical") return "Fix the failed paper-critical refresh and rerun it before paper-order submission.";
       if (scope === "support") return "Review can continue with current health gates; rerun the support refresh for complete context.";
       if (scope === "repair") return "Keep live work moving; schedule or resume the repair job off-hours.";
       return "Inspect logs and rerun the failed refresh before relying on affected data.";
     }
-    if (state === "complete") return "Use the loaded data, subject to each lane's freshness badge.";
-    return "No refresh action is required unless a lane or source falls outside policy.";
+    if (state === "complete") return "Use the loaded data, subject to each source's freshness badge.";
+    return "No refresh action is required unless a data source falls outside policy.";
   };
 
   const enrichRefreshPayload = (payload) => {
@@ -529,7 +529,7 @@ if (document.readyState === "loading") {
     setText("[data-trade-latest]", tradePull.latest_as_of || "not recorded");
     setText("[data-trade-window]", tradePull.window_label || "not recorded");
     setText("[data-trade-guardrail]", tradePull.guardrail_label || "not configured");
-    setText("[data-trade-detail]", tradePull.detail || "No Massive stock-trades pull status is available yet.");
+    setText("[data-trade-detail]", tradePull.detail || "No current trade-data pull status is available yet.");
     setText("[data-trade-updated]", tradePull.updated_at || "not recorded");
     setText("[data-trade-job]", tradePull.job_position_label || "not in latest batch");
   };
@@ -573,16 +573,16 @@ if (document.readyState === "loading") {
     if (state === "missing_manifest") return "Not Loaded";
     if (state === "stale") return "Refresh recommended";
     if (state === "failed") return "Failed";
-    if (state === "blocked") return "Blocked";
-    if (status === "READY_FROM_RAW") return "Ready From Live Slices";
+    if (state === "blocked") return "Needs Attention";
+    if (status === "READY_FROM_RAW") return "Derived From Current Trade Data";
     if (status === "SKIPPED" && (["complete", "partial_usable"].includes(manifest) || coverage > 0)) return "Loaded / No Pull Needed";
     if (status === "DUE_NOW") return "Refresh Due";
     if (status === "RUNNING") return "Refreshing";
     if (status === "DEFERRED") return "Scheduled Later";
-    if (status === "WAITING") return "Waiting For Raw Lane";
-    if (status === "BLOCKED") return "Blocked";
+    if (status === "WAITING") return "Waiting For Source Data";
+    if (status === "BLOCKED") return "Needs Attention";
     if (status === "DISABLED" && laneId.includes("options")) return "Disabled / Entitlement Not Verified";
-    if (status === "DISABLED" && laneId.includes("backtest")) return "Disabled / Research Lane";
+    if (status === "DISABLED" && laneId.includes("backtest")) return "Disabled / Research Only";
     if (status === "DISABLED") return "Disabled / Not Enabled";
     return status ? label(status) : "Unknown";
   };
@@ -601,9 +601,9 @@ if (document.readyState === "loading") {
   };
 
   const massiveDisplayStatusClass = (text) => {
-    if (["Blocked", "Failed", "Refresh recommended"].includes(text)) return "block";
-    if (["Refresh Due", "Refreshing", "Waiting For Raw Lane", "Usable With Gaps", "Research Repair Partial", "Partial Coverage", "Reference Not Loaded", "Not Loaded"].includes(text)) return "warn";
-    if (["Loaded / No Pull Needed", "Ready From Live Slices", "Verified Current"].includes(text)) return "pass";
+    if (["Needs Attention", "Failed", "Refresh recommended"].includes(text)) return "block";
+    if (["Refresh Due", "Refreshing", "Waiting For Source Data", "Usable With Gaps", "Research Repair Partial", "Partial Coverage", "Reference Not Loaded", "Not Loaded"].includes(text)) return "warn";
+    if (["Loaded / No Pull Needed", "Derived From Current Trade Data", "Verified Current"].includes(text)) return "pass";
     return "neutral";
   };
 
@@ -618,25 +618,25 @@ if (document.readyState === "loading") {
     const laneId = String(lane.lane_id || lane.name || "");
     if (lane.blocks_execution === true || ["massive_daily_bars", "massive_live_trade_slices", "massive_premarket_trade_slices", "massive_block_trade_feed"].includes(laneId)) {
       return {
-        label: "Execution-critical",
-        detail: "This lane can affect paper-order readiness because live decisions depend on its market data.",
+        label: "Paper-critical",
+        detail: "This data pipeline can affect paper-order readiness because live decisions depend on its market data.",
       };
     }
     if (laneId.includes("options")) {
       return {
         label: "Optional / entitlement",
-        detail: "This lane is optional until the provider entitlement is verified and enabled.",
+        detail: "This options feed is optional until the provider entitlement is verified and enabled.",
       };
     }
     if (laneId.includes("backtest")) {
       return {
         label: "Research/repair",
-        detail: "This lane supports research and backtesting. It should not block live review or paper orders.",
+        detail: "This data pipeline supports research and backtesting. It should not block live review or paper orders.",
       };
     }
     return {
       label: "Support/context",
-      detail: "This lane improves context or source hygiene. It does not directly block paper-order submission.",
+      detail: "This data pipeline improves context or source hygiene. It does not directly block paper-order submission.",
     };
   };
 
@@ -687,31 +687,31 @@ if (document.readyState === "loading") {
     const laneId = String(lane.lane_id || lane.name || "");
     const status = normalized(lane.status);
     if (lane.blocks_execution !== true && (["DISABLED", "DEFERRED"].includes(status) || laneId.includes("backtest") || laneId.includes("options"))) {
-      return "Research / Disabled / Not Entitled";
+      return "Research / Optional / Entitlement";
     }
     if (lane.blocks_execution === true) {
-      if (["Blocked", "Refresh Due", "Refreshing", "Waiting For Raw Lane"].includes(displayStatus)) {
-        return "Execution-Critical Needs Refresh";
+      if (["Needs Attention", "Refresh Due", "Refreshing", "Waiting For Source Data"].includes(displayStatus)) {
+        return "Needs refresh before paper";
       }
-      return "Execution-Critical Ready";
+      return "Paper-ready data loaded";
     }
     if (["DUE_NOW", "RUNNING", "WAITING"].includes(status)) {
-      return "Support / Context Due";
+      return "Context refresh due";
     }
-    return "Research / Disabled / Not Entitled";
+    return "Research / Optional / Entitlement";
   };
 
   const massiveActionLabel = (displayStatus) => ({
-    "Refresh Due": "Run lane refresh",
+    "Refresh Due": "Run data refresh",
     "Refreshing": "Wait for refresh",
-    "Blocked": "Fix lane blocker",
+    "Needs Attention": "Fix data access or policy issue",
     "Scheduled Later": "No action now",
     "Disabled / Entitlement Not Verified": "Verify entitlement",
-    "Disabled / Research Lane": "Enable only for research",
+    "Disabled / Research Only": "Enable only for research",
     "Loaded / No Pull Needed": "No pull needed",
-    "Ready From Live Slices": "Derived locally",
-    "Waiting For Raw Lane": "Wait for raw lane",
-  })[displayStatus] || "Inspect lane detail";
+    "Derived From Current Trade Data": "Derived locally",
+    "Waiting For Source Data": "Wait for source data",
+  })[displayStatus] || "Inspect data-pipeline detail";
 
   const enrichMassiveLane = (lane) => {
     const displayStatus = lane.display_status_label || massiveDisplayStatus(lane);
@@ -734,19 +734,19 @@ if (document.readyState === "loading") {
       coverage_label: coverage,
       progress_percent: progressPercent,
       progress_style: lane.progress_style || `width: ${progressPercent}%`,
-      progress_meter_label: lane.progress_meter_label || `${progressPercent}% lane progress`,
+      progress_meter_label: lane.progress_meter_label || `${progressPercent}% data-pipeline progress`,
       progress_detail_label: lane.progress_detail_label || massiveLaneProgressDetail(lane, coverage, progressPercent),
       bucket_label: bucket,
       action_label: lane.action_label || massiveActionLabel(displayStatus),
-      tooltip: lane.tooltip || `${displayStatus}. ${impact.detail} Manifest status: ${lane.manifest_status || "missing"}; coverage: ${lane.manifest_coverage_pct || 0}%; detail: ${lane.detail || "No lane detail recorded."}`,
+      tooltip: lane.tooltip || `${displayStatus}. ${impact.detail} Coverage status: ${lane.manifest_status || "missing"}; coverage: ${lane.manifest_coverage_pct || 0}%; detail: ${lane.detail || "No data-pipeline detail recorded."}`,
     };
   };
 
   const massiveLaneSummary = (lanes, supplied) => supplied || {
-    execution_ready_count: lanes.filter((lane) => lane.bucket_label === "Execution-Critical Ready").length,
-    execution_needs_refresh_count: lanes.filter((lane) => lane.bucket_label === "Execution-Critical Needs Refresh").length,
-    support_due_count: lanes.filter((lane) => lane.bucket_label === "Support / Context Due").length,
-    research_disabled_count: lanes.filter((lane) => lane.bucket_label === "Research / Disabled / Not Entitled").length,
+    execution_ready_count: lanes.filter((lane) => lane.bucket_label === "Paper-ready data loaded").length,
+    execution_needs_refresh_count: lanes.filter((lane) => lane.bucket_label === "Needs refresh before paper").length,
+    support_due_count: lanes.filter((lane) => lane.bucket_label === "Context refresh due").length,
+    research_disabled_count: lanes.filter((lane) => lane.bucket_label === "Research / Optional / Entitlement").length,
   };
 
   const renderMassiveLaneProgress = (lanes) => {
@@ -760,7 +760,7 @@ if (document.readyState === "loading") {
       const cell = document.createElement("td");
       cell.className = "empty-row";
       cell.colSpan = 6;
-      cell.textContent = "No Massive lane progress rows are available yet.";
+      cell.textContent = "No market-data pipeline progress rows are available yet.";
       row.appendChild(cell);
       body.appendChild(row);
       return;
@@ -769,9 +769,9 @@ if (document.readyState === "loading") {
       const enriched = enrichMassiveLane(lane);
       const row = document.createElement("tr");
       const laneCell = document.createElement("td");
-      laneCell.dataset.label = "Lane";
+      laneCell.dataset.label = "Data pipeline";
       const strong = document.createElement("strong");
-      strong.textContent = operatorDataHealthText(enriched.label || enriched.lane_id || "Unknown lane");
+      strong.textContent = operatorDataHealthText(enriched.label || enriched.lane_id || "Unknown data pipeline");
       const sub = document.createElement("span");
       sub.textContent = operatorDataHealthText(enriched.window_label || "window not recorded");
       laneCell.append(strong, sub);
@@ -793,7 +793,7 @@ if (document.readyState === "loading") {
       const meaningStrong = document.createElement("strong");
       meaningStrong.textContent = operatorDataHealthText(enriched.impact_label || "Impact unknown");
       const meaningDetail = document.createElement("span");
-      meaningDetail.textContent = operatorDataHealthText(enriched.detail || "No lane detail recorded.");
+      meaningDetail.textContent = operatorDataHealthText(enriched.detail || "No data-pipeline detail recorded.");
       meaning.append(meaningStrong, meaningDetail);
       appendCell(row, "Meaning", meaning);
       body.appendChild(row);
@@ -982,10 +982,10 @@ if (document.readyState === "loading") {
 
   const workloadStatusLabel = (liveCount, supportCount, repairCount, runningCount) => {
     if (liveCount) {
-      return `${liveCount} live-critical due`;
+      return `${liveCount} urgent refresh due`;
     }
     if (supportCount || repairCount) {
-      return "Support/repair due";
+      return "Context or backfill pending";
     }
     if (runningCount) {
       return "Refresh running";
@@ -1013,9 +1013,9 @@ if (document.readyState === "loading") {
       (row) => statusOf(row) === "RUNNING"
     ).length;
     const nextLiveEta = firstEtaLabel(liveCritical);
-    let detail = `${liveCritical.length} live-critical due; ${support.length} support due; ${repairDue.length} repair due; ${runningCount} running.`;
+    let detail = `${liveCritical.length} urgent refresh due; ${support.length} context refresh pending; ${repairDue.length} backfill pending; ${runningCount} running.`;
     if (nextLiveEta !== "not needed") {
-      detail = `${detail} Next live-critical ETA: ${nextLiveEta}.`;
+      detail = `${detail} Next urgent refresh ETA: ${nextLiveEta}.`;
     }
     return {
       status_label: workloadStatusLabel(liveCritical.length, support.length, repairDue.length, runningCount),
@@ -1061,16 +1061,16 @@ if (document.readyState === "loading") {
       const button = document.createElement("button");
       button.className = "mini-button";
       button.type = "submit";
-      button.textContent = lane.refresh_button_label || "Refresh lane";
+      button.textContent = lane.refresh_button_label || "Refresh data source";
       button.setAttribute(
         "aria-label",
-        `Refresh ${lane.label || lane.lane_id || "Massive"} data lane`
+        `Refresh ${lane.label || lane.lane_id || "market data"} data source`
       );
       form.appendChild(button);
       container.appendChild(form);
       const scope = document.createElement("span");
       scope.className = "muted-line";
-      scope.textContent = lane.refresh_scope_label || "Lane-level refresh";
+      scope.textContent = lane.refresh_scope_label || "Source-level refresh";
       container.appendChild(scope);
       return container;
     }
@@ -1084,7 +1084,7 @@ if (document.readyState === "loading") {
     const reason = document.createElement("span");
     reason.className = "muted-line";
     reason.textContent =
-      lane.refresh_disabled_reason || "Current policy does not allow this lane refresh.";
+      lane.refresh_disabled_reason || "Current policy does not allow this data refresh.";
     container.appendChild(reason);
     return container;
   };
@@ -1101,10 +1101,10 @@ if (document.readyState === "loading") {
       status.textContent = operatorDataHealthText(massive.status_label || "Unknown");
     }
     setText("[data-massive-headline]", massive.status_label || "Unknown");
-    setText("[data-massive-detail]", massive.detail || "Massive lane status is unavailable.");
+    setText("[data-massive-detail]", massive.detail || "Market-data pipeline status is unavailable.");
     setText(
       "[data-massive-lanes]",
-      `${massive.due_now_count || 0} due / ${massive.blocked_count || 0} blocked`
+      `${massive.due_now_count || 0} due / ${massive.blocked_count || 0} need attention`
     );
     const lanes = Array.isArray(massive.lanes) ? massive.lanes.map(enrichMassiveLane) : [];
     const laneSummary = massiveLaneSummary(lanes, massive.lane_summary);
@@ -1123,7 +1123,7 @@ if (document.readyState === "loading") {
       const cell = document.createElement("td");
       cell.className = "empty-row";
       cell.colSpan = 8;
-      cell.textContent = "No Massive lanes are configured in the current scheduler plan.";
+      cell.textContent = "No market-data pipelines are configured in the current scheduler plan.";
       row.appendChild(cell);
       body.appendChild(row);
       return;
@@ -1132,9 +1132,9 @@ if (document.readyState === "loading") {
       const row = document.createElement("tr");
       row.title = lane.status_tooltip || lane.reason || "";
       const laneCell = document.createElement("td");
-      laneCell.dataset.label = "Lane";
+      laneCell.dataset.label = "Data pipeline";
       const strong = document.createElement("strong");
-      strong.textContent = operatorDataHealthText(lane.label || lane.lane_id || "Unknown lane");
+      strong.textContent = operatorDataHealthText(lane.label || lane.lane_id || "Unknown data pipeline");
       const sub = document.createElement("span");
       sub.textContent = operatorDataHealthText(`${String(lane.raw_source_dataset || lane.dataset || "unknown").replaceAll("_", " ")} - ${lane.acquisition_mode || lane.endpoint_family || "unknown"} - ${lane.bucket_label}`);
       laneCell.append(strong, sub);
@@ -1159,7 +1159,7 @@ if (document.readyState === "loading") {
       const manifestDetail = document.createElement("span");
       manifestDetail.className = "muted-line";
       manifestDetail.textContent = operatorDataHealthText(
-        `Tier ${lane.ticker_tier || "n/a"}; manifest ${lane.manifest_status || "missing"} / ${lane.manifest_coverage_pct || 0}%`
+        `Priority group ${lane.ticker_tier || "n/a"}; coverage record ${lane.manifest_status || "missing"} / ${lane.manifest_coverage_pct || 0}%`
       );
       appendCell(
         row,
@@ -1176,9 +1176,9 @@ if (document.readyState === "loading") {
         "Cadence / Budget",
         `${lane.cadence_minutes || "window"} - ETA ${lane.eta_label || "n/a"}; ${lane.request_budget_label || "budget not recorded"}`
       );
-      appendCell(row, "Next Action", lane.action_label || "Inspect lane detail");
+      appendCell(row, "Next Action", lane.action_label || "Inspect data-pipeline detail");
       appendCell(row, "Refresh", laneRefreshControl(lane));
-      appendCell(row, "Reason", lane.reason || "No Massive lane rationale recorded.");
+      appendCell(row, "Reason", lane.reason || "No data-pipeline rationale recorded.");
       body.appendChild(row);
     });
 
@@ -1192,7 +1192,7 @@ if (document.readyState === "loading") {
       const cell = document.createElement("td");
       cell.className = "empty-row";
       cell.colSpan = 5;
-      cell.textContent = "No Massive-backed derived signal requirements are active in this plan.";
+      cell.textContent = "No market-data-backed derived signal requirements are active in this plan.";
       row.appendChild(cell);
       signalBody.appendChild(row);
       return;
@@ -1201,7 +1201,7 @@ if (document.readyState === "loading") {
       const row = document.createElement("tr");
       row.title = signal.tooltip || signal.reason || "";
       appendCell(row, "Derived signal", signal.label || signal.signal_lane || "Unknown signal");
-      appendCell(row, "Raw lane requirement", (signal.requires_raw_lanes || []).join(", ") || "n/a");
+      appendCell(row, "Source data requirement", (signal.requires_raw_lanes || []).join(", ") || "n/a");
       appendCell(row, "Status", tag(signal.status, signal.status_class));
       appendCell(row, "Impact", `${signal.impact_label || "Context signal"} - ${signal.requirement_summary || "Requirement unverified."}`);
       appendCell(row, "Meaning", `${signal.impact_detail || ""} ${signal.reason || "No requirement rationale recorded."}`.trim());
@@ -1269,9 +1269,9 @@ if (document.readyState === "loading") {
     setText("[data-scheduler-running]", 0);
     setText("[data-scheduler-automation]", "Unknown");
     setText("[data-scheduler-gate]", "Unavailable");
-    setText("[data-massive-lanes]", "0 due / 0 blocked");
+    setText("[data-massive-lanes]", "0 due / 0 need attention");
     setText("[data-massive-headline]", "Unavailable");
-    setText("[data-massive-detail]", "Massive lane polling is unavailable.");
+    setText("[data-massive-detail]", "Market-data pipeline polling is unavailable.");
     setText("[data-scheduler-detail]", "Scheduler status could not be refreshed; treat tradability as context-only until polling recovers.");
   };
 
@@ -1516,7 +1516,7 @@ if (document.readyState === "loading") {
       const cell = document.createElement("td");
       cell.className = "empty-row";
       cell.colSpan = 4;
-      cell.textContent = "No lane-state registry rows are available.";
+      cell.textContent = "No data-source state rows are available.";
       row.appendChild(cell);
       body.appendChild(row);
       return;
@@ -1524,7 +1524,7 @@ if (document.readyState === "loading") {
     rows.forEach((item) => {
       const row = document.createElement("tr");
       const laneCell = document.createElement("td");
-      laneCell.dataset.label = "Lane";
+      laneCell.dataset.label = "Data pipeline";
       const strong = document.createElement("strong");
       strong.textContent = title(item.label || item.lane_id || item.lane);
       const group = document.createElement("span");
@@ -1549,9 +1549,9 @@ if (document.readyState === "loading") {
           checkedText,
         ]);
         appendCell(row, "Action", [
-          document.createTextNode(item.operator_message || "No lane-state explanation recorded."),
+          document.createTextNode(item.operator_message || "No data-source explanation recorded."),
           document.createElement("br"),
-          document.createTextNode(item.recommended_action || "No lane action recorded."),
+          document.createTextNode(item.recommended_action || "No data-source action recorded."),
         ]);
       } else {
         const coverageCell = document.createElement("td");
@@ -1561,7 +1561,7 @@ if (document.readyState === "loading") {
         coverageText.textContent = `${item.coverage_pct || 0}% - ${countLabel(item)}`;
         coverageCell.appendChild(coverageText);
         row.appendChild(coverageCell);
-        appendCell(row, "Interpretation", item.detail || "No lane detail recorded.");
+        appendCell(row, "Interpretation", item.detail || "No data-pipeline detail recorded.");
       }
       body.appendChild(row);
     });
@@ -1615,7 +1615,7 @@ if (document.readyState === "loading") {
     if (rows.length === 0) {
       const empty = document.createElement("p");
       empty.className = "empty-block";
-      empty.textContent = "No data-load blockers or warnings in the latest cycle.";
+      empty.textContent = "No data-load issues or warnings in the latest cycle.";
       list.appendChild(empty);
       return;
     }
@@ -1677,7 +1677,7 @@ if (document.readyState === "loading") {
     setText("[data-load-dataset-ready]", datasetSummary.ready_label || "datasets unknown");
     setText("[data-load-dataset-blocked]", datasetSummary.blocked_count || 0);
     setText("[data-load-dataset-warning]", datasetSummary.warning_count || 0);
-    setText("[data-load-agent-ready]", agentSummary.critical_ready_label || "critical lanes unknown");
+    setText("[data-load-agent-ready]", agentSummary.critical_ready_label || "critical agents unknown");
     setText("[data-load-agent-blocked]", agentSummary.blocked_count || 0);
     setText("[data-load-agent-warning]", agentSummary.warning_count || 0);
     renderDatasetRows(payload.datasets || []);

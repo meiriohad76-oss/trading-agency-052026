@@ -23,6 +23,7 @@ from agency.views._shared import (
     REFRESHABLE_MASSIVE_LANES,
     RUNNABLE_MASSIVE_LANES,
     _dashboard_selection_reports,
+    _label_text,
     dashboard_data_health,
     live_runtime_source_health_rows,
 )
@@ -32,7 +33,7 @@ from agency.views.market_regime import broker_status_context
 TRADE_ACTIONS = {"BUY", "SELL", "SHORT", "COVER"}
 MAX_COCKPIT_CANDIDATES = 25
 QA_SCENARIOS = {"normal", "no-actionable", "outage", "submitted"}
-DEFAULT_SECTOR_LABEL = "Reference lane not loaded"
+DEFAULT_SECTOR_LABEL = "Reference data not loaded"
 DEFAULT_OPTIONAL_CONTEXT_TIMEOUT_SECONDS = 1.0
 DEFAULT_REQUIRED_CONTEXT_TIMEOUT_SECONDS = 8.0
 DEFAULT_SOURCE_LOAD_TIMEOUT_SECONDS = 1.5
@@ -746,7 +747,7 @@ def _cycle_section(
         "next_in": _first_text(
             data_load.get("next_update_label"),
             dashboard.get("next_cycle_label"),
-            default="scheduled by lane policy",
+            default="scheduled by refresh policy",
         ),
         "mode": "PAPER",
         "submit_enabled": False,
@@ -815,10 +816,10 @@ def _engine_rows(
         item = _mapping(lane)
         rows.append(
             {
-                "name": _first_text(item.get("label"), item.get("lane"), default="Signal lane"),
+                "name": _first_text(item.get("label"), item.get("lane"), default="Signal process"),
                 "state": _status_to_engine_state(item.get("status_class"), item.get("status_label")),
-                "age": _first_text(item.get("freshness_label"), default="latest lane status"),
-                "detail": _first_text(item.get("detail"), default="Signal lane reported no detail."),
+                "age": _first_text(item.get("freshness_label"), default="latest signal status"),
+                "detail": _first_text(item.get("detail"), default="Signal process reported no detail."),
             }
         )
     summary = _mapping(execution.get("summary"))
@@ -1001,14 +1002,14 @@ def _candidate_rows(
                     reviewable=reviewable,
                     risk_label=risk_label,
                 ),
-                "blocker": None if actionable else "Order intent approval is required before submit." if order_reviewable else risk_text,
+                "blocker": None if actionable else "Order details approval is required before submit." if order_reviewable else risk_text,
                 "actionable": actionable,
                 "order_reviewable": order_reviewable,
                 "reviewable": reviewable,
                 "action_label": (
                     "Submit paper order"
                     if actionable
-                    else "Review order intent"
+                    else "Review order details"
                     if order_reviewable
                     else "Approve, defer, or reject"
                     if reviewable
@@ -1283,7 +1284,7 @@ def _data_state_section(dashboard: Mapping[str, object]) -> dict[str, object]:
     gap_summary = (
         _data_state_gap_summary(top_gaps)
         if top_gaps
-        else "No required lane gaps are reported for the current workflow."
+        else "No required data or agent gaps are reported for the current workflow."
     )
     return {
         "status_label": _data_state_text(data_load.get("status_label") or "Data state checked"),
@@ -1291,7 +1292,7 @@ def _data_state_section(dashboard: Mapping[str, object]) -> dict[str, object]:
         "headline": (
             f"{review_label}; {paper_label}. "
             f"{overall_percent}% overall data readiness with {warning_count} warning(s) "
-            f"and {blocker_count} blocker(s)."
+            f"and {blocker_count} must-fix issue(s)."
         ),
         "overall_percent": overall_percent,
         "critical_lane_percent": critical_lane_percent,
@@ -1308,7 +1309,7 @@ def _data_state_section(dashboard: Mapping[str, object]) -> dict[str, object]:
             "detail": (
                 "The loaded evidence is usable for research review."
                 if review_ready
-                else "Research review needs the listed lane gaps resolved first."
+                else "Research review needs the listed data or agent gaps resolved first."
             ),
         },
         "paper": {
@@ -1364,9 +1365,9 @@ def _data_state_lane_rows(data_load: Mapping[str, object]) -> list[dict[str, obj
 
 
 def _data_state_lane_row(row: Mapping[str, object]) -> dict[str, object]:
-    lane_id = _first_text(row.get("lane_id"), row.get("lane"), row.get("name"), default="lane")
+    lane_id = _first_text(row.get("lane_id"), row.get("lane"), row.get("name"), default="data_source")
     name = _data_state_text(
-        _first_text(row.get("name"), row.get("label"), row.get("lane_id"), default="Data lane")
+        _first_text(row.get("name"), row.get("label"), row.get("lane_id"), default="Data source")
     )
     state = _first_text(row.get("state"), default=_state_from_lane_label(row))
     status_label = _data_state_text(
@@ -1404,7 +1405,7 @@ def _data_state_lane_row(row: Mapping[str, object]) -> dict[str, object]:
         )
     )
     operator_message = _data_state_text(
-        _first_text(row.get("operator_message"), row.get("detail"), default="No lane-state explanation recorded.")
+        _first_text(row.get("operator_message"), row.get("detail"), default="No data-source explanation recorded.")
     )
     recommended_action = _lane_recommended_action(
         row,
@@ -1428,7 +1429,7 @@ def _data_state_lane_row(row: Mapping[str, object]) -> dict[str, object]:
         "lane_id": lane_id,
         "name": name,
         "lane_kind_label": _data_state_text(
-            _first_text(row.get("lane_kind_label"), row.get("lane_kind"), default="lane")
+            _first_text(row.get("lane_kind_label"), row.get("lane_kind"), default="data source")
         ),
         "state": state,
         "status_label": status_label,
@@ -1473,11 +1474,11 @@ def _lane_refresh_action(
     if explicit_url:
         return {
             "url": explicit_url,
-            "label": explicit_label or "Refresh lane",
+            "label": explicit_label or "Refresh data source",
             "detail": _data_state_text(
                 _first_text(
                     row.get("refresh_action_detail"),
-                    default="Runs the lane refresh through the scheduler policy.",
+                    default="Runs the data refresh through the scheduler policy.",
                 )
             ),
         }
@@ -1489,14 +1490,14 @@ def _lane_refresh_action(
                 "label": "Policy locked",
                 "detail": (
                     f"{REFRESHABLE_MASSIVE_LANES.get(massive_lane, massive_lane)} "
-                    "is tracked for health, but this lane is not exposed as a "
+                    "is tracked for health, but this data source is not exposed as a "
                     "runnable scheduler refresh in the current policy."
                 ),
             }
         return {
             "url": f"/scheduler/massive-lanes/{massive_lane}/refresh",
-            "label": REFRESHABLE_MASSIVE_LANES.get(massive_lane, "Refresh lane"),
-            "detail": "Runs this lane through the scheduler's trade-aware policy.",
+            "label": REFRESHABLE_MASSIVE_LANES.get(massive_lane, "Refresh data source"),
+            "detail": "Runs this data source through the scheduler's trade-aware policy.",
         }
     dataset = source_dataset or lane_id
     if dataset == "subscription_emails" or lane_id == "subscription_thesis":
@@ -1539,12 +1540,12 @@ def _data_state_top_gaps(
     ordered = sorted(gap_rows, key=lambda row: _int(row.get("sort_key"), fallback=99))
     return [
         {
-            "lane": str(row.get("name") or "Data lane"),
+            "lane": str(row.get("name") or "Data source"),
             "status_label": str(row.get("status_label") or "Needs attention"),
             "status_class": str(row.get("status_class") or "warn"),
             "progress_label": str(row.get("progress_label") or "not tracked"),
-            "detail": str(row.get("operator_message") or "No lane detail recorded."),
-            "recommended_action": str(row.get("recommended_action") or "Review this lane."),
+            "detail": str(row.get("operator_message") or "No data-source detail recorded."),
+            "recommended_action": str(row.get("recommended_action") or "Review this data source."),
             "blocks_execution": bool(row.get("blocks_execution")),
         }
         for row in ordered
@@ -1555,13 +1556,13 @@ def _data_state_gap_summary(top_gaps: Sequence[Mapping[str, object]]) -> str:
     execution_gaps = [row for row in top_gaps if row.get("blocks_execution") is True]
     rows = execution_gaps or list(top_gaps)
     labels = [
-        f"{row.get('lane')} ({row.get('progress_label')})"
+        f"{_label_text(str(row.get('name') or row.get('label') or row.get('lane') or 'Data source'))} ({row.get('progress_label')})"
         for row in rows[:3]
         if row.get("lane")
     ]
     if not labels:
-        return "Paper execution needs lane attention before submit."
-    return "Resolve or acknowledge these operationability gaps: " + "; ".join(labels) + "."
+        return "Paper execution needs data or agent attention before submit."
+    return "Resolve or acknowledge these readiness items before paper submit: " + "; ".join(labels) + "."
 
 
 def _lane_recommended_action(
@@ -1578,11 +1579,11 @@ def _lane_recommended_action(
     if state == "loading":
         return f"Wait for {name} to finish loading, then refresh the cockpit."
     if state == "loaded_unanalyzed":
-        return f"Run the {name} analysis before using this lane for decisions."
+        return f"Run the {name} analysis before using this source for decisions."
     if state == "needs_refresh":
         return f"Refresh {name}, then recheck the cockpit proof timestamp."
     if state == "provider_unavailable":
-        return f"Check provider access for {name}, then retry the lane refresh."
+        return f"Check provider access for {name}, then retry the data refresh."
     if state == "ready_for_paper_execution":
         return f"No action needed for {name}; it is ready for paper execution."
     if state == "ready_for_review":
@@ -1590,7 +1591,7 @@ def _lane_recommended_action(
     if not required_now:
         return f"No action needed today; {name} is not required for the current workflow."
     if blocks_execution:
-        return f"Review {name} before paper execution because this lane is execution-critical."
+        return f"Review {name} before paper execution because this source is paper-critical."
     return f"Review {name} before advancing this workflow."
 
 
@@ -1755,11 +1756,11 @@ def _scenario_from_context(
         return {
             "state": "outage",
             "headline": "Selection is paused because critical data is unavailable.",
-            "detail": "Refresh the red engine or open its lane detail before approving new decisions.",
+            "detail": "Refresh the red engine or open its detail before approving new decisions.",
             "engine_cards": _engine_cards(down_engines),
             "retry_label": _first_text(
                 _mapping(context.get("cycle")).get("next_in"),
-                default="Retry follows the scheduler lane policy.",
+                default="Retry follows the scheduler refresh policy.",
             ),
             "last_good_cycle_label": _last_good_cycle_label(context),
             "candidate_controls_enabled": False,
@@ -1767,7 +1768,7 @@ def _scenario_from_context(
     if actionable_count == 0:
         if reviewable_count + order_reviewable_count > 0:
             review_subject = (
-                f"{order_reviewable_count} order intents need approval"
+                f"{order_reviewable_count} order detail approvals need review"
                 if order_reviewable_count and not reviewable_count
                 else f"{reviewable_count} candidates are ready for research review"
                 if reviewable_count and not order_reviewable_count
@@ -2198,7 +2199,9 @@ def _compact_signals(signals: Sequence[object], *, limit: int = 8) -> list[dict[
     rows: list[dict[str, str]] = []
     for raw in signals[:limit]:
         signal = _mapping(raw)
-        lane = _first_text(signal.get("lane"), default="Signal")
+        lane = _label_text(
+            _first_text(signal.get("display_name"), signal.get("label"), signal.get("lane"), default="Signal")
+        )
         score = _first_text(signal.get("score"))
         confidence = _first_text(signal.get("confidence_pct"))
         confidence_label = f"{confidence}%" if confidence and not confidence.endswith("%") else confidence
@@ -2295,7 +2298,7 @@ def _candidate_status_label(
     if actionable:
         return "Ready to submit paper order"
     if order_reviewable:
-        return "Order intent needs approval"
+        return "Order details need approval"
     if reviewable:
         return "Ready for research review"
     if "BLOCK" in risk_label:

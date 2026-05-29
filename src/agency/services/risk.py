@@ -470,7 +470,7 @@ def _policy_gate_check(selection_report: Mapping[str, object]) -> dict[str, str]
                 "PASS",
                 (
                     "selection policy warning acknowledged during approved WATCH "
-                    f"paper promotion{detail}"
+                    f"paper eligibility review{detail}"
                 ),
             )
         return _check("policy_gates", "WARN", f"selection policy gate warned{detail}")
@@ -486,7 +486,9 @@ def _is_approved_watch_promotion(selection_report: Mapping[str, object]) -> bool
         return False
     return any(
         isinstance(note, str)
-        and note.startswith("paper trade promotion: approved WATCH")
+        and note.startswith(
+            ("paper trade promotion: approved WATCH", "paper eligibility: approved WATCH")
+        )
         for note in notes
     )
 
