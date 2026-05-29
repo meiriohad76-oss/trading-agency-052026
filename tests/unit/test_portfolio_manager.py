@@ -162,3 +162,42 @@ def test_high_water_marks_roundtrip(tmp_path: Path) -> None:
     loaded = load_high_water_marks(tmp_path)
 
     assert loaded == {"AAPL": 3.45, "MSFT": 1.20}
+
+
+def test_weekly_performance_no_baseline() -> None:
+    from agency.portfolio.performance import compute_weekly_performance
+
+    result = compute_weekly_performance(
+        account={"equity": 100000.0},
+        weekly_baseline=None,
+        policy=PortfolioPolicy(),
+    )
+
+    assert result["weekly_return_pct"] is None
+    assert result["baseline_equity"] is None
+
+
+def test_weekly_performance_gain() -> None:
+    from agency.portfolio.performance import compute_weekly_performance
+
+    result = compute_weekly_performance(
+        account={"equity": 103000.0},
+        weekly_baseline={"week_start": "2026-05-26", "equity": 100000.0},
+        policy=PortfolioPolicy(),
+    )
+
+    assert result["weekly_return_pct"] == pytest.approx(3.0, abs=0.01)
+    assert result["weekly_pl"] == pytest.approx(3000.0, abs=0.01)
+    assert result["pct_of_target_reached"] == pytest.approx(100.0, abs=0.1)
+
+
+def test_daily_performance_loss() -> None:
+    from agency.portfolio.performance import compute_daily_performance
+
+    result = compute_daily_performance(
+        account={"equity": 97000.0},
+        daily_baseline={"date": "2026-05-29", "equity": 100000.0},
+    )
+
+    assert result["daily_return_pct"] == pytest.approx(-3.0, abs=0.01)
+    assert result["daily_pl"] == pytest.approx(-3000.0, abs=0.01)
