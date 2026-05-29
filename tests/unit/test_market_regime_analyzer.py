@@ -13,6 +13,7 @@ from agency.market_regime.analyzer import (
     per_stock_context,
 )
 from agency.market_regime.policy import RegimePolicy
+from agency.market_regime.scheduler import schedule_regime_refresh
 from agency.market_regime.snapshot import build_regime_snapshot
 
 REQUIRED_KEYS = {
@@ -303,3 +304,24 @@ def test_snapshot_pre_market_with_state_files(tmp_path: Path) -> None:
     assert snapshot["snapshot_type"] == "pre_market"
     assert snapshot["data_as_of"] == "2026-05-28"
     assert "XLK" in snapshot["sector_map"]
+
+
+class RecordingScheduler:
+    def __init__(self) -> None:
+        self.jobs = []
+
+    def add_job(self, func, trigger, **kwargs) -> None:
+        self.jobs.append({"func": func, "trigger": trigger, **kwargs})
+
+
+def test_schedule_regime_refresh_registers_three_jobs(tmp_path: Path) -> None:
+    scheduler = RecordingScheduler()
+
+    schedule_regime_refresh(scheduler, tmp_path, RegimePolicy())
+
+    assert [job["kwargs"]["mode"] for job in scheduler.jobs] == [
+        "pre_market",
+        "intraday",
+        "post_market",
+    ]
+    assert all(job["trigger"] == "cron" for job in scheduler.jobs)
