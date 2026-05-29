@@ -87,6 +87,20 @@ def save_weekly_baseline(state_dir: Path, baseline: dict[str, Any]) -> None:
     _write_json(state_dir / _WEEKLY_FILE, baseline)
 
 
+def ensure_weekly_baseline(
+    state_dir: Path,
+    *,
+    account: dict[str, Any],
+    week_start: str,
+) -> dict[str, Any]:
+    current = load_weekly_baseline(state_dir)
+    if current is not None and current.get("week_start") == week_start:
+        return current
+    baseline = {"week_start": week_start, "equity": _account_equity(account)}
+    save_weekly_baseline(state_dir, baseline)
+    return baseline
+
+
 def load_daily_baseline(state_dir: Path) -> dict[str, Any] | None:
     raw = _load_json(state_dir / _DAILY_FILE)
     if isinstance(raw, dict) and "equity" in raw:
@@ -96,6 +110,20 @@ def load_daily_baseline(state_dir: Path) -> dict[str, Any] | None:
 
 def save_daily_baseline(state_dir: Path, baseline: dict[str, Any]) -> None:
     _write_json(state_dir / _DAILY_FILE, baseline)
+
+
+def ensure_daily_baseline(
+    state_dir: Path,
+    *,
+    account: dict[str, Any],
+    date: str,
+) -> dict[str, Any]:
+    current = load_daily_baseline(state_dir)
+    if current is not None and current.get("date") == date:
+        return current
+    baseline = {"date": date, "equity": _account_equity(account)}
+    save_daily_baseline(state_dir, baseline)
+    return baseline
 
 
 def load_reentry_cooldowns(state_dir: Path) -> dict[str, dict[str, Any]]:
@@ -169,6 +197,18 @@ def _load_float_dict(path: Path) -> dict[str, float]:
 
 def _ticker(position: dict[str, Any]) -> str:
     return str(position.get("symbol") or position.get("ticker") or "").upper()
+
+
+def _account_equity(account: dict[str, Any]) -> float:
+    for key in ("equity", "portfolio_value"):
+        value = account.get(key)
+        if isinstance(value, bool):
+            continue
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            continue
+    return 0.0
 
 
 def _parse_utc(value: str) -> datetime:
