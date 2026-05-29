@@ -443,6 +443,7 @@ def test_data_load_status_blocks_partial_core_market_data(
             "unusual_trade_activity": 1,
             "pre_market_unusual_activity": 1,
             "market_flow_trend": 1,
+            "sector_momentum": 1,
         },
     )
 
@@ -646,6 +647,7 @@ def test_data_load_status_keeps_fresh_daily_bar_subset_review_operational(
 
     abnormal_volume = _lane(status, "abnormal_volume")
     technical_analysis = _lane(status, "technical_analysis")
+    sector_momentum = _lane(status, "sector_momentum")
 
     assert status["state"] == "attention"
     assert status["ready"] is True
@@ -657,6 +659,9 @@ def test_data_load_status_keeps_fresh_daily_bar_subset_review_operational(
     assert technical_analysis["status"] == "warning"
     assert "covered ticker" in str(abnormal_volume["detail"]).lower()
     assert "freshness is FRESH" not in str(abnormal_volume["detail"])
+    assert sector_momentum["status"] == "warning"
+    assert "freshness is FRESH" not in str(sector_momentum["detail"])
+    assert "available daily ohlcv bars" in str(sector_momentum["detail"]).lower()
 
 
 def test_data_load_status_marks_market_flow_partial_when_signals_miss_ticker(

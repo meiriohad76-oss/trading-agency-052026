@@ -1952,6 +1952,13 @@ def _lane_detail(
                 f"tickers only; {source_dataset} still needs repair before full "
                 "universe trading."
             )
+        if lane in TOP_DOWN_CONTEXT_LANES:
+            return (
+                f"{lane.replace('_', ' ')} used currently available {source_dataset} "
+                "for market and sector context. Review the displayed market regime "
+                f"with that coverage; refresh or repair {source_dataset} before "
+                "full-universe paper execution."
+            )
         if group == "critical" and count > 0:
             expected_label = str(expected) if expected is not None else "configured"
             return (

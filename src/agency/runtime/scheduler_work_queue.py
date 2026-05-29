@@ -1358,7 +1358,14 @@ def _massive_lane_row(
         now=now,
     )
     fresh_tickers = set(tickers).intersection(_fresh_massive_lane_tickers(row, manifest, now=now))
-    if _daily_bar_active_repair_due(row, status=status, tickers=tickers, fresh_tickers=fresh_tickers):
+    if _daily_bar_active_repair_due(
+        row,
+        status=status,
+        tickers=tickers,
+        fresh_tickers=fresh_tickers,
+        manifest=manifest,
+        now=now,
+    ):
         missing_count = max(len(tickers) - len(fresh_tickers), 0)
         status = "DUE_NOW"
         reason = (
@@ -1497,7 +1504,10 @@ def _command_scope_tickers(
         "prices_daily",
     }:
         return list(tickers)
-    if profile == "prices_daily" and str(row.get("batch_action") or "") != "skip":
+    batch_action = str(row.get("batch_action") or "")
+    if profile == "prices_daily" and (
+        batch_action == "run_now" or (batch_action != "skip" and not fresh_tickers)
+    ):
         return list(tickers)
     attempted_failures = set() if failed_tickers is None else failed_tickers
     pending = [
@@ -1636,12 +1646,52 @@ def _daily_bar_active_repair_due(
     status: str,
     tickers: Sequence[str],
     fresh_tickers: set[str],
+    manifest: Mapping[str, object],
+    now: datetime,
 ) -> bool:
     if str(row.get("command_profile") or "") != "prices_daily":
         return False
-    if status not in {"SKIPPED", "READY"}:
+    if status not in {"SKIPPED", "READY", "DEFERRED"}:
         return False
-    return bool(tickers) and len(fresh_tickers) < len(tickers)
+    if not tickers or len(fresh_tickers) >= len(tickers):
+        return False
+    return not _daily_bar_missing_confirmed_current(
+        row,
+        manifest,
+        tickers=tickers,
+        fresh_tickers=fresh_tickers,
+        now=now,
+    )
+
+
+def _daily_bar_missing_confirmed_current(
+    row: Mapping[str, object],
+    manifest: Mapping[str, object],
+    *,
+    tickers: Sequence[str],
+    fresh_tickers: set[str],
+    now: datetime,
+) -> bool:
+    if not manifest or not _daily_bar_manifest_covers_row(row, manifest):
+        return False
+    fetched_at = _parse_datetime(manifest.get("fetched_at"))
+    if fetched_at is None:
+        return False
+    required_seconds = _int_or_none(row.get("freshness_requirement_seconds")) or 0
+    if required_seconds > 0 and (now - fetched_at).total_seconds() > required_seconds:
+        return False
+    pending = {ticker for ticker in tickers if ticker not in fresh_tickers}
+    if not pending:
+        return False
+    for item in _sequence(manifest.get("coverage")):
+        coverage = _mapping(item)
+        ticker = str(coverage.get("ticker") or "").upper().strip()
+        if ticker not in pending:
+            continue
+        status = str(coverage.get("coverage_status") or coverage.get("status") or "").lower()
+        if status in {"missing", "no_data", "unavailable"}:
+            return True
+    return False
 
 
 def _daily_bar_manifest_covers_row(

@@ -1295,6 +1295,164 @@ def test_scheduler_daily_bars_repairs_partial_active_universe_even_when_plan_ski
     assert command[command.index("--tickers") + 1 :] == ["MSFT"]
 
 
+def test_scheduler_daily_bars_repairs_partial_active_universe_even_when_deferred(
+    tmp_path: Path,
+) -> None:
+    manifest_path = tmp_path / "massive_daily_bars.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "lane_id": "massive_daily_bars",
+                "status": "partial_active_universe",
+                "fetched_at": NOW.isoformat(),
+                "window": {"start": "2026-05-10", "end": "2026-05-10"},
+                "coverage_pct": 99,
+                "coverage": [
+                    {
+                        "ticker": "AAPL",
+                        "coverage_status": "complete",
+                        "complete": True,
+                    }
+                ],
+                "tickers": ["AAPL"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    tiers = build_ticker_tiers(active_universe=["AAPL", "BK"])
+    plan = _market_plan("regular_market", dataset="prices_daily", tickers=("AAPL", "BK"))
+    plan["massive_orchestrator"] = {
+        "provider": "massive",
+        "market_phase": "regular_market",
+        "lanes": [
+            {
+                "lane_id": "massive_daily_bars",
+                "label": "Daily Bars",
+                "purpose": "Load daily OHLCV.",
+                "dataset": "prices_daily",
+                "raw_source_dataset": "prices_daily",
+                "endpoint_family": "grouped_daily_or_aggs",
+                "acquisition_mode": "massive_api",
+                "command_profile": "prices_daily",
+                "batch_action": "defer",
+                "priority": 80,
+                "cadence_minutes": 60,
+                "max_tickers_per_batch": 100,
+                "ticker_tier": "T0/T1/T2",
+                "start": "2026-05-10",
+                "end": "2026-05-10",
+                "freshness_requirement_seconds": 86400,
+                "blocks_execution": True,
+                "request_budget_label": "1 grouped-daily request per market date",
+                "storage_manifest": str(manifest_path),
+                "creates_massive_request": True,
+                "reason": "regular market would normally defer daily bars",
+            }
+        ],
+        "derived_signal_lanes": [],
+    }
+
+    queue = build_scheduler_work_queue(
+        plan,
+        tiers=tiers,
+        data_load_status={"state": "attention", "datasets": []},
+        source_health=_fresh_sources(),
+        broker={"connected": True, "checked_at": NOW.isoformat()},
+        now=NOW,
+    )
+
+    lane = queue["massive_orchestrator"]["lanes"][0]
+    command = lane["command"]
+    assert lane["status"] == "DUE_NOW"
+    assert lane["fresh_ticker_count"] == 1
+    assert lane["pending_ticker_count"] == 1
+    assert "missing 1 active ticker" in lane["reason"]
+    assert command[COMMAND_SCRIPT_INDEX] == "research\\scripts\\pull_massive_grouped_daily.py"
+    assert command[command.index("--tickers") + 1 :] == ["BK"]
+
+
+def test_scheduler_daily_bars_does_not_loop_on_fresh_provider_missing_bar(
+    tmp_path: Path,
+) -> None:
+    manifest_path = tmp_path / "massive_daily_bars.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "lane_id": "massive_daily_bars",
+                "status": "partial",
+                "fetched_at": NOW.isoformat(),
+                "window": {"start": "2026-05-10", "end": "2026-05-10"},
+                "coverage_pct": 50,
+                "coverage": [
+                    {
+                        "ticker": "AAPL",
+                        "coverage_status": "complete",
+                        "complete": True,
+                        "bar_date": "2026-05-10",
+                        "requested_date": "2026-05-10",
+                    },
+                    {
+                        "ticker": "BK",
+                        "coverage_status": "missing",
+                        "complete": False,
+                        "requested_date": "2026-05-10",
+                    },
+                ],
+                "issues": [{"ticker": "BK", "reason": "no_daily_bar_available"}],
+                "tickers": ["AAPL", "BK"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    tiers = build_ticker_tiers(active_universe=["AAPL", "BK"])
+    plan = _market_plan("regular_market", dataset="prices_daily", tickers=("AAPL", "BK"))
+    plan["massive_orchestrator"] = {
+        "provider": "massive",
+        "market_phase": "regular_market",
+        "lanes": [
+            {
+                "lane_id": "massive_daily_bars",
+                "label": "Daily Bars",
+                "purpose": "Load daily OHLCV.",
+                "dataset": "prices_daily",
+                "raw_source_dataset": "prices_daily",
+                "endpoint_family": "grouped_daily_or_aggs",
+                "acquisition_mode": "massive_api",
+                "command_profile": "prices_daily",
+                "batch_action": "defer",
+                "priority": 80,
+                "cadence_minutes": 60,
+                "max_tickers_per_batch": 100,
+                "ticker_tier": "T0/T1/T2",
+                "start": "2026-05-10",
+                "end": "2026-05-10",
+                "freshness_requirement_seconds": 86400,
+                "blocks_execution": True,
+                "request_budget_label": "1 grouped-daily request per market date",
+                "storage_manifest": str(manifest_path),
+                "creates_massive_request": True,
+                "reason": "regular market would normally defer daily bars",
+            }
+        ],
+        "derived_signal_lanes": [],
+    }
+
+    queue = build_scheduler_work_queue(
+        plan,
+        tiers=tiers,
+        data_load_status={"state": "attention", "datasets": []},
+        source_health=_fresh_sources(),
+        broker={"connected": True, "checked_at": NOW.isoformat()},
+        now=NOW,
+    )
+
+    lane = queue["massive_orchestrator"]["lanes"][0]
+    assert lane["status"] == "DEFERRED"
+    assert lane["fresh_ticker_count"] == 1
+    assert lane["pending_ticker_count"] == 1
+    assert lane["command"] == []
+
+
 def test_scheduler_massive_lane_missing_manifest_overrides_generic_source_health() -> None:
     tiers = build_ticker_tiers(active_universe=["AAPL"])
     plan = _market_plan("regular_market", tickers=("AAPL",))
