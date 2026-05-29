@@ -951,3 +951,59 @@ def test_snapshot_updates_trading_day_counters(tmp_path: Path) -> None:
 
     assert result["positions"][0]["trading_days_held"] == 2
     assert load_entry_timestamps(tmp_path)["AAPL"]["trading_days_held"] == 2
+
+
+def test_snapshot_surfaces_core_exit_signal_types(tmp_path: Path) -> None:
+    from agency.portfolio.snapshot import build_portfolio_snapshot
+    from agency.portfolio.state import save_entry_timestamps, save_high_water_marks
+
+    positions = [
+        {"symbol": "AAPL", "unrealized_plpc": "-0.021", "qty": "10"},
+        {"symbol": "MSFT", "unrealized_plpc": "0.010", "qty": "10"},
+        {"symbol": "NVDA", "unrealized_plpc": "0.041", "qty": "10"},
+        {"symbol": "TSLA", "unrealized_plpc": "0.009", "qty": "10"},
+        {"symbol": "AMZN", "unrealized_plpc": "0.023", "qty": "10"},
+        {"symbol": "META", "unrealized_plpc": "0.003", "qty": "10"},
+        {"symbol": "GOOGL", "unrealized_plpc": "0.005", "qty": "10"},
+        {"symbol": "XEL", "unrealized_plpc": "0.010", "qty": "10"},
+    ]
+    save_entry_timestamps(
+        tmp_path,
+        {
+            "NVDA": {"opened_at": "2026-05-25T14:00:00Z", "trading_days_held": 2},
+            "TSLA": {"opened_at": "2026-05-25T14:00:00Z", "trading_days_held": 3},
+            "AMZN": {"opened_at": "2026-05-25T14:00:00Z", "trading_days_held": 2},
+            "META": {"opened_at": "2026-05-20T14:00:00Z", "trading_days_held": 5},
+            "GOOGL": {"opened_at": "2026-05-25T14:00:00Z", "trading_days_held": 1},
+            "XEL": {"opened_at": "2026-05-28T14:00:00Z", "trading_days_held": 1},
+        },
+    )
+    save_high_water_marks(tmp_path, {"TSLA": 2.5, "META": 0.4})
+
+    result = build_portfolio_snapshot(
+        broker_positions=positions,
+        account={"equity": 100000.0},
+        selection_reports=[
+            {"ticker": "MSFT", "final_action": "NO_TRADE", "final_conviction": 0.8},
+            {
+                "ticker": "GOOGL",
+                "final_action": "WATCH",
+                "final_conviction": 0.7,
+                "risk_flags": ["low_volume"],
+            },
+        ],
+        state_dir=tmp_path,
+        policy=PortfolioPolicy(),
+        generated_at="2026-05-29T18:00:00Z",
+    )
+
+    rows = {row["ticker"]: row for row in result["positions"]}
+    assert rows["AAPL"]["exit_signal"] == "STOP_LOSS"
+    assert rows["MSFT"]["exit_signal"] == "THESIS_BROKEN"
+    assert rows["NVDA"]["exit_signal"] == "TAKE_PROFIT_STAGE_2"
+    assert rows["TSLA"]["exit_signal"] == "TRAILING_STOP"
+    assert rows["AMZN"]["exit_signal"] == "TAKE_PROFIT_STAGE_1"
+    assert rows["META"]["exit_signal"] == "TIME_STOP"
+    assert rows["GOOGL"]["exit_signal"] == "HOLD"
+    assert rows["GOOGL"]["secondary_signals"] == ["SETUP_WARNING"]
+    assert rows["XEL"]["exit_signal"] == "HOLD"
