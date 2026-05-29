@@ -32,6 +32,10 @@ def build_runtime_cycle_from_payload(
             payload.get("pending_opening_order_exposure_pct"),
             default=0.0,
         ),
+        market_regime_snapshot=_optional_mapping(
+            payload.get("market_regime_snapshot"),
+            "market_regime_snapshot",
+        ),
         llm_reviews=_llm_review_mapping(payload.get("llm_reviews")),
         llm_lifecycle_events=_mapping_sequence(
             payload.get("llm_lifecycle_events", []),

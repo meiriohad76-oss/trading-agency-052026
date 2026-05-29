@@ -28,6 +28,7 @@ def build_portfolio_snapshot(
     state_dir: Path,
     policy: PortfolioPolicy | None = None,
     generated_at: str | None = None,
+    regime_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     active_policy = policy or PortfolioPolicy()
     now = generated_at or _utc_now()
@@ -52,7 +53,12 @@ def build_portfolio_snapshot(
         account,
         ensure_daily_baseline(state_dir, account=account, date=now_dt.date().isoformat()),
     )
-    circuit = evaluate_circuit_breakers(weekly_perf, daily_perf, active_policy)
+    circuit = evaluate_circuit_breakers(
+        weekly_perf,
+        daily_perf,
+        active_policy,
+        regime_context=regime_context,
+    )
 
     rows = [
         _position_row(

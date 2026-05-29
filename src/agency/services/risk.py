@@ -319,6 +319,7 @@ def build_risk_decisions(
     *,
     generated_at: str | None = None,
     policy: PortfolioPolicy | None = None,
+    market_regime_snapshot: Mapping[str, object] | None = None,
     current_gross_exposure_pct: float = 0.0,
     pending_opening_order_exposure_pct: float = 0.0,
     validate_contracts: bool = True,
@@ -340,6 +341,7 @@ def build_risk_decisions(
             source_summaries[index],
             generated_at=generated_at,
             policy=normalized_policy,
+            market_regime_snapshot=market_regime_snapshot,
             candidate_index=opening_trade_index,
             projected_gross_exposure_pct=projected_exposure,
             validate_contracts=validate_contracts,
@@ -356,6 +358,7 @@ def build_risk_decision(
     *,
     generated_at: str | None = None,
     policy: PortfolioPolicy | None = None,
+    market_regime_snapshot: Mapping[str, object] | None = None,
     candidate_index: int = 0,
     projected_gross_exposure_pct: float | None = None,
     validate_contracts: bool = True,
@@ -375,6 +378,7 @@ def build_risk_decision(
         selection_report,
         source_health_summary,
         policy=normalized_policy,
+        market_regime_snapshot=market_regime_snapshot,
         candidate_index=candidate_index,
         projected_gross_exposure_pct=projected_exposure,
     )
@@ -415,14 +419,17 @@ def _risk_checks(
     source_health_summary: Mapping[str, object],
     *,
     policy: PortfolioPolicy,
+    market_regime_snapshot: Mapping[str, object] | None,
     candidate_index: int,
     projected_gross_exposure_pct: float,
 ) -> list[dict[str, str]]:
+    market_regime_check = _market_regime_check(selection_report, market_regime_snapshot)
     checks = [
         _action_check(selection_report),
         _short_policy_check(selection_report, policy),
         _policy_gate_check(selection_report),
         _conviction_check(selection_report, policy),
+        *([] if market_regime_check is None else [market_regime_check]),
         _runtime_source_check(source_health_summary),
         _capacity_check(selection_report, candidate_index, policy),
         _gross_exposure_check(selection_report, projected_gross_exposure_pct, policy),
@@ -511,6 +518,68 @@ def _conviction_check(
     if conviction < policy.min_final_conviction:
         return _check("min_conviction", "BLOCK", "below minimum final conviction")
     return _check("min_conviction", "PASS", "minimum final conviction met")
+
+
+def _market_regime_check(
+    selection_report: Mapping[str, object],
+    market_regime_snapshot: Mapping[str, object] | None,
+) -> dict[str, str] | None:
+    if not isinstance(market_regime_snapshot, Mapping):
+        return None
+    backdrop = _mapping_value(market_regime_snapshot, "market_backdrop")
+    stock_context = _mapping_value(
+        _mapping_value(market_regime_snapshot, "per_stock_context"),
+        str(selection_report["ticker"]).upper(),
+    )
+    regime = str(backdrop.get("regime") or "UNKNOWN").upper()
+    vol_regime = str(backdrop.get("vol_regime") or "UNKNOWN").upper()
+    sector = str(stock_context.get("sector") or "UNKNOWN").upper()
+    sector_bias = str(stock_context.get("sector_bias") or "NEUTRAL").upper()
+    sector_state = str(stock_context.get("sector_state") or "UNKNOWN").upper()
+    boost = _optional_number(stock_context.get("conviction_boost"))
+
+    status = "PASS"
+    reasons: list[str] = []
+    opening_trade = _is_opening_trade_action(selection_report)
+    if regime == "RISK_OFF" and opening_trade:
+        status = "WARN"
+        reasons.append(
+            "RISK_OFF market regime: opening trades need caution until market breadth "
+            "and benchmark trend improve"
+        )
+    elif regime == "RISK_OFF":
+        reasons.append("market regime is RISK_OFF, but this is not an opening trade")
+    elif regime in {"DATA_LIMITED", "UNKNOWN"}:
+        reasons.append("market regime context is available but limited")
+    else:
+        reasons.append(f"market regime is {regime}")
+
+    if vol_regime == "HIGH" and opening_trade:
+        status = "WARN"
+        reasons.append("volatility regime is HIGH; consider smaller sizing and tighter review")
+    elif vol_regime == "HIGH":
+        reasons.append("volatility regime is HIGH, but this is not an opening trade")
+    elif vol_regime not in {"UNKNOWN", ""}:
+        reasons.append(f"volatility regime is {vol_regime}")
+
+    if sector_bias == "HEADWIND" or sector_state == "DECLINING":
+        status = "WARN"
+        reasons.append(
+            f"{sector} sector context is {sector_bias} / {sector_state}; confirm the "
+            "stock can overcome sector pressure before approving"
+        )
+    elif sector_bias == "TAILWIND":
+        reasons.append(f"{sector} sector context is TAILWIND / {sector_state}")
+    elif sector != "UNKNOWN":
+        reasons.append(f"{sector} sector context is {sector_bias} / {sector_state}")
+
+    if boost is not None and boost != 0.0:
+        reasons.append(
+            f"sector conviction adjustment is {boost:+.2f}, shown for review only; "
+            "final conviction is unchanged"
+        )
+
+    return _check("market_regime", status, "; ".join(reasons))
 
 
 def _runtime_source_check(source_health_summary: Mapping[str, object]) -> dict[str, str]:
@@ -730,6 +799,17 @@ def _check(name: str, status: str, reason: str) -> dict[str, str]:
 
 def _mapping_list(payload: Mapping[str, object], key: str) -> list[Mapping[str, object]]:
     return [cast(Mapping[str, object], item) for item in _list_field(payload, key)]
+
+
+def _mapping_value(payload: Mapping[str, object], key: str) -> Mapping[str, object]:
+    value = payload.get(key)
+    return cast(Mapping[str, object], value) if isinstance(value, Mapping) else {}
+
+
+def _optional_number(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    return float(value)
 
 
 def _string_list(payload: Mapping[str, object], key: str) -> list[str]:

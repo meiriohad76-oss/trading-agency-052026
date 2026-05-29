@@ -143,6 +143,78 @@ def test_risk_decision_blocks_short_opening_order_unless_enabled() -> None:
     assert allowed.risk_decision["decision"] == "ALLOW"
 
 
+def test_risk_decision_warns_opening_trade_in_risk_off_regime() -> None:
+    result = build_risk_decision(
+        selection_report(action="BUY"),
+        {"source_count": 1, "degraded_source_count": 0},
+        generated_at=GENERATED_AT,
+        market_regime_snapshot=_market_regime_snapshot(regime="RISK_OFF"),
+    )
+
+    validate_contract("risk-decision", result.risk_decision)
+    check = _check_by_name(result.risk_decision, "market_regime")
+    assert result.risk_decision["decision"] == "WARN"
+    assert check["status"] == "WARN"
+    assert "RISK_OFF" in check["reason"]
+    assert "opening trades need caution" in check["reason"]
+
+
+def test_risk_decision_does_not_warn_exit_trade_in_risk_off_regime() -> None:
+    result = build_risk_decision(
+        selection_report(action="SELL"),
+        {"source_count": 1, "degraded_source_count": 0},
+        generated_at=GENERATED_AT,
+        market_regime_snapshot=_market_regime_snapshot(regime="RISK_OFF"),
+    )
+
+    check = _check_by_name(result.risk_decision, "market_regime")
+    assert result.risk_decision["decision"] == "ALLOW"
+    assert check["status"] == "PASS"
+    assert "not an opening trade" in check["reason"]
+
+
+def test_risk_decision_warns_when_ticker_sector_has_headwind() -> None:
+    result = build_risk_decision(
+        selection_report(action="BUY"),
+        {"source_count": 1, "degraded_source_count": 0},
+        generated_at=GENERATED_AT,
+        market_regime_snapshot=_market_regime_snapshot(
+            regime="NEUTRAL",
+            sector_bias="HEADWIND",
+            sector_state="DECLINING",
+            sector="XLK",
+        ),
+    )
+
+    check = _check_by_name(result.risk_decision, "market_regime")
+    assert result.risk_decision["decision"] == "WARN"
+    assert check["status"] == "WARN"
+    assert "XLK" in check["reason"]
+    assert "HEADWIND" in check["reason"]
+
+
+def test_risk_decision_surfaces_tailwind_without_mutating_conviction() -> None:
+    report = selection_report(action="BUY", score=0.71)
+
+    result = build_risk_decision(
+        report,
+        {"source_count": 1, "degraded_source_count": 0},
+        generated_at=GENERATED_AT,
+        market_regime_snapshot=_market_regime_snapshot(
+            regime="RISK_ON",
+            sector_bias="TAILWIND",
+            sector_state="ADVANCING",
+            conviction_boost=0.03,
+        ),
+    )
+
+    check = _check_by_name(result.risk_decision, "market_regime")
+    assert result.risk_decision["decision"] == "ALLOW"
+    assert result.risk_decision["final_conviction"] == report["final_conviction"]
+    assert check["status"] == "PASS"
+    assert "TAILWIND" in check["reason"]
+
+
 def test_risk_decisions_block_projected_exposure_cap() -> None:
     results = build_risk_decisions(
         [selection_report(action="BUY")],
@@ -191,3 +263,42 @@ def _risk_result(report: dict[str, object]) -> RiskDecisionResult:
         {"source_count": 1, "degraded_source_count": 0},
         generated_at=GENERATED_AT,
     )
+
+
+def _market_regime_snapshot(
+    *,
+    regime: str = "NEUTRAL",
+    vol_regime: str = "CALM",
+    sector: str = "XLK",
+    sector_bias: str = "NEUTRAL",
+    sector_state: str = "BASING",
+    conviction_boost: float = 0.0,
+) -> dict[str, object]:
+    return {
+        "market_backdrop": {
+            "regime": regime,
+            "vol_regime": vol_regime,
+            "conviction_modifier": -0.08 if regime == "RISK_OFF" else 0.0,
+        },
+        "per_stock_context": {
+            "AAPL": {
+                "sector": sector,
+                "sector_bias": sector_bias,
+                "sector_state": sector_state,
+                "conviction_boost": conviction_boost,
+            }
+        },
+    }
+
+
+def _check_by_name(
+    risk_decision: dict[str, object],
+    name: str,
+) -> dict[str, str]:
+    checks = risk_decision["checks"]
+    assert isinstance(checks, list)
+    for check in checks:
+        assert isinstance(check, dict)
+        if check.get("name") == name:
+            return {str(key): str(value) for key, value in check.items()}
+    raise AssertionError(f"missing risk check {name}")

@@ -314,6 +314,36 @@ def test_circuit_breaker_all_clear() -> None:
     assert result["recommended_position_pct"] == PortfolioPolicy().default_position_pct
 
 
+def test_circuit_breaker_blocks_new_entries_in_risk_off_regime() -> None:
+    from agency.portfolio.circuit_breaker import evaluate_circuit_breakers
+
+    result = evaluate_circuit_breakers(
+        _weekly_perf(1.0),
+        _daily_perf(0.5),
+        PortfolioPolicy(),
+        regime_context={"market_backdrop": {"regime": "RISK_OFF"}},
+    )
+
+    assert result["new_entries_blocked"] is True
+    assert "MARKET_RISK_OFF" in result["signals"]
+
+
+def test_circuit_breaker_reduces_sizing_for_high_volatility() -> None:
+    from agency.portfolio.circuit_breaker import evaluate_circuit_breakers
+
+    result = evaluate_circuit_breakers(
+        _weekly_perf(1.0),
+        _daily_perf(0.5),
+        PortfolioPolicy(),
+        regime_context={"market_backdrop": {"vol_regime": "HIGH"}},
+    )
+
+    assert result["new_entries_blocked"] is False
+    assert result["reduced_sizing_active"] is True
+    assert "MARKET_HIGH_VOLATILITY" in result["signals"]
+    assert result["recommended_position_pct"] == PortfolioPolicy().reduced_position_pct
+
+
 def test_stop_loss_fires_on_day_1() -> None:
     from agency.portfolio.exit_rules import evaluate_exit_signal
 
@@ -792,6 +822,22 @@ def test_snapshot_schema_valid(tmp_path: Path) -> None:
     assert "secondary_signals" in row
     assert "trailing_stop_drawdown_pct" in row
     assert "thesis_validity" in row
+
+
+def test_snapshot_passes_regime_context_to_circuit_breaker(tmp_path: Path) -> None:
+    from agency.portfolio.snapshot import build_portfolio_snapshot
+
+    result = build_portfolio_snapshot(
+        broker_positions=[],
+        account={"equity": 100000.0},
+        selection_reports=[],
+        state_dir=tmp_path,
+        policy=PortfolioPolicy(),
+        regime_context={"market_backdrop": {"regime": "RISK_OFF"}},
+    )
+
+    assert result["summary"]["new_entries_blocked"] is True
+    assert "MARKET_RISK_OFF" in result["circuit_breaker"]["signals"]
 
 
 def test_snapshot_empty_portfolio(tmp_path: Path) -> None:
