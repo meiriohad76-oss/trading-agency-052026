@@ -62,7 +62,7 @@
   {% set data_paper = data_state.paper|default({}, true) %}
   <section class="cockpit-data-state-strip" aria-label="Session readiness">
     <div class="cockpit-data-state-headline">
-      <p class="eyebrow">Session readiness</p>
+      <p class="eyebrow">Data State</p>
       <h2>{{ data_review.label|default("Review status unavailable", true) }} and {{ data_paper.label|default("Paper execution status unavailable", true) }}</h2>
       <p>{{ data_state.headline|default("Data-pipeline proof is not available for this cockpit request.", true) }}</p>
     </div>

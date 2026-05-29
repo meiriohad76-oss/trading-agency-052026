@@ -233,5 +233,5 @@ def test_cockpit_universe_panel_has_lane_state_board() -> None:
     assert "lane.latest_as_of_label" in html
     assert "lane.recommended_action" in html
     assert "lane.requirement_label" in html
-    assert "Blocks paper?" in html
+    assert "Paper execution impact" in html
     assert ".cockpit-lane-board" in css
