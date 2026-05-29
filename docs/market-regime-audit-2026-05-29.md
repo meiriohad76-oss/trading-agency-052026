@@ -184,19 +184,22 @@ A production-grade sector rotation system with:
 
 ### 5.1 Market Backdrop Classification
 
-**Primary inputs (short-term, 3–5 day windows):**
+**Primary inputs (short-term, 3–5 day windows) — all from Massive daily aggs:**
 - `SPY_return_5d`: broad tape direction
 - `QQQ_return_5d`: growth/tech confirmation
-- `breadth_5d_advancers`: % of universe advancing over 5 days
-- `SPY_realized_vol_10d`: 10-day rolling standard deviation of SPY daily returns × √252
+- `breadth_5d_advancers`: % of **full US market** advancing over 5 days (from Massive grouped daily — not just S&P 100)
+- `SPY_realized_vol_10d`: 10-day rolling standard deviation of SPY daily returns × √252 (from Massive SPY bars)
 
-**Confirmation inputs (medium-term, 20D):**
+**Confirmation inputs (medium-term, 20D) — from Massive parquet:**
 - `SPY_return_20d`, `breadth_above_sma20`
 
-**Macro tilt (free proxies, all daily bars):**
-- `TLT_return_5d`: bonds rising = risk-off signal
-- `GLD_return_5d`: gold rising ≥ +1.5% in a week = defensive flight
-- `DXY_return_5d` (via `UUP` ETF): dollar rising = potential headwind for equities
+**Macro tilt — FRED (primary) + ETF proxies (intraday):**
+- `FRED_VIXCLS`: official VIX level (daily, cached)
+- `FRED_T10Y2Y`: yield curve spread (daily, cached)
+- `FRED_BAMLH0A0HYM2`: credit spread (daily, cached)
+- `TLT_return_5d` via Massive: intraday bond direction (updates during market hours)
+- `GLD_return_5d` via Massive: safe-haven flight indicator
+- `UUP_return_5d` via Massive: dollar strength (potential equity headwind)
 
 **Regime rules:**
 
@@ -400,7 +403,120 @@ The cockpit's pre-trade checklist gains one new check:
 
 ---
 
-## 8. Audit Findings Summary
+## 8. Data Source Analysis
+
+The redesigned agent uses three data sources in a defined priority and cadence hierarchy. Massive replaces yfinance as the primary market data provider — it is already integrated, has no API rate cap, provides richer intraday data, and is available for all ETFs and equities needed.
+
+---
+
+### 8.1 Massive (Polygon.io) — Primary Market Data
+
+**Why Massive is primary, not yfinance:**
+- No rate cap (user has paid subscription) — yfinance is capped at ~500 requests/hour, making hourly intraday refreshes across 15+ ETFs impractical
+- 15-minute delayed data (vs. yfinance's end-of-day only for free tier)
+- Consistent API structure already wired into the codebase (`massive_daily.py`, `massive_grouped_daily.py`, `massive.py`)
+- Provides intraday bars (minute/hour), pre-market bars, and snapshots — yfinance does not reliably provide these
+
+**Polygon.io endpoints used by the agent:**
+
+| Endpoint | What it provides | When used |
+|---|---|---|
+| `/v2/aggs/ticker/{etf}/range/1/day/{start}/{end}` | Daily OHLCV for individual ETFs (SPY, QQQ, sector ETFs, TLT, GLD, UUP) | Pre-market + post-market regime calculation |
+| `/v2/aggs/ticker/{etf}/range/1/hour/{date}/{date}` | Hourly intraday bars for sector ETFs | Intraday drift refresh (every 60 min) |
+| `/v2/aggs/ticker/{etf}/range/5/minute/{date}/{date}?extended=true` | Pre-market bars (04:00–09:30) | Pre-market regime analysis |
+| `/v2/aggs/grouped/locale/us/market/stocks/{date}` | ALL US stocks OHLCV in one call | Full-market breadth calculation (advancers/decliners) |
+| `/v2/snapshot/locale/us/markets/stocks/tickers?tickers=SPY,QQQ,XLK,...` | Real-time current price + change for a list of tickers | Intraday quick refresh (instant, no bars needed) |
+| `/v2/aggs/ticker/{etf}/prev` | Previous session's close | Pre-market context (previous day's close vs. current pre-market) |
+| `/v1/marketstatus/now` | Is the market open / pre-market / closed | Controls which refresh mode runs |
+
+**What Massive enables that the current implementation cannot do:**
+
+1. **True full-market breadth** — the grouped daily endpoint returns ALL US equities in one call. The current implementation only measures breadth within the S&P 100 + QQQ universe (~168 tickers). With grouped daily, breadth covers the full US market (8,000+ tickers), giving a much more accurate advance-decline picture.
+
+2. **Pre-market sector direction** — 5-minute pre-market bars for sector ETFs show whether sectors are gapping up or down before the open. This is the most actionable signal for the pre-market regime run.
+
+3. **Intraday sector snapshots** — the snapshot endpoint returns current prices for all listed tickers instantly, with no computation needed. The hourly intraday drift refresh becomes a single HTTP call rather than multiple parquet reads.
+
+4. **Volume-based signals on sector ETFs** — OHLCV bars include volume, enabling CMF and OBV computation on sector ETFs without pulling individual trade prints. This replaces the need to run the full stock_trades pipeline for sector flow confirmation.
+
+**Data already in the pipeline that this agent reuses:**
+- `prices_daily` parquet (from `massive_daily.py`) — already used for 60–100 day historical returns in current implementation. No change needed.
+- `stock_trades` parquet — the existing buy/sell pressure and market flow lanes remain unchanged. The regime agent does NOT read trade prints directly.
+
+---
+
+### 8.2 FRED API — Macro Context Layer
+
+FRED provides economic time series that cannot be derived from price data alone. For a 2–5 day holding system, the most relevant series are those that update daily and signal shifts in the macro risk environment.
+
+**FRED series used by the agent:**
+
+| Series ID | Name | Frequency | What it tells you |
+|---|---|---|---|
+| `VIXCLS` | CBOE Volatility Index | Daily | Fear gauge. > 25 = elevated, > 35 = high. Better than ^VIX from yfinance (official source). |
+| `T10Y2Y` | 10-Year minus 2-Year Treasury Spread | Daily | Yield curve. < 0 = inverted = historical recession precursor + risk-off signal. |
+| `BAMLH0A0HYM2` | ICE BofA HY Option-Adjusted Spread | Daily | Credit spread. Widening = institutional risk-off. Rising fast = equity headwind. |
+| `DGS10` | 10-Year Treasury Constant Maturity Rate | Daily | Rate level. Rising fast (>20 bps/week) = equity valuation headwind. |
+| `DFF` | Effective Federal Funds Rate | Daily | Rate regime context (not a timing signal, but affects sector rotation). |
+
+**FRED macro regime rules:**
+
+| Condition | Signal | Effect on regime |
+|---|---|---|
+| VIXCLS > 35 | High fear | `vol_regime = HIGH` → reduces position sizing |
+| VIXCLS 25–35 | Elevated fear | `vol_regime = ELEVATED` → tighten stops |
+| VIXCLS < 20 | Calm | `vol_regime = CALM` → normal sizing |
+| T10Y2Y < 0 | Inverted yield curve | `macro_tilt = DEFENSIVE` (strong signal) |
+| BAMLH0A0HYM2` rising > 50 bps in 5 days | Credit stress | `macro_tilt = DEFENSIVE` |
+| DGS10 rising > 20 bps in 5 days | Rate spike | Raise conviction floor by +0.05 |
+| All three neutral | Normal | `macro_tilt = NEUTRAL` |
+| T10Y2Y > 1 AND BAMLH0A0HYM2 falling | Risk appetite | `macro_tilt = RISK_APPETITE` |
+
+**FRED data cadence:**
+- FRED updates most daily series by ~16:00 ET
+- The post-market regime refresh reads the latest FRED values
+- FRED data is cached locally for 24 hours — no repeated API calls during market hours
+- A FRED connection failure does NOT block the regime calculation — macro tilt defaults to `NEUTRAL` if FRED is unavailable
+
+**What FRED adds over free ETF proxies (TLT, GLD, UUP):**
+- `T10Y2Y` is the actual yield curve spread, not TLT's price (which reflects duration + credit + supply)
+- `BAMLH0A0HYM2` is actual credit spreads — there is no ETF proxy that captures this cleanly
+- `VIXCLS` is the official VIX from CBOE, not ^VIX from yfinance (which can lag)
+
+**Free ETF proxies (TLT, GLD, UUP) are STILL USED** alongside FRED for intraday context:
+- During market hours (when FRED data hasn't updated yet), TLT/GLD/UUP intraday moves provide real-time macro tilt signals
+- FRED provides the baseline; ETF intraday moves update against that baseline
+
+---
+
+### 8.3 yfinance — Fallback Only
+
+yfinance is kept as a fallback for:
+1. Historical data backfill when Massive parquet data is missing for a specific ETF date
+2. Development/testing environments without a Massive API key
+
+**yfinance is NOT the primary source for any market regime calculation** in the redesigned system. Every endpoint previously served by yfinance is replaced by a Massive equivalent.
+
+---
+
+### 8.4 Data Source Priority Matrix
+
+| Data needed | Primary | Fallback | Not available |
+|---|---|---|---|
+| Daily ETF bars (SPY, sector ETFs) | Massive daily aggs | yfinance | — |
+| Intraday ETF bars (hourly) | Massive intraday aggs | yfinance 1h | — |
+| Pre-market ETF bars | Massive extended-hours aggs | — | yfinance (unreliable) |
+| Full-market breadth (all US stocks) | Massive grouped daily | — | yfinance (no bulk endpoint) |
+| Current intraday price snapshot | Massive snapshot endpoint | yfinance latest | — |
+| VIX level | FRED VIXCLS | ^VIX via yfinance | — |
+| Yield curve spread | FRED T10Y2Y | Compute TLT - SHY spread (approximate) | — |
+| Credit spreads | FRED BAMLH0A0HYM2 | — | No free equivalent |
+| 10Y rate direction | FRED DGS10 | TLT inverse (approximate) | — |
+| Macro tilt proxies (bonds/gold/dollar) | TLT/GLD/UUP via Massive | yfinance | — |
+
+---
+
+## 9. Audit Findings Summary
 
 | # | Finding | Severity | Recommendation |
 |---|---|---|---|
@@ -415,21 +531,23 @@ The cockpit's pre-trade checklist gains one new check:
 | F9 | Sector guidance is generic text, not actionable modifier | Medium | Replace with concrete conviction_modifier values |
 | F10 | Dashboard has nav buttons unrelated to page function | Low | Remove, keep regime-specific actions only |
 | F11 | Data quality panel is always visible | Low | Move to collapsible `<details>` |
+| F12 | yfinance used as primary data source — rate-capped, no intraday, no pre-market | High | Replace with Massive (Polygon.io) as primary; yfinance as fallback only |
+| F13 | Breadth computed only over S&P 100 + QQQ universe (~168 tickers) | Medium | Use Massive grouped daily for full US market breadth (8,000+ tickers) |
+| F14 | No pre-market regime signal before market open | High | Add pre-market sector bar analysis via Massive extended-hours endpoint |
+| F15 | No macro context (yield curve, credit spreads, VIX level) | High | Add FRED: VIXCLS, T10Y2Y, BAMLH0A0HYM2, DGS10 |
 
 ---
 
-## 9. Open Design Decisions
+## 10. Open Design Decisions
 
-These need your input before the implementation plan can be written:
+**Answered:**
+- ✅ Q1 — Intraday refresh: **automatic every 60 min + manual button**
+- ✅ Q2 — Macro tilt: **FRED API + Massive ETF proxies + yfinance as fallback**. Massive is the primary market data provider (no rate cap).
 
-**Q1 — Intraday refresh: scheduled or manual?**  
-During market hours, should the sector drift refresh on a schedule (every 30 min, automatic) or be triggered manually by a "Refresh now" button? The auto option requires the scheduler to run the refresh job. The manual option is simpler to implement.
+**Still open:**
 
-**Q2 — Macro tilt: free proxies only, or FRED API?**  
-The simple macro tilt uses `TLT`, `GLD`, and `UUP` — all free via yfinance, already in the data pipeline. The external repo shows a richer option using FRED (20 economic series). For 1–3% weekly short-term investing, do you want the free-proxy approach (simple, no API key) or a FRED-backed macro layer (richer, requires `FRED_API_KEY`)?
+**Q3 — Sector flow confirmation: include in v1 or defer?**
+CMF + OBV on sector ETF daily bars (from existing Massive parquet) adds flow validation to the sector state machine. This is ~50 lines of code and requires no new data. Include it in the initial build, or start with price-momentum only and add flow in a second iteration?
 
-**Q3 — Sector flow confirmation: include or defer?**  
-The CMF + OBV flow confirmation on sector ETFs adds a second layer of validation to the sector state. It requires computing OBV and CMF from daily bar data (already in parquet). This adds ~50 lines of indicator code. Include it in v1 or defer to v2 (start with price-momentum only)?
-
-**Q4 — Portfolio context panel: live broker positions or from selection reports?**  
-The "Your portfolio context" section can pull positions from (a) the live Alpaca broker adapter (real position list) or (b) the latest selection reports that have been approved and submitted. Option (a) is authoritative but requires broker to be connected. Option (b) works offline. Which is the right data source?
+**Q4 — Portfolio context panel: live broker positions or selection reports?**
+The "Your portfolio context" section mapping open positions to their sector state can pull from (a) the live Alpaca broker adapter (authoritative, requires broker connected) or (b) the latest approved selection reports (works offline). Which source?
