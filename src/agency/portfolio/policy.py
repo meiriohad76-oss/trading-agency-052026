@@ -52,13 +52,9 @@ class PortfolioPolicy:
         if env is None:
             load_dotenv()
         values: Mapping[str, str] = os.environ if env is None else env
-        policy = cls(
-            **{
-                name: _env_value(values.get(_env_key(name)), default)
-                for name, default in _field_defaults(cls()).items()
-            }
-        )
-        return _policy_with_file_overrides(policy, values)
+        path = Path(values.get(POLICY_PATH_ENV, DEFAULT_POLICY_PATH.as_posix()))
+        policy = _policy_from_path(cls(), path, {})
+        return _policy_with_env_overrides(policy, values)
 
     def as_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -69,19 +65,12 @@ def load_policy(
     *,
     env: Mapping[str, str] | None = None,
 ) -> PortfolioPolicy:
+    if env is None:
+        load_dotenv()
     values = os.environ if env is None else env
-    base = PortfolioPolicy.from_env(values)
     if path is None:
-        return base
-    return _policy_from_path(base, Path(path), values)
-
-
-def _policy_with_file_overrides(
-    policy: PortfolioPolicy,
-    env: Mapping[str, str],
-) -> PortfolioPolicy:
-    path = Path(env.get(POLICY_PATH_ENV, DEFAULT_POLICY_PATH.as_posix()))
-    return _policy_from_path(policy, path, env)
+        return PortfolioPolicy.from_env(values)
+    return _policy_with_env_overrides(_policy_from_path(PortfolioPolicy(), Path(path), {}), values)
 
 
 def _policy_from_path(
@@ -110,6 +99,18 @@ def _policy_from_path(
 
 def _field_defaults(policy: PortfolioPolicy) -> dict[str, object]:
     return {field.name: getattr(policy, field.name) for field in fields(policy)}
+
+
+def _policy_with_env_overrides(
+    policy: PortfolioPolicy,
+    env: Mapping[str, str],
+) -> PortfolioPolicy:
+    updates: dict[str, object] = {}
+    for name, default in _field_defaults(policy).items():
+        key = _env_key(name)
+        if _env_bool_is_configured(env, key):
+            updates[name] = _env_value(env.get(key), default)
+    return replace(policy, **updates)
 
 
 def _env_key(field_name: str) -> str:

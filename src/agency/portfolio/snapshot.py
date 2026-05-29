@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -9,13 +9,13 @@ from agency.portfolio.exit_rules import evaluate_exit_signal
 from agency.portfolio.performance import compute_daily_performance, compute_weekly_performance
 from agency.portfolio.policy import PortfolioPolicy
 from agency.portfolio.state import (
-    load_daily_baseline,
-    load_entry_timestamps,
+    ensure_daily_baseline,
+    ensure_weekly_baseline,
     load_high_water_marks,
     load_reentry_cooldowns,
     load_stage1_executed,
-    load_weekly_baseline,
     save_high_water_marks,
+    update_entry_timestamps,
     update_high_water_marks,
 )
 
@@ -31,22 +31,27 @@ def build_portfolio_snapshot(
 ) -> dict[str, Any]:
     active_policy = policy or PortfolioPolicy()
     now = generated_at or _utc_now()
+    now_dt = _parse_utc(now)
 
     stored_hwm = load_high_water_marks(state_dir)
     high_water_marks = update_high_water_marks(stored_hwm, broker_positions)
     save_high_water_marks(state_dir, high_water_marks)
 
     stage1 = load_stage1_executed(state_dir)
-    entries = load_entry_timestamps(state_dir)
+    entries = update_entry_timestamps(state_dir, broker_positions, now)
     cooldowns = load_reentry_cooldowns(state_dir)
     reports = {_report_ticker(report): report for report in selection_reports if _report_ticker(report)}
 
+    week_start = (now_dt.date() - timedelta(days=now_dt.weekday())).isoformat()
     weekly_perf = compute_weekly_performance(
         account,
-        load_weekly_baseline(state_dir),
+        ensure_weekly_baseline(state_dir, account=account, week_start=week_start),
         active_policy,
     )
-    daily_perf = compute_daily_performance(account, load_daily_baseline(state_dir))
+    daily_perf = compute_daily_performance(
+        account,
+        ensure_daily_baseline(state_dir, account=account, date=now_dt.date().isoformat()),
+    )
     circuit = evaluate_circuit_breakers(weekly_perf, daily_perf, active_policy)
 
     rows = [

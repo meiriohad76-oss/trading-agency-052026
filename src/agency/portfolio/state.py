@@ -76,6 +76,28 @@ def get_trading_days_held(state_dir: Path, ticker: str) -> int:
     return int(data.get(ticker.upper(), {}).get("trading_days_held", 0))
 
 
+def update_entry_timestamps(
+    state_dir: Path,
+    broker_positions: list[dict[str, Any]],
+    now_utc: str,
+) -> dict[str, dict[str, Any]]:
+    data = load_entry_timestamps(state_dir)
+    now = _parse_utc(now_utc)
+    for position in broker_positions:
+        ticker = _ticker(position)
+        if not ticker:
+            continue
+        entry = data.get(ticker, {})
+        opened_at = str(entry.get("opened_at") or now_utc)
+        current_days = int(entry.get("trading_days_held") or 0)
+        data[ticker] = {
+            "opened_at": opened_at,
+            "trading_days_held": max(current_days, _weekday_span(opened_at, now)),
+        }
+    save_entry_timestamps(state_dir, data)
+    return data
+
+
 def load_weekly_baseline(state_dir: Path) -> dict[str, Any] | None:
     raw = _load_json(state_dir / _WEEKLY_FILE)
     if isinstance(raw, dict) and "equity" in raw:
@@ -146,11 +168,9 @@ def cooldown_is_active(state_dir: Path, ticker: str, now_utc: str) -> bool:
     if not blocked_until_value:
         return False
     try:
-        blocked_until = _parse_utc(blocked_until_value)
-        now = _parse_utc(now_utc)
+        return _parse_utc(now_utc) < _parse_utc(blocked_until_value)
     except ValueError:
         return False
-    return now < blocked_until
 
 
 def record_stop_loss_exit(
@@ -187,12 +207,11 @@ def _load_float_dict(path: Path) -> dict[str, float]:
     raw = _load_json(path)
     if not isinstance(raw, dict):
         return {}
-    result: dict[str, float] = {}
-    for key, value in raw.items():
-        if isinstance(value, bool) or not isinstance(value, int | float):
-            continue
-        result[str(key).upper()] = float(value)
-    return result
+    return {
+        str(key).upper(): float(value)
+        for key, value in raw.items()
+        if isinstance(value, int | float) and not isinstance(value, bool)
+    }
 
 
 def _ticker(position: dict[str, Any]) -> str:
@@ -201,14 +220,26 @@ def _ticker(position: dict[str, Any]) -> str:
 
 def _account_equity(account: dict[str, Any]) -> float:
     for key in ("equity", "portfolio_value"):
-        value = account.get(key)
-        if isinstance(value, bool):
-            continue
         try:
-            return float(value)
+            value = float(account.get(key))
         except (TypeError, ValueError):
             continue
+        if value > 0:
+            return value
     return 0.0
+
+
+def _weekday_span(opened_at: str, now: datetime) -> int:
+    try:
+        opened_date = _parse_utc(opened_at).date()
+    except ValueError:
+        return 0
+    current = opened_date
+    days = 0
+    while current < now.date():
+        days += int(current.weekday() < 5)
+        current += timedelta(days=1)
+    return days
 
 
 def _parse_utc(value: str) -> datetime:

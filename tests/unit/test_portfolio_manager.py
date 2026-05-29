@@ -145,6 +145,25 @@ def test_policy_env_safety_flags_win_over_json(tmp_path: Path) -> None:
     assert policy.allow_short_trades is False
 
 
+def test_policy_env_normal_fields_win_over_json(tmp_path: Path) -> None:
+    policy_path = tmp_path / "portfolio-policy.local.json"
+    policy_path.write_text(
+        json.dumps({"weekly_target_pct": 4.0, "stop_loss_pct": 3.0}),
+        encoding="utf-8",
+    )
+
+    policy = PortfolioPolicy.from_env(
+        {
+            "AGENCY_PORTFOLIO_POLICY_PATH": str(policy_path),
+            "AGENCY_WEEKLY_TARGET_PCT": "2.5",
+            "AGENCY_STOP_LOSS_PCT": "1.5",
+        }
+    )
+
+    assert policy.weekly_target_pct == pytest.approx(2.5)
+    assert policy.stop_loss_pct == pytest.approx(1.5)
+
+
 def test_high_water_marks_missing_file_returns_empty(tmp_path: Path) -> None:
     from agency.portfolio.state import load_high_water_marks
 
@@ -201,6 +220,17 @@ def test_daily_performance_loss() -> None:
 
     assert result["daily_return_pct"] == pytest.approx(-3.0, abs=0.01)
     assert result["daily_pl"] == pytest.approx(-3000.0, abs=0.01)
+
+
+def test_daily_performance_accepts_string_equity() -> None:
+    from agency.portfolio.performance import compute_daily_performance
+
+    result = compute_daily_performance(
+        account={"equity": "97000.0"},
+        daily_baseline={"date": "2026-05-29", "equity": 100000.0},
+    )
+
+    assert result["daily_return_pct"] == pytest.approx(-3.0, abs=0.01)
 
 
 def _weekly_perf(return_pct: float) -> dict[str, float]:
@@ -866,3 +896,58 @@ def test_daily_circuit_breaker_flags_positions_for_review(tmp_path: Path) -> Non
 
     assert "DAILY_CIRCUIT_BREAKER" in result["circuit_breaker"]["signals"]
     assert result["positions"][0]["portfolio_review_required"] is True
+
+
+def test_snapshot_initializes_missing_baselines_from_generated_at(tmp_path: Path) -> None:
+    from agency.portfolio.snapshot import build_portfolio_snapshot
+    from agency.portfolio.state import load_daily_baseline, load_weekly_baseline
+
+    result = build_portfolio_snapshot(
+        broker_positions=[],
+        account={"equity": "100000.0"},
+        selection_reports=[],
+        state_dir=tmp_path,
+        policy=PortfolioPolicy(),
+        generated_at="2026-05-29T12:00:00Z",
+    )
+
+    assert result["weekly_performance"]["baseline_equity"] == pytest.approx(100000.0)
+    assert result["daily_performance"]["baseline_equity"] == pytest.approx(100000.0)
+    assert load_weekly_baseline(tmp_path) == {
+        "week_start": "2026-05-25",
+        "equity": 100000.0,
+    }
+    assert load_daily_baseline(tmp_path) == {
+        "date": "2026-05-29",
+        "equity": 100000.0,
+    }
+
+
+def test_snapshot_updates_trading_day_counters(tmp_path: Path) -> None:
+    from agency.portfolio.snapshot import build_portfolio_snapshot
+    from agency.portfolio.state import load_entry_timestamps, save_entry_timestamps
+
+    save_entry_timestamps(
+        tmp_path,
+        {"AAPL": {"opened_at": "2026-05-25T14:00:00Z", "trading_days_held": 0}},
+    )
+
+    result = build_portfolio_snapshot(
+        broker_positions=[
+            {
+                "symbol": "AAPL",
+                "unrealized_plpc": "0.005",
+                "unrealized_pl": "10.00",
+                "market_value": "2000.00",
+                "qty": "10",
+            }
+        ],
+        account={"equity": 100000.0},
+        selection_reports=[],
+        state_dir=tmp_path,
+        policy=PortfolioPolicy(),
+        generated_at="2026-05-27T18:00:00Z",
+    )
+
+    assert result["positions"][0]["trading_days_held"] == 2
+    assert load_entry_timestamps(tmp_path)["AAPL"]["trading_days_held"] == 2

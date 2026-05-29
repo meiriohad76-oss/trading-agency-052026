@@ -96,8 +96,12 @@ def _equity(account: dict[str, Any]) -> float | None:
 
 
 def _positive_float(value: Any) -> float | None:
-    if isinstance(value, bool) or not isinstance(value, int | float):
+    if isinstance(value, bool) or value in (None, ""):
         return None
-    if value <= 0:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
         return None
-    return float(value)
+    if numeric <= 0:
+        return None
+    return numeric
