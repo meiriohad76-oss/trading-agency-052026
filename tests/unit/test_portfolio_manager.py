@@ -724,3 +724,145 @@ def test_hold_when_no_rules_triggered() -> None:
 
     assert result["exit_signal"] == "HOLD"
     assert result["exit_priority"] == "NONE"
+
+
+def test_snapshot_schema_valid(tmp_path: Path) -> None:
+    from agency.portfolio.snapshot import build_portfolio_snapshot
+
+    positions = [
+        {
+            "symbol": "AAPL",
+            "unrealized_plpc": "0.005",
+            "unrealized_pl": "10.00",
+            "market_value": "2000.00",
+            "qty": "10",
+            "side": "long",
+        }
+    ]
+    account = {"equity": 100000.0, "cash": 80000.0, "portfolio_value": 100000.0}
+
+    result = build_portfolio_snapshot(
+        broker_positions=positions,
+        account=account,
+        selection_reports=[],
+        state_dir=tmp_path,
+        policy=PortfolioPolicy(),
+    )
+
+    assert result["schema_version"] == "1.0.0"
+    assert "circuit_breaker" in result
+    assert "weekly_performance" in result
+    assert "daily_performance" in result
+    assert "summary" in result
+    assert "positions" in result
+    assert "reentry_blocks" in result
+    assert len(result["positions"]) == 1
+    row = result["positions"][0]
+    assert row["ticker"] == "AAPL"
+    assert "secondary_signals" in row
+    assert "trailing_stop_drawdown_pct" in row
+    assert "thesis_validity" in row
+
+
+def test_snapshot_empty_portfolio(tmp_path: Path) -> None:
+    from agency.portfolio.snapshot import build_portfolio_snapshot
+
+    result = build_portfolio_snapshot(
+        broker_positions=[],
+        account={"equity": 100000.0},
+        selection_reports=[],
+        state_dir=tmp_path,
+        policy=PortfolioPolicy(),
+    )
+
+    assert result["positions"] == []
+    assert result["summary"]["position_count"] == 0
+
+
+def test_reentry_cooldown_active_in_snapshot(tmp_path: Path) -> None:
+    from agency.portfolio.snapshot import build_portfolio_snapshot
+    from agency.portfolio.state import record_stop_loss_exit
+
+    record_stop_loss_exit(tmp_path, "TSLA", "2026-05-29T10:00:00Z", cooldown_hours=24)
+
+    result = build_portfolio_snapshot(
+        broker_positions=[],
+        account={"equity": 100000.0},
+        selection_reports=[],
+        state_dir=tmp_path,
+        policy=PortfolioPolicy(),
+        generated_at="2026-05-29T18:00:00Z",
+    )
+
+    assert "TSLA" in result["reentry_blocks"]
+    assert result["reentry_blocks"]["TSLA"]["blocked_until"] is not None
+
+
+def test_reentry_cooldown_expired_not_in_snapshot(tmp_path: Path) -> None:
+    from agency.portfolio.snapshot import build_portfolio_snapshot
+    from agency.portfolio.state import record_stop_loss_exit
+
+    record_stop_loss_exit(tmp_path, "TSLA", "2026-05-29T10:00:00Z", cooldown_hours=24)
+
+    result = build_portfolio_snapshot(
+        broker_positions=[],
+        account={"equity": 100000.0},
+        selection_reports=[],
+        state_dir=tmp_path,
+        policy=PortfolioPolicy(),
+        generated_at="2026-05-31T10:00:00Z",
+    )
+
+    assert "TSLA" not in result["reentry_blocks"]
+
+
+def test_snapshot_uses_current_unrealized_for_high_water_mark(tmp_path: Path) -> None:
+    from agency.portfolio.snapshot import build_portfolio_snapshot
+    from agency.portfolio.state import load_high_water_marks, save_high_water_marks
+
+    save_high_water_marks(tmp_path, {"AAPL": 0.8})
+
+    result = build_portfolio_snapshot(
+        broker_positions=[
+            {
+                "symbol": "AAPL",
+                "unrealized_plpc": "0.023",
+                "unrealized_pl": "46.00",
+                "market_value": "2000.00",
+                "qty": "10",
+            }
+        ],
+        account={"equity": 100000.0},
+        selection_reports=[],
+        state_dir=tmp_path,
+        policy=PortfolioPolicy(),
+    )
+
+    assert result["positions"][0]["high_water_mark_pct"] == pytest.approx(2.3)
+    assert load_high_water_marks(tmp_path)["AAPL"] == pytest.approx(2.3)
+
+
+def test_daily_circuit_breaker_flags_positions_for_review(tmp_path: Path) -> None:
+    from agency.portfolio.snapshot import build_portfolio_snapshot
+    from agency.portfolio.state import save_daily_baseline
+
+    save_daily_baseline(tmp_path, {"date": "2026-05-29", "equity": 100000.0})
+
+    result = build_portfolio_snapshot(
+        broker_positions=[
+            {
+                "symbol": "AAPL",
+                "unrealized_plpc": "0.005",
+                "unrealized_pl": "10.00",
+                "market_value": "2000.00",
+                "qty": "10",
+            }
+        ],
+        account={"equity": 97000.0},
+        selection_reports=[],
+        state_dir=tmp_path,
+        policy=PortfolioPolicy(),
+    )
+
+    assert "DAILY_CIRCUIT_BREAKER" in result["circuit_breaker"]["signals"]
+    assert result["positions"][0]["portfolio_review_required"] is True
