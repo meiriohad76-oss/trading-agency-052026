@@ -1109,7 +1109,7 @@ def test_signals_page_renders_empty_state() -> None:
 
 def test_market_regime_page_renders_snapshot(monkeypatch: MonkeyPatch) -> None:
     def fake_snapshot() -> dict[str, object]:
-        return _market_regime_snapshot()
+        return _new_market_regime_snapshot()
 
     monkeypatch.setattr(market_regime_module, "load_market_regime_snapshot", fake_snapshot)
     client = TestClient(create_app())
@@ -1118,9 +1118,14 @@ def test_market_regime_page_renders_snapshot(monkeypatch: MonkeyPatch) -> None:
 
     assert response.status_code == HTTP_OK
     assert "Universe and market briefing is ready" in response.text
-    assert "Market Map" in response.text
+    assert "BLUF" in response.text
+    assert "Risk regime" in response.text
+    assert "Vol" in response.text
+    assert "Portfolio Context" in response.text
     assert "Sector Leadership" in response.text
-    assert "How to use this" in response.text
+    assert "Macro Context" in response.text
+    assert "Data Sources" in response.text
+    assert 'title="' in response.text
 
 
 def test_market_regime_context_adapts_new_snapshot_contract(monkeypatch: MonkeyPatch) -> None:
@@ -1143,6 +1148,19 @@ def test_universe_route_redirects_to_market_regime() -> None:
     client = TestClient(create_app())
 
     response = client.get("/universe", follow_redirects=False)
+
+    assert response.status_code == HTTP_SEE_OTHER
+    assert response.headers["location"] == "/market-regime"
+
+
+def test_market_regime_refresh_redirects(monkeypatch: MonkeyPatch) -> None:
+    async def fake_refresh() -> dict[str, object]:
+        return _new_market_regime_snapshot()
+
+    monkeypatch.setattr(market_regime_module, "refresh_market_regime_context", fake_refresh)
+    client = TestClient(create_app())
+
+    response = client.post("/market-regime/refresh", follow_redirects=False)
 
     assert response.status_code == HTTP_SEE_OTHER
     assert response.headers["location"] == "/market-regime"

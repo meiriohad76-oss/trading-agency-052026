@@ -1726,6 +1726,14 @@ async def market_regime(request: Request) -> Response:
     )
 
 
+@router.post("/market-regime/refresh")
+async def market_regime_refresh() -> RedirectResponse:
+    from agency.views import market_regime as market_regime_view
+
+    await market_regime_view.refresh_market_regime_context()
+    return RedirectResponse("/market-regime", status_code=303)
+
+
 @router.get("/universe")
 async def universe() -> RedirectResponse:
     # Legacy alias. The V3 navigation exposes this workflow as "Universe & market".

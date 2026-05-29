@@ -56,6 +56,28 @@ async def market_regime_context() -> dict[str, object]:
     _store_market_regime_context(context)
     return context
 
+
+async def refresh_market_regime_context() -> dict[str, object]:
+    _market_regime_context_cache.clear()
+    context = _adapt_market_regime_context(
+        await asyncio.to_thread(
+            build_regime_snapshot,
+            state_dir=DEFAULT_STATE_DIR,
+            refresh_mode="manual",
+            force_fetch=True,
+        )
+    )
+    _format_market_regime_timestamps(context)
+    context["data_health"] = dashboard_data_health(
+        "Market regime dashboard",
+        data_load_status=await live_dashboard_data_load_status(),
+        datasets=("prices_daily",),
+        lanes=("sector_momentum", "technical_analysis"),
+        provider_label=_market_regime_provider_label(context),
+    )
+    _store_market_regime_context(context)
+    return context
+
 def _format_market_regime_timestamps(context: dict[str, object]) -> None:
     summary = context.get("summary")
     if isinstance(summary, dict):

@@ -9,28 +9,33 @@
 {% block page_title %}Universe and market briefing is ready{% endblock %}
 {% block topbar_meta %}{{ summary.topbar_label }}{% endblock %}
 {% block workflow_phase %}Market briefing{% endblock %}
-{% block operator_focus %}Check universe coverage and market state before trusting candidate context.{% endblock %}
-{% block evidence_contract %}Coverage, sector regime, PIT integrity, and source timestamps are shown with the displayed data.{% endblock %}
+{% block operator_focus %}Check market state, volatility, breadth, macro, and sector alignment before trusting candidate context.{% endblock %}
+{% block evidence_contract %}Every displayed metric carries its source state and tooltip explanation.{% endblock %}
 
 {% block content %}
-  <section class="next-action hero-{{ summary.status_class }}" aria-label="Market regime state">
-    <div class="next-action-step" aria-hidden="true">05</div>
+  <section class="next-action hero-{{ summary.status_class }}" aria-label="BLUF market regime">
+    <div class="next-action-step" aria-hidden="true">BLUF</div>
     <div class="next-action-copy">
-      <p class="eyebrow">Top-down worker / Local cached data</p>
-      <h2>{{ summary.headline }}</h2>
-      <p>{{ summary.interpretation }}</p>
-      <p class="next-action-sub">{{ summary.decision_guidance }}</p>
-      <p class="next-action-sub">This page is read-only. It shows locally cached market data and does not call any external provider.</p>
+      <p class="eyebrow">Market Regime Agent / {{ snapshot_type | default("manual") }}</p>
+      <h2 title="Latest top-down conclusion from the Market Regime Agent.">{{ bluf.headline }}</h2>
+      <p title="Plain-English operator interpretation of the current regime.">{{ bluf.operator_message }}</p>
+      <p class="next-action-sub" title="How this market context should affect paper-trade review.">{{ summary.decision_guidance }}</p>
+      {% if change and change.regime_changed %}
+      <p class="next-action-sub" title="Regime or sector-state transition detected versus the prior saved snapshot.">
+        Regime changed from {{ change.prior_regime }} to {{ change.current_regime }}.
+      </p>
+      {% endif %}
     </div>
     <div class="next-action-buttons">
-      <a class="primary-action" href="/signals">Open signals</a>
-      <a class="secondary-action" href="/final-selection">Open final selection</a>
+      <form method="post" action="/market-regime/refresh">
+        <button class="primary-action" type="submit" title="Refresh the Market Regime state using the trade-aware scheduler policy.">Refresh Now</button>
+      </form>
     </div>
   </section>
 
   <section class="kpi-grid" aria-label="Market regime metrics">
     {% for kpi in kpis %}
-    <article class="kpi kpi-{{ kpi.class }}">
+    <article class="kpi kpi-{{ kpi.class }}" title="{{ kpi.detail }}">
       <span class="metric-label">{{ kpi.label }}</span>
       <strong>{{ kpi.value }}</strong>
       <p>{{ kpi.detail }}</p>
@@ -40,75 +45,33 @@
 
   {{ data_health_panel(data_health) }}
 
-  <section class="panel" aria-labelledby="regime-map-heading">
+  <section class="panel" aria-labelledby="portfolio-context-heading">
     <div class="section-heading">
       <div>
-        <h2 id="regime-map-heading">Market Map</h2>
-        <p class="section-subtitle">
-          Benchmarks define the broad tape. Breadth confirms whether the move is
-          supported by the active S&amp;P 100 + QQQ universe.
-        </p>
+        <h2 id="portfolio-context-heading">Portfolio Context</h2>
+        <p class="section-subtitle">Open positions grouped by sector tailwind, topping risk, or headwind.</p>
       </div>
-      <span class="tag tag-{{ summary.status_class }}">{{ summary.regime_label }}</span>
-      <span class="tag tag-neutral">as of {{ summary.as_of_label }}</span>
+      <span class="tag tag-neutral" title="Portfolio rows are shown only when broker positions are available.">Broker mapped</span>
     </div>
-
-    <div class="market-map-grid">
-      <article class="market-breadth-card market-breadth-card-{{ breadth.state_class }}">
-        <div>
-          <span class="metric-label">Universe Breadth</span>
-          <strong>{{ breadth.breadth_score_label }}</strong>
-        </div>
-        <p>{{ breadth.detail }}</p>
-        <div class="market-mini-grid">
-          <div>
-            <span class="metric-label">Above 20D SMA</span>
-            <strong>{{ breadth.above_sma20_label }}</strong>
-          </div>
-          <div>
-            <span class="metric-label">Above 50D SMA</span>
-            <strong>{{ breadth.above_sma50_label }}</strong>
-          </div>
-          <div>
-            <span class="metric-label">5D Advancers</span>
-            <strong>{{ breadth.advancers_5d_label }}</strong>
-          </div>
-          <div>
-            <span class="metric-label">Coverage</span>
-            <strong>{{ breadth.coverage_label }}</strong>
-          </div>
-        </div>
-      </article>
-
-      <div class="table-wrap market-benchmark-table">
-        <table>
-          <thead>
-            <tr>
-              <th>Benchmark</th>
-              <th>Latest</th>
-              <th>5D</th>
-              <th>20D</th>
-              <th>60D</th>
-              <th>Bars</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for row in benchmark_rows %}
-            <tr>
-              <td data-label="Benchmark">
-                <strong>{{ row.ticker }}</strong>
-                <span class="muted-line">{{ row.label }}</span>
-              </td>
-              <td data-label="Latest">{{ row.latest_price }}</td>
-              <td data-label="5D">{{ row.return_5d }}</td>
-              <td data-label="20D"><span class="tag tag-{{ row.tone_class }}">{{ row.return_20d }}</span></td>
-              <td data-label="60D">{{ row.return_60d }}</td>
-              <td data-label="Bars">{{ row.observations }}</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+    <div class="portfolio-context-grid" aria-label="Portfolio sector context">
+      {% for key, label, class in [
+        ("headwind_positions", "Headwind", "block"),
+        ("topping_positions", "Topping", "warn"),
+        ("tailwind_positions", "Tailwind", "pass")
+      ] %}
+      <div class="portfolio-context-col portfolio-context-col-{{ class }}">
+        <h3 class="portfolio-context-col-head" title="{{ label }} positions by current sector state.">{{ label }}</h3>
+        {% for pos in portfolio_context[key] %}
+        <article class="portfolio-position-card" title="Sector {{ pos.sector }} is {{ pos.sector_state }}.">
+          <strong>{{ pos.ticker }}</strong>
+          <span class="muted-line">{{ pos.sector }} / {{ pos.sector_bias }}</span>
+          <span class="tag tag-{{ class }}">{{ pos.sector_state }}</span>
+        </article>
+        {% else %}
+        <p class="empty-block">No positions in {{ label | lower }} sectors.</p>
+        {% endfor %}
       </div>
+      {% endfor %}
     </div>
   </section>
 
@@ -116,109 +79,42 @@
     <div class="section-heading">
       <div>
         <h2 id="sector-heading">Sector Leadership</h2>
-        <p class="section-subtitle">
-          Ranked by recent ETF momentum versus SPY. Tailwinds can corroborate a candidate;
-          headwinds should raise the evidence bar.
-        </p>
+        <p class="section-subtitle">RRG-style state, relative score, flow confirmation, and conviction modifier.</p>
       </div>
-      <span class="tag tag-pass">
-        {{ sector_rows | selectattr("stance", "equalto", "Tailwind") | list | length }} tailwinds
-      </span>
-      <span class="tag tag-block">
-        {{ sector_rows | selectattr("stance", "equalto", "Headwind") | list | length }} headwinds
-      </span>
+      <span class="tag tag-neutral" title="Data as of the latest ETF bar used by the regime calculation.">as of {{ summary.as_of_label }}</span>
     </div>
-
-    <div class="sector-explainer-grid" aria-label="Sector metric explanations">
-      <article>
-        <span class="metric-label">Momentum score</span>
-        <p>
-          A relative-strength score across sectors: 20% 5D, 50% 20D, and
-          30% 60D excess return versus SPY, then normalized. Positive means
-          leadership; negative means lagging.
-        </p>
-      </article>
-      <article>
-        <span class="metric-label">20D / 60D</span>
-        <p>
-          Sector ETF price return over roughly one trading month and three
-          trading months. 20D is faster; 60D checks whether the move is durable.
-        </p>
-      </article>
-      <article>
-        <span class="metric-label">20D vs SPY</span>
-        <p>
-          Sector 20D return minus SPY 20D return. This is relative performance,
-          not a correlation coefficient. Green means the sector is beating the market.
-        </p>
-      </article>
-    </div>
-
     <div class="sector-leadership-grid">
       {% for row in sector_rows %}
-      <article class="sector-card sector-card-{{ row.stance_class }}">
+      <article class="sector-card sector-card-{{ row.stance_class }}" aria-label="{{ row.ticker }} sector">
         <div class="sector-card-head">
           <div>
             <span class="metric-label">#{{ row.rank }} / {{ row.ticker }}</span>
-            <strong>{{ row.label }}</strong>
+            <strong title="Sector ETF currently mapped by the regime agent.">{{ row.label }}</strong>
           </div>
-          <span class="tag tag-{{ row.stance_class }}">{{ row.stance }}</span>
+          <span class="tag tag-{{ row.stance_class }}" title="Sector bias inherited by stocks in this sector.">{{ row.stance }}</span>
         </div>
         <div class="sector-card-score">
-          <strong>{{ row.score_label }}</strong>
-          <span>
-            momentum score
-            <span
-              class="info-tip"
-              title="Blend of 5D, 20D, and 60D relative returns versus SPY. Positive scores indicate sector leadership; negative scores indicate lagging sectors."
-              aria-label="Momentum score help"
-            >?</span>
-          </span>
+          <strong title="Composite relative-strength score versus SPY.">{{ row.score_label }}</strong>
+          <span title="Momentum score: 20% 5D, 50% 20D, 30% 60D excess return versus SPY.">Momentum score</span>
           <div class="metric-gauge metric-gauge-{{ row.stance_class }}" aria-hidden="true">
             <span style="{{ row.score_gauge_style }}"></span>
           </div>
         </div>
         <div class="market-mini-grid">
-          <div class="metric-cell metric-cell-{{ row.return_20d_class }}">
-            <span class="metric-label">20D return</span>
+          <div class="metric-cell metric-cell-{{ row.return_20d_class }}" title="Sector ETF 20-day return.">
+            <span class="metric-label">20D</span>
             <strong>{{ row.return_20d }}</strong>
-            <div class="metric-gauge metric-gauge-{{ row.return_20d_class }}" aria-hidden="true">
-              <span style="{{ row.return_20d_gauge_style }}"></span>
-            </div>
           </div>
-          <div class="metric-cell metric-cell-{{ row.excess_20d_class }}">
-            <span class="metric-label">20D vs SPY</span>
+          <div class="metric-cell metric-cell-{{ row.excess_20d_class }}" title="Sector relative strength versus SPY.">
+            <span class="metric-label">vs SPY</span>
             <strong>{{ row.excess_20d }}</strong>
-            <div class="metric-gauge metric-gauge-{{ row.excess_20d_class }}" aria-hidden="true">
-              <span style="{{ row.excess_20d_gauge_style }}"></span>
-            </div>
           </div>
-          <div class="metric-cell metric-cell-{{ row.return_60d_class }}">
-            <span class="metric-label">60D return</span>
-            <strong>{{ row.return_60d }}</strong>
-            <div class="metric-gauge metric-gauge-{{ row.return_60d_class }}" aria-hidden="true">
-              <span style="{{ row.return_60d_gauge_style }}"></span>
-            </div>
-          </div>
-          <div>
-            <span class="metric-label">Bars loaded</span>
-            <strong>{{ row.observations }}</strong>
+          <div title="Latest bar date used for this sector row.">
+            <span class="metric-label">Data</span>
+            <strong>{{ row.latest_date }}</strong>
           </div>
         </div>
-        <details class="sector-inspector">
-          <summary>How to use this</summary>
-          <p>{{ row.guidance }}</p>
-          <p>
-            Read this as a top-down context signal. A positive 20D return says
-            the sector ETF itself is rising; a positive 20D vs SPY says it is
-            outperforming the market; 60D confirms whether that leadership has
-            lasted beyond a short burst.
-          </p>
-          <p>
-            Latest bar {{ row.latest_date }}. Relative performance versus SPY:
-            5D {{ row.excess_5d }}, 20D {{ row.excess_20d }}, 60D {{ row.excess_60d }}.
-          </p>
-        </details>
+        <p title="Concrete operating interpretation of this sector state.">{{ row.guidance }}</p>
       </article>
       {% else %}
       <p class="empty-block">No sector ETF rows are available yet.</p>
@@ -226,24 +122,75 @@
     </div>
   </section>
 
-  <section class="panel" aria-labelledby="quality-heading">
+  <section class="panel" aria-labelledby="market-state-heading">
     <div class="section-heading">
       <div>
-        <h2 id="quality-heading">Data Quality</h2>
-        <p class="section-subtitle">
-          This page reads the latest provider-fetched cache
-          ({{ data_source.provider_label }}) from local parquet files. Opening the
-          dashboard does not call Massive, Alpaca, Yahoo, or any other provider,
-          so it stays fast and does not spend API quota. Refresh jobs update the cache.
-        </p>
+        <h2 id="market-state-heading">Market State</h2>
+        <p class="section-subtitle">Benchmark returns and full-market breadth used by the regime rules.</p>
       </div>
-      <span class="tag tag-neutral">{{ universe.priced_count }} priced tickers</span>
-      <span class="tag tag-neutral">{{ data_source.row_count_label }}</span>
+      <span class="tag tag-{{ breadth.state_class }}" title="Percent of grouped daily market rows advancing.">{{ breadth.breadth_score_label }} breadth</span>
     </div>
+    <div class="table-wrap market-benchmark-table">
+      <table>
+        <thead>
+          <tr>
+            <th title="Benchmark ETF.">Benchmark</th>
+            <th title="Latest cached ETF price.">Latest</th>
+            <th title="Five-session benchmark return.">5D</th>
+            <th title="Twenty-session benchmark return.">20D</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in benchmark_rows %}
+          <tr>
+            <td data-label="Benchmark"><strong>{{ row.ticker }}</strong></td>
+            <td data-label="Latest">{{ row.latest_price }}</td>
+            <td data-label="5D"><span class="tag tag-{{ row.tone_class }}">{{ row.return_5d }}</span></td>
+            <td data-label="20D">{{ row.return_20d }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
 
+  <section class="panel" aria-labelledby="macro-heading">
+    <div class="section-heading">
+      <div>
+        <h2 id="macro-heading">Macro Context</h2>
+        <p class="section-subtitle">FRED series and proxy ETFs used for volatility and macro tilt.</p>
+      </div>
+      <span class="tag tag-neutral" title="Macro tilt from yield curve, credit spreads, and TLT direction.">{{ market_backdrop.macro_tilt | default("NEUTRAL") }}</span>
+    </div>
+    <div class="sector-leadership-grid">
+      {% for tile in macro.tiles %}
+      <article class="quality-card" title="FRED series {{ tile.id }} latest cached value.">
+        <span class="metric-label">{{ tile.id }}</span>
+        <strong>{{ tile.value if tile.value is not none else "n/a" }}</strong>
+      </article>
+      {% else %}
+      <p class="empty-block">No FRED macro tiles are available yet.</p>
+      {% endfor %}
+    </div>
+  </section>
+
+  {% if intraday_drift %}
+  <section class="panel" aria-labelledby="drift-heading">
+    <div class="section-heading">
+      <div>
+        <h2 id="drift-heading">Intraday Drift</h2>
+        <p class="section-subtitle">Advisory only. This does not rewrite the full-day regime.</p>
+      </div>
+      <span class="tag tag-neutral" title="SPY session return versus prior close.">SPY {{ intraday_drift.spy_session_return_pct }}%</span>
+    </div>
+  </section>
+  {% endif %}
+
+  <details class="panel" aria-labelledby="sources-heading" open>
+    <summary id="sources-heading" title="Provider, cache, compute, and flow quality behind this display.">Data Sources</summary>
     <div class="quality-grid">
-      {% for row in quality_rows %}
-      <article class="quality-card quality-card-{{ row.status_class }}">
+      {% for row in data_sources %}
+      <article class="quality-card quality-card-{{ row.status_class }}" title="{{ row.detail }}">
         <div>
           <span class="metric-label">{{ row.label }}</span>
           <strong>{{ row.status }}</strong>
@@ -252,5 +199,5 @@
       </article>
       {% endfor %}
     </div>
-  </section>
+  </details>
 {% endblock %}
