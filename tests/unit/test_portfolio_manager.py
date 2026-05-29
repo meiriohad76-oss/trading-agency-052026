@@ -143,3 +143,22 @@ def test_policy_env_safety_flags_win_over_json(tmp_path: Path) -> None:
     assert policy.live_trading_enabled is False
     assert policy.broker_submit_enabled is False
     assert policy.allow_short_trades is False
+
+
+def test_high_water_marks_missing_file_returns_empty(tmp_path: Path) -> None:
+    from agency.portfolio.state import load_high_water_marks
+
+    marks = load_high_water_marks(tmp_path)
+
+    assert marks == {}
+
+
+def test_high_water_marks_roundtrip(tmp_path: Path) -> None:
+    from agency.portfolio.state import load_high_water_marks, save_high_water_marks
+
+    data = {"AAPL": 3.45, "MSFT": 1.20}
+
+    save_high_water_marks(tmp_path, data)
+    loaded = load_high_water_marks(tmp_path)
+
+    assert loaded == {"AAPL": 3.45, "MSFT": 1.20}
