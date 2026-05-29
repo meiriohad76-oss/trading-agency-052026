@@ -1,6 +1,51 @@
 # Portfolio Manager Redesign — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+---
+
+## ⚡ Codex Initialization Prompt
+
+> Copy this block verbatim as your first message to start a Codex session for this plan.
+
+---
+
+```
+You are implementing the Portfolio Manager module for a supervised short-term equity
+trading agency (1–3% weekly target, 2–5 day holds, paper trading only).
+
+Read both of these files before writing a single line of code:
+  - Spec:  docs/superpowers/specs/2026-05-29-portfolio-manager-redesign.md
+  - Plan:  docs/superpowers/plans/2026-05-29-portfolio-manager-redesign.md
+
+Your job is to implement exactly ONE task per session.
+Start with the lowest-numbered task that has unchecked steps ([ ]).
+When you finish a task, show me the full pytest output confirming all tests pass,
+then stop and wait for me to confirm before moving to the next task.
+
+HARD RULES — breaking any of these is a failure:
+1. TDD only. Write the failing test first. Run it. Confirm it fails. Then implement.
+   Never write implementation code before the test exists and is confirmed failing.
+2. Use `python -m pytest <test_path> -v` for all test runs. Show the output.
+3. Use exact file paths from the plan. Do not create files anywhere else.
+4. Every new .py file must start with: `from __future__ import annotations`
+5. Use `datetime.now(UTC)` everywhere. Never use `datetime.utcnow()`.
+6. Do NOT modify:
+     src/agency/services/portfolio_monitor.py
+     src/agency/services/risk.py
+7. Do NOT add imports from fastapi, alpaca, agency.broker, agency.views,
+   or agency.app inside src/agency/portfolio/.
+8. No file in src/agency/portfolio/ may exceed 250 lines.
+9. Commit after each completed task using the exact commit message shown in the plan.
+10. If a test fails unexpectedly, stop and explain the failure before trying to fix it.
+
+Tech stack: Python 3.14, dataclasses, json, pathlib.Path. No new pip dependencies.
+All tests use pytest with tmp_path for file I/O. No mocking frameworks.
+
+Now: tell me which task number you are starting, then begin with Step 1 of that task.
+```
+
+---
+
+## Overview
 
 **Goal:** Build `src/agency/portfolio/` — a clean, self-contained portfolio manager module for a short-term investing system (1–3% weekly target, 2–5 day holds) with tiered exits, circuit breakers, and human-supervised execution.
 
@@ -14,16 +59,15 @@
 
 | File | Action | Responsibility |
 |---|---|---|
-| `src/agency/portfolio/__init__.py` | Create | Re-exports public API |
-| `src/agency/portfolio/_types.py` | Create | Internal TypedDicts only |
-| `src/agency/portfolio/policy.py` | Create | `PortfolioPolicy` dataclass + `load_policy()` |
+| `src/agency/portfolio/__init__.py` | Create | Re-exports public API (populated in Task 10) |
+| `src/agency/portfolio/policy.py` | Create | `PortfolioPolicy` dataclass + `from_env()` loader |
 | `src/agency/portfolio/state.py` | Create | Load/save all 6 JSON state files |
 | `src/agency/portfolio/performance.py` | Create | Weekly + daily P&L calculation |
 | `src/agency/portfolio/circuit_breaker.py` | Create | `evaluate_circuit_breakers()` |
 | `src/agency/portfolio/exit_rules.py` | Create | `evaluate_exit_signal()` — all 8 signal types |
 | `src/agency/portfolio/snapshot.py` | Create | `build_portfolio_snapshot()` — public entry point |
-| `tests/unit/test_portfolio_manager.py` | Create | 20 unit tests (built up across tasks 1–7) |
-| `tests/integration/test_portfolio_state.py` | Create | 4 integration tests (task 8) |
+| `tests/unit/test_portfolio_manager.py` | Create | 23 unit tests (built up across Tasks 1–8) |
+| `tests/integration/test_portfolio_state.py` | Create | 4 integration tests (Task 9) |
 
 **Do NOT modify:**
 - `src/agency/services/portfolio_monitor.py`
