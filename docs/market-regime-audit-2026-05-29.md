@@ -538,16 +538,11 @@ yfinance is kept as a fallback for:
 
 ---
 
-## 10. Open Design Decisions
+## 10. Design Decisions — All Resolved
 
-**Answered:**
-- ✅ Q1 — Intraday refresh: **automatic every 60 min + manual button**
-- ✅ Q2 — Macro tilt: **FRED API + Massive ETF proxies + yfinance as fallback**. Massive is the primary market data provider (no rate cap).
-
-**Still open:**
-
-**Q3 — Sector flow confirmation: include in v1 or defer?**
-CMF + OBV on sector ETF daily bars (from existing Massive parquet) adds flow validation to the sector state machine. This is ~50 lines of code and requires no new data. Include it in the initial build, or start with price-momentum only and add flow in a second iteration?
-
-**Q4 — Portfolio context panel: live broker positions or selection reports?**
-The "Your portfolio context" section mapping open positions to their sector state can pull from (a) the live Alpaca broker adapter (authoritative, requires broker connected) or (b) the latest approved selection reports (works offline). Which source?
+| # | Decision | Answer |
+|---|---|---|
+| Q1 | Intraday refresh cadence | Automatic every 60 min + manual "Refresh now" button |
+| Q2 | Macro tilt data source | Massive (primary) + FRED (VIXCLS, T10Y2Y, BAMLH0A0HYM2, DGS10) + yfinance (fallback) |
+| Q3 | Sector flow confirmation (CMF + OBV on sector ETFs) | Include in v1 |
+| Q4 | Portfolio context panel data source | Live Alpaca broker positions; graceful message when broker offline |
