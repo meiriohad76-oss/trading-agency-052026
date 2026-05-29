@@ -2767,7 +2767,7 @@ def test_candidate_detail_light_audit_shell_renders_without_rich_reconstruction(
     response = TestClient(create_app()).get("/candidates/PLTR?audit=light")
 
     assert response.status_code == HTTP_OK
-    assert "PLTR is ready for evidence review" in response.text
+    assert "PLTR - Watch" in response.text
     assert "Rich article/email evidence was skipped for the audit shell." in response.text
     assert "RSS/news ticker evidence" in response.text
     assert "Email/article evidence" in response.text

@@ -594,6 +594,99 @@ def _source_is_degraded(source: Mapping[str, object]) -> bool:
 def _label_text(value: str) -> str:
     return value.replace("_", " ").title()
 
+
+def operator_status_label(raw_status: object) -> tuple[str, str]:
+    """Map internal status values to the four operator-facing display states."""
+    normalized = str(raw_status or "").strip().upper().replace("-", "_")
+    if normalized in {
+        "PASS",
+        "PASSED",
+        "READY",
+        "OPEN",
+        "ALLOW",
+        "APPROVE",
+        "APPROVED",
+        "SUCCESS",
+        "FILLED",
+    }:
+        return ("Ready", "ready")
+    if normalized in {
+        "WARN",
+        "WARNING",
+        "ATTENTION",
+        "DEGRADED",
+        "PARTIAL",
+        "PARTIAL_USABLE",
+        "WATCH",
+        "HOLD",
+    }:
+        return ("Attention", "attention")
+    if normalized in {
+        "BLOCK",
+        "BLOCKED",
+        "CLOSED",
+        "REJECT",
+        "REJECTED",
+        "FAILED",
+        "ERROR",
+        "UNAVAILABLE",
+        "MISSING",
+    }:
+        return ("Blocked", "blocked")
+    return ("Inactive", "inactive")
+
+
+def workflow_phase_summary(
+    *,
+    review_progress: Mapping[str, object] | None = None,
+    execution_summary: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    """Return the compact operator workflow state used by the app shell."""
+    review_progress = review_progress or {}
+    execution_summary = execution_summary or {}
+    pending = _coerce_int(review_progress.get("pending_count"))
+    reviewed = str(review_progress.get("reviewed_label") or "").strip()
+    orderable = _coerce_int(execution_summary.get("ready_count"))
+    submit_ready = _coerce_int(execution_summary.get("submit_ready_count"))
+    return {
+        "segments": [
+            {
+                "label": "Review",
+                "href": "/command#review-queue-heading",
+                "state": "active" if pending else "complete",
+                "detail": f"{pending} pending" if pending else reviewed or "Queue clear",
+            },
+            {
+                "label": "Risk",
+                "href": "/risk",
+                "state": "complete" if pending == 0 else "waiting",
+                "detail": "Checked" if pending == 0 else "After review",
+            },
+            {
+                "label": "Clear",
+                "href": "/execution-preview",
+                "state": "active" if orderable or submit_ready else "waiting",
+                "detail": f"{submit_ready or orderable} ready" if (orderable or submit_ready) else "No orders",
+            },
+        ],
+    }
+
+
+def _coerce_int(value: object) -> int:
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(float(value.strip()))
+        except ValueError:
+            return 0
+    return 0
+
+
 def _clip_text(value: str, max_chars: int) -> str:
     cleaned = " ".join(value.split())
     if len(cleaned) <= max_chars:

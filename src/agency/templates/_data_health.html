@@ -97,7 +97,7 @@
         {% for lane in data_health.lane_state_rows %}
         <article class="data-health-lane-state data-health-row-{{ lane.status_class }}" title="{{ lane.tooltip }}">
           <div>
-            <span class="metric-label">Lane</span>
+            <span class="metric-label">Data pipeline</span>
             <strong>{{ lane.name }}</strong>
           </div>
           <span class="tag tag-{{ lane.status_class }}">{{ lane.status_label }}</span>

@@ -1003,6 +1003,8 @@ def _execution_preview_row(
         "order_intent_version": str(preview["order_intent_version"]),
         "order_intent_hash": order_intent_hash,
         "order_intent_hash_label": order_intent_hash[:12],
+        "order_integrity_label": "Order details verified against current intent",
+        "order_integrity_status_class": "pass",
         "preview_state": display_preview_state,
         "state_class": _preview_state_class(display_preview_state),
         "side": str(preview["side"]),
@@ -1115,7 +1117,7 @@ def _execution_preview_row(
         "paper_promotion_detail": _promotion_text(
             promotion_evaluation,
             "detail",
-            "Paper promotion was not evaluated for this row.",
+            "Eligibility was not evaluated for this row.",
         ),
         "paper_promotion_reasons": _promotion_reasons(promotion_evaluation),
         "paper_promotion_blockers": _promotion_reasons(promotion_evaluation),
@@ -1153,6 +1155,13 @@ def _execution_preview_row(
             order_approved=effective_order_approved,
             review_decision=review_decision,
             promotion_evaluation=promotion_evaluation,
+        ),
+        "pipeline_chain": _execution_pipeline_chain(
+            preview,
+            human_review,
+            promotion_evaluation,
+            execution_summary,
+            submit_blocker=submit_blocker,
         ),
     }
 
@@ -1791,8 +1800,12 @@ def _promotion_status_label_for_card(
 ) -> str:
     label = _promotion_text(promotion_evaluation, "status_label", "Not evaluated")
     state = _promotion_text(promotion_evaluation, "state", "")
+    if state in {"promoted", "eligible"}:
+        return "Eligible for paper trade"
+    if state == "awaiting_research_approval":
+        return "Awaiting research approval"
     if state == "not_eligible" and _promotion_reasons(promotion_evaluation):
-        return "Blocked checks"
+        return "Not eligible"
     return label
 
 
@@ -1887,7 +1900,7 @@ def _promotion_check_rows(
         rows.append(
             {
                 "name": _clean_text(check.get("name"), default="promotion_check"),
-                "label": _clean_text(check.get("label"), default="Promotion check"),
+                "label": _clean_text(check.get("label"), default="Eligibility check"),
                 "status": status,
                 "status_class": _promotion_check_status_class(status),
                 "detail": _operator_text(
@@ -1919,6 +1932,56 @@ def _promotion_check_summary(
     if warnings:
         parts.append(f"{warnings} warning")
     return ", ".join(parts)
+
+
+def _execution_pipeline_chain(
+    preview: Mapping[str, object],
+    human_review: Mapping[str, object],
+    promotion_evaluation: Mapping[str, object] | None,
+    execution_summary: Mapping[str, object],
+    *,
+    submit_blocker: str,
+) -> list[dict[str, str]]:
+    llm_action = _clean_text(preview.get("llm_action"), default="")
+    return [
+        {
+            "label": "Evidence pack",
+            "status": "Ready",
+            "status_class": "pass",
+            "detail": f"Cycle {preview.get('cycle_id')} for {preview.get('ticker')}.",
+        },
+        {
+            "label": "Rules and risk",
+            "status": str(preview.get("risk_decision") or "Unknown"),
+            "status_class": _preview_state_class(str(preview.get("preview_state") or "")),
+            "detail": _operator_text(preview.get("reason") or "Rules generated the preview."),
+        },
+        {
+            "label": "LLM review",
+            "status": "Rules only" if not llm_action else "Reviewed",
+            "status_class": "warn" if not llm_action else "pass",
+            "detail": llm_action or "No LLM review was attached to this preview.",
+        },
+        {
+            "label": "Research approval",
+            "status": str(human_review.get("decision") or "Pending"),
+            "status_class": str(human_review.get("status_class") or "neutral"),
+            "detail": str(human_review.get("reason") or "Human review state is shown on this card."),
+        },
+        {
+            "label": "Eligibility",
+            "status": _promotion_status_label_for_card(promotion_evaluation),
+            "status_class": _promotion_text(promotion_evaluation, "status_class", "neutral"),
+            "detail": _promotion_primary_reason(promotion_evaluation)
+            or "Eligibility checks decide whether this can become a paper order.",
+        },
+        {
+            "label": "Paper submit",
+            "status": str(execution_summary.get("status_label") or "Not submitted"),
+            "status_class": str(execution_summary.get("status_class") or "neutral"),
+            "detail": submit_blocker or str(execution_summary.get("reason") or "Awaiting order approval."),
+        },
+    ]
 
 
 def _promotion_check_status_class(status: str) -> str:

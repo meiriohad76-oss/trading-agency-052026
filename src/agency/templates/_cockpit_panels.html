@@ -11,10 +11,10 @@
         <article><span>Blocked</span><strong class="cockpit-mono">{{ universe_blocked|length }}</strong></article>
         <article><span>Refreshed</span><strong class="cockpit-mono">{{ cycle.as_of }}</strong></article>
       </div>
-      <section class="cockpit-lane-board" aria-label="Lane State Board">
+      <section class="cockpit-lane-board" aria-label="Data Pipeline State Board">
         <div class="cockpit-lane-board-heading">
           <div>
-            <h3>Lane State Board</h3>
+            <h3>Data Pipeline State Board</h3>
             <p class="muted">This is the operator proof for loading, analysis, progress, latest timestamp, and remaining gaps.</p>
           </div>
           <div class="cockpit-lane-board-summary">
@@ -25,7 +25,7 @@
           </div>
         </div>
         <div class="cockpit-lane-row cockpit-lane-head" role="row">
-          <strong role="columnheader">Lane</strong>
+          <strong role="columnheader">Data pipeline</strong>
           <strong role="columnheader">State</strong>
           <strong role="columnheader">Progress</strong>
           <strong role="columnheader">Required now?</strong>

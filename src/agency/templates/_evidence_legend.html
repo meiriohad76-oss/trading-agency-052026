@@ -1,0 +1,12 @@
+{% macro evidence_legend(compact=false) %}
+<aside class="evidence-legend{% if compact %} evidence-legend-compact{% endif %}" aria-label="Evidence tier legend">
+  <strong>Evidence tiers</strong>
+  <span><b>Confirmed</b>: confirmed direct data from a source the agency can inspect.</span>
+  <span><b>Inferred</b>: model or rules interpretation that supports context but needs caution.</span>
+  <span><b>Suppressed</b>: retained for audit but excluded from the score.</span>
+</aside>
+{% endmacro %}
+
+{% macro conviction_help() %}
+<span class="info-tip conviction-help" title="Conviction combines signal direction, confidence, source quality, data freshness, and policy gates. It is not a broker instruction by itself." aria-label="Conviction score help">?</span>
+{% endmacro %}

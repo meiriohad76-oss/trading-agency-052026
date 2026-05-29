@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_data_health.html" import data_health_panel %}
+{% from "_evidence_legend.html" import evidence_legend, conviction_help %}
 
 {% set active_nav = "final" %}
 {% set v3_screen = "candidates" %}
@@ -8,7 +9,7 @@
 {% block eyebrow %}Decision{% endblock %}
 {% block page_title %}Candidates are ready for research review{% endblock %}
 {% block topbar_meta %}{{ summary.topbar_label }}{% endblock %}
-{% block workflow_phase %}Phase 1 - Candidates{% endblock %}
+{% block workflow_phase %}Candidate review{% endblock %}
 {% block operator_focus %}Approve, defer, or reject only rows with visible evidence and current-cycle proof.{% endblock %}
 {% block evidence_contract %}Each candidate shows conviction, source count, LLM status, policy gate, and freshness proof before action buttons.{% endblock %}
 
@@ -36,7 +37,7 @@
       </div>
     </div>
     <div class="selection-score">
-      <span class="metric-label">Conviction</span>
+      <span class="metric-label" data-tooltip="conviction-help" aria-label="Conviction combines signal direction, confidence, source quality, data freshness, and policy gates.">Conviction {{ conviction_help() }}</span>
       <strong>{{ row.conviction_pct }}%</strong>
       <div class="conviction-bar" aria-hidden="true">
         <span style="width: {{ row.conviction_pct }}%"></span>
@@ -289,6 +290,7 @@
         <strong>{{ summary.cycle_id }}</strong>
       </span>
     </div>
+    {{ evidence_legend(compact=true) }}
     <div class="selection-list">
       {% for row in watch_rows[:12] %}
         {{ selection_card(row) }}

@@ -46,7 +46,8 @@ def test_submit_disabled_until_gate_and_phrase() -> None:
     script = _script()
 
     assert "SUBMIT_PHRASE = \"submit paper orders\"" in script
-    assert "ack.checked && phrase.value.trim() === SUBMIT_PHRASE" in script
+    assert "const phraseMatches = phrase.value.trim() === SUBMIT_PHRASE" in script
+    assert "acknowledged && phraseMatches" in script
 
 
 def test_cockpit_submit_advances_to_cleared_only_after_successful_response() -> None:

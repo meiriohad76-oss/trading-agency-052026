@@ -141,7 +141,8 @@ def test_cockpit_static_controls_are_truthful_and_filterable() -> None:
     script = COCKPIT_JS.read_text(encoding="utf-8")
 
     assert 'data-cockpit-ready="true"' not in html
-    assert 'data-cockpit-ticker-payload="{{ candidate|tojson|safe }}"' in html
+    assert "data-cockpit-ticker-payload='{{ candidate|tojson }}'" in html
+    assert 'data-cockpit-ticker-payload="{{ candidate|tojson|safe }}"' not in html
     assert 'class="cockpit-phase-cell active"' not in html
     assert "window.confirm(" not in script
     assert "showRestoreNotice(" in script

@@ -113,29 +113,34 @@ def test_cockpit_route_renders(monkeypatch: MonkeyPatch) -> None:
     response = client.get("/cockpit")
 
     assert response.status_code == 200
-    assert "Pre-Flight Cockpit" in response.text
+    assert "Today&#39;s Cockpit" in response.text or "Today&apos;s Cockpit" in response.text
     assert 'data-cockpit-ready="true"' not in response.text
     assert 'data-ux-feature="rich-ticker-detail"' in response.text
     assert "1 trade ready" in response.text
     assert "ROUT" in response.text
 
 
-def test_root_route_renders_v3_cockpit(monkeypatch: MonkeyPatch) -> None:
-    client = _client(monkeypatch)
+def test_root_route_redirects_to_pending_review(monkeypatch: MonkeyPatch) -> None:
+    async def fake_command_context() -> dict[str, object]:
+        return {"review_progress": {"pending_count": 2}}
 
-    response = client.get("/")
+    async def fake_execution_context() -> dict[str, object]:
+        raise AssertionError("execution context should not load while review is pending")
 
-    assert response.status_code == 200
-    assert "Pre-Flight Cockpit" in response.text
-    assert "1 trade ready" in response.text
-    assert "ROUT" in response.text
-    assert "Command shows the current operating picture" not in response.text
+    monkeypatch.setattr(dashboard_module, "_command_dashboard_route_context", fake_command_context)
+    monkeypatch.setattr(dashboard_module, "_execution_preview_route_base_context", fake_execution_context)
+    client = TestClient(create_app())
+
+    response = client.get("/", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/command#review-queue-heading"
 
 
 def test_root_cockpit_exposes_displayed_data_health(monkeypatch: MonkeyPatch) -> None:
     client = _client(monkeypatch)
 
-    response = client.get("/")
+    response = client.get("/cockpit")
 
     assert response.status_code == 200
     assert 'class="panel data-health-panel data-health-pass"' in response.text

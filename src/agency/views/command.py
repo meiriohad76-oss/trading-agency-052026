@@ -45,6 +45,8 @@ from agency.views._shared import (
     _source_health_origin_label,
     _source_is_degraded,
     dashboard_data_health,
+    operator_status_label,
+    workflow_phase_summary,
 )
 
 DASHBOARD_RUNTIME_QUERY_TIMEOUT_SECONDS = 30.0
@@ -188,9 +190,32 @@ async def dashboard_context() -> dict[str, object]:
     full_live_readiness_view_model = full_live_readiness_view(full_live_readiness)
     scheduler_status = await scheduler_status_task
     scheduler_view_model = scheduler_work_queue_view(scheduler_status)
+    scheduler_view_model["scheduler_candidate_impact"] = scheduler_candidate_impact_context(
+        scheduler_view_model,
+        review_queue=review_queue,
+    )
     operational_readiness_view_model = operational_readiness_view(operational_readiness)
     provider_readiness_view_model = provider_readiness_view(provider_readiness)
     broker_view_model = broker_status_view(broker)
+    status_overview_view_model = command_status_overview(
+        broker=broker_view_model,
+        data_load_status=data_load_status_view_model,
+        data_refresh=data_refresh_view,
+        full_live_readiness=full_live_readiness_view_model,
+        operational_readiness=operational_readiness_view_model,
+        provider_readiness=provider_readiness_view_model,
+        review_progress=review_progress,
+        scheduler=scheduler_view_model,
+    )
+    operator_checklist = operator_checklist_context(
+        full_live_readiness=full_live_readiness_view_model,
+        review_progress=review_progress,
+        status_overview=status_overview_view_model,
+        execution_summary={},
+    )
+    email_status_view = _mapping_field(data_load_status_view_model, "subscription_email_status")
+    email_alert_active = _email_alert_active(email_status_view)
+    email_progress_active = _email_progress_active(email_status_view)
     runtime_signals = live_config.get("runtime_signals")
     runtime_signal_names = (
         tuple(str(lane) for lane in runtime_signals if isinstance(lane, str))
@@ -208,6 +233,9 @@ async def dashboard_context() -> dict[str, object]:
         "full_live_readiness": full_live_readiness_view_model,
         "live_config": live_config_view(live_config),
         "operational_readiness": operational_readiness_view_model,
+        "operator_checklist": operator_checklist,
+        "email_alert_active": email_alert_active,
+        "email_progress_active": email_progress_active,
         "provider_readiness": provider_readiness_view_model,
         "policy_sections": policy_sections(active_policy),
         "policy_summary": policy_summary(policy=active_policy),
@@ -215,16 +243,12 @@ async def dashboard_context() -> dict[str, object]:
         "review_progress": review_progress,
         "review_queue": review_queue,
         "scheduler": scheduler_view_model,
-        "status_overview": command_status_overview(
-            broker=broker_view_model,
-            data_load_status=data_load_status_view_model,
-            data_refresh=data_refresh_view,
-            full_live_readiness=full_live_readiness_view_model,
-            operational_readiness=operational_readiness_view_model,
-            provider_readiness=provider_readiness_view_model,
+        "status_overview": status_overview_view_model,
+        "workflow_summary": workflow_phase_summary(
             review_progress=review_progress,
-            scheduler=scheduler_view_model,
+            execution_summary={},
         ),
+        "command_freshness_label": _command_freshness_label(data_load_status_view_model),
         "data_health": dashboard_data_health(
             "Command dashboard",
             data_load_status=data_load_status,
@@ -295,6 +319,103 @@ def command_summary(
         "headline": _command_headline(candidate_count, actionable_candidate_count),
         "detail": _command_detail(candidate_count, degraded_source_count),
     }
+
+
+def operator_checklist_context(
+    *,
+    full_live_readiness: Mapping[str, object],
+    review_progress: Mapping[str, object],
+    status_overview: Mapping[str, object],
+    execution_summary: Mapping[str, object],
+) -> dict[str, object]:
+    """Build the first-screen operator checklist for the command dashboard."""
+    issue_summary = _mapping_field(status_overview, "issue_summary")
+    blocker_count = _optional_int(issue_summary, "blocker_count")
+    warning_count = _optional_int(issue_summary, "warning_count")
+    pending_count = _optional_int(review_progress, "pending_count")
+    orderable_count = _optional_int(execution_summary, "orderable_count")
+    system_label, system_state = operator_status_label(
+        "BLOCK" if blocker_count else "WARN" if warning_count else "PASS"
+    )
+    review_label, review_state = operator_status_label("WARN" if pending_count else "PASS")
+    execution_label, execution_state = operator_status_label(
+        "PASS" if full_live_readiness.get("tradable_ready") is True else "WARN"
+    )
+    orders_label, orders_state = operator_status_label("PASS" if orderable_count else "NO_TRADE")
+    rows = [
+            {
+                "label": "System ready?",
+                "value": system_label,
+                "state": system_state,
+                "href": "#system-diagnostics",
+                "detail": (
+                    "No blockers detected."
+                    if blocker_count == 0
+                    else f"{blocker_count} blocker(s) need attention before paper execution."
+                ),
+            },
+            {
+                "label": "Candidates need review",
+                "value": str(pending_count),
+                "state": review_state,
+                "href": "#review-queue-heading",
+                "detail": (
+                    "Review queue is clear."
+                    if pending_count == 0
+                    else f"Review {pending_count} candidate(s), starting with the top row."
+                ),
+            },
+            {
+                "label": "Execution preview open?",
+                "value": execution_label,
+                "state": execution_state,
+                "href": "/execution-preview",
+                "detail": str(
+                    full_live_readiness.get("trading_gate_label")
+                    or "Open execution preview after candidate review."
+                ),
+            },
+            {
+                "label": "Orders to submit",
+                "value": str(orderable_count),
+                "state": orders_state,
+                "href": "/execution-preview#orderable-heading",
+                "detail": (
+                    "No orderable paper previews yet."
+                    if orderable_count == 0
+                    else f"{orderable_count} paper order(s) need order approval."
+                ),
+            },
+        ]
+    return {"items": rows, "item_rows": rows}
+
+
+def _command_freshness_label(data_load_status: Mapping[str, object]) -> str:
+    checked = str(data_load_status.get("status_checked_at_label") or "").strip()
+    if checked and checked != "not checked":
+        return f"Updated {checked}"
+    as_of = str(data_load_status.get("as_of_label") or "").strip()
+    if as_of and as_of != "not recorded":
+        return f"Data as of {as_of}"
+    return "Updated time not recorded"
+
+
+def _email_alert_active(email_status: Mapping[str, object]) -> bool:
+    return (
+        _optional_int(email_status, "login_required") > 0
+        or _optional_int(email_status, "linked_content_processing") > 0
+        or bool(str(email_status.get("continue_action_url") or "").strip())
+    )
+
+
+def _email_progress_active(email_status: Mapping[str, object]) -> bool:
+    return (
+        _optional_int(email_status, "linked_content_processing") > 0
+        or _optional_int(email_status, "linked_content_attempted") > 0
+        or _optional_int(email_status, "processed_email_count") > 0
+        or _optional_int(email_status, "summary_count") > 0
+    )
+
 
 def command_actions() -> list[dict[str, str]]:
     return [
@@ -1913,6 +2034,43 @@ def scheduler_work_queue_view(status: Mapping[str, object]) -> dict[str, object]
         if key in tiers
     ]
     return view
+
+
+def scheduler_candidate_impact_context(
+    scheduler: Mapping[str, object],
+    *,
+    review_queue: Sequence[Mapping[str, object]],
+) -> dict[str, object]:
+    running_count = _optional_int(_mapping_field(scheduler, "refresh_workload"), "running_count")
+    due_count = _optional_int(_mapping_field(scheduler, "refresh_workload"), "live_critical_due_count")
+    review_count = len(review_queue)
+    if running_count:
+        detail = (
+            f"{running_count} refresh job(s) are still running. Candidate rankings may update "
+            "after those jobs finish."
+        )
+        status_class = "warn"
+        status_label = "May update candidates"
+    elif due_count:
+        detail = (
+            f"{due_count} urgent refresh job(s) are due. Review can continue, but execution "
+            "should wait for required data checks."
+        )
+        status_class = "warn"
+        status_label = "Refresh due"
+    elif review_count:
+        detail = f"{review_count} candidate(s) are ready for review with no proven active refresh impact."
+        status_class = "pass"
+        status_label = "Review list stable"
+    else:
+        detail = "No candidate-specific scheduler impact is proven right now."
+        status_class = "neutral"
+        status_label = "No candidate impact"
+    return {
+        "status_label": status_label,
+        "status_class": status_class,
+        "detail": detail,
+    }
 
 
 def _scheduler_dataset_review_row(

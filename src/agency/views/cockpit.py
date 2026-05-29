@@ -498,6 +498,8 @@ def cockpit_context_from_sources(
     context["scenario"] = _scenario_from_context(context, execution)
     if qa_enabled and qa_scenario in QA_SCENARIOS:
         context["scenario"] = _qa_scenario(qa_scenario, context)
+    context["scenario"] = _scenario_display_titles(_mapping(context.get("scenario")))
+    context["phase_states"] = _phase_states(context)
     return context
 
 
@@ -1791,6 +1793,54 @@ def _scenario_from_context(
         "headline": f"{actionable_count} trades ready. Approve what you want to ship today.",
         "detail": "Start with the ranked candidates, then review portfolio capacity before clearance.",
         "candidate_controls_enabled": True,
+    }
+
+
+def _scenario_display_titles(scenario: Mapping[str, object]) -> dict[str, object]:
+    row = dict(scenario)
+    headline = _first_text(row.get("headline"), default="Today's cockpit is ready")
+    state = _first_text(row.get("state"), default="normal")
+    if state == "submitted":
+        page_title = "Paper orders were submitted"
+    elif state == "outage":
+        page_title = "Critical data needs attention"
+    elif state == "no-actionable":
+        page_title = "No paper trade is ready right now"
+    elif state == "review":
+        page_title = "Review queue is ready"
+    else:
+        page_title = headline
+    row["page_title"] = page_title
+    row["browser_title"] = f"{page_title} - Trading Agency"
+    return row
+
+
+def _phase_states(context: Mapping[str, object]) -> dict[str, dict[str, str]]:
+    scenario = _mapping(context.get("scenario"))
+    funnel = _mapping(context.get("funnel"))
+    clearance = _mapping(context.get("clearance"))
+    state = _first_text(scenario.get("state"), default="normal")
+    reviewable = _int(funnel.get("reviewable"), funnel.get("actionable"), fallback=0)
+    orderable = _int(clearance.get("orderable_count"), clearance.get("ready_count"), fallback=0)
+    submitted = state == "submitted"
+    blocked = state == "outage"
+    return {
+        "candidates": {
+            "state": "blocked" if blocked else "complete" if submitted or reviewable == 0 else "active",
+            "label": "Needs attention" if blocked else "Complete" if submitted or reviewable == 0 else "Review now",
+        },
+        "portfolio": {
+            "state": "complete" if submitted else "active" if reviewable == 0 and not blocked else "waiting",
+            "label": "Checked" if submitted else "Review exposure" if reviewable == 0 and not blocked else "After candidates",
+        },
+        "clearance": {
+            "state": "complete" if submitted else "active" if orderable else "waiting",
+            "label": "Complete" if submitted else f"{orderable} ready" if orderable else "No orders",
+        },
+        "cleared": {
+            "state": "complete" if submitted else "waiting",
+            "label": "Submitted" if submitted else "After submit",
+        },
     }
 
 

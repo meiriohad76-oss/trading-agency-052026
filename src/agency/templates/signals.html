@@ -55,7 +55,7 @@
   <section class="panel" aria-labelledby="lane-heading">
     <div class="section-heading">
       <div>
-        <h2 id="lane-heading">Lane Health</h2>
+        <h2 id="lane-heading">Signal Data Health</h2>
         <p class="section-subtitle">
           {{ summary.configured_lanes }} configured lane(s), {{ summary.lanes_with_data }} with latest-cycle data.
         </p>
@@ -137,7 +137,7 @@
         <thead>
           <tr>
             <th><button class="table-sort-button" type="button" data-sort-key="ticker" data-sort-type="text">Ticker</button></th>
-            <th><button class="table-sort-button" type="button" data-sort-key="lane" data-sort-type="text">Lane / Type</button></th>
+            <th><button class="table-sort-button" type="button" data-sort-key="lane" data-sort-type="text">Pipeline / Type</button></th>
             <th>Bucket</th>
             <th><button class="table-sort-button" type="button" data-sort-key="direction" data-sort-type="number">Direction</button></th>
             <th><button class="table-sort-button" type="button" data-sort-key="score" data-sort-type="number">Score</button></th>
@@ -162,7 +162,7 @@
             data-sort-confidence="{{ row.confidence_pct }}"
           >
             <td data-label="Ticker"><strong>{{ row.ticker }}</strong></td>
-            <td data-label="Lane / Type">{{ row.lane }}</td>
+            <td data-label="Pipeline / Type">{{ row.lane }}</td>
             <td data-label="Bucket"><span class="tag tag-{{ row.bucket_class }}">{{ row.bucket }}</span></td>
             <td data-label="Direction"><span class="tag tag-{{ row.direction_class }}">{{ row.direction }}</span></td>
             <td data-label="Score">{{ row.score }}</td>

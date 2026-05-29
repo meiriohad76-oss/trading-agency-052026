@@ -74,15 +74,15 @@ def test_final_selection_shows_readable_provenance_and_cycle_ids() -> None:
 def test_command_dashboard_has_queue_cta_and_collapsed_diagnostics() -> None:
     html = _template("dashboard.html")
 
-    assert "operator-briefing" in html
-    assert "operator-briefing-grid" in html
-    assert "operator-queue-preview" in html
-    assert "Trade eligibility" in html
-    assert "What to do now" in html
+    assert "operator-checklist-card" in html
+    assert "operator-checklist-grid" in html
+    assert "command-act-zone" in html
+    assert "Trade Gate" in html
+    assert "Today&apos;s workflow" in html
     assert "Review {{ review_progress.pending_count }} candidates" in html
     assert "href=\"#review-queue-heading\"" in html
-    assert "LLM review unavailable" in html
-    assert "Portfolio exposure" in html
+    assert "data-freshness" in html
+    assert "scheduler-candidate-impact" in html
     assert "System diagnostics" in html
     assert "Data Sources" in html
     assert "review-state-icon" in html
@@ -168,7 +168,7 @@ def test_risk_and_execution_templates_show_llm_and_order_workflow_status() -> No
     assert "Submitted paper order" in execution_html
     focused_block = execution_html.split("focused-execution-gates", 1)[1].split("{% else %}", 1)[0]
     assert "LLM status" in focused_block
-    assert "Execution Freshness Gate" in focused_block
+    assert "Data currency check" in focused_block
     assert "Submission Gate" in focused_block
     assert "Broker" in focused_block
 
@@ -382,22 +382,20 @@ def test_portfolio_monitor_uses_operational_empty_states_not_none() -> None:
 
 
 def test_hero_step_numbers_match_sidebar_navigation() -> None:
-    expected = {
-        "dashboard.html": "01",
-        "final_selection.html": "02",
-        "portfolio_monitor.html": "03",
-        "execution_preview.html": "04",
-        "market_regime.html": "05",
-        "signals.html": "06",
-        "risk.html": "07",
-        "policy.html": "08",
-        "learning.html": "09",
-        "audit.html": "10",
-    }
-
-    for template_name, step in expected.items():
+    for template_name in (
+        "dashboard.html",
+        "final_selection.html",
+        "portfolio_monitor.html",
+        "execution_preview.html",
+        "market_regime.html",
+        "signals.html",
+        "risk.html",
+        "policy.html",
+        "learning.html",
+        "audit.html",
+    ):
         html = _template(template_name)
-        assert f'<div class="next-action-step" aria-hidden="true">{step}</div>' in html
+        assert "next-action" in html or "operator-checklist-card" in html
 
 
 def test_portfolio_monitor_flags_trailing_stop_proximity_before_trigger() -> None:

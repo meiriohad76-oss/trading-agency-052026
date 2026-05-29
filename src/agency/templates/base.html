@@ -20,59 +20,83 @@
         <nav class="nav-list">
           <span class="nav-section">Operate</span>
           <a class="nav-link {% if active_nav == 'cockpit' %}active{% endif %}" href="/cockpit">
-            <span class="nav-icon status-icon status-icon-pass" aria-hidden="true">01</span>
-            <span>V3 Cockpit</span>
+            <span class="nav-icon status-icon status-icon-pass" aria-hidden="true">C</span>
+            <span>Today's Cockpit</span>
           </a>
           <a class="nav-link {% if active_nav == 'command' %}active{% endif %}" href="/command">
-            <span class="nav-icon status-icon status-icon-data" aria-hidden="true">02</span>
-            <span>Ops status</span>
+            <span class="nav-icon status-icon status-icon-data" aria-hidden="true">S</span>
+            <span>System Status</span>
+          </a>
+
+          <span class="nav-section">Research</span>
+          <a class="nav-link nav-secondary {% if active_nav == 'market' %}active{% endif %}" href="/market-regime">
+            <span class="nav-icon" aria-hidden="true">M</span>
+            <span>Universe &amp; market</span>
+          </a>
+          <a class="nav-link nav-secondary {% if active_nav == 'signals' %}active{% endif %}" href="/signals">
+            <span class="nav-icon" aria-hidden="true">G</span>
+            <span>Signals</span>
           </a>
 
           <span class="nav-section">Core workflow</span>
           <div class="workflow-nav" aria-label="Core workflow: Candidates, Portfolio, Execute">
             <a class="nav-link {% if active_nav == 'final' %}active{% endif %}" href="/final-selection">
-              <span class="nav-icon status-icon status-icon-pending" aria-hidden="true">03</span>
-              <span>Candidates</span>
+              <span class="nav-icon status-icon status-icon-pending" aria-hidden="true">R</span>
+              <span>Review Candidates</span>
             </a>
             <a class="nav-link {% if active_nav == 'portfolio' %}active{% endif %}" href="/portfolio-monitor">
-              <span class="nav-icon status-icon status-icon-warn" aria-hidden="true">04</span>
+              <span class="nav-icon status-icon status-icon-warn" aria-hidden="true">P</span>
               <span>Portfolio</span>
             </a>
             <a class="nav-link {% if active_nav == 'execution' %}active{% endif %}" href="/execution-preview">
-              <span class="nav-icon status-icon status-icon-pass" aria-hidden="true">05</span>
-              <span>Execute</span>
+              <span class="nav-icon status-icon status-icon-pass" aria-hidden="true">O</span>
+              <span>Submit Orders</span>
             </a>
           </div>
 
-          <span class="nav-section">Research</span>
-          <a class="nav-link nav-secondary {% if active_nav == 'market' %}active{% endif %}" href="/market-regime">
-            <span class="nav-icon" aria-hidden="true">06</span>
-            <span>Universe &amp; market</span>
-          </a>
-          <a class="nav-link nav-secondary {% if active_nav == 'signals' %}active{% endif %}" href="/signals">
-            <span class="nav-icon" aria-hidden="true">07</span>
-            <span>Signals</span>
-          </a>
-
           <span class="nav-section">Controls</span>
           <a class="nav-link nav-secondary {% if active_nav == 'risk' %}active{% endif %}" href="/risk">
-            <span class="nav-icon" aria-hidden="true">08</span>
+            <span class="nav-icon" aria-hidden="true">K</span>
             <span>Risk</span>
           </a>
           <a class="nav-link nav-secondary {% if active_nav == 'policy' %}active{% endif %}" href="/policy">
-            <span class="nav-icon" aria-hidden="true">09</span>
+            <span class="nav-icon" aria-hidden="true">Y</span>
             <span>Policy</span>
           </a>
 
           <span class="nav-section">Trust</span>
           <a class="nav-link nav-secondary {% if active_nav == 'learning' %}active{% endif %}" href="/learning">
-            <span class="nav-icon" aria-hidden="true">10</span>
+            <span class="nav-icon" aria-hidden="true">L</span>
             <span>Learning</span>
           </a>
           <a class="nav-link nav-secondary {% if active_nav == 'audit' %}active{% endif %}" href="/audit">
-            <span class="nav-icon" aria-hidden="true">11</span>
+            <span class="nav-icon" aria-hidden="true">A</span>
             <span>Audit</span>
           </a>
+        </nav>
+        {% set workflow = workflow_summary|default({}, true) %}
+        {% set workflow_segments = workflow.segments|default([], true) %}
+        <nav class="workflow-breadcrumb" aria-label="Today's cycle">
+          <strong>Today's cycle</strong>
+          {% for segment in workflow_segments %}
+          <a class="workflow-breadcrumb-segment workflow-state-{{ segment.state|default('waiting', true) }}" href="{{ segment.href }}">
+            <span>{{ segment.label }}</span>
+            <small>{{ segment.detail }}</small>
+          </a>
+          {% else %}
+          <a class="workflow-breadcrumb-segment workflow-state-active" href="/command#review-queue-heading">
+            <span>Review</span>
+            <small>Open queue</small>
+          </a>
+          <a class="workflow-breadcrumb-segment workflow-state-waiting" href="/risk">
+            <span>Risk</span>
+            <small>After review</small>
+          </a>
+          <a class="workflow-breadcrumb-segment workflow-state-waiting" href="/execution-preview">
+            <span>Clear</span>
+            <small>No orders</small>
+          </a>
+          {% endfor %}
         </nav>
       </aside>
 
@@ -127,7 +151,7 @@
 
         <section class="v3-briefing-strip" data-v3-universal-briefing data-v3-screen="{{ v3_screen | default(active_nav | default('agency')) }}" aria-label="V3 screen briefing">
           <article class="v3-briefing-card v3-briefing-card-bluf">
-            <span class="v3-instrument-label">BLUF</span>
+            <span class="v3-instrument-label">Bottom line</span>
             <strong>{% block briefing_bluf %}{{ self.page_title() }}{% endblock %}</strong>
             <small>{% block operator_focus %}Start with the first action card, then inspect the visible evidence before approving anything.{% endblock %}</small>
           </article>
@@ -139,7 +163,7 @@
           <article class="v3-briefing-card v3-briefing-card-evidence">
             <span class="v3-instrument-label">Evidence</span>
             <strong>Real runtime data only</strong>
-            <small>{% block evidence_contract %}This screen must show current source proof, timestamps, and lane health before its data can be trusted.{% endblock %}</small>
+            <small>{% block evidence_contract %}This screen must show current source proof, timestamps, and data-pipeline health before its data can be trusted.{% endblock %}</small>
           </article>
         </section>
 

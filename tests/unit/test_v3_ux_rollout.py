@@ -56,8 +56,8 @@ def test_shared_base_declares_v3_operating_shell() -> None:
     assert "Trading Agency v3" in html
     assert "UX V3" in html
     assert "Pre-Flight" in html
-    assert "V3 Cockpit" in html
-    assert "Ops status" in html
+    assert "Today's Cockpit" in html
+    assert "System Status" in html
     assert "PAPER" in html
     assert "v3-phase-rail" in html
     assert "/static/v3-screens.css" in html
@@ -100,7 +100,7 @@ def test_all_primary_screens_have_bottom_line_page_titles() -> None:
             .strip()
         )
         assert title not in generic_titles, name
-        assert any(token in title.lower() for token in ("ready", "review", "shows", "tracks", "guards", "proves", "clears", "briefs")), name
+        assert any(token in title.lower() for token in ("ready", "review", "shows", "tracks", "guards", "proves", "clears", "briefs", "today")), name
 
 
 def test_every_non_cockpit_dashboard_keeps_data_health_visible() -> None:
@@ -122,7 +122,7 @@ def test_shared_base_renders_visible_v3_briefing_contract() -> None:
     assert "{% block workflow_phase %}" in html
     assert "{% block operator_focus %}" in html
     assert "{% block evidence_contract %}" in html
-    assert "BLUF" in html
+    assert "Bottom line" in html
     assert "Evidence" in html
     assert "Operator move" in html
 

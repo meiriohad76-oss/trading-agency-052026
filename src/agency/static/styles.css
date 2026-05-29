@@ -2908,6 +2908,193 @@ summary:focus-visible {
   text-decoration: none;
 }
 
+.command-act-zone,
+.command-diagnose-zone {
+  display: grid;
+  gap: 12px;
+}
+
+.operator-checklist-card {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.operator-checklist-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.operator-checklist-header h2 {
+  margin: 0;
+}
+
+.operator-checklist-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.operator-checklist-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.operator-checklist-item {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 12px;
+  color: var(--text);
+  text-decoration: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.operator-checklist-item:hover {
+  background: var(--surface-3);
+  text-decoration: none;
+}
+
+.operator-checklist-item strong {
+  font-size: 1.2rem;
+  line-height: 1.1;
+}
+
+.operator-checklist-item span:last-child,
+.data-freshness {
+  color: var(--text-dim);
+}
+
+.operator-state-ready {
+  border-color: rgba(45, 164, 78, 0.32);
+}
+
+.operator-state-attention {
+  border-color: rgba(244, 198, 79, 0.48);
+}
+
+.operator-state-blocked {
+  border-color: rgba(255, 95, 95, 0.48);
+}
+
+.operator-state-inactive {
+  opacity: 0.86;
+}
+
+.evidence-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  padding: 10px 12px;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.evidence-legend strong,
+.evidence-legend b {
+  color: var(--text);
+}
+
+.evidence-legend-compact {
+  margin-bottom: 10px;
+}
+
+.scheduler-candidate-impact {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-start;
+  width: fit-content;
+}
+
+.advanced-detail {
+  display: grid;
+  gap: 12px;
+}
+
+.advanced-detail > summary {
+  cursor: pointer;
+  padding: 12px 14px;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  font-weight: 700;
+}
+
+.workflow-breadcrumb {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.workflow-breadcrumb > strong {
+  color: var(--text);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+}
+
+.workflow-breadcrumb-segment {
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  color: var(--text);
+  text-decoration: none;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.workflow-breadcrumb-segment:hover {
+  text-decoration: none;
+  background: var(--surface-3);
+}
+
+.workflow-breadcrumb-segment small {
+  color: var(--text-dim);
+}
+
+.workflow-state-complete {
+  border-color: rgba(45, 164, 78, 0.32);
+}
+
+.workflow-state-active {
+  border-color: rgba(88, 166, 255, 0.42);
+}
+
+.workflow-state-waiting {
+  opacity: 0.84;
+}
+
+.cockpit-phase-cell[data-phase-state="complete"] {
+  border-color: rgba(45, 164, 78, 0.45);
+}
+
+.cockpit-phase-cell[data-phase-state="active"] {
+  border-color: rgba(88, 166, 255, 0.5);
+}
+
+.cockpit-phase-cell[data-phase-state="blocked"] {
+  border-color: rgba(255, 95, 95, 0.5);
+}
+
 .kpi-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
@@ -4952,15 +5139,38 @@ table.signal-table {
   }
 
   .nav-list {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    overflow-x: visible;
+    display: flex;
+    flex-direction: row;
+    gap: 7px;
+    overflow-x: auto;
+    padding: 0 10px 10px;
   }
 
   .nav-link {
     flex: initial;
     grid-template-columns: 22px minmax(0, 1fr) auto;
-    white-space: normal;
+    white-space: nowrap;
+  }
+
+  .workflow-breadcrumb {
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+    margin: 10px;
+    padding: 8px;
+    overflow-x: auto;
+  }
+
+  .workflow-breadcrumb > strong {
+    display: grid;
+    flex: 0 0 auto;
+    align-items: center;
+    white-space: nowrap;
+  }
+
+  .workflow-breadcrumb-segment {
+    flex: 0 0 136px;
+    min-height: 54px;
   }
 
   .nav-badge {

@@ -145,6 +145,12 @@ async def candidate_detail_context(
         ),
         "email_evidence": email_evidence,
         "news_evidence": news_evidence,
+        "evidence_delta_since_review": evidence_delta_since_review(
+            latest_report,
+            email_evidence,
+            news_evidence,
+            review,
+        ),
         "local_llm_insight": candidate_local_llm_insight(normalized_ticker),
         "leveraged_review": build_leveraged_alternative_review(
             latest_raw_report or latest_report,
@@ -2420,6 +2426,7 @@ def candidate_decision_brief(
     all_signals = [*actionable, *context, *suppressed]
     direction_counts = _signal_direction_counts(all_signals)
     state_class = _candidate_state_class(action, gate_status)
+    decision_points = _decision_points(latest_report)
     return {
         "ticker": ticker,
         "action": action,
@@ -2440,7 +2447,8 @@ def candidate_decision_brief(
         "signal_balance": _signal_balance(direction_counts),
         "support_cards": _signal_driver_cards(actionable, "BULLISH", default_tone="pass"),
         "caution_cards": _signal_driver_cards(all_signals, "BEARISH", default_tone="block"),
-        "decision_points": _decision_points(latest_report),
+        "decision_points": decision_points,
+        "top_reason_brief": _top_reason_brief(decision_points),
         "signal_mix_note": _signal_mix_note(actionable, context, suppressed),
         "email_takeaway": str(email_evidence["meaning"]),
         "email_status_class": str(email_evidence["status_class"]),
@@ -2486,12 +2494,75 @@ def _empty_decision_brief(
                 "tone": str(email_evidence["status_class"]),
             },
         ],
+        "top_reason_brief": "No current evidence summary is available.",
         "signal_mix_note": "No current signal mix is available yet.",
         "email_takeaway": str(email_evidence["meaning"]),
         "email_status_class": str(email_evidence["status_class"]),
         "currently_holding": current_position is not None,
         "holding_label": _current_holding_label(current_position),
     }
+
+
+def _top_reason_brief(decision_points: Sequence[Mapping[str, object]]) -> str:
+    if not decision_points:
+        return "No primary evidence reason was recorded."
+    first = decision_points[0]
+    return _clean_text(first.get("detail")) or _clean_text(first.get("label")) or (
+        "Primary evidence reason was not recorded."
+    )
+
+
+def evidence_delta_since_review(
+    latest_report: Mapping[str, object] | None,
+    email_evidence: Mapping[str, object],
+    news_evidence: Mapping[str, object],
+    review: Mapping[str, object],
+) -> dict[str, object]:
+    decision = str(review.get("decision") or "").strip().lower()
+    review_time = _timestamp_sort_value(review.get("event_time"))
+    if decision in {"", "pending"} or review_time <= 0:
+        return {"show": False, "label": "", "detail": ""}
+    latest_evidence_time = max(
+        _candidate_evidence_timestamp_values(latest_report, email_evidence, news_evidence),
+        default=0.0,
+    )
+    if latest_evidence_time <= review_time:
+        return {"show": False, "label": "", "detail": ""}
+    return {
+        "show": True,
+        "label": f"New evidence since {review.get('event_time_label') or 'last review'}",
+        "detail": "At least one signal, email, or news item is newer than the recorded review decision.",
+    }
+
+
+def _candidate_evidence_timestamp_values(
+    latest_report: Mapping[str, object] | None,
+    email_evidence: Mapping[str, object],
+    news_evidence: Mapping[str, object],
+) -> list[float]:
+    values: list[float] = []
+    if latest_report is not None:
+        values.extend(
+            _timestamp_sort_value(signal.get(key))
+            for signal in [
+                *_mapping_rows(latest_report, "actionable_signals"),
+                *_mapping_rows(latest_report, "context_signals"),
+                *_mapping_rows(latest_report, "suppressed_signals"),
+            ]
+            for key in ("timestamp_as_of", "timestamp", "as_of")
+        )
+    for payload in (email_evidence, news_evidence):
+        for value in payload.values():
+            if not isinstance(value, Sequence) or isinstance(value, str | bytes):
+                continue
+            for row in value:
+                if not isinstance(row, Mapping):
+                    continue
+                values.extend(
+                    _timestamp_sort_value(row.get(key))
+                    for key in ("timestamp", "event_time", "published_at", "as_of", "used_at")
+                )
+    return [value for value in values if value > 0]
 
 def _candidate_current_position(
     ticker: str,

@@ -8,9 +8,9 @@
 {% block eyebrow %}Action{% endblock %}
 {% block page_title %}Clearance guards the paper submit gate{% endblock %}
 {% block topbar_meta %}{{ summary.broker_mode }} broker &middot; readiness gate {{ summary.submit_gate_label | lower }}{% endblock %}
-{% block workflow_phase %}Phase 3 - Clearance{% endblock %}
+{% block workflow_phase %}Order clearance{% endblock %}
 {% block operator_focus %}Submit only after research approval, order-intent approval, and broker/readiness gates are open.{% endblock %}
-{% block evidence_contract %}Order hash, broker state, policy reasons, data freshness, and paper-only mode remain attached to each preview.{% endblock %}
+{% block evidence_contract %}Order verification, broker state, policy reasons, data freshness, and paper-only mode remain attached to each preview.{% endblock %}
 
 {% macro preview_card(row, card_id="") %}
   <article
@@ -48,7 +48,7 @@
         <strong class="execution-metric-value">{{ row.risk_decision }}</strong>
       </div>
       <div>
-        <span class="metric-label">Paper Promotion</span>
+        <span class="metric-label">Eligibility</span>
         <strong class="execution-metric-value">{{ row.paper_promotion_status_label }}</strong>
       </div>
     </div>
@@ -77,7 +77,7 @@
     <p class="microcopy">
       {{ row.execution_reason }}
       {% if row.client_order_id %}
-      &middot; client order {{ row.client_order_id }}
+      &middot; Broker order ref {{ row.client_order_id }}
       {% endif %}
       {% if row.execution_event_time_label != "Time unknown" %}
       &middot; {{ row.execution_event_time_label }}
@@ -119,7 +119,7 @@
       {% endfor %}
     </div>
     <details class="details-panel promotion-checks-panel">
-      <summary>Paper promotion checks: {{ row.paper_promotion_check_summary }}</summary>
+      <summary>Eligibility checks: {{ row.paper_promotion_check_summary }}</summary>
       <div class="ops-check-list promotion-check-list">
         {% for check in row.paper_promotion_checks %}
         <div class="ops-check-row">
@@ -168,7 +168,10 @@
     <form method="post" action="{{ row.approve_order_action }}">
       <button class="mini-button" type="submit">Approve order intent</button>
     </form>
-    <p class="microcopy">Intent hash {{ row.order_intent_hash_label }}; approval expires if the computed order changes.</p>
+    <p class="microcopy">
+      <span class="tag tag-{{ row.order_integrity_status_class }}">{{ row.order_integrity_label }}</span>
+      Approval expires if the computed order changes.
+    </p>
     {% endif %}
     {% if row.submit_enabled %}
     <form class="submit-gate-form" method="post" action="{{ row.submit_action }}">
@@ -196,6 +199,18 @@
       <span>Review <strong>{{ row.human_review_time_label }}</strong></span>
       <span>Broker <strong>{{ row.execution_status_label }}</strong></span>
     </div>
+    <details class="details-panel execution-pipeline-trace">
+      <summary>Show decision path for {{ row.ticker }}</summary>
+      <div class="ops-check-list">
+        {% for step in row.pipeline_chain %}
+        <div class="ops-check-row">
+          <span class="tag tag-{{ step.status_class }}">{{ step.status }}</span>
+          <strong>{{ step.label }}</strong>
+          <span>{{ step.detail }}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </details>
   </article>
 {% endmacro %}
 
@@ -253,7 +268,7 @@
         <p>Rules/LLM alignment and conflict notes stay attached to {{ focused_execution.ticker }} before paper submit.</p>
       </article>
       <article class="guidance-card guidance-card-{{ execution_freshness_gate.status_class }}">
-        <span class="metric-label">Execution Freshness Gate</span>
+        <span class="metric-label">Data currency check</span>
         <strong>{{ execution_freshness_gate.status_label }}</strong>
         <p>{{ execution_freshness_gate.detail }}</p>
       </article>
@@ -478,7 +493,7 @@
   <section class="panel workflow-help" aria-labelledby="execution-freshness-heading">
     <div class="section-heading">
       <div>
-        <h2 id="execution-freshness-heading">Execution Freshness Gate</h2>
+        <h2 id="execution-freshness-heading">Data currency check</h2>
         <p class="section-subtitle">{{ execution_freshness_gate.detail }}</p>
       </div>
       <span class="tag tag-{{ execution_freshness_gate.status_class }}">

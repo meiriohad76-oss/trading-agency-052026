@@ -1,12 +1,13 @@
 {% extends "base.html" %}
 {% from "_data_health.html" import data_health_panel %}
+{% from "_evidence_legend.html" import evidence_legend, conviction_help %}
 
 {% set active_nav = "final" %}
 {% set v3_screen = "candidate" %}
 
-{% block title %}{{ ticker }} Brief | Trading Agency v3{% endblock %}
+{% block title %}{{ ticker }} - {{ decision_brief.action_label }} | Trading Agency v3{% endblock %}
 {% block eyebrow %}Candidate Brief{% endblock %}
-{% block page_title %}{{ ticker }} is ready for evidence review{% endblock %}
+{% block page_title %}Review {{ ticker }} - {{ decision_brief.action_label }}{% endblock %}
 {% block topbar_meta %}{{ decision_brief.state_label }} &middot; {{ summary.report_count }} reports{% endblock %}
 {% block workflow_phase %}Candidate deep dive{% endblock %}
 {% block operator_focus %}Read the claim, hard evidence, risk context, and LLM alignment before approving this ticker.{% endblock %}
@@ -19,7 +20,8 @@
 
   {% if review.can_record %}
   <div class="sticky-review-bar" role="navigation" aria-label="Quick review actions">
-    <span class="metric-label">{{ ticker }} &middot; Review: {{ review.decision }}</span>
+    <span class="metric-label">{{ ticker }} &middot; {{ decision_brief.action_label }} &middot; {{ decision_brief.conviction_pct }}%</span>
+    <span class="sticky-review-reason">{{ decision_brief.top_reason_brief }}</span>
     {% if review.decision != "Pending" %}
     <span class="tag tag-{{ review.status_class }}">{{ review.reason }}{% if review.event_time_label != "Time unknown" %} &middot; {{ review.event_time_label }}{% endif %}</span>
     {% else %}
@@ -50,6 +52,9 @@
       <div class="brief-title-row">
         <h2>{{ ticker }}</h2>
         <span class="action-chip action-chip-{{ decision_brief.state_class }}">{{ decision_brief.action_label }}</span>
+        {% if evidence_delta_since_review.show %}
+        <span class="tag tag-warn" title="{{ evidence_delta_since_review.detail }}">{{ evidence_delta_since_review.label }}</span>
+        {% endif %}
       </div>
       <p class="brief-headline">{{ decision_brief.headline }}</p>
       <p class="brief-detail">{{ decision_brief.detail }}</p>
@@ -64,7 +69,7 @@
 
     <aside class="brief-score" aria-label="Decision score">
       <div class="conviction-meter" style="{{ decision_brief.conviction_style }}">
-        <span>Conviction</span>
+        <span data-tooltip="conviction-help" aria-label="Conviction combines signal direction, confidence, source quality, data freshness, and policy gates.">Conviction {{ conviction_help() }}</span>
         <strong>{{ decision_brief.conviction_pct }}%</strong>
       </div>
       <div class="brief-score-meta">
@@ -310,6 +315,7 @@
       </div>
       <a class="text-link" href="/signals">Open signal dashboard</a>
     </div>
+    {{ evidence_legend(compact=true) }}
     {% if latest_report %}
     <details class="details-panel shared-disclosure">
       <summary>Supporting detail: signal evidence, advisory context, and excluded signals</summary>
@@ -328,7 +334,7 @@
               <p>{{ signal.trigger_headline or signal.summary }}</p>
               <p class="microcopy">
                 {{ signal.score }} &middot; {{ signal.confidence_pct }}% confidence &middot;
-                {{ signal.source }} &middot; {{ signal.timestamp_label }}
+                {{ signal.source }} &middot; Data as of {{ signal.timestamp_label }}
               </p>
               {% if signal.trigger_detail %}
               <details class="compact-details">
@@ -368,7 +374,7 @@
               <p>{{ signal.trigger_headline or signal.summary }}</p>
               <p class="microcopy">
                 Advisory only: {{ signal.reason_text }} {{ signal.score }} &middot;
-                {{ signal.confidence_pct }}% confidence &middot; {{ signal.source }}
+                {{ signal.confidence_pct }}% confidence &middot; {{ signal.source }} &middot; Data as of {{ signal.timestamp_label }}
               </p>
               {% if signal.trigger_detail %}
               <details class="compact-details">
@@ -408,7 +414,7 @@
               <p>{{ signal.trigger_headline or signal.summary }}</p>
               <p class="microcopy">
                 Excluded from score: {{ signal.reason_text }} {{ signal.score }} &middot;
-                {{ signal.confidence_pct }}% confidence &middot; {{ signal.source }}
+                {{ signal.confidence_pct }}% confidence &middot; {{ signal.source }} &middot; Data as of {{ signal.timestamp_label }}
               </p>
               {% if signal.trigger_detail %}
               <details class="compact-details">

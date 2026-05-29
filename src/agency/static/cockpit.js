@@ -145,8 +145,24 @@
     const phrase = form.querySelector("[data-cockpit-submit-text]");
     const button = form.querySelector("[data-cockpit-submit-button]");
     const stateOutput = form.querySelector("[data-cockpit-submit-state]");
+    const feedback = form.querySelector("[data-cockpit-submit-feedback]");
     const updateSubmitGate = () => {
-      button.disabled = submitGateInvalidated || !(ack.checked && phrase.value.trim() === SUBMIT_PHRASE);
+      const phraseMatches = phrase.value.trim() === SUBMIT_PHRASE;
+      const acknowledged = ack.checked;
+      button.disabled = submitGateInvalidated || !(acknowledged && phraseMatches);
+      if (feedback) {
+        if (submitGateInvalidated) {
+          feedback.textContent = "Submit gate reset after the last attempt. Review the manifest again.";
+        } else if (!acknowledged && !phraseMatches) {
+          feedback.textContent = "Type the exact phrase and acknowledge paper-only submit.";
+        } else if (!acknowledged) {
+          feedback.textContent = "Phrase matches. Acknowledge paper-only submit to continue.";
+        } else if (!phraseMatches) {
+          feedback.textContent = "Type the exact phrase: submit paper orders.";
+        } else {
+          feedback.textContent = "Phrase matches. Paper submit button is unlocked.";
+        }
+      }
     };
     ack.addEventListener("change", updateSubmitGate);
     phrase.addEventListener("input", updateSubmitGate);
