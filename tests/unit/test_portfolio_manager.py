@@ -201,3 +201,84 @@ def test_daily_performance_loss() -> None:
 
     assert result["daily_return_pct"] == pytest.approx(-3.0, abs=0.01)
     assert result["daily_pl"] == pytest.approx(-3000.0, abs=0.01)
+
+
+def _weekly_perf(return_pct: float) -> dict[str, float]:
+    return {
+        "weekly_return_pct": return_pct,
+        "target_pct": 3.0,
+        "pct_of_target_reached": return_pct / 3.0 * 100.0,
+    }
+
+
+def _daily_perf(return_pct: float) -> dict[str, float]:
+    return {"daily_return_pct": return_pct}
+
+
+def test_circuit_breaker_weekly_target_reached() -> None:
+    from agency.portfolio.circuit_breaker import evaluate_circuit_breakers
+
+    result = evaluate_circuit_breakers(
+        _weekly_perf(3.0),
+        _daily_perf(0.5),
+        PortfolioPolicy(),
+    )
+
+    assert result["new_entries_blocked"] is True
+    assert "WEEKLY_TARGET_REACHED" in result["signals"]
+
+
+def test_circuit_breaker_weekly_target_approach() -> None:
+    from agency.portfolio.circuit_breaker import evaluate_circuit_breakers
+
+    result = evaluate_circuit_breakers(
+        _weekly_perf(2.6),
+        _daily_perf(0.5),
+        PortfolioPolicy(),
+    )
+
+    assert result["new_entries_blocked"] is False
+    assert result["reduced_sizing_active"] is True
+    assert "WEEKLY_TARGET_APPROACH" in result["signals"]
+    assert result["recommended_position_pct"] == PortfolioPolicy().reduced_position_pct
+
+
+def test_circuit_breaker_daily_loss() -> None:
+    from agency.portfolio.circuit_breaker import evaluate_circuit_breakers
+
+    result = evaluate_circuit_breakers(
+        _weekly_perf(0.5),
+        _daily_perf(-3.0),
+        PortfolioPolicy(),
+    )
+
+    assert result["new_entries_blocked"] is True
+    assert "DAILY_CIRCUIT_BREAKER" in result["signals"]
+
+
+def test_circuit_breaker_weekly_drawdown_limit() -> None:
+    from agency.portfolio.circuit_breaker import evaluate_circuit_breakers
+
+    result = evaluate_circuit_breakers(
+        _weekly_perf(-6.0),
+        _daily_perf(-1.0),
+        PortfolioPolicy(),
+    )
+
+    assert result["new_entries_blocked"] is True
+    assert "WEEKLY_DRAWDOWN_LIMIT" in result["signals"]
+
+
+def test_circuit_breaker_all_clear() -> None:
+    from agency.portfolio.circuit_breaker import evaluate_circuit_breakers
+
+    result = evaluate_circuit_breakers(
+        _weekly_perf(1.0),
+        _daily_perf(0.5),
+        PortfolioPolicy(),
+    )
+
+    assert result["new_entries_blocked"] is False
+    assert result["reduced_sizing_active"] is False
+    assert result["signals"] == []
+    assert result["recommended_position_pct"] == PortfolioPolicy().default_position_pct
