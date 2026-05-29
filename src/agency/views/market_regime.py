@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 import asyncio
+from copy import deepcopy
 from datetime import UTC, datetime
 from time import monotonic
 
 from agency.broker import AlpacaBrokerError, AlpacaTradingConfig, broker_snapshot
-from agency.runtime.market_regime import load_market_regime_snapshot
+from agency.market_regime.snapshot import DEFAULT_STATE_DIR, build_regime_snapshot
 from agency.views._shared import (
     BROKER_STATUS_CONTEXT_CACHE_SECONDS,
     MARKET_REGIME_CONTEXT_CACHE_SECONDS,
@@ -22,6 +23,10 @@ _broker_status_inflight: dict[tuple[str, int], asyncio.Task[dict[str, object]]] 
 DASHBOARD_BROKER_STATUS_TIMEOUT_SECONDS = 2.5
 
 
+def load_market_regime_snapshot() -> dict[str, object]:
+    return build_regime_snapshot(state_dir=DEFAULT_STATE_DIR)
+
+
 async def market_regime_context() -> dict[str, object]:
     cached = _cached_market_regime_context()
     if cached is not None:
@@ -34,7 +39,7 @@ async def market_regime_context() -> dict[str, object]:
             provider_label=_market_regime_provider_label(cached),
         )
         return cached
-    context = await asyncio.to_thread(load_market_regime_snapshot)
+    context = _adapt_market_regime_context(await asyncio.to_thread(load_market_regime_snapshot))
     _format_market_regime_timestamps(context)
     data_source = context.get("data_source")
     context["data_health"] = dashboard_data_health(
@@ -55,6 +60,208 @@ def _format_market_regime_timestamps(context: dict[str, object]) -> None:
     summary = context.get("summary")
     if isinstance(summary, dict):
         summary["as_of_label"] = _format_timestamp_label(summary.get("as_of"))
+
+
+def _adapt_market_regime_context(context: dict[str, object]) -> dict[str, object]:
+    adapted = deepcopy(context)
+    if isinstance(adapted.get("summary"), dict):
+        adapted.setdefault("active_nav", "market")
+        return adapted
+    backdrop = _mapping(adapted.get("market_backdrop"))
+    bluf = _mapping(adapted.get("bluf"))
+    data_as_of = str(adapted.get("data_as_of") or "not available")
+    regime_label = _human_label(backdrop.get("regime"), fallback="Data Limited")
+    confidence_pct = round(_float(backdrop.get("confidence")) * 100)
+    adapted["active_nav"] = "market"
+    adapted["summary"] = {
+        "topbar_label": f"{backdrop.get('regime', 'DATA_LIMITED')} / data through {data_as_of}",
+        "status_class": str(backdrop.get("status_class") or bluf.get("status_class") or "warn"),
+        "headline": str(bluf.get("headline") or "Market regime context is available."),
+        "interpretation": str(bluf.get("operator_message") or "Review the market backdrop."),
+        "decision_guidance": _decision_guidance(backdrop),
+        "regime_label": regime_label,
+        "as_of": data_as_of,
+        "confidence_pct": confidence_pct,
+    }
+    adapted["kpis"] = _kpi_rows_from_snapshot(adapted)
+    adapted["breadth"] = _breadth_from_snapshot(_mapping(adapted.get("breadth")))
+    adapted["benchmark_rows"] = _benchmark_rows_from_snapshot(adapted.get("benchmarks"))
+    adapted["sector_rows"] = _sector_rows_from_snapshot(adapted.get("sector_map"), data_as_of)
+    adapted["quality_rows"] = list(_list(adapted.get("data_sources")))
+    adapted["universe"] = {
+        "member_count": len(_mapping(adapted.get("per_stock_context"))),
+        "priced_count": len(_mapping(adapted.get("per_stock_context"))),
+        "coverage_label": "mapped",
+        "state_class": "pass" if _mapping(adapted.get("per_stock_context")) else "warn",
+    }
+    adapted["data_source"] = {
+        "provider_label": "Massive/FRED regime state",
+        "row_count_label": f"{len(_mapping(adapted.get('sector_map')))} sectors",
+        "detail": "Market regime state files normalized by the redesigned regime agent.",
+    }
+    return adapted
+
+
+def _kpi_rows_from_snapshot(context: dict[str, object]) -> list[dict[str, object]]:
+    backdrop = _mapping(context.get("market_backdrop"))
+    breadth = _mapping(context.get("breadth"))
+    spy = _first_benchmark(context.get("benchmarks"), "SPY")
+    return [
+        {
+            "label": "Risk regime",
+            "value": _human_label(backdrop.get("regime"), fallback="Data Limited"),
+            "detail": _decision_guidance(backdrop),
+            "class": str(backdrop.get("status_class", "warn")),
+        },
+        {
+            "label": "Vol",
+            "value": _human_label(backdrop.get("vol_regime"), fallback="Unknown"),
+            "detail": "position sizing context",
+            "class": str(backdrop.get("status_class", "warn")),
+        },
+        {
+            "label": "SPY 5D",
+            "value": _signed_pct(_mapping(spy).get("return_5d_pct")),
+            "detail": "broad market direction",
+            "class": _tone_class(_float(_mapping(spy).get("return_5d_pct"))),
+        },
+        {
+            "label": "Breadth",
+            "value": str(breadth.get("advancers_label", "n/a")),
+            "detail": f"{breadth.get('total', 0)} grouped-daily rows",
+            "class": str(breadth.get("status_class", "warn")),
+        },
+    ]
+
+
+def _breadth_from_snapshot(breadth: dict[str, object]) -> dict[str, object]:
+    return {
+        **breadth,
+        "state_class": str(breadth.get("status_class", "warn")),
+        "breadth_score_label": str(breadth.get("advancers_label", "n/a")),
+        "detail": f"{breadth.get('total', 0)} grouped-daily equities; {breadth.get('advancers_label', 'n/a')} advancers",
+        "above_sma20_label": "n/a",
+        "above_sma50_label": "n/a",
+        "advancers_5d_label": str(breadth.get("advancers_label", "n/a")),
+        "coverage_label": "full market" if breadth.get("total") else "not available",
+    }
+
+
+def _benchmark_rows_from_snapshot(benchmarks: object) -> list[dict[str, object]]:
+    return [
+        {
+            "ticker": str(row.get("ticker", "")),
+            "label": str(row.get("ticker", "")),
+            "latest_price": _price_label(row.get("latest_price")),
+            "return_5d": _signed_pct(row.get("return_5d_pct")),
+            "return_20d": _signed_pct(row.get("return_20d_pct")),
+            "return_60d": "n/a",
+            "tone_class": _tone_class(_float(row.get("return_5d_pct"))),
+            "observations": "state",
+        }
+        for row in _list(benchmarks)
+    ]
+
+
+def _sector_rows_from_snapshot(sector_map: object, data_as_of: str) -> list[dict[str, object]]:
+    rows = sorted(
+        [_mapping(row) for row in _mapping(sector_map).values()],
+        key=lambda row: (-_float(row.get("score")), str(row.get("ticker", ""))),
+    )
+    return [_sector_row(index, row, data_as_of) for index, row in enumerate(rows, start=1)]
+
+
+def _sector_row(index: int, row: dict[str, object], data_as_of: str) -> dict[str, object]:
+    boost = _float(row.get("conviction_boost"))
+    return {
+        "rank": index,
+        "ticker": str(row.get("ticker", "")),
+        "label": str(row.get("ticker", "")),
+        "stance": _human_label(row.get("bias"), fallback="Neutral"),
+        "stance_class": str(row.get("status_class", "neutral")),
+        "score_label": f"{_float(row.get('score')):+.2f}",
+        "score_gauge_style": _gauge_style(row.get("score"), 3.0),
+        "return_20d": _signed_pct(row.get("return_20d_pct")),
+        "return_20d_class": _tone_class(_float(row.get("return_20d_pct"))),
+        "return_20d_gauge_style": _gauge_style(row.get("return_20d_pct"), 15.0),
+        "return_60d": "n/a",
+        "return_60d_class": "neutral",
+        "return_60d_gauge_style": "width: 0%",
+        "excess_5d": _signed_pct(row.get("return_5d_pct")),
+        "excess_20d": _signed_pct(row.get("score")),
+        "excess_20d_class": _tone_class(_float(row.get("score"))),
+        "excess_20d_gauge_style": _gauge_style(row.get("score"), 3.0),
+        "excess_60d": "n/a",
+        "observations": "state",
+        "latest_date": data_as_of,
+        "guidance": f"{row.get('state', 'UNKNOWN')} sector context; conviction modifier {boost:+.2f}.",
+    }
+
+
+def _decision_guidance(backdrop: dict[str, object]) -> str:
+    regime = str(backdrop.get("regime", "DATA_LIMITED"))
+    if regime == "RISK_ON":
+        return "Normal approval path; sector tailwinds can corroborate candidates."
+    if regime == "RISK_OFF":
+        return "Use caution; require stronger stock-specific evidence before approvals."
+    if regime == "VOLATILE":
+        return "Reduce paper sizing and prefer cleaner evidence before new entries."
+    if regime == "ROTATING":
+        return "Focus on sector alignment; index direction is less informative."
+    return "Use ticker-specific evidence as the primary decision input."
+
+
+def _human_label(value: object, *, fallback: str) -> str:
+    return fallback if value is None else str(value).replace("_", " ").title()
+
+
+def _first_benchmark(benchmarks: object, ticker: str) -> dict[str, object]:
+    for row in _list(benchmarks):
+        if str(row.get("ticker", "")).upper() == ticker:
+            return row
+    return {}
+
+
+def _list(value: object) -> list[dict[str, object]]:
+    if not isinstance(value, list):
+        return []
+    return [dict(item) for item in value if isinstance(item, dict)]
+
+
+def _mapping(value: object) -> dict[str, object]:
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def _float(value: object) -> float:
+    if value is None or isinstance(value, bool):
+        return 0.0
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _signed_pct(value: object) -> str:
+    return f"{_float(value):+.1f}%" if value is not None else "n/a"
+
+
+def _price_label(value: object) -> str:
+    return f"${_float(value):,.2f}" if value is not None else "n/a"
+
+
+def _tone_class(value: float) -> str:
+    if value > 0:
+        return "pass"
+    if value < 0:
+        return "block"
+    return "neutral"
+
+
+def _gauge_style(value: object, cap: float) -> str:
+    if cap <= 0.0:
+        return "width: 0%"
+    return f"width: {min(100, round(abs(_float(value)) / cap * 100))}%"
+
 
 async def broker_status_context(
     *,

@@ -1123,6 +1123,22 @@ def test_market_regime_page_renders_snapshot(monkeypatch: MonkeyPatch) -> None:
     assert "How to use this" in response.text
 
 
+def test_market_regime_context_adapts_new_snapshot_contract(monkeypatch: MonkeyPatch) -> None:
+    def fake_snapshot() -> dict[str, object]:
+        return _new_market_regime_snapshot()
+
+    market_regime_module._market_regime_context_cache.clear()
+    monkeypatch.setattr(market_regime_module, "load_market_regime_snapshot", fake_snapshot)
+
+    context = asyncio.run(market_regime_module.market_regime_context())
+
+    assert context["market_backdrop"]["regime"] == "RISK_ON"
+    assert context["summary"]["regime_label"] == "Risk On"
+    assert context["summary"]["topbar_label"] == "RISK_ON / data through 2026-05-28"
+    assert context["kpis"][0]["label"] == "Risk regime"
+    assert context["sector_rows"][0]["ticker"] == "XLK"
+
+
 def test_universe_route_redirects_to_market_regime() -> None:
     client = TestClient(create_app())
 
@@ -8189,6 +8205,62 @@ def _market_regime_snapshot() -> dict[str, object]:
             "row_count_label": "10 rows",
             "detail": "10 cached daily price rows across 2 tickers",
         },
+    }
+
+
+def _new_market_regime_snapshot() -> dict[str, object]:
+    return {
+        "schema_version": "1.0.0",
+        "generated_at": "2026-05-29T12:00:00+00:00",
+        "snapshot_type": "pre_market",
+        "data_as_of": "2026-05-28",
+        "bluf": {
+            "headline": "RISK_ON / CALM volatility / RISK_APPETITE macro",
+            "operator_message": "Market regime context uses data through 2026-05-28.",
+            "status_class": "pass",
+        },
+        "market_backdrop": {
+            "regime": "RISK_ON",
+            "status_class": "pass",
+            "confidence": 1.0,
+            "conviction_modifier": 0.03,
+            "vol_regime": "CALM",
+            "macro_tilt": "RISK_APPETITE",
+        },
+        "sector_map": {
+            "XLK": {
+                "ticker": "XLK",
+                "state": "ADVANCING",
+                "quadrant": "Leading",
+                "bias": "TAILWIND",
+                "status_class": "pass",
+                "score": 1.3,
+                "conviction_boost": 0.03,
+                "return_5d_pct": 2.0,
+                "return_20d_pct": 5.0,
+                "flow_confirmed": True,
+            }
+        },
+        "per_stock_context": {},
+        "breadth": {
+            "total": 8000,
+            "advancers_pct": 61.0,
+            "advancers_label": "61%",
+            "status_class": "pass",
+        },
+        "macro": {"tiles": [], "series": {}, "proxies": {}},
+        "benchmarks": [
+            {"ticker": "SPY", "latest_price": 500.0, "return_5d_pct": 1.0, "return_20d_pct": 4.0}
+        ],
+        "intraday_drift": None,
+        "portfolio_context": {
+            "headwind_positions": [],
+            "topping_positions": [],
+            "tailwind_positions": [],
+        },
+        "data_sources": [
+            {"label": "OHLCV", "status": "PASS", "status_class": "pass", "detail": "loaded"}
+        ],
     }
 
 
