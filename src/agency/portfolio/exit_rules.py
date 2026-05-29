@@ -48,6 +48,40 @@ def evaluate_exit_signal(
             )
         )
 
+    if (
+        trading_days_held >= policy.minimum_hold_days
+        and unrealized_pct >= policy.take_profit_stage2_pct
+    ):
+        signals.append(
+            _signal(
+                "TAKE_PROFIT_STAGE_2",
+                "NORMAL",
+                f"{ticker} gain {unrealized_pct:.2f}% reached the "
+                f"+{policy.take_profit_stage2_pct:.1f}% Stage 2 target.",
+                {
+                    "action": "CLOSE",
+                    "rationale": "Stage 2 profit target reached. Close remaining position.",
+                },
+            )
+        )
+
+    trailing_active = high_water_mark_pct >= policy.trailing_stop_activates_at_pct
+    if trading_days_held >= policy.minimum_hold_days and trailing_active:
+        drawback = high_water_mark_pct - unrealized_pct
+        if drawback >= policy.trailing_stop_pct:
+            signals.append(
+                _signal(
+                    "TRAILING_STOP",
+                    "NORMAL",
+                    f"{ticker} drew back {drawback:.2f}% from peak "
+                    f"{high_water_mark_pct:.2f}%.",
+                    {
+                        "action": "CLOSE",
+                        "rationale": "Trailing stop triggered. Protect remaining gains.",
+                    },
+                )
+            )
+
     if not signals:
         return _hold(ticker)
     return _winner(signals)

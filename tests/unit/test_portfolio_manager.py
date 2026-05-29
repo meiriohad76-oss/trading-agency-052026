@@ -403,3 +403,108 @@ def test_malformed_selection_report_does_not_crash() -> None:
     )
 
     assert result["exit_signal"] == "HOLD"
+
+
+def test_trailing_stop_dormant_below_activation_gate() -> None:
+    from agency.portfolio.exit_rules import evaluate_exit_signal
+
+    result = evaluate_exit_signal(
+        ticker="AAPL",
+        unrealized_pct=0.2,
+        quantity=10.0,
+        trading_days_held=3,
+        high_water_mark_pct=0.8,
+        stage1_executed=False,
+        selection_report=None,
+        policy=PortfolioPolicy(),
+    )
+
+    assert result["exit_signal"] == "HOLD"
+
+
+def test_trailing_stop_activates_after_gate() -> None:
+    from agency.portfolio.exit_rules import evaluate_exit_signal
+
+    result = evaluate_exit_signal(
+        ticker="AAPL",
+        unrealized_pct=0.9,
+        quantity=10.0,
+        trading_days_held=3,
+        high_water_mark_pct=2.5,
+        stage1_executed=False,
+        selection_report=None,
+        policy=PortfolioPolicy(),
+    )
+
+    assert result["exit_signal"] == "TRAILING_STOP"
+    assert result["exit_priority"] == "NORMAL"
+    assert result["recommendation"]["action"] == "CLOSE"
+
+
+def test_trailing_stop_requires_minimum_hold() -> None:
+    from agency.portfolio.exit_rules import evaluate_exit_signal
+
+    result = evaluate_exit_signal(
+        ticker="AAPL",
+        unrealized_pct=0.9,
+        quantity=10.0,
+        trading_days_held=1,
+        high_water_mark_pct=2.5,
+        stage1_executed=False,
+        selection_report=None,
+        policy=PortfolioPolicy(),
+    )
+
+    assert result["exit_signal"] == "HOLD"
+
+
+def test_trailing_stop_does_not_fire_below_drawback_threshold() -> None:
+    from agency.portfolio.exit_rules import evaluate_exit_signal
+
+    result = evaluate_exit_signal(
+        ticker="AAPL",
+        unrealized_pct=1.2,
+        quantity=10.0,
+        trading_days_held=3,
+        high_water_mark_pct=2.5,
+        stage1_executed=False,
+        selection_report=None,
+        policy=PortfolioPolicy(),
+    )
+
+    assert result["exit_signal"] == "HOLD"
+
+
+def test_take_profit_stage2_fires_after_minimum_hold() -> None:
+    from agency.portfolio.exit_rules import evaluate_exit_signal
+
+    result = evaluate_exit_signal(
+        ticker="AAPL",
+        unrealized_pct=4.1,
+        quantity=10.0,
+        trading_days_held=2,
+        high_water_mark_pct=4.1,
+        stage1_executed=True,
+        selection_report=None,
+        policy=PortfolioPolicy(),
+    )
+
+    assert result["exit_signal"] == "TAKE_PROFIT_STAGE_2"
+    assert result["recommendation"]["action"] == "CLOSE"
+
+
+def test_take_profit_stage2_does_not_require_stage1() -> None:
+    from agency.portfolio.exit_rules import evaluate_exit_signal
+
+    result = evaluate_exit_signal(
+        ticker="AAPL",
+        unrealized_pct=4.1,
+        quantity=10.0,
+        trading_days_held=2,
+        high_water_mark_pct=4.1,
+        stage1_executed=False,
+        selection_report=None,
+        policy=PortfolioPolicy(),
+    )
+
+    assert result["exit_signal"] == "TAKE_PROFIT_STAGE_2"
