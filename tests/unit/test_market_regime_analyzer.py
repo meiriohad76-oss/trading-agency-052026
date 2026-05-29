@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from agency.market_regime.analyzer import (
     analyze_intraday_drift,
@@ -12,6 +13,24 @@ from agency.market_regime.analyzer import (
     per_stock_context,
 )
 from agency.market_regime.policy import RegimePolicy
+from agency.market_regime.snapshot import build_regime_snapshot
+
+REQUIRED_KEYS = {
+    "schema_version",
+    "generated_at",
+    "snapshot_type",
+    "data_as_of",
+    "bluf",
+    "market_backdrop",
+    "sector_map",
+    "per_stock_context",
+    "breadth",
+    "macro",
+    "benchmarks",
+    "intraday_drift",
+    "portfolio_context",
+    "data_sources",
+}
 
 
 def test_policy_defaults_match_spec() -> None:
@@ -209,3 +228,78 @@ def test_intraday_drift_computed() -> None:
     )
     assert result["spy_session_return_pct"] == 1.0
     assert result["sectors"]["XLK"]["vs_spy_pct"] == 2.0
+
+
+def test_snapshot_schema_has_required_keys(tmp_path: Path) -> None:
+    snapshot = build_regime_snapshot(
+        state_dir=tmp_path,
+        generated_at="2026-05-29T12:00:00+00:00",
+        refresh_mode="manual",
+    )
+
+    assert set(snapshot) >= REQUIRED_KEYS
+
+
+def test_data_limited_on_empty_inputs(tmp_path: Path) -> None:
+    snapshot = build_regime_snapshot(
+        state_dir=tmp_path,
+        generated_at="2026-05-29T12:00:00+00:00",
+    )
+
+    assert snapshot["market_backdrop"]["regime"] == "DATA_LIMITED"
+    assert snapshot["market_backdrop"]["confidence"] == 0.0
+    assert snapshot["data_sources"][0]["status"] in {"WARN", "BLOCK"}
+
+
+def test_snapshot_pre_market_with_state_files(tmp_path: Path) -> None:
+    etf_bars = {
+        "SPY": [
+            {
+                "date": "2026-05-28",
+                "open": 100.0,
+                "high": 106.0,
+                "low": 99.0,
+                "close": 105.0,
+                "volume": 1000,
+            }
+        ],
+        "QQQ": [
+            {
+                "date": "2026-05-28",
+                "open": 100.0,
+                "high": 102.0,
+                "low": 99.0,
+                "close": 101.0,
+                "volume": 1000,
+            }
+        ],
+        "XLK": [
+            {
+                "date": "2026-05-28",
+                "open": 100.0,
+                "high": 108.0,
+                "low": 99.0,
+                "close": 107.0,
+                "volume": 1000,
+            }
+        ],
+    }
+    (tmp_path / "etf_bars.json").write_text(json.dumps(etf_bars), encoding="utf-8")
+    (tmp_path / "grouped_daily.json").write_text(
+        json.dumps({"advancers_pct": 60.0, "total": 8000}),
+        encoding="utf-8",
+    )
+    (tmp_path / "macro_fred.json").write_text(
+        json.dumps({"series": {"VIXCLS": [{"value": 18.0}]}}),
+        encoding="utf-8",
+    )
+
+    snapshot = build_regime_snapshot(
+        state_dir=tmp_path,
+        generated_at="2026-05-29T12:00:00+00:00",
+        refresh_mode="pre_market",
+    )
+
+    assert snapshot["snapshot_type"] == "pre_market"
+    assert snapshot["data_as_of"] == "2026-05-28"
+    assert "XLK" in snapshot["sector_map"]
