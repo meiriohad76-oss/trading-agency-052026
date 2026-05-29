@@ -145,13 +145,13 @@ async def _dashboard_selection_reports(
                 return await runtime_selection_reports(
                     limit=limit,
                     validate_payloads=False,
-                    prefer_latest_artifact=True,
+                    prefer_latest_artifact=False,
                 )
             return await runtime_selection_reports(
                 ticker=ticker,
                 limit=limit,
                 validate_payloads=False,
-                prefer_latest_artifact=True,
+                prefer_latest_artifact=False,
             )
         except TypeError as exc:
             if not _runtime_report_signature_fallback_allowed(exc):
@@ -176,13 +176,13 @@ async def _dashboard_risk_decisions(
                 return await runtime_risk_decisions(
                     limit=limit,
                     validate_payloads=False,
-                    prefer_latest_artifact=True,
+                    prefer_latest_artifact=False,
                 )
             return await runtime_risk_decisions(
                 ticker=ticker,
                 limit=limit,
                 validate_payloads=False,
-                prefer_latest_artifact=True,
+                prefer_latest_artifact=False,
             )
         except TypeError as exc:
             if not _runtime_report_signature_fallback_allowed(exc):

@@ -196,7 +196,7 @@ async def risk_decisions(
     try:
         return await runtime_risk_decisions(
             limit=limit,
-            prefer_latest_artifact=True,
+            prefer_latest_artifact=False,
         )
     except RuntimeRiskDecisionsUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -211,7 +211,7 @@ async def risk_decisions_for_ticker(
         return await runtime_risk_decisions(
             ticker=ticker,
             limit=limit,
-            prefer_latest_artifact=True,
+            prefer_latest_artifact=False,
         )
     except RuntimeRiskDecisionsUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc

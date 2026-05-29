@@ -21,10 +21,11 @@ from agency.services import build_risk_decision
 from agency.services.risk import PortfolioPolicy
 
 HTTP_OK = 200
+HTTP_UNAVAILABLE = 503
 RISK_DECISION_LIMIT = 5
 
 
-def test_risk_decisions_endpoint_uses_local_storage_when_postgres_is_unset(
+def test_risk_decisions_endpoint_reports_unavailable_when_storage_is_unavailable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("AGENCY_RUNTIME_ARTIFACT_FALLBACK", "false")
@@ -32,11 +33,11 @@ def test_risk_decisions_endpoint_uses_local_storage_when_postgres_is_unset(
 
     response = client.get("/risk/decisions")
 
-    assert response.status_code == HTTP_OK
-    assert isinstance(response.json(), list)
+    assert response.status_code == HTTP_UNAVAILABLE
+    assert response.json()["detail"] == "runtime risk-decision storage is unavailable"
 
 
-def test_risk_decisions_endpoint_prefers_latest_runtime_artifact(
+def test_risk_decisions_endpoint_does_not_force_latest_runtime_artifact(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     observed: dict[str, object] = {}
@@ -52,7 +53,7 @@ def test_risk_decisions_endpoint_prefers_latest_runtime_artifact(
 
     assert response.status_code == HTTP_OK
     assert response.json() == [{"ticker": "AAPL"}]
-    assert observed["prefer_latest_artifact"] is True
+    assert observed["prefer_latest_artifact"] is False
 
 
 async def test_runtime_risk_decisions_uses_repository_payloads() -> None:

@@ -71,6 +71,13 @@ def test_live_runtime_cycle_default_output_root_is_canonical_latest(
     assert args.output_root == live_runtime_cycle_script.CANONICAL_RUNTIME_OUTPUT_ROOT
 
 
+def test_live_runtime_cycle_preserves_operator_database_url_override() -> None:
+    source = (REPO_ROOT / "scripts/run_live_runtime_cycle.py").read_text(encoding="utf-8")
+
+    assert "load_dotenv(ROOT / \".env\", override=False)" in source
+    assert "load_dotenv(ROOT / \".env\", override=True)" not in source
+
+
 def test_user_process_audit_accepts_focused_execution_contract() -> None:
     audit = importlib.import_module("scripts.check_user_process_flow_audit")
     html = """

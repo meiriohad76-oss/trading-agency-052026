@@ -1287,15 +1287,15 @@ def _lane_status(
         elif dataset_status == "warning" or coverage < 1.0:
             status = "warning"
         return status
-    if group == "critical" and dataset_status == "blocked":
-        status = "blocked"
-    elif dataset_status in {"blocked", "warning"} and group != "critical":
+    if group == "critical":
+        if dataset_status == "blocked" or count <= 0:
+            status = "blocked"
+        elif dataset_status == "warning" or coverage < 1.0:
+            status = "warning"
+        return status
+    if dataset_status in {"blocked", "warning"} and group != "critical":
         status = "warning"
-    elif lane in TOP_DOWN_CONTEXT_LANES:
-        status = "ready"
-    elif group == "critical":
-        status = "ready" if coverage >= 1.0 else "blocked"
-    elif lane in SPARSE_SUPPORT_LANES:
+    elif lane in TOP_DOWN_CONTEXT_LANES or lane in SPARSE_SUPPORT_LANES:
         status = "ready"
     elif group == "support":
         status = "ready" if coverage >= MIN_SUPPORT_LANE_COVERAGE else "warning"
@@ -1951,6 +1951,14 @@ def _lane_detail(
                 f"the verified trade-print subset. Use it for review on covered "
                 f"tickers only; {source_dataset} still needs repair before full "
                 "universe trading."
+            )
+        if group == "critical" and count > 0:
+            expected_label = str(expected) if expected is not None else "configured"
+            return (
+                f"{lane.replace('_', ' ')} produced {count}/{expected_label} row(s) "
+                f"from currently available {source_dataset}. Covered tickers can "
+                "be reviewed now; refresh or repair the source before full-universe "
+                "paper execution."
             )
         return (
             f"{lane.replace('_', ' ')} has a warning because {source_dataset} "

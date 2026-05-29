@@ -36,7 +36,7 @@ async def selection_reports(
     try:
         return await runtime_selection_reports(
             limit=limit,
-            prefer_latest_artifact=True,
+            prefer_latest_artifact=False,
         )
     except RuntimeSelectionReportsUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -51,7 +51,7 @@ async def selection_reports_for_ticker(
         return await runtime_selection_reports(
             ticker=ticker,
             limit=limit,
-            prefer_latest_artifact=True,
+            prefer_latest_artifact=False,
         )
     except RuntimeSelectionReportsUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc

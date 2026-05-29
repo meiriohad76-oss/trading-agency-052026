@@ -14,10 +14,11 @@ from agency.app import create_app
 from agency.runtime.operational_filters import is_non_operational_payload
 
 HTTP_OK = 200
+HTTP_UNAVAILABLE = 503
 EXPECTED_LIMIT = 5
 
 
-def test_selection_reports_endpoint_uses_local_storage_when_postgres_is_unset(
+def test_selection_reports_endpoint_reports_unavailable_when_storage_is_unavailable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("AGENCY_RUNTIME_ARTIFACT_FALLBACK", "false")
@@ -25,11 +26,11 @@ def test_selection_reports_endpoint_uses_local_storage_when_postgres_is_unset(
 
     response = client.get("/reports/selection")
 
-    assert response.status_code == HTTP_OK
-    assert isinstance(response.json(), list)
+    assert response.status_code == HTTP_UNAVAILABLE
+    assert response.json()["detail"] == "runtime selection-report storage is unavailable"
 
 
-def test_selection_reports_for_ticker_endpoint_uses_local_storage_when_postgres_is_unset(
+def test_selection_reports_for_ticker_endpoint_reports_unavailable_when_storage_is_unavailable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("AGENCY_RUNTIME_ARTIFACT_FALLBACK", "false")
@@ -37,8 +38,8 @@ def test_selection_reports_for_ticker_endpoint_uses_local_storage_when_postgres_
 
     response = client.get("/reports/selection/AAPL")
 
-    assert response.status_code == HTTP_OK
-    assert isinstance(response.json(), list)
+    assert response.status_code == HTTP_UNAVAILABLE
+    assert response.json()["detail"] == "runtime selection-report storage is unavailable"
 
 
 def test_selection_reports_endpoint_keeps_route_validation_enabled(
@@ -62,7 +63,7 @@ def test_selection_reports_endpoint_keeps_route_validation_enabled(
     assert response.status_code == HTTP_OK
     assert response.json() == [{"ticker": "AAPL"}]
     assert observed.get("validate_payloads", True) is True
-    assert observed["prefer_latest_artifact"] is True
+    assert observed["prefer_latest_artifact"] is False
 
 
 def test_selection_reports_ticker_endpoint_keeps_route_validation_enabled(
@@ -87,7 +88,7 @@ def test_selection_reports_ticker_endpoint_keeps_route_validation_enabled(
     assert response.json() == [{"ticker": "AAPL"}]
     assert observed["ticker"] == "AAPL"
     assert observed.get("validate_payloads", True) is True
-    assert observed["prefer_latest_artifact"] is True
+    assert observed["prefer_latest_artifact"] is False
 
 
 def test_non_operational_filter_uses_token_boundaries() -> None:

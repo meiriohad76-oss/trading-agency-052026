@@ -431,7 +431,7 @@ async def _default_selection_reports() -> list[dict[str, object]]:
     try:
         return await runtime_selection_reports(
             limit=200,
-            prefer_latest_artifact=True,
+            prefer_latest_artifact=False,
         )
     except RuntimeSelectionReportsUnavailable:
         return []
@@ -441,7 +441,7 @@ async def _default_risk_decisions() -> list[dict[str, object]]:
     try:
         return await runtime_risk_decisions(
             limit=200,
-            prefer_latest_artifact=True,
+            prefer_latest_artifact=False,
         )
     except RuntimeRiskDecisionsUnavailable:
         return []

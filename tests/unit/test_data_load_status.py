@@ -597,6 +597,68 @@ def test_data_load_status_counts_desc_partial_stock_trade_slice_as_live_usable(
     assert status["review_operational_ready"] is True
 
 
+def test_data_load_status_keeps_fresh_daily_bar_subset_review_operational(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    paths = _fixtures(tmp_path, monkeypatch)
+    _write_manifest(
+        paths["manifest_root"],
+        "prices_daily",
+        row_count=20,
+        tickers=["AAPL", "MSFT"],
+    )
+    _write_manifest(
+        paths["manifest_root"],
+        "stock_trades",
+        row_count=200,
+        tickers=["AAPL", "MSFT"],
+    )
+    _write_runtime_summary(
+        paths["runtime_summary"],
+        {
+            "abnormal_volume": 1,
+            "technical_analysis": 1,
+            "buy_sell_pressure": 1,
+            "block_trade_pressure": 1,
+            "unusual_trade_activity": 1,
+            "pre_market_unusual_activity": 1,
+            "market_flow_trend": 1,
+        },
+    )
+    _write_source_health(
+        paths["source_health"],
+        [
+            _source("daily-market-bars", freshness="FRESH", status="DEGRADED"),
+            _source("massive-stock-trades", freshness="FRESH", status="HEALTHY"),
+        ],
+    )
+
+    status = load_data_load_status(
+        config_path=paths["config"],
+        universe_path=paths["universe"],
+        manifest_root=paths["manifest_root"],
+        parquet_root=paths["parquet_root"],
+        runtime_summary_path=paths["runtime_summary"],
+        source_health_path=paths["source_health"],
+        now=datetime(2026, 5, 11, 15, 2, tzinfo=UTC),
+    )
+
+    abnormal_volume = _lane(status, "abnormal_volume")
+    technical_analysis = _lane(status, "technical_analysis")
+
+    assert status["state"] == "attention"
+    assert status["ready"] is True
+    assert status["review_operational_ready"] is True
+    assert status["tradable_ready"] is False
+    assert status["blockers"] == []
+    assert status["mode"] == "review_subset"
+    assert abnormal_volume["status"] == "warning"
+    assert technical_analysis["status"] == "warning"
+    assert "covered ticker" in str(abnormal_volume["detail"]).lower()
+    assert "freshness is FRESH" not in str(abnormal_volume["detail"])
+
+
 def test_data_load_status_marks_market_flow_partial_when_signals_miss_ticker(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
