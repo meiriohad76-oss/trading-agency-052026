@@ -282,3 +282,124 @@ def test_circuit_breaker_all_clear() -> None:
     assert result["reduced_sizing_active"] is False
     assert result["signals"] == []
     assert result["recommended_position_pct"] == PortfolioPolicy().default_position_pct
+
+
+def test_stop_loss_fires_on_day_1() -> None:
+    from agency.portfolio.exit_rules import evaluate_exit_signal
+
+    result = evaluate_exit_signal(
+        ticker="AAPL",
+        unrealized_pct=-2.0,
+        quantity=10.0,
+        trading_days_held=0,
+        high_water_mark_pct=0.0,
+        stage1_executed=False,
+        selection_report=None,
+        policy=PortfolioPolicy(),
+    )
+
+    assert result["exit_signal"] == "STOP_LOSS"
+    assert result["exit_priority"] == "URGENT"
+    assert result["recommendation"]["action"] == "CLOSE"
+
+
+def test_stop_loss_keeps_lower_priority_thesis_secondary() -> None:
+    from agency.portfolio.exit_rules import evaluate_exit_signal
+
+    result = evaluate_exit_signal(
+        ticker="AAPL",
+        unrealized_pct=-2.2,
+        quantity=10.0,
+        trading_days_held=0,
+        high_water_mark_pct=0.0,
+        stage1_executed=False,
+        selection_report={"final_action": "NO_TRADE", "final_conviction": 0.20},
+        policy=PortfolioPolicy(),
+    )
+
+    assert result["exit_signal"] == "STOP_LOSS"
+    assert result["secondary_signals"] == ["THESIS_BROKEN"]
+
+
+def test_thesis_broken_fires_on_day_1() -> None:
+    from agency.portfolio.exit_rules import evaluate_exit_signal
+
+    report = {
+        "final_action": "NO_TRADE",
+        "final_conviction": 0.80,
+        "risk_flags": [],
+        "policy_gates": [],
+    }
+
+    result = evaluate_exit_signal(
+        ticker="AAPL",
+        unrealized_pct=1.0,
+        quantity=10.0,
+        trading_days_held=0,
+        high_water_mark_pct=1.0,
+        stage1_executed=False,
+        selection_report=report,
+        policy=PortfolioPolicy(),
+    )
+
+    assert result["exit_signal"] == "THESIS_BROKEN"
+    assert result["exit_priority"] == "HIGH"
+    assert result["recommendation"]["action"] == "CLOSE"
+
+
+def test_thesis_broken_fires_on_low_conviction() -> None:
+    from agency.portfolio.exit_rules import evaluate_exit_signal
+
+    report = {
+        "final_action": "WATCH",
+        "final_conviction": 0.35,
+        "risk_flags": [],
+        "policy_gates": [],
+    }
+
+    result = evaluate_exit_signal(
+        ticker="AAPL",
+        unrealized_pct=0.5,
+        quantity=10.0,
+        trading_days_held=1,
+        high_water_mark_pct=0.5,
+        stage1_executed=False,
+        selection_report=report,
+        policy=PortfolioPolicy(),
+    )
+
+    assert result["exit_signal"] == "THESIS_BROKEN"
+
+
+def test_thesis_broken_uses_action_fallback_and_normalizes_case() -> None:
+    from agency.portfolio.exit_rules import evaluate_exit_signal
+
+    result = evaluate_exit_signal(
+        ticker="AAPL",
+        unrealized_pct=0.5,
+        quantity=10.0,
+        trading_days_held=1,
+        high_water_mark_pct=0.5,
+        stage1_executed=False,
+        selection_report={"action": " no_trade ", "final_conviction": "not-a-number"},
+        policy=PortfolioPolicy(),
+    )
+
+    assert result["exit_signal"] == "THESIS_BROKEN"
+
+
+def test_malformed_selection_report_does_not_crash() -> None:
+    from agency.portfolio.exit_rules import evaluate_exit_signal
+
+    result = evaluate_exit_signal(
+        ticker="AAPL",
+        unrealized_pct=0.5,
+        quantity=10.0,
+        trading_days_held=1,
+        high_water_mark_pct=0.5,
+        stage1_executed=False,
+        selection_report={"final_action": None, "final_conviction": None},
+        policy=PortfolioPolicy(),
+    )
+
+    assert result["exit_signal"] == "HOLD"
