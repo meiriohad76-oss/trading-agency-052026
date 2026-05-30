@@ -19,6 +19,21 @@ METRIC_TAGS = {
     "shares_outstanding": ("EntityCommonStockSharesOutstanding",),
     "total_assets": ("Assets",),
     "total_liabilities": ("Liabilities",),
+    "gross_profit": ("GrossProfit",),
+    "operating_income": ("OperatingIncomeLoss",),
+    "ebitda": ("EarningsBeforeInterestTaxesDepreciationAndAmortization",),
+    "depreciation_amortization": ("DepreciationDepletionAndAmortization",),
+    "research_development": ("ResearchAndDevelopmentExpense",),
+    "interest_expense": ("InterestExpenseNonOperating",),
+    "income_tax_expense": ("IncomeTaxExpenseBenefit",),
+    "eps_basic": ("EarningsPerShareBasic",),
+    "eps_diluted": ("EarningsPerShareDiluted",),
+    "current_assets": ("AssetsCurrent",),
+    "current_liabilities": ("LiabilitiesCurrent",),
+    "long_term_debt": ("LongTermDebtNoncurrent",),
+    "cash_and_equivalents": ("CashAndCashEquivalentsAtCarryingValue",),
+    "total_equity": ("StockholdersEquity",),
+    "retained_earnings": ("RetainedEarningsAccumulatedDeficit",),
 }
 
 

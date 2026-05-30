@@ -270,7 +270,7 @@ git commit -m "feat(fundamentals): expose PIT fundamentals history"
 - Free cash flow derivation remains unchanged and tested.
 - Parser tests verify at least one common XBRL tag per new metric.
 
-- [ ] **Step 1: Add parser tests**
+- [x] **Step 1: Add parser tests**
 
 Append tests to `tests/unit/test_sec_parsers.py`:
 
@@ -281,23 +281,23 @@ def test_parser_extracts_eps_tags_with_pure_unit() -> None: ...
 def test_free_cash_flow_derivation_still_works_with_expanded_tags() -> None: ...
 ```
 
-- [ ] **Step 2: Run failing tests**
+- [x] **Step 2: Run failing tests**
 
 ```powershell
 .\.venv\Scripts\python -m pytest tests\unit\test_sec_parsers.py -v
 ```
 
-- [ ] **Step 3: Implement tag map**
+- [x] **Step 3: Implement tag map**
 
 Add conservative SEC tag mappings only. Do not add speculative aliases that are not present in SEC company facts.
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 ```powershell
 .\.venv\Scripts\python -m pytest tests\unit\test_sec_parsers.py tests\unit\test_sec_views_period_fix.py -v
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add research/src/sec/company_facts_parser.py tests/unit/test_sec_parsers.py
