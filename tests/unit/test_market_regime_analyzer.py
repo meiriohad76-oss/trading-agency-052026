@@ -381,6 +381,27 @@ class RecordingScheduler:
         self.jobs.append({"func": func, "trigger": trigger, **kwargs})
 
 
+def test_return_20d_pct_5d_ago_is_computed() -> None:
+    """metrics.py must expose return_20d_pct_5d_ago for spec-correct RS-Momentum."""
+    from agency.market_regime.metrics import metrics_by_ticker
+
+    # Build 30 synthetic daily bars so offsets are available
+    closes = [100.0 + i * 0.5 for i in range(30)]  # 100.0, 100.5, ..., 114.5
+    bars = [
+        {"date": f"2026-04-{i+1:02d}", "open": c - 0.1, "high": c + 0.2, "low": c - 0.3,
+         "close": c, "volume": 1_000_000}
+        for i, c in enumerate(closes)
+    ]
+    result = metrics_by_ticker({"SPY": bars})
+
+    assert "return_20d_pct_5d_ago" in result["SPY"], \
+        "metrics_by_ticker must include return_20d_pct_5d_ago"
+    # With 30 bars: 5d_ago close = closes[24] = 112.0; 25d_ago close = closes[4] = 102.0
+    # return_20d_pct_5d_ago = (112.0 / 102.0 - 1) * 100
+    expected = round((closes[24] / closes[4] - 1.0) * 100.0, 2)
+    assert abs(result["SPY"]["return_20d_pct_5d_ago"] - expected) < 0.01
+
+
 def test_schedule_regime_refresh_registers_three_jobs(tmp_path: Path) -> None:
     scheduler = RecordingScheduler()
 
