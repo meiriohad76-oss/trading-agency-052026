@@ -322,7 +322,7 @@ git commit -m "feat(fundamentals): expand SEC company facts metrics"
   - `valuation_score`: inverse trailing P/E and FCF yield when price/share data available.
   - `forward_score`: remains `None` until FA07.
 
-- [ ] **Step 1: Add tests**
+- [x] **Step 1: Add tests**
 
 Create `tests/unit/test_fundamentals_growth.py` with tests:
 
@@ -346,13 +346,13 @@ with pytest.raises(KeyError):
     fundamental_factor_frame(AS_OF, {"AAPL"}, loader, history_loader=BrokenHistoryLoader())
 ```
 
-- [ ] **Step 2: Run failing tests**
+- [x] **Step 2: Run failing tests**
 
 ```powershell
 .\.venv\Scripts\python -m pytest tests\unit\test_fundamentals_growth.py -v
 ```
 
-- [ ] **Step 3: Implement scoring**
+- [x] **Step 3: Implement scoring**
 
 Modify `research/src/signals/fundamentals.py`:
 
@@ -370,13 +370,13 @@ Rules:
 - Use `None` for unavailable growth/valuation fields.
 - Keep old score behavior green for existing tests.
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 ```powershell
 .\.venv\Scripts\python -m pytest tests\unit\test_fundamentals_growth.py tests\unit\test_fundamentals_signal.py -v
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add research/src/signals/fundamentals.py tests/unit/test_fundamentals_growth.py
