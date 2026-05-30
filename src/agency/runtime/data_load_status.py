@@ -197,21 +197,14 @@ def load_data_load_status(
     subscription_email_progress = _read_json_object(DEFAULT_SUBSCRIPTION_EMAIL_PROGRESS_PATH)
     if source_health_rows is None:
         source_health = _read_json_list(source_file)
-        source_origin = (
-            source_health_origin
-            or (
-                "latest runtime source-health artifact"
-                if source_file.is_file()
-                else "missing source-health artifact"
-            )
+        source_origin = source_health_origin or (
+            "latest runtime source-health artifact"
+            if source_file.is_file()
+            else "missing source-health artifact"
         )
         source_file_for_monitor: Path | None = source_file
     else:
-        source_health = [
-            row
-            for row in source_health_rows
-            if isinstance(row, Mapping)
-        ]
+        source_health = [row for row in source_health_rows if isinstance(row, Mapping)]
         source_origin = source_health_origin or "live runtime source-health reader"
         source_file_for_monitor = None
     market_session = _current_market_session(current)
@@ -385,9 +378,7 @@ def _dataset_rows(
         *(dataset for dataset in CONTEXT_DATASETS if not configured or dataset in configured),
     ]
     health_by_source = {
-        str(row.get("source")): row
-        for row in source_health
-        if isinstance(row.get("source"), str)
+        str(row.get("source")): row for row in source_health if isinstance(row.get("source"), str)
     }
     rows: list[dict[str, object]] = []
     for dataset in datasets:
@@ -522,9 +513,7 @@ def _dataset_rows(
                 "source_freshness": str(health.get("freshness") or "UNKNOWN"),
                 "source_checked_at": str(health.get("checked_at") or "not checked"),
                 "source_last_success_at": str(health.get("last_success_at") or "not recorded"),
-                "massive_lane_id": str(massive_lane.get("lane_id") or "")
-                if massive_lane
-                else "",
+                "massive_lane_id": str(massive_lane.get("lane_id") or "") if massive_lane else "",
                 "massive_lane_status": str(massive_lane.get("status") or "")
                 if massive_lane
                 else "",
@@ -675,7 +664,8 @@ def _blockers(
     blockers.extend(
         _issue("agent_lane", str(row["lane"]), str(row["detail"]))
         for row in lane_rows
-        if row.get("group") == "critical" and row.get("status") == "blocked"
+        if row.get("group") == "critical"
+        and row.get("status") == "blocked"
         and row.get("required_now") is not False
     )
     evidence_rows = [
@@ -688,9 +678,7 @@ def _blockers(
         and evidence_rows
         and all(_int_value(row.get("produced_count")) == 0 for row in evidence_rows)
     ):
-        blockers.append(
-            _issue("runtime_cycle", "signals", "No critical agent lane produced rows.")
-        )
+        blockers.append(_issue("runtime_cycle", "signals", "No critical agent lane produced rows."))
     return blockers
 
 
@@ -721,9 +709,7 @@ def _data_refresh_blockers(
 ) -> list[dict[str, object]]:
     state = str(data_refresh.get("state") or "").lower()
     affected = _affected_refresh_datasets(data_refresh)
-    blocking_affected = [
-        dataset for dataset in affected if _refresh_dataset_blocks(dataset)
-    ]
+    blocking_affected = [dataset for dataset in affected if _refresh_dataset_blocks(dataset)]
     if state in TRADE_PULL_BLOCKING_STATES and blocking_affected:
         detail = str(
             data_refresh.get("detail")
@@ -753,11 +739,15 @@ def _data_refresh_blockers(
         return [_issue("data_refresh", "stock_trades", detail)]
     if state == "unverified" and market_flow_usable > 0 and market_flow_signals > 0:
         return []
-    if state == "stale" and max(
-        _int_value(trade_pull.get("pipeline_ready_count")),
-        _int_value(trade_pull.get("pipeline_usable_count")),
-        market_flow_usable,
-    ) > 0:
+    if (
+        state == "stale"
+        and max(
+            _int_value(trade_pull.get("pipeline_ready_count")),
+            _int_value(trade_pull.get("pipeline_usable_count")),
+            market_flow_usable,
+        )
+        > 0
+    ):
         detail = str(
             trade_pull.get("detail")
             or (
@@ -881,8 +871,7 @@ def _market_flow_summary(
     rows = [
         row
         for row in lane_rows
-        if str(row.get("lane")) in MARKET_FLOW_LANES
-        and row.get("required_now") is not False
+        if str(row.get("lane")) in MARKET_FLOW_LANES and row.get("required_now") is not False
     ]
     stock_trades = next(
         (row for row in dataset_rows if str(row.get("dataset")) == "stock_trades"),
@@ -1207,7 +1196,7 @@ def _news_resolved_source_ids(
         return None
     try:
         frame = pd.read_parquet(path)
-    except (FileNotFoundError, OSError, ValueError):
+    except FileNotFoundError, OSError, ValueError:
         return None
     if "source_id" not in frame.columns:
         return None
@@ -1259,15 +1248,21 @@ def _dataset_status(
     status = "ready"
     if source_state == "blocked":
         status = "blocked" if dataset in CORE_DATASETS else "warning"
-    elif group == "core" and _manifest_stale_for_as_of(manifest, as_of) or group == "core" and dataset != "stock_trades" and coverage < 1.0:
+    elif (
+        group == "core"
+        and _manifest_stale_for_as_of(manifest, as_of)
+        or group == "core"
+        and dataset != "stock_trades"
+        and coverage < 1.0
+    ):
         status = "blocked"
     elif source_state == "warning" or dataset == "stock_trades" and 0.0 < effective_coverage < 1.0:
         status = "warning"
-    elif group == "core" and (
-        effective_coverage if dataset == "stock_trades" else coverage
-    ) < 1.0:
+    elif group == "core" and (effective_coverage if dataset == "stock_trades" else coverage) < 1.0:
         status = "blocked"
-    elif dataset == "stock_trades" and partial_ticker_count > 0 or support_warning or context_warning:
+    elif (
+        dataset == "stock_trades" and partial_ticker_count > 0 or support_warning or context_warning
+    ):
         status = "warning"
     return status
 
@@ -1486,8 +1481,7 @@ def _dataset_detail(
     source_state = _source_issue_status(health, now=now)
     if source_state != "ready":
         return (
-            f"{DATASET_LABELS[dataset]} source needs attention: "
-            f"{_source_detail(health, now=now)}"
+            f"{DATASET_LABELS[dataset]} source needs attention: {_source_detail(health, now=now)}"
         )
     if dataset == "news_rss":
         return _news_resolution_detail(
@@ -1497,7 +1491,9 @@ def _dataset_detail(
         )
     if group == "core":
         percent = round(coverage * PERCENT_SCALE)
-        usable_percent = round((coverage if usable_coverage is None else usable_coverage) * PERCENT_SCALE)
+        usable_percent = round(
+            (coverage if usable_coverage is None else usable_coverage) * PERCENT_SCALE
+        )
         freshness = str(health.get("freshness") or "UNKNOWN")
         if _manifest_stale_for_as_of(manifest, as_of):
             latest = str(manifest.get("max_timestamp_as_of") or "not loaded")
@@ -1684,13 +1680,12 @@ def _subscription_email_status(
         attempted,
         succeeded + failed + skipped + login_required + unavailable,
     )
-    if state in {"waiting_for_login_confirmation", "article_login_challenge"} and login_required == 0:
+    if (
+        state in {"waiting_for_login_confirmation", "article_login_challenge"}
+        and login_required == 0
+    ):
         login_required = links_found
-    updated_at = str(
-        progress.get("updated_at")
-        or summary.get("fetched_at")
-        or ""
-    )
+    updated_at = str(progress.get("updated_at") or summary.get("fetched_at") or "")
     status_label, status_class, detail, next_action = _subscription_email_status_text(
         state=state,
         verdict=verdict,
@@ -1726,7 +1721,8 @@ def _subscription_email_status(
         or login_required > 0
     )
     return {
-        "state": state or ("needs_article_login" if verdict == "needs_article_login" else "unknown"),
+        "state": state
+        or ("needs_article_login" if verdict == "needs_article_login" else "unknown"),
         "status_label": status_label,
         "status_class": status_class,
         "processed_email_count": processed,
@@ -1753,9 +1749,7 @@ def _subscription_email_status(
             else ""
         ),
         "continue_button_label": (
-            "I logged in - open and analyze articles"
-            if can_continue_after_login
-            else ""
+            "I logged in - open and analyze articles" if can_continue_after_login else ""
         ),
     }
 
@@ -1823,7 +1817,9 @@ def _subscription_email_status_text(
             "Wait for article analysis to finish, then reload the dashboard.",
         )
     if state == "complete" or attempted or succeeded:
-        status_class = "pass" if failed == 0 and login_required == 0 and unavailable == 0 else "warn"
+        status_class = (
+            "pass" if failed == 0 and login_required == 0 and unavailable == 0 else "warn"
+        )
         total = links_found or max(attempted, succeeded + failed + skipped)
         label = (
             f"Analyzed {succeeded}/{total} article links"
@@ -1873,7 +1869,9 @@ def _subscription_email_progress_label(
     login_required: int,
     unavailable: int,
 ) -> tuple[str, int]:
-    total = links_found or max(attempted, succeeded + failed + skipped + login_required + unavailable)
+    total = links_found or max(
+        attempted, succeeded + failed + skipped + login_required + unavailable
+    )
     if state == "login_acknowledgement_required":
         return "Login acknowledged; Chrome agent access not connected", 0
     if state == "waiting_for_login_confirmation":
@@ -2088,10 +2086,13 @@ def _health_monitor_summary(
     )
     stale_rows = _stale_health_monitor_rows(source_health, now=now)
     origin_lower = normalized_origin.lower()
-    live = "live" in origin_lower and "artifact" not in origin_lower and "unavailable" not in origin_lower
+    live = (
+        "live" in origin_lower
+        and "artifact" not in origin_lower
+        and "unavailable" not in origin_lower
+    )
     unavailable_monitor = any(
-        str(row.get("source") or "") == "source-health-monitor"
-        for row in source_health
+        str(row.get("source") or "") == "source-health-monitor" for row in source_health
     )
     if not source_health:
         status = "missing"
@@ -2122,17 +2123,13 @@ def _health_monitor_summary(
         reliable = False
     elif stale_rows:
         critical_stale_rows = [
-            row
-            for row in stale_rows
-            if str(row.get("source") or "") in CRITICAL_SOURCE_NAMES
+            row for row in stale_rows if str(row.get("source") or "") in CRITICAL_SOURCE_NAMES
         ]
         row = critical_stale_rows[0] if critical_stale_rows else stale_rows[0]
         source = str(row.get("source") or "unknown source")
         checked_at = _parse_datetime(row.get("checked_at"))
         row_age = (
-            int((_ensure_utc(now) - checked_at).total_seconds())
-            if checked_at is not None
-            else None
+            int((_ensure_utc(now) - checked_at).total_seconds()) if checked_at is not None else None
         )
         row_sla = _source_max_age_seconds(row)
         critical_stale = bool(critical_stale_rows)
@@ -2173,8 +2170,12 @@ def _health_monitor_summary(
         "reliable": reliable,
         "row_count": len(source_health),
         "missing_checked_count": missing_checked_count,
-        "latest_checked_at": latest_checked.isoformat() if latest_checked is not None else "not checked",
-        "oldest_checked_at": oldest_checked.isoformat() if oldest_checked is not None else "not checked",
+        "latest_checked_at": latest_checked.isoformat()
+        if latest_checked is not None
+        else "not checked",
+        "oldest_checked_at": oldest_checked.isoformat()
+        if oldest_checked is not None
+        else "not checked",
         "max_age_seconds": max_age_seconds,
         "artifact_updated_at": artifact_updated_at,
         "detail": detail,
@@ -2297,12 +2298,8 @@ def _freshness_rows(
                     for ticker in _list_field(row, "missing_active_tickers")
                     if str(ticker).strip()
                 ],
-                "active_usable_ticker_count": _int_value(
-                    row.get("active_usable_ticker_count")
-                ),
-                "active_expected_ticker_count": _int_value(
-                    row.get("active_expected_ticker_count")
-                ),
+                "active_usable_ticker_count": _int_value(row.get("active_usable_ticker_count")),
+                "active_expected_ticker_count": _int_value(row.get("active_expected_ticker_count")),
                 "active_coverage_pct": _int_value(row.get("active_coverage_pct")),
                 "detail": _source_detail(row, now=now),
             }
@@ -2440,9 +2437,7 @@ def _source_age_is_market_closed_current(
 
 def _source_summary_headline(rows: Sequence[Mapping[str, object]]) -> str:
     critical_blockers = [
-        row
-        for row in rows
-        if row.get("critical") is True and row.get("status_class") == "block"
+        row for row in rows if row.get("critical") is True and row.get("status_class") == "block"
     ]
     if critical_blockers:
         row = critical_blockers[0]
@@ -2469,7 +2464,7 @@ def _manifest_stale_for_as_of(manifest: Mapping[str, object], as_of: date) -> bo
         return True
     try:
         observed = pd.to_datetime(value, utc=True).date()
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return True
     return observed < as_of
 
@@ -2607,7 +2602,7 @@ def _active_universe_tickers(as_of: date, path: Path) -> set[str]:
         return set()
     try:
         frame = pd.read_parquet(path, columns=["ticker", "start_date", "end_date"])
-    except (OSError, ValueError, KeyError):
+    except OSError, ValueError, KeyError:
         return set()
     if frame.empty:
         return set()
@@ -2721,9 +2716,7 @@ def _daily_bar_lane_snapshot(
     active_tickers: set[str] | None = None,
 ) -> Mapping[str, object]:
     lane_id = MASSIVE_DAILY_BARS_LANE_ID
-    manifest = _read_json_object(
-        manifest_root / "massive_lanes" / f"{lane_id}.json"
-    )
+    manifest = _read_json_object(manifest_root / "massive_lanes" / f"{lane_id}.json")
     if not manifest:
         if (manifest_root / "massive_lanes").exists():
             return _missing_lane_snapshot(lane_id, label="Massive Daily Bars")
@@ -2736,11 +2729,7 @@ def _daily_bar_lane_snapshot(
             as_of=as_of,
         )
     tickers = sorted(
-        {
-            str(ticker).upper()
-            for ticker in _list_field(manifest, "tickers")
-            if str(ticker).strip()
-        }
+        {str(ticker).upper() for ticker in _list_field(manifest, "tickers") if str(ticker).strip()}
     )
     coverage = [
         row
@@ -2752,8 +2741,7 @@ def _daily_bar_lane_snapshot(
             str(row.get("ticker")).upper()
             for row in coverage
             if row.get("complete") is True
-            or str(row.get("coverage_status") or row.get("status") or "").lower()
-            == "complete"
+            or str(row.get("coverage_status") or row.get("status") or "").lower() == "complete"
         }
     )
     if not coverage and tickers and str(manifest.get("status") or "").lower() == "complete":
@@ -2808,9 +2796,7 @@ def _stock_trade_live_lane_snapshot(
     now: datetime,
 ) -> Mapping[str, object]:
     lane_id = MASSIVE_LIVE_TRADE_LANE_ID
-    manifest = _read_json_object(
-        manifest_root / "massive_lanes" / f"{lane_id}.json"
-    )
+    manifest = _read_json_object(manifest_root / "massive_lanes" / f"{lane_id}.json")
     if not manifest:
         if not (manifest_root / "massive_lanes").exists():
             return {}
@@ -2843,11 +2829,7 @@ def _stock_trade_live_lane_snapshot(
     if str(progress.get("lane_id") or "") != MASSIVE_LIVE_TRADE_LANE_ID:
         progress = {}
     tickers = sorted(
-        {
-            str(ticker).upper()
-            for ticker in _list_field(manifest, "tickers")
-            if str(ticker).strip()
-        }
+        {str(ticker).upper() for ticker in _list_field(manifest, "tickers") if str(ticker).strip()}
     )
     coverage = [
         row
@@ -2873,8 +2855,7 @@ def _stock_trade_live_lane_snapshot(
         {
             str(row.get("ticker")).upper()
             for row in coverage
-            if str(row.get("coverage_status") or row.get("status") or "").lower()
-            == "failed"
+            if str(row.get("coverage_status") or row.get("status") or "").lower() == "failed"
         }
     )
     partial_source = sorted(
@@ -2958,9 +2939,8 @@ def _stock_trade_coverage_metadata_lane_snapshot(
             continue
         missing_tickers.append(ticker)
     parquet_counts = _stock_trade_parquet_row_counts(root, missing_tickers, as_of=as_of)
-    parquet_checked_at = (
-        _parse_datetime(stock_manifest.get("fetched_at"))
-        or _parse_datetime(stock_manifest.get("max_timestamp_as_of"))
+    parquet_checked_at = _parse_datetime(stock_manifest.get("fetched_at")) or _parse_datetime(
+        stock_manifest.get("max_timestamp_as_of")
     )
     for ticker in missing_tickers:
         row_count = parquet_counts.get(ticker, 0)
@@ -3009,8 +2989,7 @@ def _stock_trade_coverage_metadata_lane_snapshot(
         {
             str(row.get("ticker")).upper()
             for row in coverage_rows
-            if str(row.get("coverage_status") or row.get("status") or "").lower()
-            == "failed"
+            if str(row.get("coverage_status") or row.get("status") or "").lower() == "failed"
         }
     )
     partial_tickers = sorted(
@@ -3124,11 +3103,7 @@ def _stock_trade_raw_lane_snapshot(
         {},
     )
     tickers = sorted(
-        {
-            str(ticker).upper()
-            for ticker in _list_field(manifest, "tickers")
-            if str(ticker).strip()
-        }
+        {str(ticker).upper() for ticker in _list_field(manifest, "tickers") if str(ticker).strip()}
     )
     coverage = [
         row
@@ -3154,8 +3129,7 @@ def _stock_trade_raw_lane_snapshot(
         {
             str(row.get("ticker")).upper()
             for row in coverage
-            if str(row.get("coverage_status") or row.get("status") or "").lower()
-            == "failed"
+            if str(row.get("coverage_status") or row.get("status") or "").lower() == "failed"
         }
     )
     partial_source = sorted(
@@ -3316,10 +3290,15 @@ def _daily_bar_lane_source_health(
     active_coverage_detail = ""
     if missing_active_tickers and status == "HEALTHY":
         status = "DEGRADED"
+        provider_unavailable_detail = _daily_bar_provider_unavailable_detail(
+            daily_bar_lane,
+            missing_active_tickers=missing_active_tickers,
+        )
         active_coverage_detail = (
             f" Active-universe coverage is {active_usable}/{active_expected} "
             f"active ticker(s) ({active_coverage_pct}%); missing "
             f"{_ticker_list_preview(missing_active_tickers)}."
+            f"{provider_unavailable_detail}"
         )
     checked = checked_at.isoformat()
     return {
@@ -3340,6 +3319,29 @@ def _daily_bar_lane_source_health(
             f"{active_coverage_detail}"
         ),
     }
+
+
+def _daily_bar_provider_unavailable_detail(
+    daily_bar_lane: Mapping[str, object],
+    *,
+    missing_active_tickers: Sequence[str],
+) -> str:
+    missing = {ticker.upper() for ticker in missing_active_tickers if ticker.strip()}
+    unavailable = sorted(
+        {
+            str(issue.get("ticker") or "").upper()
+            for issue in _sequence_mappings(daily_bar_lane.get("issues"))
+            if str(issue.get("reason") or "").lower() == "no_daily_bar_available"
+            and str(issue.get("ticker") or "").upper() in missing
+        }
+    )
+    if not unavailable:
+        return ""
+    return (
+        " The provider returned no daily bar for "
+        f"{_ticker_list_preview(unavailable)}; retry is not currently useful "
+        "until the provider publishes or corrects that completed-session bar."
+    )
 
 
 def _stock_trade_lane_source_health(
@@ -3485,8 +3487,7 @@ def _context_manifest_source_health(
             f"manifest checked {age_seconds}s ago",
         ],
         "detail": (
-            f"{dataset} manifest is {status} / {freshness}; "
-            f"manifest checked {age_seconds}s ago."
+            f"{dataset} manifest is {status} / {freshness}; manifest checked {age_seconds}s ago."
         ),
     }
 
@@ -3528,8 +3529,7 @@ def _stock_trade_live_coverage_row_usable(row: Mapping[str, object]) -> bool:
     if status == "partial_usable":
         return True
     if status == "complete" and (
-        row.get("resume_cursor") not in {None, ""}
-        or row.get("stop_reason") not in {None, ""}
+        row.get("resume_cursor") not in {None, ""} or row.get("stop_reason") not in {None, ""}
     ):
         return False
     rows = max(
@@ -3828,10 +3828,7 @@ def _stock_trade_partial_count(
     return sum(
         1
         for ticker in tickers
-        if str(
-            coverage.get(_coverage_key(ticker, as_of), {}).get("coverage_status")
-        )
-        == "partial"
+        if str(coverage.get(_coverage_key(ticker, as_of), {}).get("coverage_status")) == "partial"
     )
 
 
@@ -3839,7 +3836,7 @@ def _load_stock_trade_coverage_metadata(root: Path) -> Mapping[str, Mapping[str,
     path = root / "_coverage.json"
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except OSError, json.JSONDecodeError:
         return {}
     if not isinstance(payload, Mapping):
         return {}
@@ -3927,7 +3924,11 @@ def _latest_completed_market_date(now: datetime) -> date:
         eastern = _as_eastern(now)
         if eastern.time().hour < 16:
             return _previous_weekday(eastern.date())
-        return eastern.date() if eastern.date().weekday() < WEEKEND_START else _previous_weekday(eastern.date())
+        return (
+            eastern.date()
+            if eastern.date().weekday() < WEEKEND_START
+            else _previous_weekday(eastern.date())
+        )
     session = classify_market_session(now)
     if not session.is_trading_day:
         return previous_trading_day(session.market_date)
@@ -3968,7 +3969,7 @@ def _ensure_utc(value: datetime) -> datetime:
 def _read_json_object(path: Path) -> Mapping[str, object]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except OSError, json.JSONDecodeError:
         return {}
     return cast(Mapping[str, object], payload) if isinstance(payload, Mapping) else {}
 
@@ -3976,7 +3977,7 @@ def _read_json_object(path: Path) -> Mapping[str, object]:
 def _read_json_list(path: Path) -> list[Mapping[str, object]]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except OSError, json.JSONDecodeError:
         return []
     if not isinstance(payload, list):
         return []

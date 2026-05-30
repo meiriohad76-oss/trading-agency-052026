@@ -279,7 +279,10 @@ def test_affected_ticker_mini_cycle_recomputes_only_triggered_ticker() -> None:
     assert "--no-persist" in first_job["command"]
     assert "--output-root" in first_job["command"]
     assert first_job["command"].count("--signal") == len(first_job["lanes"])
-    assert "mini-aapl-stock-trades-" in first_job["command"][first_job["command"].index("--cycle-id") + 1]
+    assert (
+        "mini-aapl-stock-trades-"
+        in first_job["command"][first_job["command"].index("--cycle-id") + 1]
+    )
     ticker_index = first_job["command"].index("--ticker")
     assert first_job["command"][ticker_index : ticker_index + 2] == ["--ticker", "AAPL"]
 
@@ -296,10 +299,7 @@ def test_affected_ticker_mini_cycle_keeps_distinct_event_cycle_ids() -> None:
         now=NOW,
     )
 
-    cycle_ids = [
-        job["command"][job["command"].index("--cycle-id") + 1]
-        for job in plan["jobs"]
-    ]
+    cycle_ids = [job["command"][job["command"].index("--cycle-id") + 1] for job in plan["jobs"]]
 
     assert len(cycle_ids) == 2
     assert len(set(cycle_ids)) == 2
@@ -407,8 +407,7 @@ def test_execution_freshness_gate_warns_for_dashboard_broker_check_delayed() -> 
     assert gate["ready"] is True
     assert gate["state"] == "warning"
     assert any(
-        check["label"] == "Broker state" and check["status"] == "WARN"
-        for check in gate["checks"]
+        check["label"] == "Broker state" and check["status"] == "WARN" for check in gate["checks"]
     )
 
 
@@ -466,8 +465,7 @@ def test_execution_freshness_gate_keeps_broker_strict_when_market_closed() -> No
 
     assert gate["ready"] is False
     assert any(
-        check["label"] == "Broker state" and check["status"] == "BLOCK"
-        for check in gate["checks"]
+        check["label"] == "Broker state" and check["status"] == "BLOCK" for check in gate["checks"]
     )
 
 
@@ -576,7 +574,10 @@ def test_execution_freshness_gate_test_mode_extends_source_age_only(monkeypatch)
     assert gate["test_freshness_mode"] is True
     assert gate["max_source_age_seconds"] == 3600
     assert stale_broker["ready"] is False
-    assert any(check["label"] == "Broker state" and check["status"] == "BLOCK" for check in stale_broker["checks"])
+    assert any(
+        check["label"] == "Broker state" and check["status"] == "BLOCK"
+        for check in stale_broker["checks"]
+    )
 
 
 def test_execution_freshness_gate_production_ignores_test_window_when_disabled(monkeypatch) -> None:
@@ -732,7 +733,10 @@ def test_execution_freshness_gate_blocks_missing_critical_source() -> None:
     )
 
     assert gate["ready"] is False
-    assert any("massive-stock-trades has no source-health row" in str(check["detail"]) for check in gate["checks"])
+    assert any(
+        "massive-stock-trades has no source-health row" in str(check["detail"])
+        for check in gate["checks"]
+    )
 
 
 def test_signal_command_keeps_explicit_tickers_above_display_limit() -> None:
@@ -1007,7 +1011,9 @@ def test_scheduler_tradability_blocks_stale_refresh_progress() -> None:
     assert "Refresh heartbeat is stale" in str(queue["tradability"]["detail"])
 
 
-def test_scheduler_tradability_allows_running_support_refresh_when_execution_inputs_are_fresh() -> None:
+def test_scheduler_tradability_allows_running_support_refresh_when_execution_inputs_are_fresh() -> (
+    None
+):
     tiers = build_ticker_tiers(review_queue=[{"ticker": "AAPL"}])
 
     queue = build_scheduler_work_queue(
@@ -1154,7 +1160,9 @@ def test_scheduler_exposes_massive_orchestrator_lane_status_and_command(
     assert lane["status"] == "DUE_NOW"
     assert lane["health_status_class"] == "block"
     assert lane["health_status"] == "UNAVAILABLE"
-    assert lane["command"][COMMAND_SCRIPT_INDEX] == "research\\scripts\\pull_massive_stock_trades.py"
+    assert (
+        lane["command"][COMMAND_SCRIPT_INDEX] == "research\\scripts\\pull_massive_stock_trades.py"
+    )
     assert lane["command"][lane["command"].index("--lane-id") + 1] == "massive_live_trade_slices"
     assert lane["command"][lane["command"].index("--limit") + 1] == "1000"
     assert lane["batch_ticker_count"] == 1
@@ -1211,11 +1219,60 @@ def test_scheduler_daily_bars_lane_command_is_lane_owned_and_scoped() -> None:
     assert command[COMMAND_SCRIPT_INDEX] == "research\\scripts\\pull_massive_grouped_daily.py"
     assert "research\\scripts\\run_data_refresh_batch.py" not in command
     assert command[command.index("--lane-id") + 1] == "massive_daily_bars"
-    assert command[command.index("--lane-manifest-path") + 1].endswith(
-        "massive_daily_bars.json"
+    assert command[command.index("--lane-manifest-path") + 1].endswith("massive_daily_bars.json")
+    assert command[command.index("--tickers") + 1 :] == ["AAPL", "MSFT"]
+    assert lane["batch_ticker_count"] == 2
+
+
+def test_scheduler_grouped_daily_ignores_ticker_cap_for_full_universe_request() -> None:
+    active = [f"T{i:03d}" for i in range(168)]
+    tiers = build_ticker_tiers(active_universe=active)
+    plan = _market_plan("overnight_after_hours", dataset="prices_daily", tickers=tuple(active))
+    plan["massive_orchestrator"] = {
+        "provider": "massive",
+        "market_phase": "overnight_after_hours",
+        "lanes": [
+            {
+                "lane_id": "massive_daily_bars",
+                "label": "Daily Bars",
+                "purpose": "Load daily OHLCV.",
+                "dataset": "prices_daily",
+                "raw_source_dataset": "prices_daily",
+                "endpoint_family": "grouped_daily_or_aggs",
+                "acquisition_mode": "massive_api",
+                "command_profile": "prices_daily",
+                "batch_action": "run_now",
+                "priority": 80,
+                "cadence_minutes": 60,
+                "max_tickers_per_batch": 100,
+                "ticker_tier": "T0/T1/T2",
+                "start": "2026-05-11",
+                "end": "2026-05-11",
+                "freshness_requirement_seconds": 86400,
+                "blocks_execution": True,
+                "request_budget_label": "1 grouped-daily request per market date",
+                "storage_manifest": "research/data/manifests/massive_lanes/massive_daily_bars.json",
+                "creates_massive_request": True,
+                "reason": "daily bars need an update",
+            }
+        ],
+        "derived_signal_lanes": [],
+    }
+
+    queue = build_scheduler_work_queue(
+        plan,
+        tiers=tiers,
+        data_load_status={"state": "ready", "datasets": []},
+        source_health=_fresh_sources(),
+        broker={"connected": True, "checked_at": NOW.isoformat()},
+        now=NOW,
     )
-    assert command[command.index("--tickers") + 1 :] == ["AAPL"]
-    assert lane["batch_ticker_count"] == 1
+
+    lane = queue["massive_orchestrator"]["lanes"][0]
+    command = lane["command"]
+    selected = command[command.index("--tickers") + 1 :]
+    assert selected == active
+    assert lane["batch_ticker_count"] == 168
 
 
 def test_scheduler_daily_bars_repairs_partial_active_universe_even_when_plan_skips(
@@ -1293,6 +1350,84 @@ def test_scheduler_daily_bars_repairs_partial_active_universe_even_when_plan_ski
     assert "missing 1 active ticker" in lane["reason"]
     assert command[COMMAND_SCRIPT_INDEX] == "research\\scripts\\pull_massive_grouped_daily.py"
     assert command[command.index("--tickers") + 1 :] == ["MSFT"]
+
+
+def test_scheduler_daily_bars_ignores_bad_current_day_manifest_for_completed_session(
+    tmp_path: Path,
+) -> None:
+    manifest_path = tmp_path / "massive_daily_bars.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "lane_id": "massive_daily_bars",
+                "status": "partial",
+                "fetched_at": NOW.isoformat(),
+                "window": {"start": "2026-05-12", "end": "2026-05-12"},
+                "coverage_pct": 50,
+                "coverage": [
+                    {
+                        "ticker": "AAPL",
+                        "coverage_status": "complete",
+                        "complete": True,
+                    },
+                    {
+                        "ticker": "MSFT",
+                        "coverage_status": "missing",
+                        "complete": False,
+                    },
+                ],
+                "tickers": ["AAPL", "MSFT"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    tiers = build_ticker_tiers(active_universe=["AAPL", "MSFT"])
+    plan = _market_plan("regular_market", dataset="prices_daily", tickers=("AAPL", "MSFT"))
+    plan["massive_orchestrator"] = {
+        "provider": "massive",
+        "market_phase": "regular_market",
+        "lanes": [
+            {
+                "lane_id": "massive_daily_bars",
+                "label": "Daily Bars",
+                "purpose": "Load daily OHLCV.",
+                "dataset": "prices_daily",
+                "raw_source_dataset": "prices_daily",
+                "endpoint_family": "grouped_daily_or_aggs",
+                "acquisition_mode": "massive_api",
+                "command_profile": "prices_daily",
+                "batch_action": "defer",
+                "priority": 80,
+                "cadence_minutes": 60,
+                "max_tickers_per_batch": 100,
+                "ticker_tier": "T0/T1/T2",
+                "start": "2026-05-11",
+                "end": "2026-05-11",
+                "freshness_requirement_seconds": 86400,
+                "blocks_execution": True,
+                "request_budget_label": "1 grouped-daily request per market date",
+                "storage_manifest": str(manifest_path),
+                "creates_massive_request": True,
+                "reason": "regular market would normally defer daily bars",
+            }
+        ],
+        "derived_signal_lanes": [],
+    }
+
+    queue = build_scheduler_work_queue(
+        plan,
+        tiers=tiers,
+        data_load_status={"state": "attention", "datasets": []},
+        source_health=_fresh_sources(),
+        broker={"connected": True, "checked_at": NOW.isoformat()},
+        now=NOW,
+    )
+
+    lane = queue["massive_orchestrator"]["lanes"][0]
+    command = lane["command"]
+    assert lane["status"] == "DUE_NOW"
+    assert lane["fresh_ticker_count"] == 0
+    assert command[command.index("--tickers") + 1 :] == ["AAPL", "MSFT"]
 
 
 def test_scheduler_daily_bars_repairs_partial_active_universe_even_when_deferred(
@@ -1599,7 +1734,10 @@ def test_scheduler_suppresses_generic_dataset_pull_when_massive_lane_owns_endpoi
     assert dataset_job["command"] == []
     assert "generic dataset command suppressed" in str(dataset_job["reason"])
     assert massive_job["status"] == "DUE_NOW"
-    assert massive_job["command"][COMMAND_SCRIPT_INDEX] == "research\\scripts\\pull_massive_stock_trades.py"
+    assert (
+        massive_job["command"][COMMAND_SCRIPT_INDEX]
+        == "research\\scripts\\pull_massive_stock_trades.py"
+    )
 
 
 def test_scheduler_massive_lane_prioritizes_tier_before_broad_extraction_order() -> None:
@@ -2454,7 +2592,10 @@ def test_scheduler_blocks_unsupported_massive_api_lane_without_generic_batch() -
         plan,
         tiers=tiers,
         data_load_status={"state": "ready", "datasets": []},
-        source_health=[*_fresh_sources(), _source("massive-reference", freshness="FRESH", status="HEALTHY")],
+        source_health=[
+            *_fresh_sources(),
+            _source("massive-reference", freshness="FRESH", status="HEALTHY"),
+        ],
         broker={"connected": True, "checked_at": NOW.isoformat()},
         now=NOW,
     )
@@ -2624,7 +2765,10 @@ def test_scheduler_runs_local_derivation_from_partial_usable_source_lane(
 
     lane = queue["massive_orchestrator"]["lanes"][0]
     assert lane["status"] == "DUE_NOW"
-    assert lane["command"][COMMAND_SCRIPT_INDEX] == "research\\scripts\\derive_massive_block_trade_feed.py"
+    assert (
+        lane["command"][COMMAND_SCRIPT_INDEX]
+        == "research\\scripts\\derive_massive_block_trade_feed.py"
+    )
     assert lane["command"][-2:] == ["--ticker", "AAPL"]
 
 

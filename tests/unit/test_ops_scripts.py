@@ -74,8 +74,8 @@ def test_live_runtime_cycle_default_output_root_is_canonical_latest(
 def test_live_runtime_cycle_preserves_operator_database_url_override() -> None:
     source = (REPO_ROOT / "scripts/run_live_runtime_cycle.py").read_text(encoding="utf-8")
 
-    assert "load_dotenv(ROOT / \".env\", override=False)" in source
-    assert "load_dotenv(ROOT / \".env\", override=True)" not in source
+    assert 'load_dotenv(ROOT / ".env", override=False)' in source
+    assert 'load_dotenv(ROOT / ".env", override=True)' not in source
 
 
 def test_user_process_audit_accepts_focused_execution_contract() -> None:
@@ -94,6 +94,7 @@ def test_user_process_audit_accepts_focused_execution_contract() -> None:
     """
 
     assert audit.audit_execution_focus_html("PLTR", html) == []
+
 
 def test_user_process_audit_accepts_focused_final_selection_contract() -> None:
     audit = importlib.import_module("scripts.check_user_process_flow_audit")
@@ -177,10 +178,7 @@ def test_user_process_audit_flags_route_budget_exceeded() -> None:
     )
 
     assert audited["elapsed_seconds"] == 6.4
-    assert any(
-        failure["code"] == "route_budget_exceeded"
-        for failure in audited["failures"]
-    )
+    assert any(failure["code"] == "route_budget_exceeded" for failure in audited["failures"])
 
 
 def test_user_process_audit_flags_unavailable_execution_status_payload() -> None:
@@ -356,9 +354,7 @@ def test_market_aware_plan_args_include_news_resolution_settings(
 
     args = plan_market_aware_refresh._parse_args()
 
-    assert args.news_ticker_aliases == Path(
-        "research/config/news-ticker-aliases.local.json"
-    )
+    assert args.news_ticker_aliases == Path("research/config/news-ticker-aliases.local.json")
     assert args.news_resolve_generic_tickers is True
     assert args.news_resolution_min_confidence == 0.82
     assert args.news_keep_unresolved_generic is False
@@ -409,12 +405,12 @@ def test_restore_command_reads_sql_from_stdin() -> None:
     ]
 
 
-def test_start_dev_respects_dotenv_database_url_before_sqlite_fallback() -> None:
+def test_start_dev_leaves_database_url_loading_to_application_dotenv() -> None:
     script = (REPO_ROOT / "scripts/start_dev.ps1").read_text(encoding="utf-8")
 
-    assert "Get-DotEnvValue" in script
-    assert "$env:DATABASE_URL = $DotEnvDatabaseUrl" in script
-    assert "DATABASE_URL is configured from .env" in script
+    assert "Get-DotEnvValue" not in script
+    assert "$env:DATABASE_URL =" not in script
+    assert "DATABASE_URL is loaded by the application from .env" in script
 
 
 def test_start_dev_restarts_existing_trading_agency_server() -> None:
@@ -429,6 +425,31 @@ def test_start_dev_restarts_existing_trading_agency_server() -> None:
     assert "Stop-Process -Id $process.ProcessId" in script
     assert "Existing Trading Agency server process" in script
     assert "Trading Agency is already running" not in script
+
+
+def test_start_dev_falls_back_to_port_listener_when_cim_is_denied() -> None:
+    script = (REPO_ROOT / "scripts/start_dev.ps1").read_text(encoding="utf-8")
+
+    assert "Get-CimInstance Win32_Process" in script
+    assert "CIM process inspection failed" in script
+    assert "Get-NetTCPConnection -LocalPort $Port -State Listen" in script
+    assert "ProcessId = $connection.OwningProcess" in script
+
+
+def test_start_dev_does_not_install_dependencies_unless_requested() -> None:
+    script = (REPO_ROOT / "scripts/start_dev.ps1").read_text(encoding="utf-8")
+
+    assert "[switch]$InstallDeps" in script
+    assert "if ($InstallDeps)" in script
+    assert script.index("if ($InstallDeps)") < script.index("Starting Trading Agency dev server")
+
+
+def test_start_dev_uses_literal_relative_venv_python_launcher() -> None:
+    script = (REPO_ROOT / "scripts/start_dev.ps1").read_text(encoding="utf-8")
+
+    assert "$Python =" not in script
+    assert ".\\.venv\\Scripts\\python -m uvicorn agency.app:app" in script
+    assert 'Join-Path $RepoRoot ".venv\\Scripts\\python.exe"' not in script
 
 
 def test_agency_app_imports_without_external_pythonpath() -> None:
@@ -446,6 +467,21 @@ def test_agency_app_imports_without_external_pythonpath() -> None:
     )
 
     assert result.returncode == 0, result.stderr
+
+
+def test_start_dev_does_not_inject_pythonpath_into_windows_venv() -> None:
+    script = (REPO_ROOT / "scripts/start_dev.ps1").read_text(encoding="utf-8")
+
+    assert "PYTHONPATH" not in script
+
+
+def test_start_dev_does_not_mutate_runtime_flags_in_process_environment() -> None:
+    script = (REPO_ROOT / "scripts/start_dev.ps1").read_text(encoding="utf-8")
+
+    assert "$env:AGENCY_PAPER_TRADE_PROMOTION_ENABLED" not in script
+    assert "$env:AGENCY_PAPER_TRADE_MIN_CONVICTION" not in script
+    assert "$env:AGENCY_BROKER_SUBMIT_ENABLED" not in script
+    assert "$env:AGENCY_ALPACA_BROKER_ENABLED" not in script
 
 
 def test_legacy_direct_local_app_entrypoint_removed() -> None:
@@ -1415,13 +1451,9 @@ def test_live_runtime_human_review_state_index_keeps_latest_review() -> None:
         "event_type": "ORDER_APPROVAL",
     }
 
-    indexed = _human_review_state_index(
-        [older_approval, latest_defer, unrelated_order_approval]
-    )
+    indexed = _human_review_state_index([older_approval, latest_defer, unrelated_order_approval])
 
-    assert list(indexed) == [
-        ("live-pit-current", "AAPL", "2026-05-07T09:31:00Z")
-    ]
+    assert list(indexed) == [("live-pit-current", "AAPL", "2026-05-07T09:31:00Z")]
     assert indexed[("live-pit-current", "AAPL", "2026-05-07T09:31:00Z")] is latest_defer
 
 
@@ -1688,16 +1720,13 @@ def test_operational_preflight_warns_subscription_email_login_action(
     assert "Open Seeking Alpha login refresh" in check["action"]
 
 
-def test_start_dev_updates_live_refresh_end_before_server_start() -> None:
+def test_start_dev_does_not_mutate_live_refresh_end_before_server_start() -> None:
     script = (REPO_ROOT / "scripts/start_dev.ps1").read_text(encoding="utf-8")
 
     assert "research\\config\\live-refresh.local.json" in script
-    assert "Updating live refresh end date" in script
-    assert "$cfg.end = $today" in script
-    assert "UTF8Encoding" in script
-    assert script.index("Updating live refresh end date") < script.index(
-        "Starting Trading Agency dev server"
-    )
+    assert "Updating live refresh end date" not in script
+    assert "$cfg.end = $today" not in script
+    assert "ConvertTo-Json -Depth 20" not in script
 
 
 def test_app_startup_warns_when_scheduler_is_disabled() -> None:

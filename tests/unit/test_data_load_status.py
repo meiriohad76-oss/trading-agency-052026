@@ -124,7 +124,9 @@ def test_dynamic_readiness_uses_latest_completed_session_before_premarket(
         "DEFAULT_RUNTIME_SUMMARY_PATH",
         paths["runtime_summary"],
     )
-    monkeypatch.setattr(data_load_status_module, "DEFAULT_SOURCE_HEALTH_PATH", paths["source_health"])
+    monkeypatch.setattr(
+        data_load_status_module, "DEFAULT_SOURCE_HEALTH_PATH", paths["source_health"]
+    )
     _write_manifest(
         paths["manifest_root"],
         "prices_daily",
@@ -2501,8 +2503,7 @@ def test_data_load_status_keeps_block_trade_refresh_execution_blocking(
     assert status["state"] == "blocked"
     assert status["tradable_ready"] is False
     assert any(
-        blocker["kind"] == "data_refresh"
-        and blocker["item"] == "massive_block_trade_feed"
+        blocker["kind"] == "data_refresh" and blocker["item"] == "massive_block_trade_feed"
         for blocker in status["blockers"]
     )
 
@@ -2915,9 +2916,9 @@ def test_data_load_status_health_monitor_ignores_untracked_stale_rows(
     assert isinstance(monitor, dict)
     assert monitor["status_label"] == "Live Health Monitor"
     assert monitor["row_count"] == 2
-    assert {
-        row["source"] for row in status["freshness_rows"] if isinstance(row, dict)
-    }.isdisjoint({"yfinance-daily"})
+    assert {row["source"] for row in status["freshness_rows"] if isinstance(row, dict)}.isdisjoint(
+        {"yfinance-daily"}
+    )
 
 
 def test_data_load_status_health_monitor_uses_source_specific_sla(
@@ -3017,6 +3018,7 @@ def test_data_load_status_degrades_daily_bar_source_health_for_partial_active_un
         coverage=[
             {"ticker": "AAPL", "coverage_status": "complete", "complete": True},
         ],
+        issues=[{"ticker": "MSFT", "reason": "no_daily_bar_available"}],
     )
 
     status = load_data_load_status(
@@ -3041,6 +3043,8 @@ def test_data_load_status_degrades_daily_bar_source_health_for_partial_active_un
     assert daily_source["missing_active_tickers"] == ["MSFT"]
     assert "1/2 active ticker(s)" in str(daily_source["detail"])
     assert "MSFT" in str(daily_source["detail"])
+    assert "provider returned no daily bar for MSFT" in str(daily_source["detail"])
+    assert "retry is not currently useful" in str(daily_source["detail"])
     assert daily_dataset["status"] == "blocked"
     assert daily_dataset["missing_active_tickers"] == ["MSFT"]
     assert "1/2 active ticker(s)" in str(daily_dataset["detail"])
@@ -3208,7 +3212,9 @@ def test_data_load_status_uses_context_manifests_as_source_health_proof(
     paths = _fixtures(tmp_path, monkeypatch)
     _write_manifest(paths["manifest_root"], "prices_daily", row_count=20, tickers=["AAPL", "MSFT"])
     _write_manifest(paths["manifest_root"], "stock_trades", row_count=200, tickers=["AAPL", "MSFT"])
-    _write_manifest(paths["manifest_root"], "sec_company_facts", row_count=100, path="sec_company_facts")
+    _write_manifest(
+        paths["manifest_root"], "sec_company_facts", row_count=100, path="sec_company_facts"
+    )
     _partition(paths["parquet_root"], "sec_company_facts", "AAPL")
     _partition(paths["parquet_root"], "sec_company_facts", "MSFT")
     _write_manifest(paths["manifest_root"], "sec_form4", row_count=12, path="sec_form4")
@@ -3457,7 +3463,9 @@ def test_subscription_email_status_active_progress_does_not_inherit_old_counts(
     assert email_status["article_links_found"] == 1
     assert email_status["linked_content_skipped"] == 0
     assert email_status["login_required"] == 1
-    assert email_status["continue_action_url"] == "/scheduler/subscription-emails/continue-after-login"
+    assert (
+        email_status["continue_action_url"] == "/scheduler/subscription-emails/continue-after-login"
+    )
     assert email_status["continue_button_label"] == "I logged in - open and analyze articles"
 
 
@@ -3520,13 +3528,17 @@ def test_subscription_email_status_reports_chrome_access_needed_after_login_ack(
     assert email_status["status_label"] == "Chrome agent access needed"
     assert email_status["status_class"] == "warn"
     assert detail in email_status["detail"]
-    assert "No current subscription email article-analysis progress file" not in email_status["detail"]
+    assert (
+        "No current subscription email article-analysis progress file" not in email_status["detail"]
+    )
     assert email_status["progress_label"] == (
         "Login acknowledged; Chrome agent access not connected"
     )
     assert email_status["progress_percent"] == 0
     assert "Close all Chrome windows" in email_status["next_action"]
-    assert email_status["continue_action_url"] == "/scheduler/subscription-emails/continue-after-login"
+    assert (
+        email_status["continue_action_url"] == "/scheduler/subscription-emails/continue-after-login"
+    )
     assert email_status["continue_button_label"] == "I logged in - open and analyze articles"
 
 
@@ -3689,10 +3701,7 @@ def test_premarket_lane_blocks_during_premarket_when_raw_lane_is_stale(
     assert premarket["status"] == "blocked"
     assert premarket["required_now"] is True
     assert premarket["source_status"] == "STALE"
-    assert any(
-        blocker["item"] == "pre_market_unusual_activity"
-        for blocker in status["blockers"]
-    )
+    assert any(blocker["item"] == "pre_market_unusual_activity" for blocker in status["blockers"])
     massive_source = next(
         row for row in status["freshness_rows"] if row["source"] == "massive-stock-trades"
     )
@@ -3774,8 +3783,8 @@ def test_data_load_status_operator_copy_avoids_raw_stale_wording(
     )
 
     displayed_text = " ".join(
-            [
-                str(status["detail"]),
+        [
+            str(status["detail"]),
             *[str(row["detail"]) for row in status["datasets"]],
             *[str(row["detail"]) for row in status["freshness_rows"]],
             *[str(issue["reason"]) for issue in status["blockers"]],
@@ -4068,6 +4077,7 @@ def _write_massive_lane_manifest(
     coverage: list[dict[str, object]],
     window_start: str = "2026-05-11",
     window_end: str = "2026-05-11",
+    issues: list[dict[str, object]] | None = None,
 ) -> None:
     root = manifest_root / "massive_lanes"
     root.mkdir(parents=True, exist_ok=True)
@@ -4085,8 +4095,8 @@ def _write_massive_lane_manifest(
         "status": "complete",
         "coverage_pct": 100,
         "coverage": coverage,
-        "issues": [],
-        "issue_count": 0,
+        "issues": issues or [],
+        "issue_count": len(issues or []),
     }
     (root / f"{lane_id}.json").write_text(json.dumps(payload), encoding="utf-8")
 

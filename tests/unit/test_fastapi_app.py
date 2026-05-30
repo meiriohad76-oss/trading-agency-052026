@@ -256,8 +256,7 @@ def test_shared_dashboard_data_health_labels_old_monitor_as_health_proof_refresh
                 "latest_checked_at": "2026-05-16T09:43:59+00:00",
                 "max_age_seconds": 27837,
                 "detail": (
-                    "daily-market-bars source-health is older than its SLA "
-                    "(27837s > 1800s)."
+                    "daily-market-bars source-health is older than its SLA (27837s > 1800s)."
                 ),
             },
             "datasets": [
@@ -283,6 +282,7 @@ def test_shared_dashboard_data_health_labels_old_monitor_as_health_proof_refresh
     assert "stale" not in str(health).lower()
     assert "Last verified" in {item["label"] for item in health["summary_items"]}
     assert "tooltip" in health
+
 
 def test_shared_dashboard_data_health_treats_context_monitor_age_as_proof_refresh() -> None:
     health = shared_module.dashboard_data_health(
@@ -352,7 +352,7 @@ def test_shared_dashboard_data_health_exposes_lane_state_rows() -> None:
         "label": "Refresh Live Trade Slices",
         "action": "/scheduler/massive-lanes/massive_live_trade_slices/refresh",
         "method": "post",
-            "detail": "Runs this data source refresh through the scheduler's trade-aware policy.",
+        "detail": "Runs this data source refresh through the scheduler's trade-aware policy.",
         "disabled_reason": "",
     }
 
@@ -412,8 +412,7 @@ def test_shared_dashboard_data_health_offers_trade_lane_refresh_for_old_massive_
                 "latest_checked_at": "2026-05-20T20:00:00+00:00",
                 "max_age_seconds": 900,
                 "detail": (
-                    "massive-stock-trades source-health is older than its SLA "
-                    "(900s > 600s)."
+                    "massive-stock-trades source-health is older than its SLA (900s > 600s)."
                 ),
             },
             "datasets": [],
@@ -428,8 +427,7 @@ def test_shared_dashboard_data_health_offers_trade_lane_refresh_for_old_massive_
         "action": "/scheduler/massive-lanes/massive_live_trade_slices/refresh",
         "method": "post",
         "detail": (
-            "Runs the trade-aware live trade-slice refresh, then updates "
-            "runtime health proof."
+            "Runs the trade-aware live trade-slice refresh, then updates runtime health proof."
         ),
     }
     assert health["action_buttons"][1]["label"] == "Open Refresh Queue"
@@ -675,7 +673,7 @@ def test_shared_dashboard_data_health_offers_refresh_queue_for_warning_issue() -
             "href": "/#scheduler-heading",
             "method": "get",
             "detail": "Opens Command at the scheduler and data-refresh controls.",
-        }
+        },
     ]
     assert health["email_login_alert"] == {
         "title": "Email evidence needs login",
@@ -690,15 +688,11 @@ def test_shared_dashboard_data_health_offers_refresh_queue_for_warning_issue() -
 
 
 def test_shared_data_health_template_promotes_subscription_login_alert() -> None:
-    template = (REPO_ROOT / "src/agency/templates/_data_health.html").read_text(
-        encoding="utf-8"
-    )
+    template = (REPO_ROOT / "src/agency/templates/_data_health.html").read_text(encoding="utf-8")
     command_template = (REPO_ROOT / "src/agency/templates/dashboard.html").read_text(
         encoding="utf-8"
     )
-    cockpit_template = (REPO_ROOT / "src/agency/templates/cockpit.html").read_text(
-        encoding="utf-8"
-    )
+    cockpit_template = (REPO_ROOT / "src/agency/templates/cockpit.html").read_text(encoding="utf-8")
 
     assert "data-health-email-login-alert" in template
     assert "data_health.email_login_alert" in template
@@ -753,8 +747,7 @@ def test_shared_dashboard_data_health_explains_blocked_lanes_actionably() -> Non
                     "expected_count": 168,
                     "source_dataset": "massive_daily_bars",
                     "detail": (
-                        "Blocked because Massive Daily Bars only verified 100/168 "
-                        "active tickers."
+                        "Blocked because Massive Daily Bars only verified 100/168 active tickers."
                     ),
                 }
             ],
@@ -968,6 +961,7 @@ def test_final_selection_route_preserves_requested_focus(
     assert seen["focus_ticker"] == "PLTR"
     assert "PLTR candidate is not in the latest final-selection cycle" in response.text
     assert "Show full candidate queue" in response.text
+
 
 def test_candidate_return_context_preserves_execution_review_origin() -> None:
     context = candidates_module._candidate_return_context("pltr", "execution-preview")
@@ -1306,7 +1300,7 @@ def test_static_progress_script_is_served() -> None:
     assert "data-progress-panel" in response.text
     assert "data-load-panel" in response.text
     assert "data-scheduler-panel" in response.text
-    assert "payload.status_label || \"Broker offline\"" in response.text
+    assert 'payload.status_label || "Broker offline"' in response.text
 
 
 def test_static_responsive_tables_script_is_served() -> None:
@@ -2176,11 +2170,15 @@ async def test_operational_readiness_context_reports_runtime_fetch_failure(
 ) -> None:
     checked_at = datetime.now(UTC).isoformat()
 
-    async def failing_reports(*, limit: int = EXPECTED_FINAL_SELECTION_REPORT_LIMIT) -> list[dict[str, object]]:
+    async def failing_reports(
+        *, limit: int = EXPECTED_FINAL_SELECTION_REPORT_LIMIT
+    ) -> list[dict[str, object]]:
         del limit
         raise RuntimeError("selection repository timed out")
 
-    async def failing_risks(*, limit: int = EXPECTED_FINAL_SELECTION_REPORT_LIMIT) -> list[dict[str, object]]:
+    async def failing_risks(
+        *, limit: int = EXPECTED_FINAL_SELECTION_REPORT_LIMIT
+    ) -> list[dict[str, object]]:
         del limit
         raise RuntimeError("risk repository timed out")
 
@@ -2254,11 +2252,15 @@ async def test_operational_readiness_context_filters_to_active_cycle(
     ).risk_decision
     checked_at = datetime.now(UTC).isoformat()
 
-    async def reports(*, limit: int = EXPECTED_FINAL_SELECTION_REPORT_LIMIT) -> list[dict[str, object]]:
+    async def reports(
+        *, limit: int = EXPECTED_FINAL_SELECTION_REPORT_LIMIT
+    ) -> list[dict[str, object]]:
         del limit
         return [older, current]
 
-    async def risks(*, limit: int = EXPECTED_FINAL_SELECTION_REPORT_LIMIT) -> list[dict[str, object]]:
+    async def risks(
+        *, limit: int = EXPECTED_FINAL_SELECTION_REPORT_LIMIT
+    ) -> list[dict[str, object]]:
         del limit
         return [older_risk, current_risk]
 
@@ -2474,8 +2476,7 @@ def test_candidate_review_post_writes_local_event_when_db_unavailable(
     client = TestClient(create_app())
 
     response = client.post(
-        "/candidates/aapl/reviews"
-        "?cycle_id=cycle-1&as_of=2026-05-07T09%3A30%3A00Z&decision=APPROVE",
+        "/candidates/aapl/reviews?cycle_id=cycle-1&as_of=2026-05-07T09%3A30%3A00Z&decision=APPROVE",
         follow_redirects=False,
     )
 
@@ -2495,8 +2496,7 @@ def test_candidate_review_post_rejects_hashless_review(
     monkeypatch.setattr(dashboard_module, "_selection_report_hash_for_review", fake_report_hash)
 
     response = TestClient(create_app()).post(
-        "/candidates/aapl/reviews"
-        "?cycle_id=cycle-1&as_of=2026-05-07T09%3A30%3A00Z&decision=APPROVE",
+        "/candidates/aapl/reviews?cycle_id=cycle-1&as_of=2026-05-07T09%3A30%3A00Z&decision=APPROVE",
         follow_redirects=False,
     )
 
@@ -2532,8 +2532,7 @@ def test_candidate_review_post_rejects_missing_required_caution_ack(
     )
 
     response = TestClient(create_app()).post(
-        "/candidates/aapl/reviews"
-        "?cycle_id=cycle-1&as_of=2026-05-07T09%3A30%3A00Z&decision=APPROVE",
+        "/candidates/aapl/reviews?cycle_id=cycle-1&as_of=2026-05-07T09%3A30%3A00Z&decision=APPROVE",
         follow_redirects=False,
     )
 
@@ -2577,8 +2576,7 @@ def test_candidate_review_post_accepts_form_caution_acknowledgement(
     )
 
     response = TestClient(create_app()).post(
-        "/candidates/aapl/reviews"
-        "?cycle_id=cycle-1&as_of=2026-05-07T09%3A30%3A00Z&decision=APPROVE",
+        "/candidates/aapl/reviews?cycle_id=cycle-1&as_of=2026-05-07T09%3A30%3A00Z&decision=APPROVE",
         data={"caution_acknowledged": "true"},
         follow_redirects=False,
     )
@@ -2730,8 +2728,7 @@ def test_candidate_defer_redirects_back_to_candidate(monkeypatch: MonkeyPatch) -
     client = TestClient(create_app())
 
     response = client.post(
-        "/candidates/aapl/reviews"
-        "?cycle_id=cycle-1&as_of=2026-05-07T09%3A30%3A00Z&decision=DEFER",
+        "/candidates/aapl/reviews?cycle_id=cycle-1&as_of=2026-05-07T09%3A30%3A00Z&decision=DEFER",
         follow_redirects=False,
     )
 
@@ -3280,6 +3277,7 @@ def test_scheduler_work_queue_view_splits_automation_gate_and_workload() -> None
                         "status_class": "warn",
                         "blocks_execution": True,
                         "eta_label": "5m",
+                        "command": ["python", "lane.py"],
                     }
                 ],
                 "derived_signal_lanes": [],
@@ -3326,12 +3324,59 @@ def test_scheduler_work_queue_view_splits_automation_gate_and_workload() -> None
     assert view["trading_freshness_gate"]["status_label"] == "Context Only"
     workload = view["refresh_workload"]
     assert workload["label"] == "Refresh Workload"
-    assert workload["live_critical_due_count"] == 2
-    assert workload["support_due_count"] == 1
+    assert workload["live_critical_due_count"] == 1
+    assert workload["support_due_count"] == 2
     assert workload["repair_due_count"] == 1
     assert workload["running_count"] == 1
-    assert workload["next_live_eta_label"] == "3m"
+    assert workload["next_live_eta_label"] == "5m"
     assert "support and repair jobs" in workload["tooltip"]
+
+
+def test_scheduler_work_queue_view_keeps_signal_jobs_out_of_urgent_refresh_count() -> None:
+    view = command_module.scheduler_work_queue_view(
+        {
+            "summary": {
+                "headline": "Scheduler queue is clear enough for paper trading.",
+                "counts": {"due_now": 1, "running": 0},
+            },
+            "ticker_tiers": {"tiers": {}},
+            "tradability": {
+                "status_label": "Review Ready",
+                "status_class": "warn",
+                "detail": "Signal recompute can improve context.",
+            },
+            "repair_plan": {"jobs": []},
+            "execution_freshness_gate": {"checks": []},
+            "scheduler_runtime": {
+                "status_label": "Idle",
+                "status_class": "pass",
+                "detail": "Automatic lane refresh tick found no due lane/data commands.",
+            },
+            "massive_orchestrator": {"lanes": [], "derived_signal_lanes": []},
+            "jobs": [
+                {
+                    "job_id": "signal:technical_analysis",
+                    "kind": "signal_lane",
+                    "name": "technical_analysis",
+                    "dataset": "prices_daily",
+                    "signal_lane": "technical_analysis",
+                    "status": "DUE_NOW",
+                    "eta_label": "3m",
+                    "command": ["python", "signal.py"],
+                },
+            ],
+            "next_jobs": [],
+            "stale_datasets": [],
+            "market_phase": "regular_market",
+        }
+    )
+
+    workload = view["refresh_workload"]
+    assert workload["live_critical_due_count"] == 0
+    assert workload["support_due_count"] == 1
+    assert workload["status_label"] == "Context or backfill pending"
+    assert workload["status_class"] == "neutral"
+    assert workload["next_live_eta_label"] == "not needed"
 
 
 def test_scheduler_work_queue_view_translates_massive_lanes_for_users() -> None:
@@ -3868,7 +3913,7 @@ def test_source_health_kpi_distinguishes_unavailable_from_health_proof_refresh()
                     "critical": True,
                     "checked_at": "not checked",
                 }
-            ]
+            ],
         }
     )
 
@@ -3978,9 +4023,7 @@ def test_data_refresh_progress_view_hides_raw_stale_state_from_dom() -> None:
 
 
 def test_data_refresh_progress_js_uses_guarded_timeout_pollers() -> None:
-    script = (REPO_ROOT / "src/agency/static/data-refresh-progress.js").read_text(
-        encoding="utf-8"
-    )
+    script = (REPO_ROOT / "src/agency/static/data-refresh-progress.js").read_text(encoding="utf-8")
 
     assert "const fetchJsonWithTimeout" in script
     assert "new AbortController()" in script
@@ -4160,9 +4203,7 @@ def test_data_load_status_view_exposes_subscription_email_progress() -> None:
             },
         }
     )
-    template = (REPO_ROOT / "src/agency/templates/dashboard.html").read_text(
-        encoding="utf-8"
-    )
+    template = (REPO_ROOT / "src/agency/templates/dashboard.html").read_text(encoding="utf-8")
 
     email = view["subscription_email_status"]
     assert email["last_update_label"] == "2026-05-19 10:10 UTC"
@@ -4330,7 +4371,7 @@ def test_provider_readiness_view_adds_provider_rows() -> None:
                     "status_class": "pass",
                     "key_label": "FRED_API_KEY",
                     "detail": "Configured.",
-                }
+                },
             ],
         }
     )
@@ -4486,9 +4527,7 @@ def test_final_selection_rows_follow_service_contract() -> None:
     assert rows[0]["confirmed_signal_count"] == EXPECTED_CONFIRMED_SIGNAL_COUNT
     assert rows[0]["policy_gates"][0]["status"] == "PASS"
     assert rows[0]["decision_explanation"].startswith("The final action is WATCH")
-    assert rows[0]["actionable_signals"][0]["summary"] == (
-        "Fundamental metrics are constructive."
-    )
+    assert rows[0]["actionable_signals"][0]["summary"] == ("Fundamental metrics are constructive.")
     assert rows[0]["actionable_signals"][0]["score"] == "+0.70 bullish"
 
 
@@ -4500,7 +4539,10 @@ def test_final_selection_freshness_gate_shows_timestamp_proof() -> None:
     freshness_gate = next(gate for gate in rows[0]["policy_gates"] if gate["name"] == "freshness")
     assert "Data as of 2026-05-07 09:30 UTC" in freshness_gate["meaning"]
     assert "report generated 2026-05-07 09:31 UTC" in freshness_gate["meaning"]
-    assert "No refresh is needed only while those timestamps remain current" in freshness_gate["next_step"]
+    assert (
+        "No refresh is needed only while those timestamps remain current"
+        in freshness_gate["next_step"]
+    )
     assert rows[0]["freshness_proof_label"] == (
         "Data as of 2026-05-07 09:30 UTC; report generated 2026-05-07 09:31 UTC."
     )
@@ -4586,15 +4628,9 @@ def test_signal_dashboard_rows_group_sort_and_summarize_lanes() -> None:
     ]
     assert rows[0]["candidate_href"] == "/candidates/MSFT"
     assert rows[0]["source"] == "Sec Edgar / Official Filing"
-    assert "Fundamentals produced a bullish signal for MSFT" in str(
-        rows[0]["interpretation_text"]
-    )
-    assert "Included in the latest MSFT evidence pack" in str(
-        rows[0]["decision_effect_text"]
-    )
-    assert "Supports the current WATCH posture for MSFT" in str(
-        rows[0]["decision_alignment_text"]
-    )
+    assert "Fundamentals produced a bullish signal for MSFT" in str(rows[0]["interpretation_text"])
+    assert "Included in the latest MSFT evidence pack" in str(rows[0]["decision_effect_text"])
+    assert "Supports the current WATCH posture for MSFT" in str(rows[0]["decision_alignment_text"])
     assert "Confirmed evidence" in str(rows[0]["quality_text"])
     assert "source id fundamentals-msft" in str(rows[0]["provenance_text"])
     assert "2026-05-07 08:59 UTC" in str(rows[0]["provenance_text"])
@@ -4602,9 +4638,7 @@ def test_signal_dashboard_rows_group_sort_and_summarize_lanes() -> None:
     assert rows[1]["actionability_label"] == "Context Only"
     assert "guarded from direct scoring" in str(rows[1]["decision_effect_text"])
     assert rows[2]["freshness_class"] == "pass"
-    assert "Excluded from the latest MSFT decision score" in str(
-        rows[2]["decision_effect_text"]
-    )
+    assert "Excluded from the latest MSFT decision score" in str(rows[2]["decision_effect_text"])
     assert lane_rows[0]["lane_key"] == "fundamentals"
     assert lane_rows[0]["actionable_count"] == 1
     assert lane_rows[1]["lane_key"] == "news"
@@ -4757,6 +4791,7 @@ async def test_final_selection_context_prefers_latest_live_ready_cycle(
     assert [row["ticker"] for row in context["final_rows"]] == ["AAPL"]
     assert context["summary"]["cycle_id"] == "live-ready-current"
 
+
 async def test_final_selection_focus_context_only_enriches_requested_ticker(
     monkeypatch: MonkeyPatch,
 ) -> None:
@@ -4842,13 +4877,15 @@ def test_final_selection_summary_names_latest_cycle_scope() -> None:
 
 
 def test_final_selection_topbar_does_not_show_truncated_cycle_id() -> None:
-    rows = final_selection_rows([
-        _selection_report_for_cycle(
-            "live-pit-paper-rehearsal-submit-20260519T201725Z",
-            "NVDA",
-            "2026-05-19T18:42:00Z",
-        )
-    ])
+    rows = final_selection_rows(
+        [
+            _selection_report_for_cycle(
+                "live-pit-paper-rehearsal-submit-20260519T201725Z",
+                "NVDA",
+                "2026-05-19T18:42:00Z",
+            )
+        ]
+    )
     summary = final_selection_summary(
         rows,
         all_report_count=160,
@@ -5649,9 +5686,7 @@ def test_approve_execution_order_records_intent_while_execution_gate_closed(
     assert response.headers["location"] == (
         f"/execution-preview?ticker={preview['ticker']}#focused-preview-{preview['ticker']}"
     )
-    approval_events = [
-        event for event in recorded if event.get("event_type") == "ORDER_APPROVAL"
-    ]
+    approval_events = [event for event in recorded if event.get("event_type") == "ORDER_APPROVAL"]
     assert len(approval_events) == 1
 
 
@@ -6045,7 +6080,9 @@ async def test_execution_preview_context_does_not_reuse_research_approval_for_pr
         "2026-05-07T09:31:00Z",
     )
 
-    async def fake_reports(*, limit: int = 50, ticker: str | None = None) -> list[dict[str, object]]:
+    async def fake_reports(
+        *, limit: int = 50, ticker: str | None = None
+    ) -> list[dict[str, object]]:
         del limit, ticker
         return [report]
 
@@ -6093,7 +6130,7 @@ async def test_execution_preview_context_does_not_reuse_research_approval_for_pr
                 "reliability_score": 1.0,
                 "rate_limit_reset_at": None,
                 "notes": [],
-            }
+            },
         ]
 
     async def fake_review_events(
@@ -7329,9 +7366,7 @@ def test_candidate_email_evidence_summarizes_email_and_feed_rows(tmp_path: Path)
             "suppressed_signals": [],
         },
     )
-    assert "supports the judgment" in str(
-        judged["insight_cards"][0]["judgement_contribution"]
-    )
+    assert "supports the judgment" in str(judged["insight_cards"][0]["judgement_contribution"])
     assert "does not change the judgment yet" in str(
         judged["insight_cards"][1]["judgement_contribution"]
     )
@@ -7487,7 +7522,9 @@ def test_candidate_email_empty_state_uses_operator_friendly_copy(tmp_path: Path)
             "action": "WATCH",
             "gate_status": "PASS",
             "conviction_pct": 100,
-            "actionable_signals": [{"direction": "BULLISH", "summary": "institutional positioning is constructive"}],
+            "actionable_signals": [
+                {"direction": "BULLISH", "summary": "institutional positioning is constructive"}
+            ],
             "context_signals": [],
             "suppressed_signals": [],
         },
@@ -7690,9 +7727,7 @@ def test_candidate_email_evidence_ties_articles_to_current_judgement() -> None:
     )
     assert first_card["judgement_class"] == "pass"
     assert "Judgment contribution" in str(evidence["primary_takeaway"])
-    assert "does not change the judgment yet" in str(
-        evidence["rows"][1]["judgement_contribution"]
-    )
+    assert "does not change the judgment yet" in str(evidence["rows"][1]["judgement_contribution"])
     assert "does not change the judgment yet" in str(
         evidence["paired_rows"][1]["interpretation"]["summary"]
     )
@@ -7720,15 +7755,9 @@ def test_candidate_email_evidence_ties_articles_to_current_judgement() -> None:
     )
 
     secondary_card = nvda_evidence["insight_cards"][0]
-    assert "current NVDA Watch judgment" in str(
-        secondary_card["judgement_contribution"]
-    )
-    assert "secondary theme or basket context" in str(
-        secondary_card["judgement_contribution"]
-    )
-    assert "not as a standalone NVDA thesis" in str(
-        secondary_card["judgement_contribution"]
-    )
+    assert "current NVDA Watch judgment" in str(secondary_card["judgement_contribution"])
+    assert "secondary theme or basket context" in str(secondary_card["judgement_contribution"])
+    assert "not as a standalone NVDA thesis" in str(secondary_card["judgement_contribution"])
     assert secondary_card["judgement_class"] == "warn"
 
 
@@ -8385,7 +8414,7 @@ def _evidence_pack() -> dict[str, object]:
                 score=0.7,
                 provenance=_provenance("insider"),
                 confidence=0.9,
-            )
+            ),
         ],
     )
 

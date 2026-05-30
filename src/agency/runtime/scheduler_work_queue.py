@@ -377,9 +377,7 @@ def build_off_hours_baseline_repair_plan(
         if _is_repair_dataset_row(row)
         and str(row.get("dataset")) not in {"news_rss", "subscription_emails"}
     ]
-    status_label = (
-        "Ready Off-Hours" if is_off_hours and rows else "Deferred" if rows else "Clear"
-    )
+    status_label = "Ready Off-Hours" if is_off_hours and rows else "Deferred" if rows else "Clear"
     return {
         "schema_version": "0.1.0",
         "generated_at": current.isoformat(),
@@ -412,9 +410,7 @@ def execution_freshness_gate(
     )
     broker_checked_at = _parse_datetime(broker.get("checked_at"))
     broker_age = (
-        None
-        if broker_checked_at is None
-        else int((current - broker_checked_at).total_seconds())
+        None if broker_checked_at is None else int((current - broker_checked_at).total_seconds())
     )
     checks = [
         _broker_freshness_check(
@@ -454,11 +450,7 @@ def execution_freshness_gate(
     warned = [check for check in checks if check["status"] == "WARN"]
     state = "blocked" if blocked else "warning" if warned else "pass"
     status_label = (
-        "Fresh"
-        if state == "pass"
-        else "Review Freshness"
-        if state == "warning"
-        else "Blocked"
+        "Fresh" if state == "pass" else "Review Freshness" if state == "warning" else "Blocked"
     )
     return {
         "schema_version": "0.1.0",
@@ -582,7 +574,7 @@ def _dataset_requires_interactive_user_action(dataset: str, config_path: Path) -
         return False
     try:
         overrides = load_refresh_config(config_path, repo_root=REPO_ROOT)
-    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+    except OSError, ValueError, TypeError, json.JSONDecodeError:
         return False
     config_file = overrides.subscription_email_config
     if config_file is None:
@@ -590,7 +582,7 @@ def _dataset_requires_interactive_user_action(dataset: str, config_path: Path) -
     path = config_file if config_file.is_absolute() else REPO_ROOT / config_file
     try:
         payload = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, json.JSONDecodeError):
+    except OSError, json.JSONDecodeError:
         return False
     if not isinstance(payload, Mapping):
         return False
@@ -654,9 +646,7 @@ def _signal_job(
     pass_forward_tickers = ready_tickers or usable_tickers
     if pass_forward_tickers:
         tier_set = set(tickers)
-        tickers = [
-            ticker for ticker in pass_forward_tickers if tier_set and ticker in tier_set
-        ]
+        tickers = [ticker for ticker in pass_forward_tickers if tier_set and ticker in tier_set]
         pass_forward_label = "fully complete" if ready_tickers else "usable live"
         if tickers:
             reason = (
@@ -728,13 +718,7 @@ def _pipeline_ready_tickers(progress: Mapping[str, object], dataset: str) -> lis
         return []
     trade_pull = _mapping(progress.get("trade_pull"))
     values = _sequence(trade_pull.get("pipeline_ready_tickers"))
-    return _sorted_tickers(
-        {
-            str(ticker).upper()
-            for ticker in values
-            if str(ticker).strip()
-        }
-    )
+    return _sorted_tickers({str(ticker).upper() for ticker in values if str(ticker).strip()})
 
 
 def _pipeline_usable_tickers(progress: Mapping[str, object], dataset: str) -> list[str]:
@@ -742,13 +726,7 @@ def _pipeline_usable_tickers(progress: Mapping[str, object], dataset: str) -> li
         return []
     trade_pull = _mapping(progress.get("trade_pull"))
     values = _sequence(trade_pull.get("pipeline_usable_tickers"))
-    return _sorted_tickers(
-        {
-            str(ticker).upper()
-            for ticker in values
-            if str(ticker).strip()
-        }
-    )
+    return _sorted_tickers({str(ticker).upper() for ticker in values if str(ticker).strip()})
 
 
 def _trade_pull_running(
@@ -789,10 +767,9 @@ def _massive_lane_progress_running(
     for lane_row in _mapping_rows(progress, "massive_lanes"):
         if str(lane_row.get("lane_id") or "") != lane_id:
             continue
-        return (
-            str(lane_row.get("state") or "").lower() == "running"
-            and _progress_window_matches_lane(row, lane_row)
-        )
+        return str(
+            lane_row.get("state") or ""
+        ).lower() == "running" and _progress_window_matches_lane(row, lane_row)
     return False
 
 
@@ -930,8 +907,7 @@ def _broker_freshness_check(
             "detail": (
                 f"{status_label}: broker connection is not confirmed yet. "
                 "Execution submit still performs a strict fresh Alpaca paper check "
-                "before any order can be submitted."
-                + (f" {detail}" if detail else "")
+                "before any order can be submitted." + (f" {detail}" if detail else "")
             ),
         }
     if broker.get("connected") is not True:
@@ -1004,12 +980,8 @@ def _source_freshness_check(
         "UNAVAILABLE",
         "RATE_LIMITED",
     }
-    warned = (
-        not blocked
-        and (
-            status in {"DEGRADED", "UNKNOWN"}
-            or freshness in {"AGING", "PARTIAL", "UNKNOWN"}
-        )
+    warned = not blocked and (
+        status in {"DEGRADED", "UNKNOWN"} or freshness in {"AGING", "PARTIAL", "UNKNOWN"}
     )
     if checked_at is None:
         blocked = True
@@ -1155,9 +1127,7 @@ def _tradability(
                 "Data refresh progress is not in a tradable state.",
             )
         )
-    elif refresh_state == "running" and _running_refresh_blocks_tradability(
-        data_refresh_progress
-    ):
+    elif refresh_state == "running" and _running_refresh_blocks_tradability(data_refresh_progress):
         state = "context_only"
         detail = str(
             data_refresh_progress.get(
@@ -1169,8 +1139,7 @@ def _tradability(
         state = "context_only"
         lane = _execution_blocking_lane_state_rows(stale_datasets)[0]
         detail = str(
-            lane.get("reason")
-            or "A required lane is not fresh enough for paper execution."
+            lane.get("reason") or "A required lane is not fresh enough for paper execution."
         )
     elif data_load_status.get("state") in {"blocked", "loading"}:
         state = "context_only"
@@ -1199,7 +1168,9 @@ def _tradability(
                 f"with caution: {execution_gate.get('detail', 'review freshness warnings.')}"
             )
         else:
-            detail = "Broker, critical evidence, and scheduler queue are fresh enough for paper orders."
+            detail = (
+                "Broker, critical evidence, and scheduler queue are fresh enough for paper orders."
+            )
     tradable_with_warning = state == "tradable" and execution_gate.get("state") == "warning"
     return {
         "state": state,
@@ -1210,7 +1181,11 @@ def _tradability(
             if state == "tradable"
             else "Context Only"
         ),
-        "status_class": "warn" if tradable_with_warning else "pass" if state == "tradable" else "warn",
+        "status_class": "warn"
+        if tradable_with_warning
+        else "pass"
+        if state == "tradable"
+        else "warn",
         "detail": detail,
     }
 
@@ -1231,11 +1206,15 @@ def _execution_gate_has_unconfirmed_broker_warning(
 def _running_refresh_blocks_tradability(
     data_refresh_progress: Mapping[str, object],
 ) -> bool:
-    current_dataset = str(
-        data_refresh_progress.get("current_dataset")
-        or data_refresh_progress.get("running_dataset")
-        or ""
-    ).strip().lower()
+    current_dataset = (
+        str(
+            data_refresh_progress.get("current_dataset")
+            or data_refresh_progress.get("running_dataset")
+            or ""
+        )
+        .strip()
+        .lower()
+    )
     if not current_dataset:
         return True
     if current_dataset in CRITICAL_REFRESH_DATASETS:
@@ -1255,9 +1234,7 @@ def _massive_orchestrator_status(
 ) -> dict[str, object]:
     rows = _mapping_rows(orchestrator, "raw_lanes") or _mapping_rows(orchestrator, "lanes")
     source_index = {
-        str(row.get("source") or ""): row
-        for row in source_health
-        if str(row.get("source") or "")
+        str(row.get("source") or ""): row for row in source_health if str(row.get("source") or "")
     }
     lane_rows = [
         _massive_lane_row(
@@ -1296,9 +1273,7 @@ def _massive_orchestrator_status(
         "schema_version": "0.1.0",
         "generated_at": now.isoformat(),
         "provider": str(orchestrator.get("provider") or "massive"),
-        "market_phase": str(
-            orchestrator.get("market_phase") or session.get("phase") or "unknown"
-        ),
+        "market_phase": str(orchestrator.get("market_phase") or session.get("phase") or "unknown"),
         "state": state,
         "status_label": _massive_orchestrator_status_label(state),
         "status_class": _massive_orchestrator_status_class(state),
@@ -1465,9 +1440,7 @@ def _massive_signal_requirement_row(
 ) -> dict[str, object]:
     lane = str(row.get("signal_lane") or row.get("lane") or "unknown")
     required = [
-        str(value)
-        for value in _sequence(row.get("requires_raw_lanes"))
-        if str(value).strip()
+        str(value) for value in _sequence(row.get("requires_raw_lanes")) if str(value).strip()
     ]
     gate = _raw_requirement_gate(required, {"lanes": list(raw_lanes)})
     status = gate["status"]
@@ -1529,8 +1502,7 @@ def _massive_lane_tickers(
     row_tickers = _row_tickers(row)
     tier_tickers = _tier_tickers(tiers, ticker_tier)
     if (
-        str(row.get("command_profile") or "")
-        in {"stock_trades_live", "stock_trades_premarket"}
+        str(row.get("command_profile") or "") in {"stock_trades_live", "stock_trades_premarket"}
         and tier_tickers
     ):
         return tier_tickers
@@ -1566,9 +1538,9 @@ def _fresh_massive_lane_tickers(
         ticker = str(coverage.get("ticker") or "").upper().strip()
         if not ticker or not _live_lane_coverage_usable(coverage):
             continue
-        observed_at = _parse_datetime(
-            coverage.get("updated_at") or coverage.get("fetched_at")
-        ) or fallback
+        observed_at = (
+            _parse_datetime(coverage.get("updated_at") or coverage.get("fetched_at")) or fallback
+        )
         if observed_at is None:
             continue
         if (
@@ -1616,7 +1588,9 @@ def _fresh_daily_bar_lane_tickers(
     fetched_at = _parse_datetime(manifest.get("fetched_at"))
     if required_seconds > 0 and fetched_at is not None:
         age_seconds = (now - fetched_at).total_seconds()
-        if age_seconds > required_seconds and not _closed_market_lane_manifest_current(row, manifest, now=now):
+        if age_seconds > required_seconds and not _closed_market_lane_manifest_current(
+            row, manifest, now=now
+        ):
             return set()
     coverage = [
         _mapping(item)
@@ -1708,7 +1682,17 @@ def _daily_bar_manifest_covers_row(
         requested_date = date.fromisoformat(requested)
     except ValueError:
         return False
-    return manifest_end >= requested_date
+    window = _mapping(manifest.get("window"))
+    manifest_start = None
+    value = window.get("start")
+    if isinstance(value, str) and value.strip():
+        try:
+            manifest_start = date.fromisoformat(value.strip())
+        except ValueError:
+            manifest_start = None
+    if manifest_start is None:
+        manifest_start = manifest_end
+    return manifest_start <= requested_date <= manifest_end
 
 
 def _manifest_window_matches_row(
@@ -1731,7 +1715,9 @@ def _live_lane_coverage_usable(row: Mapping[str, object]) -> bool:
         return False
     if status == "partial_usable":
         return True
-    rows = max(_int_value(row.get("downloaded_row_count"), 0), _int_value(row.get("rows_written"), 0))
+    rows = max(
+        _int_value(row.get("downloaded_row_count"), 0), _int_value(row.get("rows_written"), 0)
+    )
     pages = _int_value(row.get("pages_downloaded"), 0)
     return rows > 0 and pages > 0 and str(row.get("order") or "").lower() == "desc"
 
@@ -1841,9 +1827,7 @@ def _required_raw_lane_manifests(
     row: Mapping[str, object],
 ) -> list[Mapping[str, object]]:
     manifests: list[Mapping[str, object]] = []
-    explicit_paths = _mapping(
-        row.get("source_lane_manifests") or row.get("raw_lane_manifests")
-    )
+    explicit_paths = _mapping(row.get("source_lane_manifests") or row.get("raw_lane_manifests"))
     for lane_id in _sequence(row.get("requires_raw_lanes")):
         lane_text = str(lane_id).strip()
         if not lane_text:
@@ -1867,10 +1851,14 @@ def _lane_manifest_usable(manifest: Mapping[str, object]) -> bool:
     status = _lane_manifest_effective_status(manifest)
     if status not in {"complete", "partial_usable", "ready", "usable"}:
         return False
-    return _int_value(manifest.get("coverage_pct"), 0) > 0 or _int_value(
-        manifest.get("row_count"),
-        0,
-    ) > 0
+    return (
+        _int_value(manifest.get("coverage_pct"), 0) > 0
+        or _int_value(
+            manifest.get("row_count"),
+            0,
+        )
+        > 0
+    )
 
 
 def _lane_manifest_effective_status(manifest: Mapping[str, object]) -> str:
@@ -2009,7 +1997,9 @@ def _stock_trade_live_command(
         "--lane-id",
         lane_id,
         "--progress-path",
-        _display_repo_path(REPO_ROOT / "research" / "results" / "latest-data-refresh" / f"{lane_id}-progress.json"),
+        _display_repo_path(
+            REPO_ROOT / "research" / "results" / "latest-data-refresh" / f"{lane_id}-progress.json"
+        ),
     ]
     if str(row.get("command_profile") or "") == "stock_trades_premarket":
         command.extend(["--trade-session", "pre_market"])
@@ -2033,7 +2023,6 @@ def _massive_grouped_daily_command(
     date_text = _row_date_text(row.get("end")) or _row_date_text(row.get("start"))
     if not date_text:
         return []
-    limit = max_tickers if max_tickers is not None and max_tickers > 0 else len(tickers)
     lane_id = str(row.get("lane_id") or "massive_daily_bars")
     command = [
         ".\\.venv\\Scripts\\python",
@@ -2046,7 +2035,7 @@ def _massive_grouped_daily_command(
     manifest_path = str(row.get("storage_manifest") or "")
     if manifest_path:
         command.extend(["--lane-manifest-path", manifest_path])
-    selected = list(tickers)[:limit]
+    selected = list(tickers)
     if selected:
         command.append("--tickers")
         command.extend(selected)
@@ -2080,11 +2069,7 @@ def _derive_block_trades_command(
         lane_id,
         "--progress-path",
         _display_repo_path(
-            REPO_ROOT
-            / "research"
-            / "results"
-            / "latest-data-refresh"
-            / f"{lane_id}-progress.json"
+            REPO_ROOT / "research" / "results" / "latest-data-refresh" / f"{lane_id}-progress.json"
         ),
         "--source-lane-manifest",
         _display_repo_path(source_manifest),
@@ -2098,9 +2083,7 @@ def _derive_block_trades_command(
 
 
 def _local_derivation_source_manifest_path(row: Mapping[str, object], lane_id: str) -> Path:
-    explicit_paths = _mapping(
-        row.get("source_lane_manifests") or row.get("raw_lane_manifests")
-    )
+    explicit_paths = _mapping(row.get("source_lane_manifests") or row.get("raw_lane_manifests"))
     explicit_path = explicit_paths.get(lane_id)
     if isinstance(explicit_path, str) and explicit_path.strip():
         return Path(explicit_path)
@@ -2229,8 +2212,7 @@ def _massive_manifest_health(
             ),
         }
     if status == "COMPLETE" and (
-        required_seconds is None
-        or (age_seconds is not None and age_seconds <= required_seconds)
+        required_seconds is None or (age_seconds is not None and age_seconds <= required_seconds)
     ):
         freshness = "FRESH" if required_seconds is not None else "CURRENT"
         return {
@@ -2239,8 +2221,7 @@ def _massive_manifest_health(
             "status_class": "pass",
             "checked_at": checked_at,
             "detail": (
-                f"{lane_id} lane manifest is {status.lower()} with "
-                f"{coverage_pct}% coverage."
+                f"{lane_id} lane manifest is {status.lower()} with {coverage_pct}% coverage."
             ),
         }
     if (
@@ -2266,8 +2247,7 @@ def _massive_manifest_health(
             "status_class": "block" if blocks_execution else "warn",
             "checked_at": checked_at,
             "detail": (
-                f"{lane_id} lane manifest reports {status.lower()} with "
-                f"{issue_count} issue(s)."
+                f"{lane_id} lane manifest reports {status.lower()} with {issue_count} issue(s)."
             ),
         }
     if status == "PARTIAL_USABLE" and _live_lane_manifest_full_usable(row, manifest):
@@ -2503,10 +2483,10 @@ def _job_status(
     extraction_action: str,
     progress: Mapping[str, object],
 ) -> str:
-    if (
-        progress.get("state") == "running"
-        and str(progress.get("current_dataset")) in {name, name.replace("_", "-")}
-    ):
+    if progress.get("state") == "running" and str(progress.get("current_dataset")) in {
+        name,
+        name.replace("_", "-"),
+    }:
         return "RUNNING"
     if batch_action == "disabled":
         return "DISABLED"
@@ -2637,10 +2617,7 @@ def _is_repair_dataset_row(row: Mapping[str, object]) -> bool:
         return True
     if str(row.get("dataset")) != "stock_trades":
         return False
-    reason = (
-        f"{row.get('extraction_reason') or ''} "
-        f"{row.get('reason') or ''}"
-    ).lower()
+    reason = (f"{row.get('extraction_reason') or ''} {row.get('reason') or ''}").lower()
     return any(token in reason for token in ("partial", "failed", "missing"))
 
 
@@ -2949,7 +2926,7 @@ def _resolved_source_health(
 def _load_overrides(path: Path) -> RefreshConfigOverrides:
     try:
         return load_refresh_config(path, repo_root=REPO_ROOT)
-    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+    except OSError, ValueError, TypeError, json.JSONDecodeError:
         return RefreshConfigOverrides()
 
 
@@ -3019,7 +2996,7 @@ def _active_universe_tickers(as_of: date, path: Path) -> list[str]:
         return []
     try:
         frame = pd.read_parquet(path, columns=["ticker", "start_date", "end_date"])
-    except (OSError, ValueError, KeyError):
+    except OSError, ValueError, KeyError:
         return []
     if frame.empty:
         return []
@@ -3036,7 +3013,7 @@ def _manifest_tickers() -> set[str]:
     for path in root.glob("*.json"):
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+        except OSError, json.JSONDecodeError:
             continue
         if not isinstance(payload, Mapping):
             continue
@@ -3049,7 +3026,7 @@ def _manifest_tickers() -> set[str]:
 def _runtime_lanes_from_config(path: Path) -> tuple[str, ...]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except OSError, json.JSONDecodeError:
         return ()
     if not isinstance(payload, Mapping):
         return ()
@@ -3295,18 +3272,14 @@ def _raw_requirement_gate(
             "detail": "No Massive raw lane requirement is declared.",
         }
     lane_index = {
-        str(row.get("lane_id")): row
-        for row in _mapping_rows(massive_orchestrator, "lanes")
+        str(row.get("lane_id")): row for row in _mapping_rows(massive_orchestrator, "lanes")
     }
     missing = [lane for lane in required_lanes if lane not in lane_index]
     if missing:
         return {
             "state": "blocked",
             "status": "BLOCKED",
-            "detail": (
-                "Missing Massive raw lane declaration(s): "
-                f"{', '.join(missing)}."
-            ),
+            "detail": (f"Missing Massive raw lane declaration(s): {', '.join(missing)}."),
         }
     waiting = [
         lane
@@ -3335,17 +3308,13 @@ def _raw_requirement_gate(
             "state": "blocked",
             "status": "BLOCKED",
             "detail": (
-                "Required Massive raw lane(s) are blocked or unverified: "
-                f"{', '.join(blocked)}."
+                f"Required Massive raw lane(s) are blocked or unverified: {', '.join(blocked)}."
             ),
         }
     return {
         "state": "ready",
         "status": "READY",
-        "detail": (
-            "Massive raw lane requirement is satisfied: "
-            f"{', '.join(required_lanes)}."
-        ),
+        "detail": (f"Massive raw lane requirement is satisfied: {', '.join(required_lanes)}."),
     }
 
 

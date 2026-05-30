@@ -980,6 +980,11 @@ if (document.readyState === "loading") {
     return row ? row.eta_label : "not needed";
   };
 
+  const isAutomaticRefreshRow = (item) => {
+    const kind = String(item.kind || (item.lane_id ? "massive_lane" : ""));
+    return statusOf(item) === "DUE_NOW" && ["dataset", "massive_lane"].includes(kind) && Boolean(item.command);
+  };
+
   const workloadStatusLabel = (liveCount, supportCount, repairCount, runningCount) => {
     if (liveCount) {
       return `${liveCount} urgent refresh due`;
@@ -1006,8 +1011,10 @@ if (document.readyState === "loading") {
       ...jobs.filter((row) => statusOf(row) === "DUE_NOW"),
       ...massiveLanes.filter((row) => statusOf(row) === "DUE_NOW"),
     ];
-    const liveCritical = dueRows.filter(isLiveCriticalSchedulerRow);
-    const support = dueRows.filter((row) => !isLiveCriticalSchedulerRow(row));
+    const liveCritical = dueRows.filter(
+      (row) => isAutomaticRefreshRow(row) && isLiveCriticalSchedulerRow(row)
+    );
+    const support = dueRows.filter((row) => !liveCritical.includes(row));
     const repairDue = repairRows.filter((row) => statusOf(row) === "DUE_NOW");
     const runningCount = [...jobs, ...massiveLanes, ...repairRows].filter(
       (row) => statusOf(row) === "RUNNING"
@@ -1026,6 +1033,8 @@ if (document.readyState === "loading") {
       repair_due_count: repairDue.length,
       running_count: runningCount,
       next_live_eta_label: nextLiveEta,
+      tooltip:
+        "Refresh Workload separates urgent paper-data jobs from support and repair jobs. Urgent paper-data jobs are automatic lane/data refreshes that can block paper orders; support and repair jobs improve context without automatically blocking review.",
     };
   };
 

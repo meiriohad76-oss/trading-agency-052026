@@ -173,10 +173,10 @@ MASSIVE_RAW_LANE_POLICIES: tuple[MassiveRawLanePolicy, ...] = (
         blocks_execution=True,
         default_priority=80,
         default_cadence_minutes=60,
-        default_max_tickers_per_batch=100,
+        default_max_tickers_per_batch=None,
         quiet_priority=80,
         quiet_cadence_minutes=60,
-        quiet_max_tickers_per_batch=100,
+        quiet_max_tickers_per_batch=None,
         request_budget_label="1 grouped-daily request per market date",
         max_requests_per_cycle=1,
         storage_manifest="research/data/manifests/massive_lanes/massive_daily_bars.json",
@@ -546,7 +546,11 @@ def _policy_required(
     if policy.dataset == "prices_daily" and config.market_data_provider != "massive":
         return False
     if policy.dataset in {"reference_data"}:
-        return bool(configured_lanes.intersection(policy.consumer_signal_lanes)) if configured_lanes else True
+        return (
+            bool(configured_lanes.intersection(policy.consumer_signal_lanes))
+            if configured_lanes
+            else True
+        )
     return policy.dataset in set(config.datasets)
 
 
@@ -742,6 +746,17 @@ def _lane_window(
     if policy.command_profile in {"stock_trades_live", "stock_trades_premarket"}:
         target = _operational_trade_slice_date(session)
         return target, target
+    if policy.raw_source_dataset == "prices_daily":
+        if session.phase in {"pre_market", "regular_market"}:
+            completed = previous_trading_day(session.market_date)
+            return completed, completed
+        if extraction_decision is not None and (
+            extraction_decision.start is not None or extraction_decision.end is not None
+        ):
+            start = extraction_decision.start or extraction_decision.end
+            end = extraction_decision.end or extraction_decision.start
+            return start, end
+        return config.start, config.end
     if extraction_decision is not None and (
         extraction_decision.start is not None or extraction_decision.end is not None
     ):
@@ -752,11 +767,6 @@ def _lane_window(
         start = config.stock_trades_start or config.stock_trades_end or session.market_date
         end = config.stock_trades_end or config.stock_trades_start or session.market_date
         return start, end
-    if policy.raw_source_dataset == "prices_daily":
-        if session.phase in {"pre_market", "regular_market"}:
-            completed = previous_trading_day(session.market_date)
-            return completed, completed
-        return config.start, config.end
     return None, None
 
 
