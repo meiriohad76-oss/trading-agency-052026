@@ -12,9 +12,10 @@ from agency.market_regime.analyzer import (
     detect_regime_change,
     per_stock_context,
 )
+from agency.market_regime.metrics import build_macro_tiles, metrics_by_ticker
 from agency.market_regime.policy import RegimePolicy
 from agency.market_regime.scheduler import schedule_regime_refresh
-from agency.market_regime.snapshot import build_regime_snapshot
+from agency.market_regime.snapshot import _sector_map, build_regime_snapshot
 
 REQUIRED_KEYS = {
     "schema_version",
@@ -170,6 +171,74 @@ def test_macro_tilt_defensive_and_risk_appetite() -> None:
     assert classify_macro_tilt(1.2, -11.0, -0.5, policy)["macro_tilt"] == "RISK_APPETITE"
 
 
+def test_macro_tiles_are_enriched_for_operator_display() -> None:
+    tiles = build_macro_tiles(
+        {
+            "VIXCLS": [
+                {"date": "2026-05-21", "value": 18.0},
+                {"date": "2026-05-28", "value": 36.2},
+            ],
+            "T10Y2Y": [
+                {"date": "2026-05-21", "value": 0.15},
+                {"date": "2026-05-28", "value": -0.20},
+            ],
+        },
+        {"TLT": 1.4},
+    )
+
+    by_id = {str(tile["id"]): tile for tile in tiles}
+    assert by_id["VIXCLS"]["label"] == "VIX"
+    assert by_id["VIXCLS"]["class"] == "block"
+    assert by_id["VIXCLS"]["trend"] == "High fear"
+    assert by_id["VIXCLS"]["delta"] == "+18.20"
+    assert by_id["VIXCLS"]["as_of"] == "2026-05-28"
+    assert str(by_id["VIXCLS"]["gauge_style"]).startswith("width: ")
+    assert by_id["T10Y2Y"]["class"] == "warn"
+    assert by_id["TLT"]["value"] == "+1.4%"
+
+
+def test_metrics_include_20d_return_ending_five_sessions_ago() -> None:
+    bars = {
+        "SPY": [
+            {
+                "date": f"2026-05-{index + 1:02d}",
+                "open": float(100 + index),
+                "high": float(101 + index),
+                "low": float(99 + index),
+                "close": float(100 + index),
+                "volume": 1_000_000,
+            }
+            for index in range(31)
+        ]
+    }
+
+    metric = metrics_by_ticker(bars)["SPY"]
+
+    assert metric["return_20d_pct_5d_ago"] == 19.05
+
+
+def test_sector_momentum_uses_20d_relative_strength_change() -> None:
+    sector_map = _sector_map(
+        {
+            "SPY": {
+                "return_5d_pct": 0.0,
+                "return_20d_pct": 10.0,
+                "return_20d_pct_5d_ago": 5.0,
+            },
+            "XLK": {
+                "return_5d_pct": 20.0,
+                "return_20d_pct": 12.0,
+                "return_20d_pct_5d_ago": 11.0,
+                "cmf_14": 0.1,
+                "obv_trend": "UP",
+            },
+        },
+        RegimePolicy(),
+    )
+
+    assert sector_map["XLK"]["state"] == "TOPPING"
+
+
 def test_sector_quadrants_and_boosts() -> None:
     policy = RegimePolicy()
     assert classify_sector_state(1.0, 0.2, 0.1, "UP", policy)["state"] == "ADVANCING"
@@ -181,9 +250,7 @@ def test_sector_quadrants_and_boosts() -> None:
 
 
 def test_per_stock_context_lookup() -> None:
-    sector_map = {
-        "XLK": {"state": "ADVANCING", "bias": "TAILWIND", "conviction_boost": 0.03}
-    }
+    sector_map = {"XLK": {"state": "ADVANCING", "bias": "TAILWIND", "conviction_boost": 0.03}}
     result = per_stock_context(["AAPL", "MSFT"], {"AAPL": "XLK"}, sector_map)
     assert result["AAPL"]["sector"] == "XLK"
     assert result["AAPL"]["conviction_boost"] == 0.03

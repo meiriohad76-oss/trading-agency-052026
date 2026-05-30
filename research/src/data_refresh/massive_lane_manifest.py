@@ -185,8 +185,12 @@ def _complete_coverage_count(coverage: object) -> int:
 
 
 def _safe_int(value: object) -> int:
+    if value is None or isinstance(value, bool):
+        return 0
+    if not isinstance(value, int | float | str):
+        return 0
     try:
-        return int(value or 0)
+        return int(value)
     except TypeError, ValueError:
         return 0
 

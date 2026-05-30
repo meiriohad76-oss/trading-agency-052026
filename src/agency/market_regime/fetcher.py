@@ -1,4 +1,5 @@
 from __future__ import annotations
+# ruff: noqa: I001
 
 import json
 import os
@@ -6,34 +7,27 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
-from agency.market_regime.policy import RegimePolicy
 from agency.market_regime.massive import (
     fetch_etf_daily_bars,
     fetch_grouped_daily_rows,
     fetch_intraday_snapshot,
     massive_api_key as _massive_api_key,
 )
+from agency.market_regime.policy import RegimePolicy
 
-FRED_SERIES = (
-    "VIXCLS",
-    "T10Y2Y",
-    "DGS10",
-    "BAMLH0A0HYM2",
-    "BAMLC0A0CM",
-    "STLFSI4",
-    "ICSA",
-)
-
+# fmt: off
+FRED_SERIES = ("VIXCLS", "T10Y2Y", "DGS10", "BAMLH0A0HYM2", "BAMLC0A0CM", "STLFSI4", "ICSA")
 ALL_ETFS: tuple[str, ...] = (
-    "SPY", "QQQ", "IWM", "DIA",
-    "XLK", "XLE", "XLF", "XLV", "XLI", "XLB", "XLY", "XLP", "XLU", "XLC", "XLRE",
-    "TLT", "GLD", "UUP",
+    "SPY", "QQQ", "IWM", "DIA", "XLK", "XLE", "XLF", "XLV", "XLI",
+    "XLB", "XLY", "XLP", "XLU", "XLC", "XLRE", "TLT", "GLD", "UUP",
 )
 SECTOR_SNAPSHOT_TICKERS: tuple[str, ...] = (
-    "SPY", "XLK", "XLE", "XLF", "XLV", "XLI", "XLB", "XLY", "XLP", "XLU", "XLC", "XLRE",
+    "SPY", "XLK", "XLE", "XLF", "XLV", "XLI",
+    "XLB", "XLY", "XLP", "XLU", "XLC", "XLRE",
 )
+# fmt: on
 
 
 @dataclass(frozen=True)
@@ -47,7 +41,7 @@ class FetchSummary:
 def load_state_json(path: Path) -> dict[str, Any]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except OSError, json.JSONDecodeError:
         return {}
     return payload if isinstance(payload, dict) else {}
 
@@ -116,19 +110,27 @@ def refresh_etf_bars(
     policy: RegimePolicy,
     now: datetime,
     etfs: tuple[str, ...] = ALL_ETFS,
-    etf_client: Callable[[Sequence[str], str, str], dict[str, list[dict]]] | None = None,
+    etf_client: Callable[[Sequence[str], str, str], dict[str, list[dict[str, object]]]]
+    | None = None,
 ) -> FetchSummary:
-    """Fetch daily OHLCV bars for all ETFs and write to ``path``."""
     api_key = _massive_api_key()
-    if api_key is None and etf_client is None:
-        return FetchSummary(ok=False, issues=["MASSIVE_API_KEY not configured; etf_bars not updated."])
+    if etf_client is not None:
+        client = etf_client
+    elif api_key is not None:
+        key = api_key
+
+        def client(
+            tickers: Sequence[str],
+            start: str,
+            end: str,
+        ) -> dict[str, list[dict[str, object]]]:
+            return fetch_etf_daily_bars(tickers, start_date=start, end_date=end, api_key=key)
+    else:
+        return FetchSummary(
+            ok=False, issues=["MASSIVE_API_KEY not configured; etf_bars not updated."]
+        )
     end_date = now.date().isoformat()
     start_date = (now.date() - timedelta(days=policy.etf_bars_lookback_days)).isoformat()
-    client: Callable[[Sequence[str], str, str], dict[str, list[dict]]] = (
-        etf_client
-        if etf_client is not None
-        else (lambda tickers, s, e: fetch_etf_daily_bars(tickers, start_date=s, end_date=e, api_key=api_key))  # type: ignore[arg-type]
-    )
     try:
         bars = client(etfs, start_date, end_date)
     except Exception as exc:
@@ -143,21 +145,26 @@ def refresh_intraday_bars(
     path: Path,
     *,
     tickers: tuple[str, ...] = SECTOR_SNAPSHOT_TICKERS,
-    snapshot_client: Callable[[Sequence[str]], dict[str, dict]] | None = None,
+    snapshot_client: Callable[[Sequence[str]], dict[str, dict[str, object]]] | None = None,
 ) -> FetchSummary:
-    """Fetch live intraday snapshot and write to ``path``."""
     api_key = _massive_api_key()
-    if api_key is None and snapshot_client is None:
-        return FetchSummary(ok=False, issues=["MASSIVE_API_KEY not configured; intraday_bars not updated."])
-    client: Callable[[Sequence[str]], dict[str, dict]] = (
-        snapshot_client
-        if snapshot_client is not None
-        else (lambda t: fetch_intraday_snapshot(t, api_key=api_key))  # type: ignore[arg-type]
-    )
+    if snapshot_client is not None:
+        client = snapshot_client
+    elif api_key is not None:
+        key = api_key
+
+        def client(tickers: Sequence[str]) -> dict[str, dict[str, object]]:
+            return fetch_intraday_snapshot(tickers, api_key=key)
+    else:
+        return FetchSummary(
+            ok=False, issues=["MASSIVE_API_KEY not configured; intraday_bars not updated."]
+        )
     try:
         bars = client(tickers)
     except Exception as exc:
         return FetchSummary(ok=False, issues=[f"Intraday snapshot fetch failed: {exc}"])
+    if not bars:
+        return FetchSummary(ok=False, issues=["Intraday snapshot returned no data."])
     write_state_json(path, bars)
     return FetchSummary(ok=True, updated_files=[str(path)])
 
@@ -166,23 +173,29 @@ def refresh_grouped_daily(
     path: Path,
     *,
     now: datetime,
-    grouped_client: Callable[[str], list[dict]] | None = None,
+    grouped_client: Callable[[str], list[dict[str, object]]] | None = None,
 ) -> FetchSummary:
-    """Fetch grouped daily bars, compute breadth, and write to ``path``."""
     api_key = _massive_api_key()
-    if api_key is None and grouped_client is None:
-        return FetchSummary(ok=False, issues=["MASSIVE_API_KEY not configured; grouped_daily not updated."])
+    if grouped_client is not None:
+        client = grouped_client
+    elif api_key is not None:
+        key = api_key
+
+        def client(day_value: str) -> list[dict[str, object]]:
+            return fetch_grouped_daily_rows(day_value, api_key=key)
+    else:
+        return FetchSummary(
+            ok=False, issues=["MASSIVE_API_KEY not configured; grouped_daily not updated."]
+        )
     day = now.date().isoformat()
-    client: Callable[[str], list[dict]] = (
-        grouped_client
-        if grouped_client is not None
-        else (lambda d: fetch_grouped_daily_rows(d, api_key=api_key))  # type: ignore[arg-type]
-    )
     try:
         rows = client(day)
     except Exception as exc:
         return FetchSummary(ok=False, issues=[f"Grouped daily fetch failed: {exc}"])
-    write_state_json(path, grouped_daily_breadth(rows))
+    breadth = grouped_daily_breadth(rows)
+    if not breadth["total"]:
+        return FetchSummary(ok=False, issues=["Grouped daily returned no usable rows."])
+    write_state_json(path, breadth)
     return FetchSummary(ok=True, updated_files=[str(path)])
 
 
@@ -200,9 +213,7 @@ def refresh_regime_state(
     updated_files: list[str] = []
 
     if mode in ("pre_market", "post_market", "manual"):
-        etf = refresh_etf_bars(
-            state_dir / "etf_bars.json", policy=active_policy, now=timestamp
-        )
+        etf = refresh_etf_bars(state_dir / "etf_bars.json", policy=active_policy, now=timestamp)
         issues.extend(etf.issues)
         updated_files.extend(etf.updated_files)
 
@@ -216,9 +227,7 @@ def refresh_regime_state(
         issues.extend(grouped.issues)
         updated_files.extend(grouped.updated_files)
 
-    fred = refresh_fred_series(
-        state_dir / "macro_fred.json", policy=active_policy, now=timestamp
-    )
+    fred = refresh_fred_series(state_dir / "macro_fred.json", policy=active_policy, now=timestamp)
     issues.extend(fred.issues)
     updated_files.extend(fred.updated_files)
 
@@ -244,11 +253,11 @@ def _default_fred_client() -> Callable[[str], object] | None:
     if not api_key:
         return None
     try:
-        from fredapi import Fred
+        from fredapi import Fred  # type: ignore[import-untyped]
     except ImportError:
         return None
     client = Fred(api_key=api_key)
-    return client.get_series
+    return cast(Callable[[str], object], client.get_series)
 
 
 def _series_points(raw: object) -> list[dict[str, object]]:
@@ -280,7 +289,9 @@ def _datetime(value: object) -> datetime | None:
 def _float(value: object) -> float | None:
     if value is None or isinstance(value, bool):
         return None
+    if not isinstance(value, int | float | str):
+        return None
     try:
         return float(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None

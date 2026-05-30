@@ -89,30 +89,51 @@
         <div class="sector-card-head">
           <div>
             <span class="metric-label">#{{ row.rank }} / {{ row.ticker }}</span>
-            <strong title="Sector ETF currently mapped by the regime agent.">{{ row.label }}</strong>
+            <strong title="{{ tooltips.get(row.state, 'Sector state') }}">{{ row.state }}</strong>
           </div>
           <span class="tag tag-{{ row.stance_class }}" title="Sector bias inherited by stocks in this sector.">{{ row.stance }}</span>
         </div>
         <div class="sector-card-score">
-          <strong title="Composite relative-strength score versus SPY.">{{ row.score_label }}</strong>
-          <span title="Momentum score: 20% 5D, 50% 20D, 30% 60D excess return versus SPY.">Momentum score</span>
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span>
+              <strong title="{{ tooltips.get('momentum_score', 'Momentum score') }}">S {{ row.score_label }}</strong>
+            </span>
+            <span title="{{ tooltips.get('flow_score', 'Flow score') }}">
+              F {{ row.cmf_14_label }}
+              {% if row.flow_confirmed %}
+              <span class="tag tag-pass" title="{{ tooltips.get('flow_confirmed', 'Flow confirmed') }}">confirmed</span>
+              {% endif %}
+            </span>
+          </div>
           <div class="metric-gauge metric-gauge-{{ row.stance_class }}" aria-hidden="true">
             <span style="{{ row.score_gauge_style }}"></span>
           </div>
         </div>
         <div class="market-mini-grid">
-          <div class="metric-cell metric-cell-{{ row.return_20d_class }}" title="Sector ETF 20-day return.">
-            <span class="metric-label">20D</span>
-            <strong>{{ row.return_20d }}</strong>
+          <div class="metric-cell metric-cell-{{ row.return_5d_class }}" title="Sector ETF 5-day return.">
+            <span class="metric-label">5D</span>
+            <strong>{{ row.excess_5d }}</strong>
           </div>
-          <div class="metric-cell metric-cell-{{ row.excess_20d_class }}" title="Sector relative strength versus SPY.">
+          <div class="metric-cell metric-cell-{{ row.excess_20d_class }}" title="{{ tooltips.get('rs_ratio', 'Relative strength versus SPY') }}">
             <span class="metric-label">vs SPY</span>
             <strong>{{ row.excess_20d }}</strong>
           </div>
-          <div title="Latest bar date used for this sector row.">
-            <span class="metric-label">Data</span>
-            <strong>{{ row.latest_date }}</strong>
+          <div title="{{ tooltips.get('rs_momentum', 'Relative momentum') }}">
+            <span class="metric-label">RRG</span>
+            <strong>{{ row.quadrant }}</strong>
           </div>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px; font-size: 0.82em; color: var(--text-dim);">
+          <span title="{{ tooltips.get('conviction_boost', 'Conviction boost') }}">
+            {% if row.conviction_boost > 0 %}
+              <span style="color: var(--green);">+{{ row.conviction_boost_pct }}%</span>
+            {% elif row.conviction_boost < 0 %}
+              <span style="color: var(--red);">-{{ row.conviction_boost_pct }}%</span>
+            {% else %}
+              <span>0%</span>
+            {% endif %}
+          </span>
+          <span class="muted-line">{{ row.latest_date }}</span>
         </div>
         <p title="Concrete operating interpretation of this sector state.">{{ row.guidance }}</p>
       </article>
@@ -164,9 +185,21 @@
     </div>
     <div class="sector-leadership-grid">
       {% for tile in macro.tiles %}
-      <article class="quality-card" title="FRED series {{ tile.id }} latest cached value.">
-        <span class="metric-label">{{ tile.id }}</span>
-        <strong>{{ tile.value if tile.value is not none else "n/a" }}</strong>
+      <article class="quality-card quality-card-{{ tile.class }}"
+               aria-label="{{ tile.label }}"
+               title="{{ tooltips.get(tile.id, tile.label) }}">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+          <span class="metric-label">{{ tile.label }}</span>
+          <span class="tag tag-neutral">{{ tile.id }}</span>
+        </div>
+        <strong>{{ tile.value }}</strong>
+        <span class="tag tag-{{ tile.class }}" style="margin-top: 6px;">{{ tile.trend }}</span>
+        <div class="metric-gauge metric-gauge-{{ tile.class }}" aria-hidden="true" style="margin-top: 8px;">
+          <span style="{{ tile.gauge_style }}"></span>
+        </div>
+        <p class="muted-line" title="Change versus prior reading and data timestamp.">
+          {{ tile.delta }} / {{ tile.as_of }}
+        </p>
       </article>
       {% else %}
       <p class="empty-block">No FRED macro tiles are available yet.</p>

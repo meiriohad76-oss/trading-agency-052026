@@ -1118,6 +1118,8 @@ def test_market_regime_page_renders_snapshot(monkeypatch: MonkeyPatch) -> None:
     assert "Portfolio Context" in response.text
     assert "Sector Leadership" in response.text
     assert "Macro Context" in response.text
+    assert "Calm fear" in response.text
+    assert "2026-05-28" in response.text
     assert "Data Sources" in response.text
     assert 'title="' in response.text
 
@@ -1136,6 +1138,14 @@ def test_market_regime_context_adapts_new_snapshot_contract(monkeypatch: MonkeyP
     assert context["summary"]["topbar_label"] == "RISK_ON / data through 2026-05-28"
     assert context["kpis"][0]["label"] == "Risk regime"
     assert context["sector_rows"][0]["ticker"] == "XLK"
+    assert context["tooltips"]["VIXCLS"].startswith("VIX fear")
+    sector_row = context["sector_rows"][0]
+    assert sector_row["state"] == "ADVANCING"
+    assert sector_row["quadrant"] == "Leading"
+    assert sector_row["flow_confirmed"] is True
+    assert sector_row["cmf_14_label"] == "+0.123"
+    assert sector_row["conviction_boost_pct"] == "3"
+    assert sector_row["return_5d_class"] == "pass"
 
 
 def test_universe_route_redirects_to_market_regime() -> None:
@@ -8286,6 +8296,7 @@ def _new_market_regime_snapshot() -> dict[str, object]:
                 "return_5d_pct": 2.0,
                 "return_20d_pct": 5.0,
                 "flow_confirmed": True,
+                "cmf_14": 0.1234,
             }
         },
         "per_stock_context": {},
@@ -8295,7 +8306,22 @@ def _new_market_regime_snapshot() -> dict[str, object]:
             "advancers_label": "61%",
             "status_class": "pass",
         },
-        "macro": {"tiles": [], "series": {}, "proxies": {}},
+        "macro": {
+            "tiles": [
+                {
+                    "id": "VIXCLS",
+                    "label": "VIX",
+                    "value": "18.00",
+                    "class": "pass",
+                    "trend": "Calm fear",
+                    "delta": "-0.50",
+                    "as_of": "2026-05-28",
+                    "gauge_style": "width: 40%",
+                }
+            ],
+            "series": {},
+            "proxies": {},
+        },
         "benchmarks": [
             {"ticker": "SPY", "latest_price": 500.0, "return_5d_pct": 1.0, "return_20d_pct": 4.0}
         ],

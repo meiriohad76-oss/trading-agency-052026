@@ -39,22 +39,19 @@ def fetch_etf_daily_bars(
     """Call /v2/aggs/ticker/{ticker}/range/1/day for each ticker.
 
     Returns {TICKER: [{date, open, high, low, close, volume}]}.
-    Tickers that return HTTP 404 are silently skipped.
-    Raises httpx.HTTPStatusError for non-404 failures.
+    Tickers that return no usable response are skipped so one transient
+    ticker failure does not erase the whole ETF cache.
     """
     result: dict[str, list[dict[str, object]]] = {}
     params = {"adjusted": "true", "sort": "asc", "limit": "50000", "apiKey": api_key}
     with httpx.Client(verify=_ssl_context(), timeout=30.0, transport=_transport) as client:
         for ticker in tickers:
-            path = _ETF_DAILY_PATH.format(
-                ticker=ticker.upper(), start=start_date, end=end_date
-            )
+            path = _ETF_DAILY_PATH.format(ticker=ticker.upper(), start=start_date, end=end_date)
             url = f"{base_url.rstrip('/')}{path}"
             resp = client.get(url, params=params)
-            if resp.status_code == 404:
+            if not resp.is_success:
                 continue
-            resp.raise_for_status()
-            rows = _extract_results(resp.json())
+            rows = _extract_records(resp.json(), "results")
             if rows:
                 result[ticker.upper()] = [_normalize_bar(row) for row in rows]
     return result
@@ -77,7 +74,7 @@ def fetch_intraday_snapshot(
         resp = client.get(url, params=params)
         resp.raise_for_status()
     result: dict[str, dict[str, object]] = {}
-    for item in _extract_results(resp.json()):
+    for item in _extract_records(resp.json(), "tickers", "results"):
         ticker = str(item.get("ticker", "")).upper()
         if not ticker:
             continue
@@ -108,15 +105,16 @@ def fetch_grouped_daily_rows(
         resp.raise_for_status()
     return [
         {"open": _num(row.get("o")), "close": _num(row.get("c"))}
-        for row in _extract_results(resp.json())
+        for row in _extract_records(resp.json(), "results")
         if _num(row.get("o")) is not None and _num(row.get("c")) is not None
     ]
 
 
 # ── private helpers ──────────────────────────────────────────────────────────
 
+
 def _normalize_bar(row: Mapping[str, object]) -> dict[str, object]:
-    ts_ms = row.get("t")
+    ts_ms = _num(row.get("t"))
     bar_date = (
         datetime.fromtimestamp(int(ts_ms) / 1000, tz=UTC).date().isoformat()
         if ts_ms is not None
@@ -132,10 +130,15 @@ def _normalize_bar(row: Mapping[str, object]) -> dict[str, object]:
     }
 
 
-def _extract_results(payload: object) -> list[Mapping[str, object]]:
+def _extract_records(payload: object, *keys: str) -> list[Mapping[str, object]]:
     if not isinstance(payload, Mapping):
         return []
-    value = payload.get("results", [])
+    value: object = []
+    for key in keys:
+        candidate = payload.get(key)
+        if isinstance(candidate, list):
+            value = candidate
+            break
     if not isinstance(value, list):
         return []
     return [cast(Mapping[str, object], item) for item in value if isinstance(item, Mapping)]
@@ -144,9 +147,11 @@ def _extract_results(payload: object) -> list[Mapping[str, object]]:
 def _num(value: object) -> float | None:
     if value is None or isinstance(value, bool):
         return None
+    if not isinstance(value, int | float | str):
+        return None
     try:
         result = float(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     return None if math.isnan(result) or math.isinf(result) else result
 

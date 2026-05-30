@@ -4,6 +4,31 @@ import math
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+MACRO_SERIES_IDS: tuple[str, ...] = (
+    "VIXCLS",
+    "T10Y2Y",
+    "DGS10",
+    "BAMLH0A0HYM2",
+    "BAMLC0A0CM",
+    "STLFSI4",
+    "ICSA",
+)
+
+MACRO_PROXY_IDS: tuple[str, ...] = ("TLT", "GLD", "UUP")
+
+_MACRO_LABELS: dict[str, str] = {
+    "VIXCLS": "VIX",
+    "T10Y2Y": "10Y-2Y",
+    "DGS10": "10Y yield",
+    "BAMLH0A0HYM2": "High yield spread",
+    "BAMLC0A0CM": "IG spread",
+    "STLFSI4": "Fed stress",
+    "ICSA": "Jobless claims",
+    "TLT": "Long bonds",
+    "GLD": "Gold",
+    "UUP": "US dollar",
+}
+
 
 def metrics_by_ticker(bars: Mapping[str, object]) -> dict[str, dict[str, object]]:
     return {
@@ -35,15 +60,27 @@ def mapping(value: object) -> Mapping[str, Any]:
 def number(value: object) -> float | None:
     if value is None or isinstance(value, bool):
         return None
+    if not isinstance(value, int | float | str):
+        return None
     try:
         parsed = float(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     return None if math.isnan(parsed) or math.isinf(parsed) else parsed
 
 
 def percent_label(value: float | None) -> str:
     return "n/a" if value is None else f"{value:.0f}%"
+
+
+def build_macro_tiles(
+    series: Mapping[str, object],
+    proxies: Mapping[str, object],
+) -> list[dict[str, object]]:
+    """Return operator-ready macro tiles for FRED series and proxy ETFs."""
+    tiles = [_macro_series_tile(series_id, series.get(series_id)) for series_id in MACRO_SERIES_IDS]
+    tiles.extend(_macro_proxy_tile(proxy_id, proxies.get(proxy_id)) for proxy_id in MACRO_PROXY_IDS)
+    return tiles
 
 
 def _metric(input_rows: list[dict[str, object]]) -> dict[str, object]:
@@ -64,6 +101,7 @@ def _metric(input_rows: list[dict[str, object]]) -> dict[str, object]:
         "return_5d_pct": _window_return(usable_closes, 5, fallback_return),
         "return_20d_pct": _window_return(usable_closes, 20, fallback_return),
         "return_60d_pct": _window_return(usable_closes, 60, fallback_return),
+        "return_20d_pct_5d_ago": _window_return_offset(usable_closes, 20, 5),
         "realized_vol_10d": _realized_vol(daily_returns[-10:]),
         "cmf_14": _cmf(ordered[-14:]),
         "obv_trend": _obv_trend(ordered),
@@ -74,6 +112,116 @@ def _window_return(closes: Sequence[float], sessions: int, fallback: float | Non
     if len(closes) < 2:
         return fallback
     return _pct(closes[-1], closes[max(0, len(closes) - sessions - 1)])
+
+
+def _window_return_offset(closes: Sequence[float], sessions: int, offset: int) -> float | None:
+    if len(closes) < sessions + offset + 1:
+        return None
+    tail = closes[: len(closes) - offset]
+    return _window_return(tail, sessions, None)
+
+
+def _macro_series_tile(series_id: str, raw_rows: object) -> dict[str, object]:
+    series_rows = rows(raw_rows)
+    latest = series_rows[-1] if series_rows else {}
+    latest_value = number(latest.get("value"))
+    prior_value = number(series_rows[-2].get("value")) if len(series_rows) >= 2 else None
+    tile_class, trend, gauge = _classify_macro_series(series_id, latest_value, prior_value)
+    return {
+        "id": series_id,
+        "label": _MACRO_LABELS.get(series_id, series_id),
+        "value": _number_label(latest_value),
+        "raw_value": latest_value,
+        "class": tile_class,
+        "trend": trend,
+        "delta": _delta_label(latest_value, prior_value),
+        "as_of": str(latest.get("date") or latest.get("timestamp") or "not recorded"),
+        "gauge_style": _gauge_style(gauge),
+    }
+
+
+def _macro_proxy_tile(proxy_id: str, raw_value: object) -> dict[str, object]:
+    value = number(raw_value)
+    tile_class, trend, gauge = _classify_macro_proxy(proxy_id, value)
+    return {
+        "id": proxy_id,
+        "label": _MACRO_LABELS.get(proxy_id, proxy_id),
+        "value": "n/a" if value is None else f"{value:+.1f}%",
+        "raw_value": value,
+        "class": tile_class,
+        "trend": trend,
+        "delta": "5D proxy",
+        "as_of": "latest ETF close",
+        "gauge_style": _gauge_style(gauge),
+    }
+
+
+def _classify_macro_series(
+    series_id: str,
+    latest: float | None,
+    prior: float | None,
+) -> tuple[str, str, float]:
+    if latest is None:
+        return "neutral", "No reading", 0.0
+    delta = latest - prior if prior is not None else 0.0
+    if series_id == "VIXCLS":
+        if latest >= 35.0:
+            return "block", "High fear", latest / 45.0
+        if latest >= 20.0:
+            return "warn", "Elevated fear", latest / 35.0
+        return "pass", "Calm fear", latest / 20.0
+    if series_id == "T10Y2Y":
+        if latest < 0.0:
+            return "warn", "Curve inverted", min(1.0, abs(latest) / 1.0)
+        return "pass" if latest >= 0.75 else "neutral", "Curve normalizing", min(1.0, latest / 1.5)
+    if series_id in {"BAMLH0A0HYM2", "BAMLC0A0CM", "STLFSI4"}:
+        if delta > 0.2 or latest > (5.0 if series_id == "BAMLH0A0HYM2" else 2.0):
+            return "warn", "Stress rising", min(1.0, max(abs(delta), abs(latest)) / 5.0)
+        if delta < -0.1:
+            return "pass", "Stress easing", min(1.0, abs(delta) / 1.0)
+        return "neutral", "Stable", min(1.0, abs(latest) / 5.0)
+    if series_id == "ICSA":
+        if delta > 15_000:
+            return "warn", "Claims rising", min(1.0, delta / 75_000)
+        if delta < -15_000:
+            return "pass", "Claims easing", min(1.0, abs(delta) / 75_000)
+        return "neutral", "Claims stable", 0.25
+    if series_id == "DGS10":
+        if delta > 0.2:
+            return "warn", "Yields rising", min(1.0, delta / 1.0)
+        if delta < -0.2:
+            return "pass", "Yields easing", min(1.0, abs(delta) / 1.0)
+        return "neutral", "Yield stable", min(1.0, latest / 6.0)
+    return "neutral", "Stable", 0.25
+
+
+def _classify_macro_proxy(proxy_id: str, value: float | None) -> tuple[str, str, float]:
+    if value is None:
+        return "neutral", "No proxy", 0.0
+    magnitude = min(1.0, abs(value) / 3.0)
+    if proxy_id == "TLT" and value >= 1.0:
+        return "warn", "Bond bid", magnitude
+    if proxy_id == "GLD" and value >= 1.5:
+        return "warn", "Safety bid", magnitude
+    if proxy_id == "UUP" and value >= 1.0:
+        return "warn", "Dollar bid", magnitude
+    if value <= -1.0:
+        return "pass", "Risk appetite", magnitude
+    return "neutral", "Stable", magnitude
+
+
+def _number_label(value: float | None) -> str:
+    return "n/a" if value is None else f"{value:.2f}"
+
+
+def _delta_label(latest: float | None, prior: float | None) -> str:
+    if latest is None or prior is None:
+        return "no prior"
+    return f"{latest - prior:+.2f}"
+
+
+def _gauge_style(value: float) -> str:
+    return f"width: {round(max(0.0, min(1.0, value)) * 100)}%"
 
 
 def _realized_vol(returns: Sequence[float]) -> float | None:
@@ -102,9 +250,11 @@ def _cmf(input_rows: Sequence[Mapping[str, object]]) -> float | None:
 def _obv_trend(input_rows: Sequence[Mapping[str, object]]) -> str:
     if len(input_rows) < 2:
         latest = input_rows[-1] if input_rows else {}
-        return "UP" if (number(latest.get("close")) or 0.0) >= (
-            number(latest.get("open")) or 0.0
-        ) else "DOWN"
+        return (
+            "UP"
+            if (number(latest.get("close")) or 0.0) >= (number(latest.get("open")) or 0.0)
+            else "DOWN"
+        )
     first = number(input_rows[0].get("close")) or 0.0
     last = number(input_rows[-1].get("close")) or 0.0
     return "UP" if last >= first else "DOWN"

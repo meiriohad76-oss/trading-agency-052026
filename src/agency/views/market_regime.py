@@ -1,4 +1,5 @@
 """View-model constructors for the market_regime page."""
+
 from __future__ import annotations
 
 import asyncio
@@ -21,6 +22,38 @@ _market_regime_context_cache: dict[str, tuple[float, dict[str, object]]] = {}
 _broker_status_context_cache: dict[str, tuple[float, dict[str, object]]] = {}
 _broker_status_inflight: dict[tuple[str, int], asyncio.Task[dict[str, object]]] = {}
 DASHBOARD_BROKER_STATUS_TIMEOUT_SECONDS = 2.5
+
+_TOOLTIPS: dict[str, str] = {
+    "RISK_ON": "SPY 5D >= +1%, breadth >= 55%, and volatility below 20%. Normal candidate approval path.",
+    "RISK_OFF": "Broad market is defensive. Require stronger ticker-specific evidence before approving trades.",
+    "VOLATILE": "Realized volatility is high. Reduce sizing and prefer cleaner evidence.",
+    "ROTATING": "Sector leadership is split. Sector alignment matters more than index direction.",
+    "NEUTRAL": "No strong market regime. Candidate-specific evidence drives the decision.",
+    "DATA_LIMITED": "Not enough market-regime data is loaded to classify the backdrop.",
+    "CALM": "VIX below 20. Standard sizing can apply if candidate evidence is strong.",
+    "ELEVATED": "VIX between 20 and 35. Use reduced sizing and stronger review discipline.",
+    "HIGH": "VIX above 35. Prefer caution and smaller paper orders.",
+    "ADVANCING": "Relative strength and relative momentum are both positive. Sector is leading.",
+    "TOPPING": "Relative strength is positive, but momentum is weakening.",
+    "BASING": "Relative strength is still negative, but momentum is improving.",
+    "DECLINING": "Relative strength and momentum are both negative. Sector is underperforming.",
+    "VIXCLS": "VIX fear gauge. Below 20 is calm; above 35 is high fear.",
+    "T10Y2Y": "10-year minus 2-year Treasury yield spread. Negative means inverted curve.",
+    "DGS10": "10-year Treasury yield. Fast rises can pressure equity valuations.",
+    "BAMLH0A0HYM2": "High-yield credit spread. Widening is risk-off.",
+    "BAMLC0A0CM": "Investment-grade credit spread. Widening means tighter credit conditions.",
+    "STLFSI4": "St. Louis Fed financial stress index. Rising stress is defensive.",
+    "ICSA": "Weekly initial jobless claims. Rising claims can signal labor-market weakening.",
+    "TLT": "Long-bond ETF 5D return. A sharp bond bid can indicate flight to safety.",
+    "GLD": "Gold ETF 5D return. A sharp rise may indicate stress or dollar weakness.",
+    "UUP": "US dollar ETF 5D return. A sharp rise can pressure risk assets.",
+    "flow_confirmed": "CMF is positive and OBV trend is rising. Sector flow confirms accumulation.",
+    "momentum_score": "Composite sector relative-strength score versus SPY.",
+    "flow_score": "Chaikin Money Flow. Positive means accumulation; negative means distribution.",
+    "rs_ratio": "Sector 20D return minus SPY 20D return.",
+    "rs_momentum": "Change in relative-strength ratio over the last five sessions.",
+    "conviction_boost": "Sector tailwind/headwind adjustment applied to candidate conviction.",
+}
 
 
 def load_market_regime_snapshot() -> dict[str, object]:
@@ -78,6 +111,7 @@ async def refresh_market_regime_context() -> dict[str, object]:
     _store_market_regime_context(context)
     return context
 
+
 def _format_market_regime_timestamps(context: dict[str, object]) -> None:
     summary = context.get("summary")
     if isinstance(summary, dict):
@@ -88,6 +122,7 @@ def _adapt_market_regime_context(context: dict[str, object]) -> dict[str, object
     adapted = deepcopy(context)
     if isinstance(adapted.get("summary"), dict):
         adapted.setdefault("active_nav", "market")
+        adapted.setdefault("tooltips", _TOOLTIPS)
         return adapted
     backdrop = _mapping(adapted.get("market_backdrop"))
     bluf = _mapping(adapted.get("bluf"))
@@ -95,6 +130,7 @@ def _adapt_market_regime_context(context: dict[str, object]) -> dict[str, object
     regime_label = _human_label(backdrop.get("regime"), fallback="Data Limited")
     confidence_pct = round(_float(backdrop.get("confidence")) * 100)
     adapted["active_nav"] = "market"
+    adapted["tooltips"] = _TOOLTIPS
     adapted["summary"] = {
         "topbar_label": f"{backdrop.get('regime', 'DATA_LIMITED')} / data through {data_as_of}",
         "status_class": str(backdrop.get("status_class") or bluf.get("status_class") or "warn"),
@@ -109,7 +145,6 @@ def _adapt_market_regime_context(context: dict[str, object]) -> dict[str, object
     adapted["breadth"] = _breadth_from_snapshot(_mapping(adapted.get("breadth")))
     adapted["benchmark_rows"] = _benchmark_rows_from_snapshot(adapted.get("benchmarks"))
     adapted["sector_rows"] = _sector_rows_from_snapshot(adapted.get("sector_map"), data_as_of)
-    adapted["quality_rows"] = list(_list(adapted.get("data_sources")))
     adapted["universe"] = {
         "member_count": len(_mapping(adapted.get("per_stock_context"))),
         "priced_count": len(_mapping(adapted.get("per_stock_context"))),
@@ -195,14 +230,22 @@ def _sector_rows_from_snapshot(sector_map: object, data_as_of: str) -> list[dict
 
 def _sector_row(index: int, row: dict[str, object], data_as_of: str) -> dict[str, object]:
     boost = _float(row.get("conviction_boost"))
+    cmf = row.get("cmf_14")
     return {
         "rank": index,
         "ticker": str(row.get("ticker", "")),
         "label": str(row.get("ticker", "")),
+        "state": str(row.get("state", "UNKNOWN")),
+        "quadrant": str(row.get("quadrant", "")),
+        "flow_confirmed": bool(row.get("flow_confirmed", False)),
+        "cmf_14_label": f"{_float(cmf):+.3f}" if cmf is not None else "n/a",
+        "conviction_boost": boost,
+        "conviction_boost_pct": f"{abs(boost * 100):.0f}",
         "stance": _human_label(row.get("bias"), fallback="Neutral"),
         "stance_class": str(row.get("status_class", "neutral")),
         "score_label": f"{_float(row.get('score')):+.2f}",
         "score_gauge_style": _gauge_style(row.get("score"), 3.0),
+        "return_5d_class": _tone_class(_float(row.get("return_5d_pct"))),
         "return_20d": _signed_pct(row.get("return_20d_pct")),
         "return_20d_class": _tone_class(_float(row.get("return_20d_pct"))),
         "return_20d_gauge_style": _gauge_style(row.get("return_20d_pct"), 15.0),
@@ -257,9 +300,11 @@ def _mapping(value: object) -> dict[str, object]:
 def _float(value: object) -> float:
     if value is None or isinstance(value, bool):
         return 0.0
+    if not isinstance(value, int | float | str):
+        return 0.0
     try:
         return float(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return 0.0
 
 
@@ -392,6 +437,7 @@ async def broker_status_context(
         _store_broker_status_context(cache_key, context)
     return context
 
+
 def _cached_market_regime_context() -> dict[str, object] | None:
     cached = _market_regime_context_cache.get("latest")
     if cached is None:
@@ -402,8 +448,10 @@ def _cached_market_regime_context() -> dict[str, object] | None:
         return None
     return dict(context)
 
+
 def _store_market_regime_context(context: dict[str, object]) -> None:
     _market_regime_context_cache["latest"] = (monotonic(), dict(context))
+
 
 def _market_regime_provider_label(context: dict[str, object]) -> str | None:
     data_source = context.get("data_source")

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+# ruff: noqa: I001
+
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -16,24 +18,13 @@ from agency.market_regime.analyzer import (
 )
 from agency.market_regime.fetcher import load_state_json, refresh_regime_state, write_state_json
 from agency.market_regime.metrics import (
+    build_macro_tiles as _build_macro_tiles,
     latest_date as _latest_date,
-)
-from agency.market_regime.metrics import (
     mapping as _mapping,
-)
-from agency.market_regime.metrics import (
     metrics_by_ticker as _metrics_by_ticker,
-)
-from agency.market_regime.metrics import (
     number as _float,
-)
-from agency.market_regime.metrics import (
     percent_label as _pct_label,
-)
-from agency.market_regime.metrics import (
     rows as _rows,
-)
-from agency.market_regime.metrics import (
     sector_spread as _sector_spread,
 )
 from agency.market_regime.policy import RegimePolicy
@@ -49,7 +40,7 @@ MACRO_PROXIES = ("TLT", "GLD", "UUP")
 def build_regime_snapshot(
     *,
     state_dir: Path = DEFAULT_STATE_DIR,
-    broker_positions: list[dict] | None = None,
+    broker_positions: list[dict[str, object]] | None = None,
     policy: RegimePolicy | None = None,
     generated_at: str | None = None,
     refresh_mode: Literal["pre_market", "intraday", "post_market", "manual"] = "manual",
@@ -68,14 +59,16 @@ def build_regime_snapshot(
     sector_map = _sector_map(metrics, active_policy)
     spread = _sector_spread(sector_map)
     market_backdrop = _market_backdrop(metrics, breadth, macro, spread, active_policy)
-    market_backdrop.update(macro["vol"])
-    market_backdrop.update(macro["tilt"])
+    market_backdrop.update(_mapping(macro["vol"]))
+    market_backdrop.update(_mapping(macro["tilt"]))
     stock_context = per_stock_context(
         sorted(_ticker_sector_map().keys()),
         _ticker_sector_map(),
         sector_map,
     )
-    intraday_drift = analyze_intraday_drift(_mapping(state["intraday_bars"]), morning_rank=list(sector_map))
+    intraday_drift = analyze_intraday_drift(
+        _mapping(state["intraday_bars"]), morning_rank=list(sector_map)
+    )
     snapshot: dict[str, object] = {
         "schema_version": "1.0.0",
         "generated_at": generated,
@@ -98,7 +91,14 @@ def build_regime_snapshot(
 
 
 def _load_state(state_dir: Path) -> dict[str, object]:
-    names = ("etf_bars", "intraday_bars", "grouped_daily", "macro_fred", "macro_proxies", "last_regime")
+    names = (
+        "etf_bars",
+        "intraday_bars",
+        "grouped_daily",
+        "macro_fred",
+        "macro_proxies",
+        "last_regime",
+    )
     return {name: load_state_json(state_dir / f"{name}.json") for name in names}
 
 
@@ -138,14 +138,15 @@ def _sector_map(
     policy: RegimePolicy,
 ) -> dict[str, dict[str, object]]:
     spy_20d = _float(_mapping(metrics.get("SPY")).get("return_20d_pct")) or 0.0
-    spy_5d = _float(_mapping(metrics.get("SPY")).get("return_5d_pct")) or 0.0
+    spy_20d_5d_ago = _float(_mapping(metrics.get("SPY")).get("return_20d_pct_5d_ago")) or 0.0
     result: dict[str, dict[str, object]] = {}
     for ticker in SECTOR_ETFS:
         metric = _mapping(metrics.get(ticker))
         if not metric:
             continue
         rs_ratio = (_float(metric.get("return_20d_pct")) or 0.0) - spy_20d
-        rs_momentum = ((_float(metric.get("return_5d_pct")) or 0.0) - spy_5d) - rs_ratio
+        rs_ratio_5d_ago = (_float(metric.get("return_20d_pct_5d_ago")) or 0.0) - spy_20d_5d_ago
+        rs_momentum = rs_ratio - rs_ratio_5d_ago
         state = classify_sector_state(
             rs_ratio,
             rs_momentum,
@@ -173,14 +174,16 @@ def _macro(
     yield_curve = _latest_series_value(series, "T10Y2Y")
     credit_delta = _series_delta(series, "BAMLH0A0HYM2")
     tlt_5d = _float(_mapping(metrics.get("TLT")).get("return_5d_pct"))
+    proxies = {
+        ticker: _float(_mapping(metrics.get(ticker)).get("return_5d_pct"))
+        for ticker in MACRO_PROXIES
+    }
     return {
         "series": series,
-        "tiles": _macro_tiles(series),
+        "tiles": _build_macro_tiles(series, proxies),
         "vol": classify_vol_regime(vix, policy),
         "tilt": classify_macro_tilt(yield_curve, credit_delta, tlt_5d, policy),
-        "proxies": {
-            ticker: _mapping(metrics.get(ticker)).get("return_5d_pct") for ticker in MACRO_PROXIES
-        },
+        "proxies": proxies,
     }
 
 
@@ -212,7 +215,11 @@ def _portfolio_context(
     positions: Sequence[Mapping[str, object]],
     stock_context: Mapping[str, Mapping[str, object]],
 ) -> dict[str, list[dict[str, object]]]:
-    buckets = {"headwind_positions": [], "topping_positions": [], "tailwind_positions": []}
+    buckets: dict[str, list[dict[str, object]]] = {
+        "headwind_positions": [],
+        "topping_positions": [],
+        "tailwind_positions": [],
+    }
     for position in positions:
         ticker = str(position.get("ticker") or position.get("symbol") or "").upper()
         context = _mapping(stock_context.get(ticker))
@@ -233,7 +240,9 @@ def _data_sources(
 ) -> list[dict[str, object]]:
     return [
         _source("OHLCV", "PASS" if bars else "BLOCK", f"{len(bars)} ETF series loaded"),
-        _source("FRED", "PASS" if _mapping(state["macro_fred"]).get("series") else "WARN", "macro cache"),
+        _source(
+            "FRED", "PASS" if _mapping(state["macro_fred"]).get("series") else "WARN", "macro cache"
+        ),
         _source("COMPUTE", "PASS" if sector_map else "WARN", f"{len(sector_map)} sectors analyzed"),
         _source("FLOW", "PASS" if sector_map else "WARN", "CMF/OBV sector flow"),
     ]
@@ -273,14 +282,6 @@ def _source(label: str, status: str, detail: str) -> dict[str, object]:
     return {"label": label, "status": status, "status_class": status.lower(), "detail": detail}
 
 
-def _macro_tiles(series: Mapping[str, object]) -> list[dict[str, object]]:
-    ids = ("VIXCLS", "T10Y2Y", "DGS10", "BAMLH0A0HYM2", "BAMLC0A0CM", "STLFSI4", "ICSA")
-    return [
-        {"id": series_id, "value": _latest_series_value(series, series_id), "label": series_id}
-        for series_id in ids
-    ]
-
-
 def _latest_series_value(series: Mapping[str, object], series_id: str) -> float | None:
     rows = _rows(series.get(series_id))
     return _float(rows[-1].get("value")) if rows else None
@@ -293,4 +294,3 @@ def _series_delta(series: Mapping[str, object], series_id: str) -> float | None:
     latest = _float(rows[-1].get("value"))
     prior = _float(rows[0].get("value"))
     return None if latest is None or prior is None else (latest - prior) * 100.0
-
