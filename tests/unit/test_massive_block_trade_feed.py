@@ -142,7 +142,7 @@ def test_derive_massive_block_trade_feed_enriches_trf_candidate_rows(
                 "price": 100.0,
                 "size": 120,
                 "exchange": "4",
-                "trf_id": "202",
+                "trf_id": "202.0",
                 "is_block_trade": False,
                 "is_off_exchange": False,
             }

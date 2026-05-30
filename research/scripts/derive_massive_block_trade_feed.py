@@ -470,7 +470,7 @@ def _trf_venue_series(frame: pd.DataFrame, trf: pd.Series) -> pd.Series:
         existing = _text_series(frame, "trf_venue")
     else:
         existing = pd.Series(["" for _ in range(len(frame))], index=frame.index)
-    trf_id = _text_series(frame, "trf_id")
+    trf_id = _text_series(frame, "trf_id").str.replace(r"\.0$", "", regex=True)
     mapped = trf_id.map(lambda value: TRF_VENUES.get(value, f"FINRA TRF {value}" if value else ""))
     return existing.where(existing.ne(""), mapped).where(trf, "")
 
