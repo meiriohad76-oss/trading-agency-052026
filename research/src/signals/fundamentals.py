@@ -66,6 +66,10 @@ class FundamentalsPriceLoader(Protocol):
     def prices(self, tickers: list[str], as_of: date, lookback_days: int) -> object: ...
 
 
+class ForwardFundamentalsLoader(Protocol):
+    def forward_fundamentals(self, ticker: str, as_of: date) -> dict[str, object]: ...
+
+
 def fundamental_score(
     as_of: date,
     universe: set[str],
@@ -73,6 +77,7 @@ def fundamental_score(
     *,
     history_loader: FundamentalsHistoryLoader | None = None,
     price_loader: FundamentalsPriceLoader | None = None,
+    forward_loader: ForwardFundamentalsLoader | None = None,
 ) -> dict[str, float]:
     """Return a PIT-safe fundamentals composite score per ticker."""
     frame = fundamental_factor_frame(
@@ -81,6 +86,7 @@ def fundamental_score(
         loader,
         history_loader=history_loader,
         price_loader=price_loader,
+        forward_loader=forward_loader,
     )
     scores: dict[str, float] = {}
     for row in frame.itertuples(index=False):
@@ -97,6 +103,7 @@ def fundamental_factor_frame(
     *,
     history_loader: FundamentalsHistoryLoader | None = None,
     price_loader: FundamentalsPriceLoader | None = None,
+    forward_loader: ForwardFundamentalsLoader | None = None,
 ) -> pd.DataFrame:
     """Build the fundamentals factor cross-section known at `as_of`."""
     rows = []
@@ -112,6 +119,8 @@ def fundamental_factor_frame(
             row.update(_history_factors(ticker, as_of, history_loader))
         if price_loader is not None:
             row.update(_valuation_factors(ticker, as_of, payload, price_loader))
+        if forward_loader is not None:
+            row.update(_forward_factors(ticker, as_of, forward_loader))
         rows.append(row)
     frame = pd.DataFrame(rows, columns=CONTRACT_COLUMNS)
     if frame.empty:
@@ -229,6 +238,25 @@ def _valuation_factors(
     }
 
 
+def _forward_factors(
+    ticker: str,
+    as_of: date,
+    forward_loader: ForwardFundamentalsLoader,
+) -> dict[str, object]:
+    try:
+        state = forward_loader.forward_fundamentals(ticker, as_of)
+    except DataNotAvailableAt:
+        return {"forward_data_status": "missing"}
+    return {
+        "forward_pe": _positive_float(state.get("forward_pe")),
+        "forward_eps": _float(state.get("forward_eps")),
+        "eps_beat_rate": _float(state.get("eps_beat_rate")),
+        "analyst_count": _float(state.get("analyst_count")),
+        "forward_data_status": str(state.get("forward_data_status") or "missing"),
+        "forward_data_as_of": state.get("forward_data_as_of"),
+    }
+
+
 def _to_pandas(value: object) -> pd.DataFrame:
     if isinstance(value, pd.DataFrame):
         return value
@@ -277,7 +305,8 @@ def _add_subscores(frame: pd.DataFrame) -> None:
         ],
     )
     _add_subscore(frame, "valuation_score", ["fcf_yield", "inverse_trailing_pe"])
-    frame["forward_score"] = pd.NA
+    frame["inverse_forward_pe"] = -pd.to_numeric(frame["forward_pe"], errors="coerce")
+    _add_subscore(frame, "forward_score", ["inverse_forward_pe", "eps_beat_rate"])
     score_columns = ["quality_score", "growth_score", "valuation_score", "forward_score"]
     frame["composite_score"] = frame[score_columns].mean(axis=1, skipna=True).fillna(0.0)
 

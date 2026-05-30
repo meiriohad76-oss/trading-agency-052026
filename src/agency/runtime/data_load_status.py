@@ -9,6 +9,10 @@ from typing import cast
 from zoneinfo import ZoneInfo
 
 import pandas as pd
+from fundamentals.forward_state import (
+    FORWARD_SOURCE_NAME,
+    forward_fundamentals_source_health,
+)
 from news.consumption import load_news_consumption_entries
 
 from agency.runtime.data_refresh_progress import load_data_refresh_progress
@@ -48,6 +52,9 @@ DEFAULT_SUBSCRIPTION_EMAIL_PROGRESS_PATH = (
     / "results"
     / "latest-subscription-emails"
     / "subscription-email-progress.json"
+)
+DEFAULT_FORWARD_FUNDAMENTALS_STATE_ROOT = (
+    REPO_ROOT / "research" / "data" / "state" / "fundamentals"
 )
 
 CORE_DATASETS = ("prices_daily", "stock_trades")
@@ -128,7 +135,7 @@ LANE_DATASET = {
 SOURCE_BLOCKING_STATUSES = {"UNAVAILABLE", "STALE", "RATE_LIMITED"}
 SOURCE_WARNING_STATUSES = {"DEGRADED", "AGING", "UNKNOWN"}
 CRITICAL_SOURCE_NAMES = {"daily-market-bars", "massive-stock-trades"}
-TRACKED_SOURCE_NAMES = set(DATASET_SOURCE.values())
+TRACKED_SOURCE_NAMES = set(DATASET_SOURCE.values()) | {FORWARD_SOURCE_NAME}
 TRADE_PULL_BLOCKING_STATES = {"failed", "blocked", "stale", "unverified"}
 MASSIVE_DAILY_BARS_LANE_ID = "massive_daily_bars"
 MASSIVE_LIVE_TRADE_LANE_ID = "massive_live_trade_slices"
@@ -150,6 +157,7 @@ SOURCE_HEALTH_MAX_AGE_BY_SOURCE = {
     "sec-13f": 30 * 24 * 60 * 60,
     "rss-news": SOURCE_HEALTH_MAX_AGE_SECONDS,
     "subscription-email-thesis": SOURCE_HEALTH_MAX_AGE_SECONDS,
+    FORWARD_SOURCE_NAME: 7 * 24 * 60 * 60,
 }
 EASTERN = ZoneInfo("America/New_York")
 WEEKEND_START = 5
@@ -224,6 +232,14 @@ def load_data_load_status(
         daily_as_of=as_of,
         now=current,
     )
+    source_health = [
+        *source_health,
+        forward_fundamentals_source_health(
+            active_tickers,
+            state_root=DEFAULT_FORWARD_FUNDAMENTALS_STATE_ROOT,
+            now=current,
+        ),
+    ]
     monitored_source_health = _monitored_source_health(source_health)
     health_monitor = _health_monitor_summary(
         monitored_source_health,

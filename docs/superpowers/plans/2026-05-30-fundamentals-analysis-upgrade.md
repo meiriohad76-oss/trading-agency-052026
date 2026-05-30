@@ -505,7 +505,7 @@ git commit -m "feat(fundamentals): add FMP earnings and analyst estimate state"
 - `fundamental_factor_frame()` accepts `forward_loader` and fills `forward_pe`, `forward_eps`, `eps_beat_rate`, `analyst_count`, and `forward_score`.
 - Dashboard/source health can show optional forward data as a warning, never a blocker for SEC-backed fundamentals.
 
-- [ ] **Step 1: Add tests**
+- [x] **Step 1: Add tests**
 
 Create `tests/unit/test_forward_fundamentals_state.py`:
 
@@ -517,7 +517,7 @@ def test_forward_score_is_none_when_optional_state_missing() -> None: ...
 def test_forward_state_health_is_warning_not_blocker() -> None: ...
 ```
 
-- [ ] **Step 2: Implement state reader**
+- [x] **Step 2: Implement state reader**
 
 Create `research/src/fundamentals/forward_state.py` with:
 
@@ -528,11 +528,11 @@ class ForwardFundamentalsLoader(Protocol):
 
 Default freshness SLA: 7 calendar days for yfinance/FMP forward state unless config says otherwise.
 
-- [ ] **Step 3: Wire into scoring**
+- [x] **Step 3: Wire into scoring**
 
 Modify `research/src/signals/fundamentals.py` so optional forward fields populate the shared detail contract. If state is not `ready`, set forward fields to `None` and keep SEC-based score valid.
 
-- [ ] **Step 4: Wire health**
+- [x] **Step 4: Wire health**
 
 Use `src/agency/runtime/lane_state.py` and `src/agency/runtime/data_load_status.py`. The displayed wording must be:
 
@@ -541,13 +541,13 @@ Use `src/agency/runtime/lane_state.py` and `src/agency/runtime/data_load_status.
 - `Forward fundamentals needs refresh`
 - `Forward fundamentals provider error`
 
-- [ ] **Step 5: Verify**
+- [x] **Step 5: Verify**
 
 ```powershell
 .\.venv\Scripts\python -m pytest tests\unit\test_forward_fundamentals_state.py tests\unit\test_fundamentals_growth.py -v
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add research/src/fundamentals/forward_state.py research/src/signals/fundamentals.py src/agency/runtime/lane_state.py src/agency/runtime/data_load_status.py tests/unit/test_forward_fundamentals_state.py

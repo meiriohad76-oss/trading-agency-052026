@@ -107,6 +107,73 @@ def test_data_load_status_is_ready_with_full_core_and_sparse_context(
     )
 
 
+def test_forward_fundamentals_health_warns_without_blocking_core_readiness(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    paths = _fixtures(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        data_load_status_module,
+        "DEFAULT_FORWARD_FUNDAMENTALS_STATE_ROOT",
+        tmp_path / "forward_state",
+    )
+    _write_manifest(paths["manifest_root"], "prices_daily", row_count=20, tickers=["AAPL", "MSFT"])
+    _write_manifest(paths["manifest_root"], "stock_trades", row_count=200, tickers=["AAPL", "MSFT"])
+    _write_manifest(paths["manifest_root"], "sec_company_facts", row_count=100, path="sec_company_facts")
+    _partition(paths["parquet_root"], "sec_company_facts", "AAPL")
+    _partition(paths["parquet_root"], "sec_company_facts", "MSFT")
+    _write_manifest(paths["manifest_root"], "sec_form4", row_count=12, path="sec_form4")
+    _partition(paths["parquet_root"], "sec_form4", "AAPL")
+    _write_manifest(paths["manifest_root"], "sec_13f", row_count=4, path="sec_13f")
+    _write_manifest(paths["manifest_root"], "news_rss", row_count=2)
+    _write_manifest(paths["manifest_root"], "subscription_emails", row_count=1)
+    _write_runtime_summary(
+        paths["runtime_summary"],
+        {
+            "abnormal_volume": 2,
+            "technical_analysis": 2,
+            "buy_sell_pressure": 2,
+            "block_trade_pressure": 2,
+            "unusual_trade_activity": 2,
+            "pre_market_unusual_activity": 2,
+            "market_flow_trend": 2,
+            "fundamentals": 2,
+            "insider": 2,
+            "institutional": 1,
+            "news": 1,
+            "subscription_thesis": 1,
+        },
+    )
+    _write_source_health(
+        paths["source_health"],
+        [
+            _source("daily-market-bars", freshness="FRESH", status="HEALTHY"),
+            _source("massive-stock-trades", freshness="FRESH", status="HEALTHY"),
+            _source("sec-company-facts", freshness="FRESH", status="HEALTHY"),
+            _source("sec-form4", freshness="FRESH", status="HEALTHY"),
+            _source("sec-13f", freshness="FRESH", status="HEALTHY"),
+            _source("rss-news", freshness="FRESH", status="HEALTHY"),
+            _source("subscription-email-thesis", freshness="FRESH", status="HEALTHY"),
+        ],
+    )
+
+    status = load_data_load_status(
+        config_path=paths["config"],
+        universe_path=paths["universe"],
+        manifest_root=paths["manifest_root"],
+        parquet_root=paths["parquet_root"],
+        runtime_summary_path=paths["runtime_summary"],
+        source_health_path=paths["source_health"],
+        now=datetime(2026, 5, 11, 15, 2, tzinfo=UTC),
+    )
+
+    forward = _source_row(status, "forward-fundamentals")
+    assert status["state"] == "ready"
+    assert status["blockers"] == []
+    assert forward["status_class"] == "warn"
+    assert "Forward fundamentals" in str(forward["detail"])
+
+
 def test_dynamic_readiness_uses_latest_completed_session_before_premarket(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
@@ -4132,6 +4199,16 @@ def _lane_state(status: dict[str, object], name: str) -> dict[str, object]:
         key="lane_id",
         value=name,
         missing_label="lane state",
+    )
+
+
+def _source_row(status: dict[str, object], name: str) -> dict[str, object]:
+    return _row_by_key(
+        status,
+        collection="freshness_rows",
+        key="source",
+        value=name,
+        missing_label="source",
     )
 
 
