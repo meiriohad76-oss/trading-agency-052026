@@ -64,7 +64,7 @@ def number(value: object) -> float | None:
         return None
     try:
         parsed = float(value)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return None
     return None if math.isnan(parsed) or math.isinf(parsed) else parsed
 
@@ -165,7 +165,7 @@ def _classify_macro_series(
         return "neutral", "No reading", 0.0
     delta = latest - prior if prior is not None else 0.0
     if series_id == "VIXCLS":
-        if latest >= 35.0:
+        if latest > 35.0:
             return "block", "High fear", latest / 45.0
         if latest >= 20.0:
             return "warn", "Elevated fear", latest / 35.0
