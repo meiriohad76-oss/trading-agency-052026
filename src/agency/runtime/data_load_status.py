@@ -232,6 +232,7 @@ def load_data_load_status(
         daily_as_of=as_of,
         now=current,
     )
+    monitored_source_health_base = _monitored_source_health(source_health)
     source_health = [
         *source_health,
         forward_fundamentals_source_health(
@@ -242,7 +243,7 @@ def load_data_load_status(
     ]
     monitored_source_health = _monitored_source_health(source_health)
     health_monitor = _health_monitor_summary(
-        monitored_source_health,
+        monitored_source_health_base,
         origin=source_origin,
         now=current,
         source_file=source_file_for_monitor,

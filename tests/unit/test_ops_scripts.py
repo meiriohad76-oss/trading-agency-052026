@@ -701,28 +701,26 @@ def test_check_local_runtime_fails_slow_cockpit_api_total_time() -> None:
         )
 
 
-def test_check_local_runtime_uses_route_budget_timeout(
+def test_check_local_runtime_full_body_routes_use_httpx_get(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    observed_timeouts: list[float] = []
+    observed: list[dict[str, object]] = []
 
     class Response:
-        status = 200
+        status_code = 200
+        text = "[]"
 
-        def __enter__(self) -> Response:
-            return self
+        class Elapsed:
+            def total_seconds(self) -> float:
+                return 0.02
 
-        def __exit__(self, *_args: object) -> None:
-            return None
+        elapsed = Elapsed()
 
-        def read(self) -> bytes:
-            return b"[]"
-
-    def fake_urlopen(_request: object, *, timeout: float) -> Response:
-        observed_timeouts.append(timeout)
+    def fake_get(url: str, **kwargs: object) -> Response:
+        observed.append({"url": url, **kwargs})
         return Response()
 
-    monkeypatch.setattr(local_runtime, "urlopen", fake_urlopen)
+    monkeypatch.setattr(local_runtime.httpx, "get", fake_get)
 
     result = local_runtime._fetch_text_with_timing(
         "http://example.test",
@@ -730,7 +728,82 @@ def test_check_local_runtime_uses_route_budget_timeout(
     )
 
     assert result["payload"] == "[]"
-    assert observed_timeouts == [pytest.approx(7.0)]
+    assert observed == [
+        {
+            "url": "http://example.test/reports/selection",
+            "follow_redirects": True,
+            "timeout": pytest.approx(local_runtime.HTTP_TIMEOUT_SECONDS),
+        }
+    ]
+
+
+def test_check_local_runtime_first_byte_routes_keep_full_read_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed_timeouts: list[object] = []
+    observed_chunk_sizes: list[int | None] = []
+
+    class Response:
+        status_code = 200
+
+        def __enter__(self) -> Response:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def iter_bytes(self, chunk_size: int | None = None) -> list[bytes]:
+            observed_chunk_sizes.append(chunk_size)
+            payload = b"<html>Cockpit</html>"
+            return [payload] if chunk_size is None else [payload[:chunk_size], b"rest"]
+
+    def fake_stream(_method: str, _url: str, **kwargs: object) -> Response:
+        observed_timeouts.append(kwargs["timeout"])
+        return Response()
+
+    monkeypatch.setattr(local_runtime.httpx, "stream", fake_stream)
+
+    result = local_runtime._fetch_text_with_timing(
+        "http://example.test",
+        "/cockpit",
+    )
+
+    assert result["payload"] == "<"
+    assert observed_timeouts == [pytest.approx(local_runtime.HTTP_TIMEOUT_SECONDS)]
+    assert observed_chunk_sizes == [1]
+
+
+def test_check_local_runtime_retries_transport_reset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    attempts = 0
+
+    class Response:
+        status_code = 200
+        text = '[{"ticker":"NVDA"}]'
+
+        class Elapsed:
+            def total_seconds(self) -> float:
+                return 0.02
+
+        elapsed = Elapsed()
+
+    def fake_get(*_args: object, **_kwargs: object) -> Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
+            raise local_runtime.httpx.TransportError("reset")
+        return Response()
+
+    monkeypatch.setattr(local_runtime.httpx, "get", fake_get)
+
+    result = local_runtime._fetch_text_with_timing(
+        "http://example.test",
+        "/reports/selection",
+    )
+
+    assert result["payload"] == '[{"ticker":"NVDA"}]'
+    assert result["attempt"] == 3
 
 
 def test_check_local_runtime_does_not_retry_route_timeout(
@@ -738,12 +811,12 @@ def test_check_local_runtime_does_not_retry_route_timeout(
 ) -> None:
     attempts = 0
 
-    def fake_urlopen(_request: object, *, timeout: float) -> object:
+    def fake_get(*_args: object, **_kwargs: object) -> object:
         nonlocal attempts
         attempts += 1
-        raise TimeoutError(f"timed out after {timeout}")
+        raise local_runtime.httpx.TimeoutException("timed out")
 
-    monkeypatch.setattr(local_runtime, "urlopen", fake_urlopen)
+    monkeypatch.setattr(local_runtime.httpx, "get", fake_get)
 
     with pytest.raises(RuntimeError, match="/api/cockpit is unavailable"):
         local_runtime._fetch_text_with_timing("http://example.test", "/api/cockpit")
@@ -1024,25 +1097,23 @@ def test_check_local_runtime_fetch_text_survives_two_connection_resets(
     attempts = 0
 
     class Response:
-        status = 200
+        status_code = 200
+        text = "ok"
 
-        def __enter__(self) -> Response:
-            return self
+        class Elapsed:
+            def total_seconds(self) -> float:
+                return 0.02
 
-        def __exit__(self, *_args: object) -> None:
-            return None
+        elapsed = Elapsed()
 
-        def read(self) -> bytes:
-            return b"ok"
-
-    def fake_urlopen(*_args: object, **_kwargs: object) -> Response:
+    def fake_get(*_args: object, **_kwargs: object) -> Response:
         nonlocal attempts
         attempts += 1
         if attempts < 3:
-            raise ConnectionResetError("reset")
+            raise local_runtime.httpx.TransportError("reset")
         return Response()
 
-    monkeypatch.setattr(local_runtime, "urlopen", fake_urlopen)
+    monkeypatch.setattr(local_runtime.httpx, "get", fake_get)
 
     result = local_runtime._fetch_text_with_timing("http://example.test", "/status")
 

@@ -396,8 +396,6 @@ def test_return_20d_pct_5d_ago_is_computed() -> None:
 
     assert "return_20d_pct_5d_ago" in result["SPY"], \
         "metrics_by_ticker must include return_20d_pct_5d_ago"
-    # With 30 bars: 5d_ago close = closes[24] = 112.0; 25d_ago close = closes[4] = 102.0
-    # return_20d_pct_5d_ago = (112.0 / 102.0 - 1) * 100
     expected = round((closes[24] / closes[4] - 1.0) * 100.0, 2)
     assert abs(result["SPY"]["return_20d_pct_5d_ago"] - expected) < 0.01
 

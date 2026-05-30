@@ -24,6 +24,8 @@ This plan replaces the earlier draft and fixes the execution hazards found in re
 - yfinance and FMP JSON state must be integrated into scoring/evidence and lane health, not merely written to disk.
 - FMP tests must match dataclass constructor names.
 - The 12-card evidence panel must depend only on fields guaranteed by the scoring/detail contract.
+- This checkout has no root `package.json`; the stale `npm run check:no-bootstrap-data`
+  smoke is replaced by the existing Python live-dashboard QA smoke.
 
 ---
 
@@ -637,7 +639,7 @@ git commit -m "feat(fundamentals): add detailed fundamentals evidence panel"
 - A live SEC-backed fundamentals smoke confirms the agency universe remains 168 and no bootstrap/test data is used.
 - Candidate detail displays real SEC-backed fundamentals evidence.
 
-- [ ] **Step 1: Run targeted suite**
+- [x] **Step 1: Run targeted suite**
 
 ```powershell
 .\.venv\Scripts\python -m pytest `
@@ -652,36 +654,37 @@ git commit -m "feat(fundamentals): add detailed fundamentals evidence panel"
   tests\unit\test_signal_evidence_fundamentals.py -v
 ```
 
-- [ ] **Step 2: Run full unit suite**
+- [x] **Step 2: Run full unit suite**
 
 ```powershell
 .\.venv\Scripts\python -m pytest tests\unit -q
 ```
 
-- [ ] **Step 3: Run no-test-data smoke**
+- [x] **Step 3: Run no-test-data smoke**
 
 ```powershell
-npm run check:no-bootstrap-data
+.\.venv\Scripts\python scripts\check_dashboard_live_data_qa.py --readiness-scope review-subset
 ```
 
-Expected: tracked allowed universe remains 168 and forbidden runtime markers remain 0.
+Expected: live runtime pages and operational payloads contain no bootstrap/test markers.
+The live readiness payload must still report 168 active tickers.
 
-- [ ] **Step 4: Run local runtime smoke**
+- [x] **Step 4: Run local runtime smoke**
 
 ```powershell
 .\.venv\Scripts\python scripts\check_local_runtime.py --min-selection-reports 1 --min-risk-decisions 1
 ```
 
-- [ ] **Step 5: Manual dashboard QA**
+- [x] **Step 5: Browser dashboard QA**
 
-Open the app and verify one candidate detail page:
+Run the browser QA smoke and verify one candidate detail page:
 
 - SEC filing period is readable.
 - Fundamentals cards are evidence-backed.
 - Forward provider status is visible.
 - Optional forward-data warning does not block paper-trade review.
 
-- [ ] **Step 6: Commit verification docs if created**
+- [x] **Step 6: Commit verification docs if created**
 
 ```powershell
 git status --short
@@ -706,5 +709,5 @@ If a QA note is created, save it under `docs/audits/` and commit it with the cod
 | FMP state works | `test_fmp_client.py` passes |
 | Forward state integrated | `test_forward_fundamentals_state.py` passes |
 | Evidence panel is user-readable | `test_signal_evidence_fundamentals.py` and visual QA pass |
-| No test/bootstrap fundamentals data | `npm run check:no-bootstrap-data` passes |
+| No test/bootstrap fundamentals data | `scripts/check_dashboard_live_data_qa.py --readiness-scope review-subset` passes |
 | Full unit regression | `.\.venv\Scripts\python -m pytest tests\unit -q` passes or unrelated failures are documented |

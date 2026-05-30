@@ -29,6 +29,12 @@ def test_risk_decisions_endpoint_reports_unavailable_when_storage_is_unavailable
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("AGENCY_RUNTIME_ARTIFACT_FALLBACK", "false")
+
+    async def unavailable_runtime_risk_decisions(**kwargs: object) -> list[dict[str, object]]:
+        del kwargs
+        raise RuntimeRiskDecisionsUnavailable("runtime risk-decision storage is unavailable")
+
+    monkeypatch.setattr(risk_api, "runtime_risk_decisions", unavailable_runtime_risk_decisions)
     client = TestClient(create_app())
 
     response = client.get("/risk/decisions")

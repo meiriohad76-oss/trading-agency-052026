@@ -5,15 +5,14 @@ import json
 import time
 from collections.abc import Callable, Mapping
 from typing import Any
-from urllib.error import URLError
-from urllib.request import Request, urlopen
+
+import httpx
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8000"
 HTTP_OK = 200
 SELECTION_REPORTS_ROUTE_BUDGET_SECONDS = 5.0
 COCKPIT_ROOT_FIRST_BYTE_BUDGET_SECONDS = 12.0
 HTTP_TIMEOUT_SECONDS = 30
-HTTP_TIMEOUT_GRACE_SECONDS = 2.0
 HTTP_MAX_ATTEMPTS = 4
 TimedFetchResult = Mapping[str, object]
 TimedJsonFetcher = Callable[[str, str], TimedFetchResult]
@@ -131,25 +130,11 @@ def _fetch_json_with_timing(base_url: str, path: str) -> dict[str, object]:
 
 def _fetch_text_with_timing(base_url: str, path: str) -> dict[str, object]:
     last_error: BaseException | None = None
-    timeout_seconds = _timeout_seconds_for_path(path)
+    fetcher = _fetch_first_byte_with_timing if _is_first_byte_route(path) else _fetch_full_text_with_timing
     for attempt in range(HTTP_MAX_ATTEMPTS):
-        started = time.perf_counter()
         try:
-            request = Request(f"{base_url}{path}", headers={"Connection": "close"})
-            with urlopen(request, timeout=timeout_seconds) as response:
-                first_byte_at = time.perf_counter()
-                if response.status != HTTP_OK:
-                    raise RuntimeError(f"{path} returned HTTP {response.status}")
-                text: str = response.read().decode("utf-8")
-                finished = time.perf_counter()
-                return {
-                    "path": path,
-                    "payload": text,
-                    "first_byte_seconds": round(first_byte_at - started, 3),
-                    "total_seconds": round(finished - started, 3),
-                    "attempt": attempt + 1,
-                }
-        except (ConnectionResetError, TimeoutError, URLError) as exc:
+            return fetcher(base_url, path, attempt=attempt)
+        except (ConnectionResetError, TimeoutError, httpx.TimeoutException, httpx.TransportError) as exc:
             last_error = exc
             if _is_timeout_error(exc):
                 break
@@ -159,23 +144,64 @@ def _fetch_text_with_timing(base_url: str, path: str) -> dict[str, object]:
     raise RuntimeError(f"{path} is unavailable") from last_error
 
 
-def _timeout_seconds_for_path(path: str) -> float:
-    budget = ROUTE_BUDGETS.get(path)
-    if not budget:
-        return float(HTTP_TIMEOUT_SECONDS)
-    return min(
-        float(HTTP_TIMEOUT_SECONDS),
-        max(1.0, float(budget["seconds"]) + HTTP_TIMEOUT_GRACE_SECONDS),
+def _fetch_full_text_with_timing(
+    base_url: str,
+    path: str,
+    *,
+    attempt: int,
+) -> dict[str, object]:
+    started = time.perf_counter()
+    response = httpx.get(
+        f"{base_url}{path}",
+        follow_redirects=True,
+        timeout=HTTP_TIMEOUT_SECONDS,
     )
+    finished = time.perf_counter()
+    if response.status_code != HTTP_OK:
+        raise RuntimeError(f"{path} returned HTTP {response.status_code}")
+    return {
+        "path": path,
+        "payload": response.text,
+        "first_byte_seconds": round(response.elapsed.total_seconds(), 3),
+        "total_seconds": round(finished - started, 3),
+        "attempt": attempt + 1,
+    }
+
+
+def _fetch_first_byte_with_timing(
+    base_url: str,
+    path: str,
+    *,
+    attempt: int,
+) -> dict[str, object]:
+    started = time.perf_counter()
+    with httpx.stream(
+        "GET",
+        f"{base_url}{path}",
+        follow_redirects=True,
+        timeout=HTTP_TIMEOUT_SECONDS,
+    ) as response:
+        first_byte_at = time.perf_counter()
+        if response.status_code != HTTP_OK:
+            raise RuntimeError(f"{path} returned HTTP {response.status_code}")
+        payload = next(iter(response.iter_bytes(chunk_size=1)), b"").decode("utf-8")
+        finished = time.perf_counter()
+    return {
+        "path": path,
+        "payload": payload,
+        "first_byte_seconds": round(first_byte_at - started, 3),
+        "total_seconds": round(finished - started, 3),
+        "attempt": attempt + 1,
+    }
+
+
+def _is_first_byte_route(path: str) -> bool:
+    budget = ROUTE_BUDGETS.get(path)
+    return bool(budget and budget.get("kind") == "first-byte")
 
 
 def _is_timeout_error(exc: BaseException) -> bool:
-    if isinstance(exc, TimeoutError):
-        return True
-    if isinstance(exc, URLError):
-        reason = getattr(exc, "reason", None)
-        return isinstance(reason, TimeoutError) or "timed out" in str(reason).lower()
-    return False
+    return isinstance(exc, (TimeoutError, httpx.TimeoutException))
 
 
 def _payload(result: TimedFetchResult | Any) -> Any:

@@ -51,7 +51,11 @@ def build_portfolio_snapshot(
     )
     daily_perf = compute_daily_performance(
         account,
-        ensure_daily_baseline(state_dir, account=account, date=now_dt.date().isoformat()),
+        ensure_daily_baseline(
+            state_dir,
+            account=account,
+            date=_portfolio_trading_date(now_dt),
+        ),
     )
     circuit = evaluate_circuit_breakers(
         weekly_perf,
@@ -235,6 +239,13 @@ def _float(value: Any) -> float:
 
 def _parse_utc(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(UTC)
+
+
+def _portfolio_trading_date(value: datetime) -> str:
+    candidate = value.date()
+    while candidate.weekday() >= 5:
+        candidate -= timedelta(days=1)
+    return candidate.isoformat()
 
 
 def _utc_now() -> str:
