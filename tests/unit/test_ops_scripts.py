@@ -701,6 +701,56 @@ def test_check_local_runtime_fails_slow_cockpit_api_total_time() -> None:
         )
 
 
+def test_check_local_runtime_uses_route_budget_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed_timeouts: list[float] = []
+
+    class Response:
+        status = 200
+
+        def __enter__(self) -> Response:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return b"[]"
+
+    def fake_urlopen(_request: object, *, timeout: float) -> Response:
+        observed_timeouts.append(timeout)
+        return Response()
+
+    monkeypatch.setattr(local_runtime, "urlopen", fake_urlopen)
+
+    result = local_runtime._fetch_text_with_timing(
+        "http://example.test",
+        "/reports/selection",
+    )
+
+    assert result["payload"] == "[]"
+    assert observed_timeouts == [pytest.approx(7.0)]
+
+
+def test_check_local_runtime_does_not_retry_route_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    attempts = 0
+
+    def fake_urlopen(_request: object, *, timeout: float) -> object:
+        nonlocal attempts
+        attempts += 1
+        raise TimeoutError(f"timed out after {timeout}")
+
+    monkeypatch.setattr(local_runtime, "urlopen", fake_urlopen)
+
+    with pytest.raises(RuntimeError, match="/api/cockpit is unavailable"):
+        local_runtime._fetch_text_with_timing("http://example.test", "/api/cockpit")
+
+    assert attempts == 1
+
+
 def _timed_payload(
     *,
     path: str,

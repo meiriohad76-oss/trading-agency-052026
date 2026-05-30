@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -7,6 +8,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import SQLAlchemyError
 
 from agency.api import reports as reports_api
 from agency.api.reports import RuntimeSelectionReportsUnavailable, runtime_selection_reports
@@ -21,7 +23,14 @@ EXPECTED_LIMIT = 5
 def test_selection_reports_endpoint_reports_unavailable_when_storage_is_unavailable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("AGENCY_RUNTIME_ARTIFACT_FALLBACK", "false")
+    async def unavailable_reports(**_kwargs: object) -> list[dict[str, object]]:
+        raise RuntimeSelectionReportsUnavailable("runtime selection-report storage is unavailable")
+
+    monkeypatch.setattr(
+        reports_api,
+        "runtime_selection_reports",
+        unavailable_reports,
+    )
     client = TestClient(create_app())
 
     response = client.get("/reports/selection")
@@ -33,7 +42,14 @@ def test_selection_reports_endpoint_reports_unavailable_when_storage_is_unavaila
 def test_selection_reports_for_ticker_endpoint_reports_unavailable_when_storage_is_unavailable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("AGENCY_RUNTIME_ARTIFACT_FALLBACK", "false")
+    async def unavailable_reports(**_kwargs: object) -> list[dict[str, object]]:
+        raise RuntimeSelectionReportsUnavailable("runtime selection-report storage is unavailable")
+
+    monkeypatch.setattr(
+        reports_api,
+        "runtime_selection_reports",
+        unavailable_reports,
+    )
     client = TestClient(create_app())
 
     response = client.get("/reports/selection/AAPL")
@@ -134,6 +150,105 @@ async def test_runtime_selection_reports_can_skip_internal_validation() -> None:
     )
 
     assert payloads == [{"ticker": "AAPL"}]
+
+
+async def test_runtime_selection_reports_retries_transient_storage_error() -> None:
+    attempts = 0
+
+    async def reader(
+        session: object,
+        ticker: str | None,
+        limit: int,
+    ) -> list[dict[str, object]]:
+        del session, ticker, limit
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise SQLAlchemyError("database is temporarily busy")
+        return [_selection_report()]
+
+    payloads = await runtime_selection_reports(
+        session_provider=_fake_session_provider,
+        reader=reader,
+    )
+
+    assert attempts == 2
+    assert payloads[0]["ticker"] == "AAPL"
+
+
+async def test_runtime_selection_reports_coalesces_concurrent_cached_reads() -> None:
+    reports_api._clear_runtime_selection_report_cache()
+    attempts = 0
+
+    async def reader(
+        session: object,
+        ticker: str | None,
+        limit: int,
+    ) -> list[dict[str, object]]:
+        del session, ticker, limit
+        nonlocal attempts
+        attempts += 1
+        await asyncio.sleep(0.05)
+        return [_selection_report()]
+
+    try:
+        results = await asyncio.gather(
+            *[
+                runtime_selection_reports(
+                    session_provider=_fake_session_provider,
+                    reader=reader,
+                    validate_payloads=False,
+                    use_cache=True,
+                )
+                for _ in range(8)
+            ]
+        )
+    finally:
+        reports_api._clear_runtime_selection_report_cache()
+
+    assert attempts == 1
+    assert [[row["ticker"] for row in payloads] for payloads in results] == [["AAPL"]] * 8
+
+
+async def test_runtime_selection_reports_uses_recent_live_cache_on_storage_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reports_api._clear_runtime_selection_report_cache()
+    now = 1_000.0
+    storage_available = True
+
+    monkeypatch.setattr(reports_api, "monotonic", lambda: now)
+
+    async def reader(
+        session: object,
+        ticker: str | None,
+        limit: int,
+    ) -> list[dict[str, object]]:
+        del session, ticker, limit
+        if not storage_available:
+            raise SQLAlchemyError("database is temporarily busy")
+        return [_selection_report()]
+
+    try:
+        payloads = await runtime_selection_reports(
+            session_provider=_fake_session_provider,
+            reader=reader,
+            validate_payloads=False,
+            use_cache=True,
+        )
+        now += reports_api.REPORT_CACHE_SECONDS + 0.1
+        storage_available = False
+
+        cached_payloads = await runtime_selection_reports(
+            session_provider=_fake_session_provider,
+            reader=reader,
+            validate_payloads=False,
+            use_cache=True,
+        )
+    finally:
+        reports_api._clear_runtime_selection_report_cache()
+
+    assert payloads == cached_payloads
 
 
 async def test_runtime_selection_reports_filters_demo_seed_payloads() -> None:

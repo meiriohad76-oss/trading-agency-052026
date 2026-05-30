@@ -13,6 +13,7 @@ HTTP_OK = 200
 SELECTION_REPORTS_ROUTE_BUDGET_SECONDS = 5.0
 COCKPIT_ROOT_FIRST_BYTE_BUDGET_SECONDS = 12.0
 HTTP_TIMEOUT_SECONDS = 30
+HTTP_TIMEOUT_GRACE_SECONDS = 2.0
 HTTP_MAX_ATTEMPTS = 4
 TimedFetchResult = Mapping[str, object]
 TimedJsonFetcher = Callable[[str, str], TimedFetchResult]
@@ -130,11 +131,12 @@ def _fetch_json_with_timing(base_url: str, path: str) -> dict[str, object]:
 
 def _fetch_text_with_timing(base_url: str, path: str) -> dict[str, object]:
     last_error: BaseException | None = None
+    timeout_seconds = _timeout_seconds_for_path(path)
     for attempt in range(HTTP_MAX_ATTEMPTS):
         started = time.perf_counter()
         try:
             request = Request(f"{base_url}{path}", headers={"Connection": "close"})
-            with urlopen(request, timeout=HTTP_TIMEOUT_SECONDS) as response:
+            with urlopen(request, timeout=timeout_seconds) as response:
                 first_byte_at = time.perf_counter()
                 if response.status != HTTP_OK:
                     raise RuntimeError(f"{path} returned HTTP {response.status}")
@@ -149,10 +151,31 @@ def _fetch_text_with_timing(base_url: str, path: str) -> dict[str, object]:
                 }
         except (ConnectionResetError, TimeoutError, URLError) as exc:
             last_error = exc
+            if _is_timeout_error(exc):
+                break
             if attempt < HTTP_MAX_ATTEMPTS - 1:
                 time.sleep(0.25 * (attempt + 1))
                 continue
     raise RuntimeError(f"{path} is unavailable") from last_error
+
+
+def _timeout_seconds_for_path(path: str) -> float:
+    budget = ROUTE_BUDGETS.get(path)
+    if not budget:
+        return float(HTTP_TIMEOUT_SECONDS)
+    return min(
+        float(HTTP_TIMEOUT_SECONDS),
+        max(1.0, float(budget["seconds"]) + HTTP_TIMEOUT_GRACE_SECONDS),
+    )
+
+
+def _is_timeout_error(exc: BaseException) -> bool:
+    if isinstance(exc, TimeoutError):
+        return True
+    if isinstance(exc, URLError):
+        reason = getattr(exc, "reason", None)
+        return isinstance(reason, TimeoutError) or "timed out" in str(reason).lower()
+    return False
 
 
 def _payload(result: TimedFetchResult | Any) -> Any:
@@ -171,9 +194,7 @@ def _route_timing(path: str, result: TimedFetchResult) -> dict[str, object]:
         timing["budget_seconds"] = budget["seconds"]
         timing["budget_metric"] = budget["metric"]
         timing["budget_status"] = (
-            "pass"
-            if float(timing[str(budget["metric"])]) <= float(budget["seconds"])
-            else "fail"
+            "pass" if float(timing[str(budget["metric"])]) <= float(budget["seconds"]) else "fail"
         )
     return timing
 
@@ -181,7 +202,7 @@ def _route_timing(path: str, result: TimedFetchResult) -> dict[str, object]:
 def _float_value(value: object) -> float:
     try:
         return round(float(value), 3)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return 0.0
 
 
@@ -196,8 +217,7 @@ def _enforce_route_budgets(
             label = str(budget["label"])
             kind = str(budget["kind"])
             raise RuntimeError(
-                f"{label} route exceeded {maximum:.1f}s {kind} budget "
-                f"({path}: {observed:.2f}s)"
+                f"{label} route exceeded {maximum:.1f}s {kind} budget ({path}: {observed:.2f}s)"
             )
 
 
