@@ -433,33 +433,119 @@ def _fundamentals_evidence(
     detail: Mapping[str, object],
     as_of: date,
 ) -> dict[str, object]:
+    period = _filing_period_label(detail)
+    form = _text(detail.get("filing_form"), "form unknown")
+    composite = _number(detail.get("composite_score"))
+    forward_status = _forward_fundamentals_status_label(detail.get("forward_data_status"))
     headline = (
-        f"{row['ticker']} fundamentals score reflects net margin {_pct(detail.get('net_margin'))}, "
-        f"free-cash-flow margin {_pct(detail.get('fcf_margin'))}, and leverage "
-        f"{_pct(detail.get('leverage'))}."
+        f"{row['ticker']} fundamentals score is {composite} from {period} {form}: "
+        f"net margin {_pct(detail.get('net_margin'))}, revenue growth YoY "
+        f"{_pct(detail.get('revenue_growth_yoy'))}, and leverage {_pct(detail.get('leverage'))}."
     )
     return _detail_payload(
         row,
         as_of,
         headline=headline,
         detail=(
-            "The factor ranks profitability and cash generation positively, while lower "
-            "balance-sheet leverage scores better."
+            f"SEC period alignment is {_text(detail.get('period_alignment_status'), 'unknown')}. "
+            "Quality rewards margins, returns, and lower leverage; growth rewards recent "
+            "revenue, earnings, and free-cash-flow expansion; valuation rewards lower "
+            f"trailing/forward multiples when available. {forward_status}"
         ),
         cards=[
-            _card("Net margin", _pct(detail.get("net_margin")), "Net income divided by revenue."),
             _card(
-                "FCF margin", _pct(detail.get("fcf_margin")), "Free cash flow divided by revenue."
+                "Gross margin",
+                _pct(detail.get("gross_margin")),
+                "Gross profit divided by revenue.",
+                _positive_tone(detail.get("gross_margin")),
+            ),
+            _card(
+                "Operating margin",
+                _pct(detail.get("operating_margin")),
+                "Operating income divided by revenue.",
+                _positive_tone(detail.get("operating_margin")),
+            ),
+            _card(
+                "Net margin",
+                _pct(detail.get("net_margin")),
+                "Net income divided by revenue.",
+                _positive_tone(detail.get("net_margin")),
+            ),
+            _card(
+                "FCF margin",
+                _pct(detail.get("fcf_margin")),
+                "Free cash flow divided by revenue.",
+                _positive_tone(detail.get("fcf_margin")),
+            ),
+            _card(
+                "ROE",
+                _pct(detail.get("roe")),
+                "Net income divided by total equity.",
+                _positive_tone(detail.get("roe")),
+            ),
+            _card(
+                "ROA",
+                _pct(detail.get("roa")),
+                "Net income divided by total assets.",
+                _positive_tone(detail.get("roa")),
             ),
             _card(
                 "Leverage",
                 _pct(detail.get("leverage")),
                 "Total liabilities divided by total assets.",
+                _leverage_tone(detail.get("leverage")),
+            ),
+            _card(
+                "Revenue growth YoY",
+                _pct(detail.get("revenue_growth_yoy")),
+                "Latest aligned period revenue versus the same period last year.",
+                _positive_tone(detail.get("revenue_growth_yoy")),
+            ),
+            _card(
+                "Net income growth YoY",
+                _pct(detail.get("net_income_growth_yoy")),
+                "Latest aligned period net income versus the same period last year.",
+                _positive_tone(detail.get("net_income_growth_yoy")),
+            ),
+            _card(
+                "FCF growth YoY",
+                _pct(detail.get("fcf_growth_yoy")),
+                "Latest aligned period free cash flow versus the same period last year.",
+                _positive_tone(detail.get("fcf_growth_yoy")),
+            ),
+            _card(
+                "Trailing P/E",
+                _plain_number(detail.get("trailing_pe")),
+                "Trailing market-cap-to-net-income multiple when price and shares are available.",
+                _valuation_multiple_tone(detail.get("trailing_pe")),
+            ),
+            _card(
+                "Forward P/E",
+                _plain_number(detail.get("forward_pe")),
+                "Forward valuation multiple from optional forward fundamentals state.",
+                _valuation_multiple_tone(detail.get("forward_pe")),
+            ),
+            _card(
+                "EPS beat rate",
+                _pct(detail.get("eps_beat_rate")),
+                "Recent FMP earnings surprises that beat EPS estimates.",
+                _positive_tone(detail.get("eps_beat_rate")),
+            ),
+            _card(
+                "Analyst count",
+                _integer(detail.get("analyst_count")),
+                "Analyst estimate count from optional forward providers.",
             ),
             _card(
                 "Composite score",
-                _number(detail.get("composite_score")),
-                "Cross-sectional fundamentals score.",
+                composite,
+                "Combined quality, growth, valuation, and forward score.",
+                _score_tone(detail.get("composite_score")),
+            ),
+            _card(
+                "Filing period",
+                period,
+                f"SEC form {form}; period ended {_text(detail.get('filing_period_end'), 'unknown')}.",
             ),
         ],
     )
@@ -998,6 +1084,11 @@ def _number(value: object) -> str:
     return "n/a" if parsed is None else f"{parsed:+.2f}"
 
 
+def _plain_number(value: object) -> str:
+    parsed = _float(value)
+    return "n/a" if parsed is None else f"{parsed:.2f}"
+
+
 def _pct(value: object) -> str:
     parsed = _float(value)
     return "n/a" if parsed is None else f"{parsed:+.1%}"
@@ -1093,6 +1184,61 @@ def _score_tone(value: object) -> str:
 
 def _money_tone(value: object) -> str:
     return _return_tone(value)
+
+
+def _positive_tone(value: object) -> str:
+    parsed = _float(value)
+    if parsed is None:
+        return "neutral"
+    if parsed > 0.0:
+        return "pass"
+    if parsed < 0.0:
+        return "block"
+    return "neutral"
+
+
+def _leverage_tone(value: object) -> str:
+    parsed = _float(value)
+    if parsed is None:
+        return "neutral"
+    if parsed >= 0.75:
+        return "block"
+    if parsed >= 0.5:
+        return "warn"
+    return "pass"
+
+
+def _valuation_multiple_tone(value: object) -> str:
+    parsed = _float(value)
+    if parsed is None:
+        return "neutral"
+    if parsed <= 20.0:
+        return "pass"
+    if parsed <= 35.0:
+        return "warn"
+    return "block"
+
+
+def _filing_period_label(detail: Mapping[str, object]) -> str:
+    period = _text(detail.get("filing_period"), "period unknown")
+    year = _text(detail.get("filing_year"), "")
+    return f"{period} {year}".strip()
+
+
+def _forward_fundamentals_status_label(value: object) -> str:
+    status = _text(value, "missing")
+    labels = {
+        "ready": "Forward fundamentals ready.",
+        "missing": "Forward fundamentals missing; SEC-backed fundamentals remain usable.",
+        "expired": "Forward fundamentals needs refresh; SEC-backed fundamentals remain usable.",
+        "not_configured": (
+            "Forward fundamentals not configured; optional analyst/estimate evidence is not used."
+        ),
+        "provider_error": (
+            "Forward fundamentals provider error; optional analyst/estimate evidence is not used."
+        ),
+    }
+    return labels.get(status, f"Forward fundamentals status: {status}.")
 
 
 def _meaning_label(row: Mapping[str, object]) -> str:

@@ -568,7 +568,7 @@ git commit -m "feat(fundamentals): integrate optional forward state and health"
 - Positive margins/growth are green; negative growth is red; high leverage is red.
 - No card depends on a field not emitted by the shared detail contract.
 
-- [ ] **Step 1: Add tests**
+- [x] **Step 1: Add tests**
 
 Create `tests/unit/test_signal_evidence_fundamentals.py`:
 
@@ -580,7 +580,7 @@ def test_negative_revenue_growth_gets_block_tone() -> None: ...
 def test_missing_forward_data_shows_plain_language_status() -> None: ...
 ```
 
-- [ ] **Step 2: Implement evidence panel**
+- [x] **Step 2: Implement evidence panel**
 
 Modify `src/agency/runtime/signal_evidence.py`.
 
@@ -603,7 +603,7 @@ Cards:
 15. Composite score
 16. Filing period
 
-- [ ] **Step 3: Verify**
+- [x] **Step 3: Verify**
 
 ```powershell
 .\.venv\Scripts\python -m pytest tests\unit\test_signal_evidence_fundamentals.py tests\unit\test_fundamentals_signal.py -v
@@ -618,7 +618,7 @@ Start the server, open a candidate with a fundamentals signal, and confirm:
 - Optional forward data status is visible.
 - No generic card text appears.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add src/agency/runtime/signal_evidence.py tests/unit/test_signal_evidence_fundamentals.py
