@@ -174,18 +174,31 @@ def _classify_macro_series(
         if latest < 0.0:
             return "warn", "Curve inverted", min(1.0, abs(latest) / 1.0)
         return "pass" if latest >= 0.75 else "neutral", "Curve normalizing", min(1.0, latest / 1.5)
-    if series_id in {"BAMLH0A0HYM2", "BAMLC0A0CM", "STLFSI4"}:
-        if delta > 0.2 or latest > (5.0 if series_id == "BAMLH0A0HYM2" else 2.0):
-            return "warn", "Stress rising", min(1.0, max(abs(delta), abs(latest)) / 5.0)
-        if delta < -0.1:
-            return "pass", "Stress easing", min(1.0, abs(delta) / 1.0)
-        return "neutral", "Stable", min(1.0, abs(latest) / 5.0)
+    if series_id == "BAMLH0A0HYM2":
+        # HY spread: warn if 5D delta > 50 bps; pass if tightening > 10 bps
+        if delta > 0.50:
+            return "warn", "Spreads widening", min(1.0, delta / 2.0)
+        if delta < -0.10:
+            return "pass", "Spreads tightening", min(1.0, abs(delta) / 1.0)
+        return "neutral", "Spreads stable", min(1.0, latest / 800.0)
+    if series_id == "BAMLC0A0CM":
+        if delta > 0.25:
+            return "warn", "IG spreads widening", min(1.0, delta / 1.0)
+        if delta < -0.10:
+            return "pass", "IG spreads tightening", min(1.0, abs(delta) / 1.0)
+        return "neutral", "IG spreads stable", min(1.0, latest / 300.0)
+    if series_id == "STLFSI4":
+        # FSI: level-based (positive = above-average stress)
+        if latest > 0.5:
+            return "warn", "Stress elevated", min(1.0, latest / 5.0)
+        if latest < 0.0:
+            return "pass", "Stress below average", min(1.0, abs(latest) / 3.0)
+        return "neutral", "Stress normal", min(1.0, latest / 0.5)
     if series_id == "ICSA":
-        if delta > 15_000:
-            return "warn", "Claims rising", min(1.0, delta / 75_000)
-        if delta < -15_000:
-            return "pass", "Claims easing", min(1.0, abs(delta) / 75_000)
-        return "neutral", "Claims stable", 0.25
+        # Jobless claims: level-based threshold
+        if latest > 300_000:
+            return "warn", "Claims elevated", min(1.0, latest / 400_000)
+        return "pass", "Claims normal", min(1.0, latest / 300_000)
     if series_id == "DGS10":
         if delta > 0.2:
             return "warn", "Yields rising", min(1.0, delta / 1.0)
