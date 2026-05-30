@@ -395,7 +395,7 @@ git commit -m "feat(fundamentals): add SEC growth and quality detail contract"
 - Missing yfinance fields become `None`.
 - Network/provider failures return a clear per-ticker error in the script and do not corrupt existing state.
 
-- [ ] **Step 1: Add tests**
+- [x] **Step 1: Add tests**
 
 Create `tests/unit/test_yfinance_snapshot.py` with tests for:
 
@@ -406,7 +406,7 @@ def test_pull_raises_fetch_error_on_provider_exception() -> None: ...
 def test_snapshot_to_dict_is_json_serializable() -> None: ...
 ```
 
-- [ ] **Step 2: Implement package and fetcher**
+- [x] **Step 2: Implement package and fetcher**
 
 Create `research/src/fundamentals/__init__.py` and `research/src/fundamentals/yfinance_snapshot.py`.
 
@@ -419,18 +419,18 @@ revenue_growth, earnings_growth, return_on_equity, return_on_assets,
 operating_margins, profit_margins, fetched_at
 ```
 
-- [ ] **Step 3: Add script**
+- [x] **Step 3: Add script**
 
 Create `research/scripts/pull_yfinance_fundamentals.py` with `--tickers`, `--universe-file`, `--delay`, and `--output-dir`.
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 ```powershell
 .\.venv\Scripts\python -m pytest tests\unit\test_yfinance_snapshot.py -v
 .\.venv\Scripts\python research\scripts\pull_yfinance_fundamentals.py --tickers AAPL MSFT --delay 0.1
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add research/src/fundamentals research/scripts/pull_yfinance_fundamentals.py tests/unit/test_yfinance_snapshot.py
