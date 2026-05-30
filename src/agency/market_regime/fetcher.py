@@ -2,13 +2,19 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from agency.market_regime.policy import RegimePolicy
+from agency.market_regime.massive import (
+    fetch_etf_daily_bars,
+    fetch_grouped_daily_rows,
+    fetch_intraday_snapshot,
+    massive_api_key as _massive_api_key,
+)
 
 FRED_SERIES = (
     "VIXCLS",
@@ -18,6 +24,15 @@ FRED_SERIES = (
     "BAMLC0A0CM",
     "STLFSI4",
     "ICSA",
+)
+
+ALL_ETFS: tuple[str, ...] = (
+    "SPY", "QQQ", "IWM", "DIA",
+    "XLK", "XLE", "XLF", "XLV", "XLI", "XLB", "XLY", "XLP", "XLU", "XLC", "XLRE",
+    "TLT", "GLD", "UUP",
+)
+SECTOR_SNAPSHOT_TICKERS: tuple[str, ...] = (
+    "SPY", "XLK", "XLE", "XLF", "XLV", "XLI", "XLB", "XLY", "XLP", "XLU", "XLC", "XLRE",
 )
 
 
@@ -95,6 +110,82 @@ def grouped_daily_breadth(rows: Iterable[Mapping[str, object]]) -> dict[str, obj
     }
 
 
+def refresh_etf_bars(
+    path: Path,
+    *,
+    policy: RegimePolicy,
+    now: datetime,
+    etfs: tuple[str, ...] = ALL_ETFS,
+    etf_client: Callable[[Sequence[str], str, str], dict[str, list[dict]]] | None = None,
+) -> FetchSummary:
+    """Fetch daily OHLCV bars for all ETFs and write to ``path``."""
+    api_key = _massive_api_key()
+    if api_key is None and etf_client is None:
+        return FetchSummary(ok=False, issues=["MASSIVE_API_KEY not configured; etf_bars not updated."])
+    end_date = now.date().isoformat()
+    start_date = (now.date() - timedelta(days=policy.etf_bars_lookback_days)).isoformat()
+    client: Callable[[Sequence[str], str, str], dict[str, list[dict]]] = (
+        etf_client
+        if etf_client is not None
+        else (lambda tickers, s, e: fetch_etf_daily_bars(tickers, start_date=s, end_date=e, api_key=api_key))  # type: ignore[arg-type]
+    )
+    try:
+        bars = client(etfs, start_date, end_date)
+    except Exception as exc:
+        return FetchSummary(ok=False, issues=[f"ETF bars fetch failed: {exc}"])
+    if not bars:
+        return FetchSummary(ok=False, issues=["ETF bars returned no data."])
+    write_state_json(path, bars)
+    return FetchSummary(ok=True, updated_files=[str(path)])
+
+
+def refresh_intraday_bars(
+    path: Path,
+    *,
+    tickers: tuple[str, ...] = SECTOR_SNAPSHOT_TICKERS,
+    snapshot_client: Callable[[Sequence[str]], dict[str, dict]] | None = None,
+) -> FetchSummary:
+    """Fetch live intraday snapshot and write to ``path``."""
+    api_key = _massive_api_key()
+    if api_key is None and snapshot_client is None:
+        return FetchSummary(ok=False, issues=["MASSIVE_API_KEY not configured; intraday_bars not updated."])
+    client: Callable[[Sequence[str]], dict[str, dict]] = (
+        snapshot_client
+        if snapshot_client is not None
+        else (lambda t: fetch_intraday_snapshot(t, api_key=api_key))  # type: ignore[arg-type]
+    )
+    try:
+        bars = client(tickers)
+    except Exception as exc:
+        return FetchSummary(ok=False, issues=[f"Intraday snapshot fetch failed: {exc}"])
+    write_state_json(path, bars)
+    return FetchSummary(ok=True, updated_files=[str(path)])
+
+
+def refresh_grouped_daily(
+    path: Path,
+    *,
+    now: datetime,
+    grouped_client: Callable[[str], list[dict]] | None = None,
+) -> FetchSummary:
+    """Fetch grouped daily bars, compute breadth, and write to ``path``."""
+    api_key = _massive_api_key()
+    if api_key is None and grouped_client is None:
+        return FetchSummary(ok=False, issues=["MASSIVE_API_KEY not configured; grouped_daily not updated."])
+    day = now.date().isoformat()
+    client: Callable[[str], list[dict]] = (
+        grouped_client
+        if grouped_client is not None
+        else (lambda d: fetch_grouped_daily_rows(d, api_key=api_key))  # type: ignore[arg-type]
+    )
+    try:
+        rows = client(day)
+    except Exception as exc:
+        return FetchSummary(ok=False, issues=[f"Grouped daily fetch failed: {exc}"])
+    write_state_json(path, grouped_daily_breadth(rows))
+    return FetchSummary(ok=True, updated_files=[str(path)])
+
+
 def refresh_regime_state(
     state_dir: Path,
     *,
@@ -107,22 +198,34 @@ def refresh_regime_state(
     state_dir.mkdir(parents=True, exist_ok=True)
     issues: list[str] = []
     updated_files: list[str] = []
-    fred_summary = refresh_fred_series(
-        state_dir / "macro_fred.json",
-        policy=active_policy,
-        now=timestamp,
+
+    if mode in ("pre_market", "post_market", "manual"):
+        etf = refresh_etf_bars(
+            state_dir / "etf_bars.json", policy=active_policy, now=timestamp
+        )
+        issues.extend(etf.issues)
+        updated_files.extend(etf.updated_files)
+
+    if mode in ("intraday", "manual"):
+        intra = refresh_intraday_bars(state_dir / "intraday_bars.json")
+        issues.extend(intra.issues)
+        updated_files.extend(intra.updated_files)
+
+    if mode in ("post_market", "manual"):
+        grouped = refresh_grouped_daily(state_dir / "grouped_daily.json", now=timestamp)
+        issues.extend(grouped.issues)
+        updated_files.extend(grouped.updated_files)
+
+    fred = refresh_fred_series(
+        state_dir / "macro_fred.json", policy=active_policy, now=timestamp
     )
-    issues.extend(fred_summary.issues)
-    updated_files.extend(fred_summary.updated_files)
+    issues.extend(fred.issues)
+    updated_files.extend(fred.updated_files)
+
     marker = state_dir / "last_fetch.json"
     write_state_json(
         marker,
-        {
-            "generated_at": timestamp.isoformat(),
-            "mode": mode,
-            "ok": not issues,
-            "issues": issues,
-        },
+        {"generated_at": timestamp.isoformat(), "mode": mode, "ok": not issues, "issues": issues},
     )
     updated_files.append(str(marker))
     return FetchSummary(ok=not issues, issues=issues, updated_files=updated_files)
