@@ -97,6 +97,104 @@ class FakeMarketFlowLoader:
         return pl.DataFrame(rows).filter(pl.col("ticker").is_in(tickers))
 
 
+class KnowledgeCutoffMarketFlowLoader:
+    def __init__(self) -> None:
+        self.trade_window_calls: list[tuple[date, date, int, tuple[str, ...]]] = []
+
+    def stock_trade_activity_frames(
+        self,
+        tickers: list[str],
+        as_of: date,
+        lookback_days: int,
+    ) -> tuple[pl.DataFrame, pl.DataFrame]:
+        del tickers, lookback_days
+        raise DataNotAvailableAt("stock_trades", as_of, "requires later knowledge cutoff")
+
+    def complete_stock_trade_tickers(
+        self,
+        tickers: list[str],
+        as_of: date,
+        lookback_days: int,
+        *,
+        allow_partial_coverage: bool = False,
+    ) -> tuple[str, ...]:
+        del as_of, lookback_days
+        assert allow_partial_coverage is True
+        return tuple(ticker for ticker in tickers if ticker.upper() != "BA")
+
+    def stock_trade_activity_frames_for_trade_window(
+        self,
+        tickers: list[str],
+        *,
+        trade_end: date,
+        knowledge_as_of: date,
+        lookback_days: int,
+        allow_partial_coverage: bool = False,
+    ) -> tuple[pl.DataFrame, pl.DataFrame]:
+        normalized = tuple(sorted(ticker.upper() for ticker in tickers))
+        assert allow_partial_coverage is True
+        self.trade_window_calls.append((trade_end, knowledge_as_of, lookback_days, normalized))
+        total = pl.DataFrame(
+            [
+                {
+                    "ticker": "AAPL",
+                    "trade_count": 3,
+                    "total_volume": 2_700.0,
+                    "total_notional": 270_000.0,
+                    "signed_volume": 2_700.0,
+                    "signed_notional": 270_000.0,
+                    "pre_market_volume": 0.0,
+                    "pre_market_signed_volume": 0.0,
+                    "focus_trade_count": 1,
+                    "absolute_block_count": 1,
+                    "relative_block_count": 1,
+                    "block_count": 1,
+                    "off_exchange_count": 1,
+                    "trf_off_exchange_count": 1,
+                    "trf_off_exchange_notional": 250_000.0,
+                    "large_print_count": 1,
+                    "large_print_notional": 250_000.0,
+                    "block_notional_threshold": 250_000.0,
+                    "block_size_threshold": 10_000.0,
+                    "focus_notional": 250_000.0,
+                    "signed_focus_notional": 250_000.0,
+                    "largest_focus_notional": 250_000.0,
+                    "largest_focus_notional_multiple": 25.0,
+                    "net_volume_pressure": 1.0,
+                    "net_notional_pressure": 1.0,
+                }
+            ]
+        )
+        daily = pl.DataFrame(
+            [
+                {
+                    "ticker": "AAPL",
+                    "date": trade_end,
+                    "trade_count": 3,
+                    "notional": 270_000.0,
+                    "volume": 2_700.0,
+                    "signed_notional": 270_000.0,
+                    "pre_market_count": 0,
+                    "pre_market_notional": 0.0,
+                    "pre_market_volume": 0.0,
+                    "pre_market_signed_notional": 0.0,
+                    "net_notional_pressure": 1.0,
+                    "pre_market_pressure": 0.0,
+                }
+            ]
+        )
+        return total.filter(pl.col("ticker").is_in(normalized)), daily
+
+    def stock_trades(
+        self,
+        tickers: list[str],
+        as_of: date,
+        lookback_days: int,
+    ) -> pl.DataFrame:
+        del tickers, lookback_days
+        raise DataNotAvailableAt("stock_trades", as_of, "raw rows are not used")
+
+
 class FakeUnusualTradeLoader:
     def stock_trades(
         self,
@@ -242,6 +340,48 @@ def test_signal_inspector_explains_trf_off_exchange_block_evidence() -> None:
     assert "not proof of a dark-pool venue" in row["trigger_detail"]
     assert labels["TRF/off-exchange"]["value"] == "1 / $250.0K"
     assert labels["Largest focused print"]["value"] == "$250.0K"
+    assert labels["Largest multiple"]["value"] == "25.00x"
+
+
+def test_signal_inspector_reconstructs_trade_session_with_later_source_timestamp() -> None:
+    loader = KnowledgeCutoffMarketFlowLoader()
+    rows = [
+        {
+            "ticker": "AAPL",
+            "lane_key": "block_trade_pressure",
+            "lane": "Block Trade Pressure",
+            "direction": "BULLISH",
+            "source": "Massive Live Trade Slices / Derived Block Feed",
+            "score": "+1.00 bullish",
+            "score_value": 1.0,
+            "signal_as_of": "2026-05-29",
+            "timestamp_as_of": "2026-05-30T08:43:39+00:00",
+            "confidence_pct": 70,
+            "reason_codes_label": "Block Trade Pressure",
+        },
+        {
+            "ticker": "BA",
+            "lane_key": "block_trade_pressure",
+            "lane": "Block Trade Pressure",
+            "direction": "BULLISH",
+            "source": "Massive Live Trade Slices / Derived Block Feed",
+            "score": "+0.80 bullish",
+            "score_value": 0.8,
+            "signal_as_of": "2026-05-29",
+            "timestamp_as_of": "2026-05-30T08:43:39+00:00",
+            "confidence_pct": 70,
+            "reason_codes_label": "Block Trade Pressure",
+        },
+    ]
+
+    enriched = enrich_signal_rows_with_evidence(rows, loader=loader)
+
+    row = enriched[0]
+    labels = {card["label"]: card for card in row["trigger_cards"]}
+    assert loader.trade_window_calls == [
+        (date(2026, 5, 29), date(2026, 5, 30), 3, ("AAPL",))
+    ]
+    assert "TRF/off-exchange" in row["trigger_headline"]
     assert labels["Largest multiple"]["value"] == "25.00x"
 
 

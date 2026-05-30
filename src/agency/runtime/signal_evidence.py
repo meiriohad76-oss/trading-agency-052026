@@ -3,12 +3,14 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping, Sequence
 from datetime import UTC, date, datetime, timedelta
+from inspect import signature
 from pathlib import Path
 from typing import Any, cast
 
 import pandas as pd
 import polars as pl
 from market_flow.features import market_flow_feature_frame
+from pit.exceptions import DataNotAvailableAt
 from pit.loader import PITLoader
 from signals.abnormal_volume import abnormal_volume_frame
 from signals.fundamentals import fundamental_factor_frame
@@ -135,7 +137,12 @@ def _detail_frames(
     if "news" in lanes:
         frames["news"] = _safe_frame(news_factor_frame, as_of, tickers, loader)
     if lanes & MARKET_FLOW_LANES:
-        frames["market_flow"] = _safe_frame(market_flow_feature_frame, as_of, tickers, loader)
+        frames["market_flow"] = _safe_frame(
+            market_flow_feature_frame,
+            as_of,
+            tickers,
+            _market_flow_loader_for_rows(loader, as_of, rows),
+        )
     return frames
 
 
@@ -187,6 +194,88 @@ class _CachedPriceWindowLoader:
             except Exception:
                 return None
         return None
+
+
+class _KnowledgeCutoffMarketFlowLoader:
+    def __init__(self, loader: Any, knowledge_as_of: date) -> None:
+        self._loader = loader
+        self._knowledge_as_of = knowledge_as_of
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._loader, name)
+
+    def stock_trade_activity_frames(
+        self,
+        tickers: list[str],
+        as_of: date,
+        lookback_days: int,
+        *,
+        allow_partial_coverage: bool = False,
+    ) -> tuple[pl.DataFrame, pl.DataFrame]:
+        complete_tickers = self._complete_tickers(tickers, as_of, lookback_days)
+        if not complete_tickers:
+            raise DataNotAvailableAt(
+                "stock_trades",
+                as_of,
+                "no requested ticker has usable stock-trade coverage for dashboard evidence",
+            )
+        method = getattr(self._loader, "stock_trade_activity_frames_for_trade_window", None)
+        if callable(method) and self._knowledge_as_of > as_of:
+            return method(
+                complete_tickers,
+                trade_end=as_of,
+                knowledge_as_of=self._knowledge_as_of,
+                lookback_days=lookback_days,
+                **_optional_partial_coverage(method, True),
+            )
+        method = self._loader.stock_trade_activity_frames
+        return method(
+            complete_tickers,
+            as_of,
+            lookback_days,
+            **_optional_partial_coverage(method, allow_partial_coverage or True),
+        )
+
+    def _complete_tickers(self, tickers: list[str], as_of: date, lookback_days: int) -> list[str]:
+        normalized = sorted({ticker.upper() for ticker in tickers})
+        method = getattr(self._loader, "complete_stock_trade_tickers", None)
+        if not callable(method):
+            return normalized
+        try:
+            result = method(
+                normalized,
+                as_of,
+                lookback_days,
+                **_optional_partial_coverage(method, True),
+            )
+        except DataNotAvailableAt:
+            return []
+        return sorted({str(ticker).upper() for ticker in result})
+
+
+def _market_flow_loader_for_rows(
+    loader: Any,
+    as_of: date,
+    rows: Sequence[Mapping[str, object]],
+) -> Any:
+    knowledge_as_of = _market_flow_knowledge_as_of(rows)
+    if knowledge_as_of is None:
+        return loader
+    has_activity_method = callable(getattr(loader, "stock_trade_activity_frames", None))
+    has_window_method = callable(getattr(loader, "stock_trade_activity_frames_for_trade_window", None))
+    if not has_activity_method and not (has_window_method and knowledge_as_of > as_of):
+        return loader
+    return _KnowledgeCutoffMarketFlowLoader(loader, knowledge_as_of)
+
+
+def _optional_partial_coverage(method: Any, value: bool) -> dict[str, bool]:
+    try:
+        parameters = signature(method).parameters
+    except (TypeError, ValueError):
+        return {}
+    if "allow_partial_coverage" not in parameters:
+        return {}
+    return {"allow_partial_coverage": value}
 
 
 def _evidence_for_row(
@@ -847,6 +936,16 @@ def _dashboard_as_of(rows: Sequence[Mapping[str, object]]) -> date:
         if usable:
             return max(usable)
     return date.today()
+
+
+def _market_flow_knowledge_as_of(rows: Sequence[Mapping[str, object]]) -> date | None:
+    dates = [
+        _date_from(row.get("timestamp_as_of"))
+        for row in rows
+        if str(row.get("lane_key") or "") in MARKET_FLOW_LANES
+    ]
+    usable = [item for item in dates if item is not None]
+    return max(usable) if usable else None
 
 
 def _date_from(value: object) -> date | None:
