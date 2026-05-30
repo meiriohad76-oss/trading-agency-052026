@@ -1011,6 +1011,8 @@ async def test_partial_trade_page_is_persisted_when_later_page_fails(tmp_path: P
 
 
 async def test_partial_trade_repair_resumes_from_saved_cursor(tmp_path: Path) -> None:
+    import warnings
+
     trade_root = tmp_path / "stock_trades"
     manifest_path = tmp_path / "stock_trades.json"
     seen_cursors: list[str | None] = []
@@ -1059,29 +1061,36 @@ async def test_partial_trade_repair_resumes_from_saved_cursor(tmp_path: Path) ->
             },
         )
 
-    second = await pull_massive_trades(
-        tickers=("aapl",),
-        requested=DateRange(FETCHED_AT.date(), FETCHED_AT.date()),
-        trade_root=trade_root,
-        manifest_path=manifest_path,
-        config=MassiveTradesConfig(
-            api_key="key",
-            base_url="https://api.polygon.io",
-            limit=1,
-            max_pages_per_day=1,
-        ),
-        transport=httpx.MockTransport(second_handler),
-        clock=lambda: FETCHED_AT,
-    )
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        second = await pull_massive_trades(
+            tickers=("aapl",),
+            requested=DateRange(FETCHED_AT.date(), FETCHED_AT.date()),
+            trade_root=trade_root,
+            manifest_path=manifest_path,
+            config=MassiveTradesConfig(
+                api_key="key",
+                base_url="https://api.polygon.io",
+                limit=1,
+                max_pages_per_day=1,
+            ),
+            transport=httpx.MockTransport(second_handler),
+            clock=lambda: FETCHED_AT,
+        )
     final_coverage = load_stock_trade_coverage_metadata(trade_root)["AAPL|2026-05-06"]
     persisted = pd.read_parquet(trade_root / "ticker=AAPL" / "year=2026" / "trades.parquet")
+    warning_messages = [str(w.message) for w in caught if issubclass(w.category, UserWarning)]
 
     assert second.rows_written == 1
     assert seen_cursors == [None, "resume-1"]
     assert len(persisted) == 2
     assert final_coverage["coverage_status"] == "complete"
+    assert final_coverage["row_count_verified"] is False
     assert final_coverage["downloaded_row_count"] == 2
     assert final_coverage["pages_downloaded"] == 2
+    assert any("pagination_completeness_uncertain" in msg for msg in warning_messages), (
+        f"Expected pagination_completeness_uncertain warning, got: {warning_messages}"
+    )
 
 
 async def test_live_slice_can_ignore_saved_backfill_cursor(tmp_path: Path) -> None:
