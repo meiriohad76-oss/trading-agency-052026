@@ -449,7 +449,7 @@ git commit -m "feat(fundamentals): add yfinance forward snapshot state"
 - Missing `FMP_API_KEY` yields empty state with status `not_configured`, not a crash.
 - HTTP errors are captured as per-ticker provider errors in the script.
 
-- [ ] **Step 1: Add tests**
+- [x] **Step 1: Add tests**
 
 Create `tests/unit/test_fmp_client.py`:
 
@@ -467,13 +467,13 @@ def test_beat_rate_computed_correctly() -> None:
     assert compute_beat_rate(surprises) == pytest.approx(0.75)
 ```
 
-- [ ] **Step 2: Implement client and script**
+- [x] **Step 2: Implement client and script**
 
 Create `research/src/fundamentals/fmp_client.py` and `research/scripts/pull_fmp_earnings.py`.
 
 Document `FMP_API_KEY=` in `.env.example`.
 
-- [ ] **Step 3: Verify**
+- [x] **Step 3: Verify**
 
 ```powershell
 .\.venv\Scripts\python -m pytest tests\unit\test_fmp_client.py -v
@@ -485,7 +485,7 @@ If an API key is configured:
 .\.venv\Scripts\python research\scripts\pull_fmp_earnings.py --tickers AAPL --delay 0.1
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```powershell
 git add research/src/fundamentals/fmp_client.py research/scripts/pull_fmp_earnings.py tests/unit/test_fmp_client.py .env.example
