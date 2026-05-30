@@ -214,7 +214,7 @@ git commit -m "fix(fundamentals): align SEC metrics to consistent fiscal periods
 - It uses the same unit validation and amendment priority as FA01.
 - It only returns rows known on or before `as_of`.
 
-- [ ] **Step 1: Add tests to `tests/unit/test_pit_loader.py`**
+- [x] **Step 1: Add tests to `tests/unit/test_pit_loader.py`**
 
 Add two tests:
 
@@ -223,7 +223,7 @@ def test_fundamentals_history_returns_last_periods_oldest_first(tmp_path: Path) 
 def test_fundamentals_history_respects_as_of_cutoff(tmp_path: Path) -> None: ...
 ```
 
-- [ ] **Step 2: Run failing tests**
+- [x] **Step 2: Run failing tests**
 
 ```powershell
 .\.venv\Scripts\python -m pytest tests\unit\test_pit_loader.py -v
@@ -231,7 +231,7 @@ def test_fundamentals_history_respects_as_of_cutoff(tmp_path: Path) -> None: ...
 
 Expected: `AttributeError` for missing `fundamentals_history`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `research/src/pit/sec_views.py`, add `fundamentals_history_frame(frame, as_of, n_periods=8)`.
 
@@ -246,13 +246,13 @@ def fundamentals_history(self, ticker: str, as_of: date, n_periods: int = 8) -> 
 
 Import pandas and `fundamentals_history_frame` as needed.
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 ```powershell
 .\.venv\Scripts\python -m pytest tests\unit\test_pit_loader.py tests\unit\test_sec_views_period_fix.py -v
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add research/src/pit/sec_views.py research/src/pit/loader.py tests/unit/test_pit_loader.py

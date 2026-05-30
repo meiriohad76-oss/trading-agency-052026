@@ -72,6 +72,54 @@ def fundamentals_from_frame(
     )
 
 
+def fundamentals_history_frame(
+    frame: pl.DataFrame,
+    *,
+    as_of: date,
+    n_periods: int = 8,
+) -> pl.DataFrame:
+    if frame.is_empty() or n_periods <= 0:
+        return _empty_fundamentals_history_frame()
+    clean = _drop_wrong_units(frame)
+    if clean.is_empty():
+        return _empty_fundamentals_history_frame()
+    candidates = _deduplicated_rows(clean)
+    groups = _period_groups(candidates)
+    if not groups:
+        return _empty_fundamentals_history_frame()
+    quarterly_keys = [key for key in groups if key[1] in _QUARTERLY_PERIODS]
+    pool = quarterly_keys or list(groups)
+    selected_keys = sorted(
+        sorted(pool, key=lambda key: (key[0] or date.min, key[2], key[1]), reverse=True)[
+            :n_periods
+        ],
+        key=lambda key: (key[0] or date.min, key[2], key[1]),
+    )
+    output: list[dict[str, object]] = []
+    for key in selected_keys:
+        for row in sorted(groups[key], key=lambda item: str(item["metric"])):
+            output.append(
+                {
+                    "metric": str(row["metric"]),
+                    "value": row["value"],
+                    "period_end": row.get("__period_end"),
+                    "fiscal_period": row.get("fiscal_period"),
+                    "form": row.get("form"),
+                    "filing_date": row.get("filing_date"),
+                    "source_id": row.get("source_id"),
+                }
+            )
+    if not output:
+        return _empty_fundamentals_history_frame()
+    return pl.DataFrame(
+        output,
+        schema_overrides={
+            "period_end": pl.Date,
+            "filing_date": pl.Date,
+        },
+    )
+
+
 def institutional_holdings_from_frame(
     frame: pl.DataFrame,
     *,
@@ -135,14 +183,7 @@ def _anchor_rows(
 ) -> list[Mapping[str, object]]:
     if not required_metrics:
         return []
-    by_group: dict[tuple[object, str, str], list[Mapping[str, object]]] = {}
-    for row in candidates:
-        key = (
-            row.get("__period_end"),
-            str(row.get("fiscal_period") or ""),
-            _form_family(row.get("form")),
-        )
-        by_group.setdefault(key, []).append(row)
+    by_group = _period_groups(candidates)
     complete: list[tuple[object, str, str]] = []
     for key, group_rows in by_group.items():
         metrics = {str(row["metric"]) for row in group_rows}
@@ -154,6 +195,20 @@ def _anchor_rows(
     pool = quarterly or complete
     best_key = max(pool, key=lambda key: (key[0] or date.min, key[2], key[1]))
     return sorted(by_group[best_key], key=lambda row: str(row["metric"]))
+
+
+def _period_groups(
+    candidates: list[Mapping[str, object]],
+) -> dict[tuple[object, str, str], list[Mapping[str, object]]]:
+    by_group: dict[tuple[object, str, str], list[Mapping[str, object]]] = {}
+    for row in candidates:
+        key = (
+            row.get("__period_end"),
+            str(row.get("fiscal_period") or ""),
+            _form_family(row.get("form")),
+        )
+        by_group.setdefault(key, []).append(row)
+    return by_group
 
 
 def _form_family(form: object) -> str:
@@ -170,4 +225,18 @@ def _row_recency_key(row: Mapping[str, object]) -> tuple[int, object, object, ob
         row.get("__as_of") or date.min,
         row.get("filing_date") or date.min,
         row.get("__period_end") or date.min,
+    )
+
+
+def _empty_fundamentals_history_frame() -> pl.DataFrame:
+    return pl.DataFrame(
+        schema={
+            "metric": pl.Utf8,
+            "value": pl.Float64,
+            "period_end": pl.Date,
+            "fiscal_period": pl.Utf8,
+            "form": pl.Utf8,
+            "filing_date": pl.Date,
+            "source_id": pl.Utf8,
+        }
     )

@@ -5,6 +5,7 @@ from collections.abc import Callable, Mapping
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 
+import pandas as pd
 import polars as pl
 from market_flow.storage import coverage_key, load_stock_trade_coverage_metadata
 from prices.sector_etfs import SECTOR_ETF_TICKERS
@@ -26,7 +27,11 @@ from .records import (
     row_to_provenanced,
     rows,
 )
-from .sec_views import fundamentals_from_frame, institutional_holdings_from_frame
+from .sec_views import (
+    fundamentals_from_frame,
+    fundamentals_history_frame,
+    institutional_holdings_from_frame,
+)
 
 STALE_CONTEXT_READ_DATASETS = {DatasetName.SUBSCRIPTION_EMAILS}
 STOCK_TRADE_BLOCK_ABSOLUTE_SHARES_FLOOR = 10_000.0
@@ -101,6 +106,23 @@ class PITLoader:
             as_of,
         )
         return fundamentals_from_frame(frame, as_of=as_of)
+
+    def fundamentals_history(
+        self,
+        ticker: str,
+        as_of: date,
+        n_periods: int = 8,
+    ) -> pd.DataFrame:
+        """SEC company-facts metric history known on or before `as_of`."""
+        frame = self._ticker_frame(DatasetName.SEC_COMPANY_FACTS, ticker, as_of)
+        frame = self._with_date(
+            frame,
+            "period_end",
+            "__period_end",
+            DatasetName.SEC_COMPANY_FACTS,
+            as_of,
+        )
+        return fundamentals_history_frame(frame, as_of=as_of, n_periods=n_periods).to_pandas()
 
     def insider_transactions(
         self,

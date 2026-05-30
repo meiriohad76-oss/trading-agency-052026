@@ -99,6 +99,64 @@ def test_fundamentals_use_latest_filing_before_as_of(tmp_path: Path) -> None:
     assert result.provenance.source_id == "fy22"
 
 
+def test_fundamentals_history_returns_last_periods_oldest_first(tmp_path: Path) -> None:
+    frame = pl.DataFrame(
+        [
+            _fundamental_row("AAPL", "revenue", 90.0, date(2024, 3, 31), "Q1", "10-Q"),
+            _fundamental_row("AAPL", "net_income", 18.0, date(2024, 3, 31), "Q1", "10-Q"),
+            _fundamental_row("AAPL", "free_cash_flow", 15.0, date(2024, 3, 31), "Q1", "10-Q"),
+            _fundamental_row("AAPL", "revenue", 100.0, date(2024, 6, 30), "Q2", "10-Q"),
+            _fundamental_row("AAPL", "net_income", 20.0, date(2024, 6, 30), "Q2", "10-Q"),
+            _fundamental_row("AAPL", "free_cash_flow", 17.0, date(2024, 6, 30), "Q2", "10-Q"),
+            _fundamental_row("AAPL", "revenue", 110.0, date(2024, 9, 30), "Q3", "10-Q"),
+            _fundamental_row("AAPL", "revenue", 112.0, date(2024, 9, 30), "Q3", "10-Q/A"),
+            _fundamental_row("AAPL", "net_income", 22.0, date(2024, 9, 30), "Q3", "10-Q"),
+            _fundamental_row("AAPL", "free_cash_flow", 19.0, date(2024, 9, 30), "Q3", "10-Q"),
+        ]
+    )
+    loader = loader_with(tmp_path, {DatasetName.SEC_COMPANY_FACTS: frame})
+
+    history = loader.fundamentals_history("aapl", date(2024, 11, 15), n_periods=2)
+
+    assert _calendar_dates(history["period_end"].drop_duplicates().to_list()) == [
+        date(2024, 6, 30),
+        date(2024, 9, 30),
+    ]
+    q3_revenue = history[
+        (history["metric"] == "revenue")
+        & (history["period_end"].dt.date == date(2024, 9, 30))
+    ].iloc[0]
+    assert q3_revenue["value"] == 112.0
+    assert q3_revenue["form"] == "10-Q/A"
+
+
+def test_fundamentals_history_respects_as_of_cutoff(tmp_path: Path) -> None:
+    frame = pl.DataFrame(
+        [
+            _fundamental_row("AAPL", "revenue", 100.0, date(2024, 6, 30), "Q2", "10-Q"),
+            _fundamental_row("AAPL", "net_income", 20.0, date(2024, 6, 30), "Q2", "10-Q"),
+            _fundamental_row("AAPL", "free_cash_flow", 17.0, date(2024, 6, 30), "Q2", "10-Q"),
+            _fundamental_row(
+                "AAPL",
+                "revenue",
+                110.0,
+                date(2024, 9, 30),
+                "Q3",
+                "10-Q",
+                timestamp_as_of=date(2024, 12, 1),
+            ),
+        ]
+    )
+    loader = loader_with(tmp_path, {DatasetName.SEC_COMPANY_FACTS: frame})
+
+    history = loader.fundamentals_history("aapl", date(2024, 11, 15), n_periods=8)
+
+    assert _calendar_dates(history["period_end"].drop_duplicates().to_list()) == [
+        date(2024, 6, 30)
+    ]
+    assert set(history["metric"]) == {"free_cash_flow", "net_income", "revenue"}
+
+
 def test_insider_transactions_use_filing_date_lookback(tmp_path: Path) -> None:
     frame = pl.DataFrame(
         [
@@ -799,6 +857,46 @@ def stock_trade(
         "sequence_number": 1,
         **provenance(SourceTier.CONFIRMED_TRADE_PRINT, timestamp_as_of, source_id=source_id),
     }
+
+
+def _fundamental_row(
+    ticker: str,
+    metric: str,
+    value: float,
+    period_end: date,
+    fiscal_period: str,
+    form: str,
+    *,
+    timestamp_as_of: date = date(2024, 10, 31),
+    unit: str = "USD",
+) -> dict[str, object]:
+    return {
+        "ticker": ticker,
+        "metric": metric,
+        "value": value,
+        "unit": unit,
+        "period_end": period_end,
+        "fiscal_period": fiscal_period,
+        "form": form,
+        "filing_date": timestamp_as_of,
+        **provenance(
+            SourceTier.OFFICIAL_FILING,
+            timestamp_as_of,
+            source_id=f"{ticker}-{metric}-{period_end.isoformat()}-{form}",
+        ),
+    }
+
+
+def _calendar_dates(values: list[object]) -> list[date]:
+    output: list[date] = []
+    for value in values:
+        if isinstance(value, datetime):
+            output.append(value.date())
+        elif isinstance(value, date):
+            output.append(value)
+        else:
+            output.append(date.fromisoformat(str(value)[:10]))
+    return output
 
 
 def _stock_trade_rows(
