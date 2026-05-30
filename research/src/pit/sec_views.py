@@ -11,6 +11,34 @@ from .exceptions import DataNotAvailableAt
 from .manifest import DatasetName
 from .records import provenance_from_row, rows
 
+_MONETARY_METRICS = frozenset(
+    {
+        "revenue",
+        "net_income",
+        "operating_cash_flow",
+        "capital_expenditures",
+        "free_cash_flow",
+        "total_assets",
+        "total_liabilities",
+        "gross_profit",
+        "operating_income",
+        "ebitda",
+        "depreciation_amortization",
+        "research_development",
+        "interest_expense",
+        "income_tax_expense",
+        "current_assets",
+        "current_liabilities",
+        "long_term_debt",
+        "cash_and_equivalents",
+        "total_equity",
+        "retained_earnings",
+    }
+)
+_BASE_REQUIRED_ANCHOR_METRICS = frozenset({"revenue", "net_income", "free_cash_flow"})
+_OPTIONAL_REVENUE_NUMERATORS = frozenset({"gross_profit", "operating_income", "ebitda"})
+_QUARTERLY_PERIODS = frozenset({"Q1", "Q2", "Q3", "Q4"})
+
 
 def fundamentals_from_frame(
     frame: pl.DataFrame,
@@ -19,14 +47,25 @@ def fundamentals_from_frame(
 ) -> Provenanced[dict[str, object]]:
     if frame.is_empty():
         raise DataNotAvailableAt(DatasetName.SEC_COMPANY_FACTS.value, as_of, "no rows matched")
-    latest_by_metric: dict[str, Mapping[str, object]] = {}
-    sorted_rows = rows(
-        frame.sort(["metric", "__as_of", "__period_end"], descending=[False, True, True])
-    )
-    for row in sorted_rows:
-        latest_by_metric.setdefault(str(row["metric"]), row)
-    payload = {metric: row["value"] for metric, row in latest_by_metric.items()}
-    newest_row = rows(frame.sort("__as_of", descending=True).head(1))[0]
+    clean = _drop_wrong_units(frame)
+    if clean.is_empty():
+        raise DataNotAvailableAt(
+            DatasetName.SEC_COMPANY_FACTS.value,
+            as_of,
+            "no rows left after unit validation",
+        )
+    candidates = _deduplicated_rows(clean)
+    required_metrics = _required_anchor_metrics(candidates)
+    anchor_rows = _anchor_rows(candidates, required_metrics)
+    if not anchor_rows:
+        required = ", ".join(sorted(required_metrics))
+        raise DataNotAvailableAt(
+            DatasetName.SEC_COMPANY_FACTS.value,
+            as_of,
+            f"no consistent fiscal period with required metrics: {required}",
+        )
+    payload = {str(row["metric"]): row["value"] for row in anchor_rows}
+    newest_row = max(anchor_rows, key=_row_recency_key)
     return Provenanced[dict[str, object]](
         value=payload,
         provenance=provenance_from_row(newest_row),
@@ -57,3 +96,78 @@ def institutional_holdings_from_frame(
         "total_change_from_prev_quarter": quarter.get_column("change_from_prev_quarter").sum(),
     }
     return Provenanced[dict[str, object]](value=payload, provenance=provenance_from_row(row))
+
+
+def _drop_wrong_units(frame: pl.DataFrame) -> pl.DataFrame:
+    if "unit" not in frame.columns:
+        return frame
+    return frame.filter(
+        (~pl.col("metric").is_in(list(_MONETARY_METRICS))) | (pl.col("unit") == "USD")
+    )
+
+
+def _deduplicated_rows(frame: pl.DataFrame) -> list[Mapping[str, object]]:
+    best_by_key: dict[tuple[str, object, str, str], Mapping[str, object]] = {}
+    for row in rows(frame):
+        metric = str(row["metric"])
+        key = (
+            metric,
+            row.get("__period_end"),
+            str(row.get("fiscal_period") or ""),
+            _form_family(row.get("form")),
+        )
+        existing = best_by_key.get(key)
+        if existing is None or _row_recency_key(row) > _row_recency_key(existing):
+            best_by_key[key] = row
+    return list(best_by_key.values())
+
+
+def _required_anchor_metrics(candidates: list[Mapping[str, object]]) -> frozenset[str]:
+    available = {str(row["metric"]) for row in candidates}
+    required = set(_BASE_REQUIRED_ANCHOR_METRICS & available)
+    required.update(_OPTIONAL_REVENUE_NUMERATORS & available)
+    return frozenset(required)
+
+
+def _anchor_rows(
+    candidates: list[Mapping[str, object]],
+    required_metrics: frozenset[str],
+) -> list[Mapping[str, object]]:
+    if not required_metrics:
+        return []
+    by_group: dict[tuple[object, str, str], list[Mapping[str, object]]] = {}
+    for row in candidates:
+        key = (
+            row.get("__period_end"),
+            str(row.get("fiscal_period") or ""),
+            _form_family(row.get("form")),
+        )
+        by_group.setdefault(key, []).append(row)
+    complete: list[tuple[object, str, str]] = []
+    for key, group_rows in by_group.items():
+        metrics = {str(row["metric"]) for row in group_rows}
+        if required_metrics.issubset(metrics):
+            complete.append(key)
+    if not complete:
+        return []
+    quarterly = [key for key in complete if key[1] in _QUARTERLY_PERIODS]
+    pool = quarterly or complete
+    best_key = max(pool, key=lambda key: (key[0] or date.min, key[2], key[1]))
+    return sorted(by_group[best_key], key=lambda row: str(row["metric"]))
+
+
+def _form_family(form: object) -> str:
+    return str(form or "").upper().replace("/A", "")
+
+
+def _amendment_rank(form: object) -> int:
+    return 1 if str(form or "").upper().endswith("/A") else 0
+
+
+def _row_recency_key(row: Mapping[str, object]) -> tuple[int, object, object, object]:
+    return (
+        _amendment_rank(row.get("form")),
+        row.get("__as_of") or date.min,
+        row.get("filing_date") or date.min,
+        row.get("__period_end") or date.min,
+    )
