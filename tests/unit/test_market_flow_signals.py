@@ -83,6 +83,40 @@ def test_block_trade_pressure_frame_tracks_focus_counts() -> None:
     assert frame.iloc[0]["block_trade_pressure"] > 0
 
 
+def test_block_trade_pressure_tracks_trf_and_relative_large_print_metrics() -> None:
+    frame = block_trade_pressure_frame(
+        AS_OF,
+        {"AAPL"},
+        FakeStockTradesLoader(
+            pl.DataFrame(
+                [
+                    _trade("AAPL", 20_000.0, 1, "REGULAR"),
+                    _trade("AAPL", 25_000.0, 1, "REGULAR"),
+                    _trade(
+                        "AAPL",
+                        250_000.0,
+                        1,
+                        "REGULAR",
+                        block=True,
+                        off_exchange=True,
+                        trf=True,
+                    ),
+                ]
+            )
+        ),
+    )
+
+    row = frame.iloc[0]
+    assert row["trf_off_exchange_count"] == 1
+    assert row["trf_off_exchange_notional"] == 250_000.0
+    assert row["trf_off_exchange_share"] > 0.8
+    assert row["large_print_count"] == 1
+    assert row["largest_focus_notional"] == 250_000.0
+    assert row["largest_focus_notional_multiple"] >= 10.0
+    assert row["focus_activity_score"] > 0.0
+    assert row["block_trade_pressure"] > 0.0
+
+
 def test_block_trade_pressure_defaults_to_current_live_slice() -> None:
     loader = FakeStockTradesLoader(_frame())
 
@@ -202,6 +236,7 @@ def _trade(
     *,
     block: bool = False,
     off_exchange: bool = False,
+    trf: bool = False,
     trade_date: date = AS_OF,
 ) -> dict[str, object]:
     size = 1000.0
@@ -218,6 +253,8 @@ def _trade(
         "session": session,
         "is_block_trade": block,
         "is_off_exchange": off_exchange,
+        "is_trf_off_exchange": trf,
+        "trf_venue": "FINRA/NYSE TRF" if trf else "",
         "sequence_number": 1,
         "source_id": f"{ticker}-{session}",
         "timestamp_as_of": trade_date,

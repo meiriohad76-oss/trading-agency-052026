@@ -15,6 +15,12 @@ REGULAR_END = time(16, 0)
 AFTER_HOURS_END = time(20, 0)
 DEFAULT_BLOCK_NOTIONAL = DEFAULT_THRESHOLDS.block_absolute_notional_floor
 DEFAULT_BLOCK_SIZE = DEFAULT_THRESHOLDS.block_absolute_shares_floor
+TRF_EXCHANGE_CODE = "4"
+TRF_VENUES = {
+    "201": "FINRA/NYSE TRF",
+    "202": "FINRA/NASDAQ TRF Carteret",
+    "203": "FINRA/NASDAQ TRF Chicago",
+}
 
 
 @dataclass(frozen=True)
@@ -66,9 +72,11 @@ def classify_trades(frame: pd.DataFrame) -> pd.DataFrame:
     )
     output["signed_volume"] = output["direction"] * output["size"]
     output["signed_notional"] = output["direction"] * output["notional"]
+    output["is_trf_off_exchange"] = output.apply(_trf_off_exchange_row, axis=1)
+    output["trf_venue"] = output.apply(_trf_venue, axis=1)
     output["is_off_exchange"] = output.apply(_off_exchange_row, axis=1)
-    output["is_block_trade"] = (
-        (output["notional"] >= DEFAULT_BLOCK_NOTIONAL) | (output["size"] >= DEFAULT_BLOCK_SIZE)
+    output["is_block_trade"] = (output["notional"] >= DEFAULT_BLOCK_NOTIONAL) | (
+        output["size"] >= DEFAULT_BLOCK_SIZE
     )
     return output.reset_index(drop=True)
 
@@ -166,6 +174,8 @@ def _session(value: pd.Timestamp) -> str:
 
 
 def _off_exchange_row(row: pd.Series) -> bool:
+    if _trf_off_exchange_row(row):
+        return True
     for column in ("trf_id", "trf_timestamp"):
         value = row.get(column)
         if not _is_blank(value):
@@ -174,13 +184,35 @@ def _off_exchange_row(row: pd.Series) -> bool:
     return any(marker in text for marker in ("TRF", "FINRA", "DARK", "OFF_EXCHANGE"))
 
 
+def _trf_off_exchange_row(row: pd.Series) -> bool:
+    return _normalized_text(row.get("exchange")) == TRF_EXCHANGE_CODE and not _is_blank(
+        row.get("trf_id")
+    )
+
+
+def _trf_venue(row: pd.Series) -> str:
+    if not _trf_off_exchange_row(row):
+        return ""
+    trf_id = _normalized_text(row.get("trf_id"))
+    return TRF_VENUES.get(trf_id, f"FINRA TRF {trf_id}" if trf_id else "FINRA TRF")
+
+
+def _normalized_text(value: Any) -> str:
+    if _is_blank(value):
+        return ""
+    text = str(value).strip()
+    if text.endswith(".0"):
+        text = text[:-2]
+    return text
+
+
 def _is_blank(value: Any) -> bool:
     if value is None:
         return True
     try:
         if pd.isna(value):
             return True
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return False
     return isinstance(value, str) and value.strip() == ""
 

@@ -31,6 +31,7 @@ MARKET_FLOW_LANES = frozenset(
         "market_flow_trend",
     }
 )
+UNUSUAL_TRADE_LANES = frozenset({"unusual_trade_activity", "pre_market_unusual_activity"})
 MONEY_BILLION = 1_000_000_000
 MONEY_MILLION = 1_000_000
 MONEY_THOUSAND = 1_000
@@ -141,7 +142,9 @@ def _detail_frames(
 class _CachedPriceWindowLoader:
     def __init__(self, loader: Any) -> None:
         self._loader = loader
-        self._price_windows: list[tuple[date, int, tuple[str, ...], pd.Timestamp, pl.DataFrame]] = []
+        self._price_windows: list[
+            tuple[date, int, tuple[str, ...], pd.Timestamp, pl.DataFrame]
+        ] = []
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._loader, name)
@@ -153,9 +156,7 @@ class _CachedPriceWindowLoader:
         if cached is not None:
             return cached
         frame = self._loader.prices(list(normalized), as_of, lookback_days)
-        self._price_windows.append(
-            (as_of, lookback_days, normalized, pd.Timestamp(start), frame)
-        )
+        self._price_windows.append((as_of, lookback_days, normalized, pd.Timestamp(start), frame))
         return frame
 
     def _cached_price_window(
@@ -521,51 +522,199 @@ def _market_flow_evidence(
 ) -> dict[str, object]:
     lane = str(row["lane_key"])
     selected = _number(detail.get(lane))
-    headline = (
-        f"{row['ticker']} {str(row['lane']).lower()} signal used "
-        f"{_integer(detail.get('trade_count'))} delayed trade print(s), "
-        f"{_money(detail.get('total_notional'))} total notional, and selected feature "
-        f"score {selected}."
+    if lane in UNUSUAL_TRADE_LANES:
+        return _unusual_trade_evidence(row, detail, as_of, selected)
+    if lane == "block_trade_pressure" and _float(detail.get("trf_off_exchange_count")):
+        headline = (
+            f"{row['ticker']} block trade pressure included "
+            f"{_integer(detail.get('trf_off_exchange_count'))} TRF/off-exchange print(s), "
+            f"{_money(detail.get('trf_off_exchange_notional'))} TRF notional, and largest "
+            f"focused print {_money(detail.get('largest_focus_notional'))}; selected feature "
+            f"score {selected}."
+        )
+    else:
+        headline = (
+            f"{row['ticker']} {str(row['lane']).lower()} signal used "
+            f"{_integer(detail.get('trade_count'))} delayed trade print(s), "
+            f"{_money(detail.get('total_notional'))} total notional, and selected feature "
+            f"score {selected}."
+        )
+    detail_text = LANE_EXPLANATIONS.get(
+        lane, "Market-flow feature reconstructed from delayed trades."
     )
+    if lane == "block_trade_pressure":
+        detail_text = (
+            f"{detail_text} TRF/off-exchange means reported through FINRA TRF; "
+            "it is useful large-print evidence, not proof of a dark-pool venue."
+        )
+    cards = [
+        _card("Selected feature", selected, _feature_detail(lane), _score_tone(detail.get(lane))),
+        _card("Trade count", _integer(detail.get("trade_count")), "Delayed trade prints counted."),
+        _card(
+            "Total notional",
+            _money(detail.get("total_notional")),
+            "Dollar value represented by prints.",
+        ),
+        _card(
+            "Net notional pressure",
+            _pct(detail.get("net_notional_pressure")),
+            "Signed notional divided by total notional.",
+            _return_tone(detail.get("net_notional_pressure")),
+        ),
+        _card(
+            "Block / off-exchange",
+            (
+                f"{_integer(detail.get('block_count'))} / "
+                f"{_integer(detail.get('off_exchange_count'))}"
+            ),
+            "Block and off-exchange prints.",
+        ),
+        _card(
+            "Pre-market volume",
+            _integer(detail.get("pre_market_volume")),
+            "Volume printed before the regular session.",
+        ),
+    ]
+    if lane == "block_trade_pressure":
+        cards.extend(
+            [
+                _card(
+                    "TRF/off-exchange",
+                    (
+                        f"{_integer(detail.get('trf_off_exchange_count'))} / "
+                        f"{_money(detail.get('trf_off_exchange_notional'))}"
+                    ),
+                    "Prints reported through FINRA TRF.",
+                ),
+                _card(
+                    "Largest focused print",
+                    _money(detail.get("largest_focus_notional")),
+                    "Largest block/TRF/off-exchange print in the focused set.",
+                    _money_tone(detail.get("signed_focus_notional")),
+                ),
+                _card(
+                    "Largest multiple",
+                    _ratio_label(detail.get("largest_focus_notional_multiple")),
+                    "Largest focused notional divided by the ticker median print notional.",
+                ),
+            ]
+        )
     return _detail_payload(
         row,
         as_of,
         headline=headline,
-        detail=LANE_EXPLANATIONS.get(
-            lane, "Market-flow feature reconstructed from delayed trades."
+        detail=detail_text,
+        cards=cards,
+    )
+
+
+def _unusual_trade_evidence(
+    row: Mapping[str, object],
+    detail: Mapping[str, object],
+    as_of: date,
+    selected: str,
+) -> dict[str, object]:
+    lane = str(row["lane_key"])
+    ticker = str(row["ticker"])
+    lane_label = (
+        "pre-market unusual activity"
+        if lane == "pre_market_unusual_activity"
+        else "unusual trade activity"
+    )
+    identified = (
+        "Strong pre-market unusual activity"
+        if lane == "pre_market_unusual_activity"
+        else "Strong unusual trade activity"
+    )
+    meaning = _meaning_label(row)
+    pressure_key = (
+        "latest_pre_market_pressure"
+        if lane == "pre_market_unusual_activity"
+        else "latest_net_notional_pressure"
+    )
+    pressure = detail.get(pressure_key)
+    if _float(pressure) is None:
+        pressure = detail.get("net_notional_pressure")
+    headline = (
+        f"{ticker} identified {lane_label}: trade count was "
+        f"{_ratio_label(detail.get('trade_count_anomaly_ratio'))}, notional was "
+        f"{_ratio_label(detail.get('notional_anomaly_ratio'))}, and detected-period pressure "
+        f"was {_pct(pressure)}."
+    )
+    detail_text = (
+        f"This is {meaning.lower()} because the unusual activity is signed by net notional "
+        f"pressure. Positive pressure means buyer-side activity dominated the detected "
+        f"prints; negative pressure means seller-side activity dominated. The score shown "
+        f"is the selected market-flow feature value {selected}."
+    )
+    cards = [
+        _card(
+            "What was identified",
+            identified,
+            "The agent found trade activity materially above the recent ticker baseline.",
+            _score_tone(detail.get(lane)),
         ),
-        cards=[
-            _card(
-                "Selected feature", selected, _feature_detail(lane), _score_tone(detail.get(lane))
-            ),
-            _card(
-                "Trade count", _integer(detail.get("trade_count")), "Delayed trade prints counted."
-            ),
-            _card(
-                "Total notional",
-                _money(detail.get("total_notional")),
-                "Dollar value represented by prints.",
-            ),
-            _card(
-                "Net notional pressure",
-                _pct(detail.get("net_notional_pressure")),
-                "Signed notional divided by total notional.",
-                _return_tone(detail.get("net_notional_pressure")),
-            ),
-            _card(
-                "Block / off-exchange",
-                (
-                    f"{_integer(detail.get('block_count'))} / "
-                    f"{_integer(detail.get('off_exchange_count'))}"
-                ),
-                "Block and off-exchange prints.",
-            ),
+        _card(
+            "Data source",
+            str(row.get("source") or "unknown"),
+            "Source lane used for this detection.",
+        ),
+        _card(
+            "Evidence time",
+            _timestamp_label(row.get("timestamp_as_of")),
+            "Latest source timestamp used by this signal.",
+        ),
+        _card(
+            "Conviction",
+            _confidence_label(row.get("confidence_pct")),
+            "Configured lane confidence for this runtime signal.",
+            _confidence_tone(row.get("confidence_pct")),
+        ),
+        _card(
+            "Meaning",
+            meaning,
+            "Bullish means buyer-side pressure; bearish means seller-side pressure.",
+            _meaning_tone(meaning),
+        ),
+        _card(
+            "Trade count anomaly",
+            _ratio_label(detail.get("trade_count_anomaly_ratio")),
+            "Latest trade count divided by the recent median baseline.",
+            _ratio_tone(detail.get("trade_count_anomaly_ratio")),
+        ),
+        _card(
+            "Notional anomaly",
+            _ratio_label(detail.get("notional_anomaly_ratio")),
+            "Latest notional divided by the recent median baseline.",
+            _ratio_tone(detail.get("notional_anomaly_ratio")),
+        ),
+        _card(
+            "Volume anomaly",
+            _ratio_label(detail.get("volume_anomaly_ratio")),
+            "Latest share volume divided by the recent median baseline.",
+            _ratio_tone(detail.get("volume_anomaly_ratio")),
+        ),
+        _card(
+            "Net notional pressure",
+            _pct(pressure),
+            "Signed notional divided by total notional for the detected latest activity period.",
+            _return_tone(pressure),
+        ),
+    ]
+    if lane == "pre_market_unusual_activity":
+        cards.append(
             _card(
                 "Pre-market volume",
                 _integer(detail.get("pre_market_volume")),
                 "Volume printed before the regular session.",
-            ),
-        ],
+            )
+        )
+    return _detail_payload(
+        row,
+        as_of,
+        headline=headline,
+        detail=detail_text,
+        cards=cards,
     )
 
 
@@ -591,9 +740,7 @@ def _fallback_evidence(
             _timestamp_label(row.get("timestamp_as_of")),
             "Latest source timestamp used by the signal.",
         ),
-        _card(
-            "Confidence", f"{row['confidence_pct']}%", "Lane confidence configured for runtime."
-        ),
+        _card("Confidence", f"{row['confidence_pct']}%", "Lane confidence configured for runtime."),
     ]
     if reconstruction_error:
         detail = (
@@ -789,11 +936,38 @@ def _text(value: object, default: str) -> str:
     return text if text and text.lower() not in {"nan", "none", "nat"} else default
 
 
+def _confidence_label(value: object) -> str:
+    parsed = _float(value)
+    return "n/a" if parsed is None else f"{round(parsed):.0f}%"
+
+
 def _tone(value: object, threshold: float) -> str:
     parsed = _float(value)
     if parsed is None:
         return "neutral"
     return "pass" if parsed >= threshold else "warn"
+
+
+def _ratio_tone(value: object) -> str:
+    parsed = _float(value)
+    if parsed is None:
+        return "neutral"
+    if parsed >= 2.0:
+        return "pass"
+    if parsed >= 1.5:
+        return "warn"
+    return "neutral"
+
+
+def _confidence_tone(value: object) -> str:
+    parsed = _float(value)
+    if parsed is None:
+        return "neutral"
+    if parsed >= 75:
+        return "pass"
+    if parsed >= 50:
+        return "warn"
+    return "neutral"
 
 
 def _return_tone(value: object) -> str:
@@ -820,6 +994,29 @@ def _score_tone(value: object) -> str:
 
 def _money_tone(value: object) -> str:
     return _return_tone(value)
+
+
+def _meaning_label(row: Mapping[str, object]) -> str:
+    direction = str(row.get("direction") or "").upper()
+    if direction == "BULLISH":
+        return "Bullish"
+    if direction == "BEARISH":
+        return "Bearish"
+    score = _float(row.get("score_value"))
+    if score is not None:
+        if score > 0.0:
+            return "Bullish"
+        if score < 0.0:
+            return "Bearish"
+    return "Neutral"
+
+
+def _meaning_tone(meaning: str) -> str:
+    if meaning == "Bullish":
+        return "pass"
+    if meaning == "Bearish":
+        return "block"
+    return "neutral"
 
 
 def _candle_label(detail: Mapping[str, object]) -> str:

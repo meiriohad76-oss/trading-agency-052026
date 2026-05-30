@@ -29,6 +29,8 @@ STOCK_TRADE_COLUMNS = [
     "sequence_number",
     "tape",
     "trf_id",
+    "is_trf_off_exchange",
+    "trf_venue",
     "session",
     "eligible",
     "direction",
@@ -64,12 +66,12 @@ def write_stock_trade_frame(root: Path, frame: pd.DataFrame) -> int:
         year = int(str(group["year"].iat[0]))
         path = _partition_path(root, ticker, year)
         path.parent.mkdir(parents=True, exist_ok=True)
-        output = group[STOCK_TRADE_COLUMNS].copy()
+        output = _stock_trade_output(group)
         previous_count = 0
         if path.exists():
             try:
                 existing = pd.read_parquet(path)
-            except (pa_lib.ArrowException, ValueError):
+            except pa_lib.ArrowException, ValueError:
                 _quarantine_corrupt_partition(path)
             else:
                 previous_count = len(existing)
@@ -82,6 +84,18 @@ def write_stock_trade_frame(root: Path, frame: pd.DataFrame) -> int:
         output.to_parquet(path, engine="pyarrow", compression="snappy", index=False)
         written += max(0, len(output) - previous_count)
     return written
+
+
+def _stock_trade_output(frame: pd.DataFrame) -> pd.DataFrame:
+    output = frame.copy()
+    defaults: dict[str, object] = {
+        "is_trf_off_exchange": False,
+        "trf_venue": "",
+    }
+    for column in STOCK_TRADE_COLUMNS:
+        if column not in output.columns:
+            output[column] = defaults.get(column)
+    return output[STOCK_TRADE_COLUMNS].copy()
 
 
 def _quarantine_corrupt_partition(path: Path) -> Path:
@@ -158,11 +172,7 @@ def load_stock_trade_coverage_metadata(root: Path) -> dict[str, dict[str, Any]]:
     rows = payload.get("ticker_days", {}) if isinstance(payload, Mapping) else {}
     if not isinstance(rows, Mapping):
         return {}
-    return {
-        str(key): dict(value)
-        for key, value in rows.items()
-        if isinstance(value, Mapping)
-    }
+    return {str(key): dict(value) for key, value in rows.items() if isinstance(value, Mapping)}
 
 
 def update_stock_trade_coverage_metadata(
@@ -265,11 +275,7 @@ def _incremental_manifest(
 ) -> dict[str, object]:
     tickers = sorted(
         {
-            *[
-                str(ticker).upper()
-                for ticker in _manifest_tickers(previous)
-                if str(ticker).strip()
-            ],
+            *[str(ticker).upper() for ticker in _manifest_tickers(previous) if str(ticker).strip()],
             *[ticker.upper() for ticker in touched_tickers if ticker.strip()],
         }
     )

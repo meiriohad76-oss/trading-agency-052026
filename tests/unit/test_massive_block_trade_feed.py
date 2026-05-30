@@ -108,9 +108,7 @@ def test_derive_massive_block_trade_feed_writes_artifact_and_lane_manifest(
 
     assert main() == 0
 
-    derived = pd.read_parquet(
-        output_root / "ticker=AAPL" / "year=2026" / "block_trades.parquet"
-    )
+    derived = pd.read_parquet(output_root / "ticker=AAPL" / "year=2026" / "block_trades.parquet")
     manifest = json.loads(lane_manifest.read_text(encoding="utf-8"))
     progress = json.loads(progress_path.read_text(encoding="utf-8"))
     assert len(derived) == 1
@@ -118,6 +116,94 @@ def test_derive_massive_block_trade_feed_writes_artifact_and_lane_manifest(
     assert manifest["status"] == "complete"
     assert manifest["coverage_pct"] == 100
     assert progress["state"] == "complete"
+
+
+def test_derive_massive_block_trade_feed_enriches_trf_candidate_rows(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    trade_root = tmp_path / "stock_trades"
+    output_root = tmp_path / "block_feed"
+    source_manifest = tmp_path / "massive_live_trade_slices.json"
+    lane_manifest = tmp_path / "massive_block_trade_feed.json"
+    progress_path = tmp_path / "progress.json"
+    partition = trade_root / "ticker=AAPL" / "year=2026"
+    partition.mkdir(parents=True)
+    pd.DataFrame(
+        [
+            {
+                "ticker": "AAPL",
+                "year": 2026,
+                "trade_date": date(2026, 5, 11),
+                "trade_ts": "2026-05-11T14:00:00+00:00",
+                "sequence_number": 1,
+                "trade_id": "trf-a",
+                "source_id": "trf-a",
+                "price": 100.0,
+                "size": 120,
+                "exchange": "4",
+                "trf_id": "202",
+                "is_block_trade": False,
+                "is_off_exchange": False,
+            }
+        ]
+    ).to_parquet(partition / "trades.parquet", engine="pyarrow", index=False)
+    source_manifest.write_text(
+        json.dumps(
+            {
+                "lane_id": "massive_live_trade_slices",
+                "dataset": "stock_trades",
+                "raw_source_dataset": "stock_trades",
+                "status": "complete",
+                "fetched_at": datetime(2026, 5, 11, 14, 5, tzinfo=UTC).isoformat(),
+                "window": {"start": "2026-05-11", "end": "2026-05-11"},
+                "tickers": ["AAPL"],
+                "coverage_pct": 100,
+                "coverage": [
+                    {
+                        "ticker": "AAPL",
+                        "trade_date": "2026-05-11",
+                        "coverage_status": "complete",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "derive_massive_block_trade_feed.py",
+            "--start",
+            "2026-05-11",
+            "--end",
+            "2026-05-11",
+            "--ticker",
+            "AAPL",
+            "--trade-root",
+            str(trade_root),
+            "--output-root",
+            str(output_root),
+            "--source-lane-manifest",
+            str(source_manifest),
+            "--lane-manifest-path",
+            str(lane_manifest),
+            "--progress-path",
+            str(progress_path),
+        ],
+    )
+
+    assert main() == 0
+
+    derived = pd.read_parquet(output_root / "ticker=AAPL" / "year=2026" / "block_trades.parquet")
+    row = derived.iloc[0]
+    assert len(derived) == 1
+    assert bool(row["is_trf_off_exchange"]) is True
+    assert bool(row["is_off_exchange"]) is True
+    assert row["trf_venue"] == "FINRA/NASDAQ TRF Carteret"
+    assert row["notional"] == 12_000.0
 
 
 def test_derive_massive_block_trade_feed_skips_unusable_source_ticker_parquet(
@@ -204,9 +290,7 @@ def test_derive_massive_block_trade_feed_skips_unusable_source_ticker_parquet(
 
     assert main() == 1
 
-    derived = pd.read_parquet(
-        output_root / "ticker=AAPL" / "year=2026" / "block_trades.parquet"
-    )
+    derived = pd.read_parquet(output_root / "ticker=AAPL" / "year=2026" / "block_trades.parquet")
     manifest = json.loads(lane_manifest.read_text(encoding="utf-8"))
     progress = json.loads(progress_path.read_text(encoding="utf-8"))
     assert len(derived) == 1
@@ -252,9 +336,7 @@ def test_derive_massive_block_trade_feed_replaces_corrupt_existing_output(
             }
         ]
     ).to_parquet(trade_partition / "trades.parquet", engine="pyarrow", index=False)
-    (output_partition / "block_trades.parquet").write_text(
-        "not parquet", encoding="utf-8"
-    )
+    (output_partition / "block_trades.parquet").write_text("not parquet", encoding="utf-8")
     source_manifest.write_text(
         json.dumps(
             {
@@ -337,10 +419,7 @@ def test_read_trade_frame_filters_partition_before_concat(
     def guarded_concat(frames, *args, **kwargs):  # type: ignore[no-untyped-def]
         materialized = list(frames)
         assert materialized
-        assert all(
-            set(frame["trade_date"]) == {date(2026, 5, 22)}
-            for frame in materialized
-        )
+        assert all(set(frame["trade_date"]) == {date(2026, 5, 22)} for frame in materialized)
         return real_concat(materialized, *args, **kwargs)
 
     monkeypatch.setattr(pd, "read_parquet", fake_read_parquet)

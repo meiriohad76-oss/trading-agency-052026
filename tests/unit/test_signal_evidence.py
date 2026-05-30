@@ -27,6 +27,92 @@ class BrokenPriceLoader:
         raise RuntimeError("price detail unavailable")
 
 
+class FakeMarketFlowLoader:
+    def stock_trades(
+        self,
+        tickers: list[str],
+        as_of: date,
+        lookback_days: int,
+    ) -> pl.DataFrame:
+        del lookback_days
+        rows = [
+            {
+                "ticker": "AAPL",
+                "trade_date": as_of,
+                "trade_ts": f"{as_of.isoformat()}T14:00:00Z",
+                "price": 100.0,
+                "size": 100.0,
+                "notional": 10_000.0,
+                "direction": 1,
+                "signed_volume": 100.0,
+                "signed_notional": 10_000.0,
+                "session": "REGULAR",
+                "is_block_trade": False,
+                "is_off_exchange": False,
+                "is_trf_off_exchange": False,
+                "trf_venue": "",
+                "sequence_number": 1,
+                "source_id": "baseline",
+                "timestamp_as_of": as_of,
+            },
+            {
+                "ticker": "AAPL",
+                "trade_date": as_of,
+                "trade_ts": f"{as_of.isoformat()}T14:01:00Z",
+                "price": 100.0,
+                "size": 2_500.0,
+                "notional": 250_000.0,
+                "direction": 1,
+                "signed_volume": 2_500.0,
+                "signed_notional": 250_000.0,
+                "session": "REGULAR",
+                "is_block_trade": True,
+                "is_off_exchange": True,
+                "is_trf_off_exchange": True,
+                "trf_venue": "FINRA/NASDAQ TRF Carteret",
+                "sequence_number": 2,
+                "source_id": "trf",
+                "timestamp_as_of": as_of,
+            },
+            {
+                "ticker": "AAPL",
+                "trade_date": as_of,
+                "trade_ts": f"{as_of.isoformat()}T14:02:00Z",
+                "price": 100.0,
+                "size": 100.0,
+                "notional": 10_000.0,
+                "direction": 1,
+                "signed_volume": 100.0,
+                "signed_notional": 10_000.0,
+                "session": "REGULAR",
+                "is_block_trade": False,
+                "is_off_exchange": False,
+                "is_trf_off_exchange": False,
+                "trf_venue": "",
+                "sequence_number": 3,
+                "source_id": "baseline-2",
+                "timestamp_as_of": as_of,
+            },
+        ]
+        return pl.DataFrame(rows).filter(pl.col("ticker").is_in(tickers))
+
+
+class FakeUnusualTradeLoader:
+    def stock_trades(
+        self,
+        tickers: list[str],
+        as_of: date,
+        lookback_days: int,
+    ) -> pl.DataFrame:
+        del lookback_days
+        prior_day = as_of - timedelta(days=1)
+        rows = [
+            *_trade_rows("AAPL", prior_day, count=2, notional=10_000.0, direction=-1),
+            *_trade_rows("AAPL", as_of, count=8, notional=30_000.0, direction=1),
+        ]
+        return pl.DataFrame(rows).filter(pl.col("ticker").is_in(tickers))
+
+
 class CountingTechnicalPriceLoader:
     def __init__(self) -> None:
         self.price_calls = 0
@@ -131,6 +217,67 @@ def test_signal_inspector_reuses_wide_price_window_for_daily_bar_lanes() -> None
     assert "AAPL triggered abnormal volume" in enriched[1]["trigger_headline"]
 
 
+def test_signal_inspector_explains_trf_off_exchange_block_evidence() -> None:
+    rows = [
+        {
+            "ticker": "AAPL",
+            "lane_key": "block_trade_pressure",
+            "lane": "Block Trade Pressure",
+            "direction": "BULLISH",
+            "source": "Massive Live Trade Slices / Derived Block Feed",
+            "score": "+1.00 bullish",
+            "score_value": 1.0,
+            "signal_as_of": AS_OF.isoformat(),
+            "timestamp_as_of": AS_OF.isoformat(),
+            "confidence_pct": 70,
+            "reason_codes_label": "Block Trade Pressure",
+        }
+    ]
+
+    enriched = enrich_signal_rows_with_evidence(rows, loader=FakeMarketFlowLoader())
+
+    row = enriched[0]
+    labels = {card["label"]: card for card in row["trigger_cards"]}
+    assert "TRF/off-exchange" in row["trigger_headline"]
+    assert "not proof of a dark-pool venue" in row["trigger_detail"]
+    assert labels["TRF/off-exchange"]["value"] == "1 / $250.0K"
+    assert labels["Largest focused print"]["value"] == "$250.0K"
+    assert labels["Largest multiple"]["value"] == "25.00x"
+
+
+def test_signal_inspector_explains_unusual_trade_identification() -> None:
+    rows = [
+        {
+            "ticker": "AAPL",
+            "lane_key": "unusual_trade_activity",
+            "lane": "Unusual Trade Activity",
+            "direction": "BULLISH",
+            "source": "Massive Live Trade Slices / Derived Trade Activity",
+            "score": "+1.40 bullish",
+            "score_value": 1.4,
+            "signal_as_of": AS_OF.isoformat(),
+            "timestamp_as_of": "2026-05-08T14:15:00+00:00",
+            "confidence_pct": 82,
+            "reason_codes_label": "Unusual Trade Activity Bullish",
+        }
+    ]
+
+    enriched = enrich_signal_rows_with_evidence(rows, loader=FakeUnusualTradeLoader())
+
+    row = enriched[0]
+    labels = {card["label"]: card for card in row["trigger_cards"]}
+    assert "AAPL identified unusual trade activity" in row["trigger_headline"]
+    assert "bullish" in row["trigger_detail"]
+    assert labels["What was identified"]["value"] == "Strong unusual trade activity"
+    assert labels["Data source"]["value"] == "Massive Live Trade Slices / Derived Trade Activity"
+    assert labels["Evidence time"]["value"] == "2026-05-08 14:15 UTC"
+    assert labels["Conviction"]["value"] == "82%"
+    assert labels["Meaning"]["value"] == "Bullish"
+    assert labels["Trade count anomaly"]["value"] == "4.00x"
+    assert labels["Notional anomaly"]["value"] == "12.00x"
+    assert labels["Net notional pressure"]["value"] == "+100.0%"
+
+
 def _signal_row(lane_key: str, lane: str) -> dict[str, object]:
     return {
         "ticker": "AAPL",
@@ -163,4 +310,35 @@ def _price_rows(
             "timestamp_as_of": start + timedelta(days=offset),
         }
         for offset in range(len(volumes))
+    ]
+
+
+def _trade_rows(
+    ticker: str,
+    trade_date: date,
+    *,
+    count: int,
+    notional: float,
+    direction: int,
+) -> list[dict[str, object]]:
+    size = notional / 100.0
+    return [
+        {
+            "ticker": ticker,
+            "trade_date": trade_date,
+            "trade_ts": f"{trade_date.isoformat()}T14:{index:02d}:00Z",
+            "price": 100.0,
+            "size": size,
+            "notional": notional,
+            "direction": direction,
+            "signed_volume": direction * size,
+            "signed_notional": direction * notional,
+            "session": "REGULAR",
+            "is_block_trade": False,
+            "is_off_exchange": False,
+            "sequence_number": index,
+            "source_id": f"{ticker}-{trade_date.isoformat()}-{index}",
+            "timestamp_as_of": trade_date,
+        }
+        for index in range(count)
     ]

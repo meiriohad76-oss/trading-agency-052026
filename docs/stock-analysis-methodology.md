@@ -382,7 +382,9 @@ Block logic:
 
 - Absolute floor: 10,000 shares or $200,000 notional.
 - Relative floor: at least 5x the ticker's median trade size or median notional.
-- Off-exchange prints are focus candidates.
+- Explicit TRF/off-exchange prints are focus candidates when Massive reports
+  exchange `4` with a `trf_id`; the venue label maps FINRA/NYSE TRF,
+  FINRA/NASDAQ TRF Carteret, or FINRA/NASDAQ TRF Chicago when the id is known.
 - Exchange prints require the absolute and relative logic before they are treated
   as meaningful focus rows.
 
@@ -397,7 +399,8 @@ Calculation:
 
 Interpretation: positive values show large/off-exchange pressure aligned to the
 buy side; negative values show sell-side pressure. Thresholds are stock-relative,
-not only fixed global values.
+not only fixed global values. TRF/off-exchange is displayed as candidate
+large-print evidence, not as confirmed venue intent.
 
 Primary modules: `research/src/signals/block_trade_pressure.py`,
 `research/src/market_flow/features.py`.

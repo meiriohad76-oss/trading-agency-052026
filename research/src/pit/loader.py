@@ -114,9 +114,7 @@ class PITLoader:
         frame = self._ticker_frame(DatasetName.SEC_FORM4, ticker, as_of)
         start = as_of - timedelta(days=lookback_days - 1)
         frame = frame.filter(pl.col("__as_of").is_between(start, as_of))
-        return [
-            row_to_provenanced(row, exclude={"ticker"}) for row in rows(frame.sort("__as_of"))
-        ]
+        return [row_to_provenanced(row, exclude={"ticker"}) for row in rows(frame.sort("__as_of"))]
 
     def institutional_holdings(self, ticker: str, as_of: date) -> Provenanced[dict[str, object]]:
         """Most recent 13F-derived holdings row available on or before `as_of`."""
@@ -271,7 +269,9 @@ class PITLoader:
             raise LookaheadRequested(trade_end, knowledge_as_of)
         normalized_tickers = tuple(sorted({ticker.upper() for ticker in tickers}))
         if not normalized_tickers:
-            raise DataNotAvailableAt(DatasetName.STOCK_TRADES.value, trade_end, "no tickers requested")
+            raise DataNotAvailableAt(
+                DatasetName.STOCK_TRADES.value, trade_end, "no tickers requested"
+            )
         manifest = self._manifests.require(DatasetName.STOCK_TRADES, as_of=knowledge_as_of)
         cache_key = (
             trade_end,
@@ -508,35 +508,27 @@ class PITLoader:
                     self._lazy_datetime_expression("timestamp_as_of", schema).alias(
                         "__timestamp_as_of"
                     ),
-                    self._lazy_session_expression(schema, "PRE_MARKET").alias(
-                        "__is_pre_market"
-                    ),
+                    self._lazy_session_expression(schema, "PRE_MARKET").alias("__is_pre_market"),
                     self._lazy_bool_expression(schema, "is_block_trade").alias(
                         "__source_block_trade"
                     ),
                     self._lazy_bool_expression(schema, "is_off_exchange").alias(
                         "__is_off_exchange"
                     ),
+                    self._lazy_trf_off_exchange_expression(schema).alias("__is_trf_off_exchange"),
                 )
                 .with_columns(
                     (
                         pl.col("__source_block_trade")
-                        | (
-                            pl.col("__size")
-                            >= STOCK_TRADE_BLOCK_ABSOLUTE_SHARES_FLOOR
-                        )
-                        | (
-                            pl.col("__notional")
-                            >= STOCK_TRADE_BLOCK_ABSOLUTE_NOTIONAL_FLOOR
-                        )
+                        | (pl.col("__size") >= STOCK_TRADE_BLOCK_ABSOLUTE_SHARES_FLOOR)
+                        | (pl.col("__notional") >= STOCK_TRADE_BLOCK_ABSOLUTE_NOTIONAL_FLOOR)
                     ).alias("__absolute_block"),
                     (
                         (
                             (ticker_median_size > 0.0)
                             & (
                                 pl.col("__size")
-                                >= ticker_median_size
-                                * STOCK_TRADE_BLOCK_RELATIVE_MEDIAN_MULTIPLE
+                                >= ticker_median_size * STOCK_TRADE_BLOCK_RELATIVE_MEDIAN_MULTIPLE
                             )
                         )
                         | (
@@ -556,15 +548,21 @@ class PITLoader:
                         pl.lit(STOCK_TRADE_BLOCK_ABSOLUTE_NOTIONAL_FLOOR),
                         ticker_median_notional * STOCK_TRADE_BLOCK_RELATIVE_MEDIAN_MULTIPLE,
                     ).alias("__block_notional_threshold"),
+                    pl.when(ticker_median_notional > 0.0)
+                    .then(pl.col("__notional") / ticker_median_notional)
+                    .otherwise(0.0)
+                    .alias("__notional_multiple"),
                 )
                 .with_columns(
                     pl.col("__absolute_block").alias("__is_block_trade"),
+                    (pl.col("__absolute_block") & pl.col("__relative_block")).alias(
+                        "__large_print"
+                    ),
                     (
                         pl.col("__is_off_exchange")
+                        | pl.col("__is_trf_off_exchange")
                         | (pl.col("__absolute_block") & pl.col("__relative_block"))
-                    ).alias(
-                        "__is_focus"
-                    )
+                    ).alias("__is_focus"),
                 )
                 .filter(
                     pl.col("ticker").is_in(tickers),
@@ -578,7 +576,9 @@ class PITLoader:
         except Exception as exc:
             reason = f"could not summarize stock trade partitions under {manifest.path}"
             raise DataNotAvailableAt(dataset.value, as_of, reason) from exc
-        observed_tickers = set(total.get_column("ticker").to_list()) if not total.is_empty() else set()
+        observed_tickers = (
+            set(total.get_column("ticker").to_list()) if not total.is_empty() else set()
+        )
         missing_zero_tickers = [
             ticker for ticker in zero_activity_tickers if ticker not in observed_tickers
         ]
@@ -614,6 +614,18 @@ class PITLoader:
             pl.col("__relative_block").sum().alias("relative_block_count"),
             pl.col("__absolute_block").sum().alias("block_count"),
             pl.col("__is_off_exchange").sum().alias("off_exchange_count"),
+            pl.col("__is_trf_off_exchange").sum().alias("trf_off_exchange_count"),
+            pl.when(pl.col("__is_trf_off_exchange"))
+            .then(pl.col("__notional"))
+            .otherwise(0.0)
+            .sum()
+            .alias("trf_off_exchange_notional"),
+            pl.col("__large_print").sum().alias("large_print_count"),
+            pl.when(pl.col("__large_print"))
+            .then(pl.col("__notional"))
+            .otherwise(0.0)
+            .sum()
+            .alias("large_print_notional"),
             pl.col("__block_notional_threshold").max().alias("block_notional_threshold"),
             pl.col("__block_size_threshold").max().alias("block_size_threshold"),
             pl.when(pl.col("__is_focus"))
@@ -626,6 +638,16 @@ class PITLoader:
             .otherwise(0.0)
             .sum()
             .alias("signed_focus_notional"),
+            pl.when(pl.col("__is_focus"))
+            .then(pl.col("__notional"))
+            .otherwise(0.0)
+            .max()
+            .alias("largest_focus_notional"),
+            pl.when(pl.col("__is_focus"))
+            .then(pl.col("__notional_multiple"))
+            .otherwise(0.0)
+            .max()
+            .alias("largest_focus_notional_multiple"),
         )
         return frame.with_columns(
             cls._lazy_safe_ratio_expression("signed_volume", "total_volume").alias(
@@ -746,10 +768,16 @@ class PITLoader:
                     "relative_block_count": 0,
                     "block_count": 0,
                     "off_exchange_count": 0,
+                    "trf_off_exchange_count": 0,
+                    "trf_off_exchange_notional": 0.0,
+                    "large_print_count": 0,
+                    "large_print_notional": 0.0,
                     "block_notional_threshold": 0.0,
                     "block_size_threshold": 0.0,
                     "focus_notional": 0.0,
                     "signed_focus_notional": 0.0,
+                    "largest_focus_notional": 0.0,
+                    "largest_focus_notional_multiple": 0.0,
                     "net_volume_pressure": 0.0,
                     "net_notional_pressure": 0.0,
                 }
@@ -807,7 +835,11 @@ class PITLoader:
                 if row is None:
                     if not allow_partial_coverage or current == end:
                         incomplete.append(f"{ticker}|{current}:missing")
-                elif str(row.get("coverage_status")) == "complete" or allow_partial_coverage and PITLoader._stock_trade_partial_row_usable(row):
+                elif (
+                    str(row.get("coverage_status")) == "complete"
+                    or allow_partial_coverage
+                    and PITLoader._stock_trade_partial_row_usable(row)
+                ):
                     usable_days += 1
                 else:
                     incomplete.append(f"{ticker}|{current}:{row.get('coverage_status')}")
@@ -922,6 +954,20 @@ class PITLoader:
         )
 
     @staticmethod
+    def _lazy_text_expression(schema: pl.Schema, column: str) -> pl.Expr:
+        if column not in schema:
+            return pl.lit("")
+        return pl.col(column).cast(pl.Utf8, strict=False).str.strip_chars().fill_null("")
+
+    @classmethod
+    def _lazy_trf_off_exchange_expression(cls, schema: pl.Schema) -> pl.Expr:
+        explicit = cls._lazy_bool_expression(schema, "is_trf_off_exchange")
+        inferred = cls._lazy_text_expression(schema, "exchange").is_in(["4", "4.0"]) & (
+            cls._lazy_text_expression(schema, "trf_id") != ""
+        )
+        return (explicit | inferred).fill_null(False)
+
+    @staticmethod
     def _lazy_safe_ratio_expression(numerator: str, denominator: str) -> pl.Expr:
         return (
             pl.when(pl.col(denominator) > 0.0)
@@ -993,7 +1039,11 @@ class PITLoader:
             expression = pl.col(column).str.to_datetime(strict=False, time_zone="UTC")
         else:
             expression = pl.col(column).cast(pl.Datetime(time_zone="UTC"), strict=False)
-        return expression.dt.replace_time_zone("UTC") if getattr(dtype, "time_zone", None) is None else expression
+        return (
+            expression.dt.replace_time_zone("UTC")
+            if getattr(dtype, "time_zone", None) is None
+            else expression
+        )
 
     def _ensure_not_future(self, as_of: date) -> None:
         today = self._today()
