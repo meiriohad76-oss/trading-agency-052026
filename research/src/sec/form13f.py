@@ -59,6 +59,7 @@ async def pull_form13f(
             end_date=end.isoformat(),
         )
         filings_seen += len(filings)
+        filer_name = _filer_name_from_submissions(submissions)
         for filing in filings:
             documents = await info_table_documents(client, filing)
             if not documents:
@@ -76,6 +77,7 @@ async def pull_form13f(
                     xml=xml,
                     fetched_at=get_now(),
                     cusip_to_ticker=cusip_to_ticker,
+                    filer_name=filer_name,
                 )
                 if not frame.empty:
                     frames.append(frame)
@@ -108,6 +110,7 @@ def parse_13f_xml(
     xml: str,
     fetched_at: datetime,
     cusip_to_ticker: Mapping[str, str],
+    filer_name: str | None = None,
 ) -> pd.DataFrame:
     root = parse_xml(xml)
     filing_date = parse_date(filing.filing_date)
@@ -126,6 +129,7 @@ def parse_13f_xml(
                 quarter_end=quarter_end,
                 fetched_at=fetched_at,
                 cusip_to_ticker=cusip_to_ticker,
+                filer_name=filer_name,
             )
         )
         is not None
@@ -142,6 +146,7 @@ def _holding_row(
     quarter_end: date,
     fetched_at: datetime,
     cusip_to_ticker: Mapping[str, str],
+    filer_name: str | None,
 ) -> dict[str, object] | None:
     cusip = first_text(info_table, ("cusip",))
     if cusip is None:
@@ -160,10 +165,12 @@ def _holding_row(
     shares_held = parse_int(first_text(info_table, ("shrsOrPrnAmt", "sshPrnamt")))
     if shares_held is None:
         return None
+    issuer_name = first_text(info_table, ("nameOfIssuer",))
     return {
         "ticker": ticker.upper(),
         "filer_cik": filing.cik,
-        "filer_name": first_text(info_table, ("nameOfIssuer",)),
+        "filer_name": filer_name or filing.cik,
+        "issuer_name": issuer_name,
         "cusip": cusip.upper(),
         "quarter": _quarter_label(quarter_end),
         "quarter_end_date": quarter_end,
@@ -187,6 +194,14 @@ def _with_quarter_changes(frame: pd.DataFrame) -> pd.DataFrame:
         output.groupby(["ticker", "filer_cik"])["shares_held"].diff().fillna(0).astype("int64")
     )
     return output
+
+
+def _filer_name_from_submissions(payload: Mapping[str, Any]) -> str | None:
+    value = payload.get("name")
+    if value is None:
+        return None
+    text = " ".join(str(value).split())
+    return text or None
 
 
 def _quarter_label(value: date) -> str:

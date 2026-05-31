@@ -181,18 +181,22 @@ def test_institutional_holdings_use_latest_available_filing(tmp_path: Path) -> N
                 date(2022, 11, 14),
                 "q3-a",
                 filer_cik="1",
+                filer_name="Alpha Capital",
                 quarter_end_date=date(2022, 9, 30),
                 shares_held=Q3_SHARES_A,
                 change_from_prev_quarter=20,
+                value_usd_thousands=12_000.0,
             ),
             filing_row(
                 "AAPL",
                 date(2022, 11, 15),
                 "q3-b",
                 filer_cik="2",
+                filer_name="Beta Partners",
                 quarter_end_date=date(2022, 9, 30),
                 shares_held=Q3_MARKET_VALUE,
                 change_from_prev_quarter=30,
+                value_usd_thousands=26_000.0,
             ),
             filing_row(
                 "AAPL",
@@ -202,6 +206,7 @@ def test_institutional_holdings_use_latest_available_filing(tmp_path: Path) -> N
                 quarter_end_date=date(2022, 12, 31),
                 shares_held=999,
                 change_from_prev_quarter=999,
+                value_usd_thousands=999_000.0,
             ),
         ]
     )
@@ -212,6 +217,34 @@ def test_institutional_holdings_use_latest_available_filing(tmp_path: Path) -> N
     assert result.value["holder_count"] == Q3_HOLDER_COUNT
     assert result.value["total_shares_held"] == Q3_SHARES_A + Q3_MARKET_VALUE
     assert result.value["total_change_from_prev_quarter"] == Q3_TOTAL_CHANGE
+    assert result.value["previous_shares_held"] == pytest.approx(270.0)
+    assert result.value["net_change_current_share_ratio"] == pytest.approx(50.0 / 320.0)
+    assert result.value["net_change_prior_share_ratio"] == pytest.approx(50.0 / 270.0)
+    assert result.value["total_value_usd_thousands"] == pytest.approx(38_000.0)
+    assert result.value["implied_value_per_share"] == pytest.approx(118_750.0)
+    holder_changes = result.value["holder_changes"]
+    assert holder_changes == [
+        {
+            "holder_cik": "2",
+            "holder_name": "Beta Partners",
+            "current_shares": Q3_MARKET_VALUE,
+            "previous_shares": 170.0,
+            "change_from_prev_quarter": 30,
+            "value_usd_thousands": 26_000.0,
+            "implied_value_per_share": 130_000.0,
+            "source_id": "q3-b",
+        },
+        {
+            "holder_cik": "1",
+            "holder_name": "Alpha Capital",
+            "current_shares": Q3_SHARES_A,
+            "previous_shares": 100.0,
+            "change_from_prev_quarter": 20,
+            "value_usd_thousands": 12_000.0,
+            "implied_value_per_share": 100_000.0,
+            "source_id": "q3-a",
+        },
+    ]
     assert result.provenance.source_id == "q3-b"
 
 

@@ -62,7 +62,7 @@ def abnormal_volume_frame(
     rows = [
         row
         for ticker, group in frame.groupby("ticker", sort=True)
-        if (row := _factor_row(str(ticker), group, price_column)) is not None
+        if (row := _factor_row(str(ticker), group, price_column, lookback_days)) is not None
     ]
     output = pd.DataFrame(rows)
     if output.empty:
@@ -77,7 +77,12 @@ def abnormal_volume_frame(
     ).reset_index(drop=True)
 
 
-def _factor_row(ticker: str, group: pd.DataFrame, price_column: str) -> dict[str, object] | None:
+def _factor_row(
+    ticker: str,
+    group: pd.DataFrame,
+    price_column: str,
+    lookback_days: int,
+) -> dict[str, object] | None:
     ordered = group.sort_values("date") if "date" in group.columns else group
     if len(ordered) < MIN_OBSERVATIONS:
         return None
@@ -112,12 +117,17 @@ def _factor_row(ticker: str, group: pd.DataFrame, price_column: str) -> dict[str
         "ticker": ticker,
         "latest_volume": latest_volume,
         "baseline_volume": baseline_volume,
+        "baseline_observation_count": _positive_count(history["volume"]),
+        "lookback_days": lookback_days,
         "volume_ratio": volume_ratio,
         "volume_signal_band": volume_signal_band(volume_ratio),
         "rvol_z_score": rvol_z,
         "rvol_mad_score": rvol_mad,
         "volume_anomaly_band": anomaly_band(volume_ratio, rvol_z, rvol_mad),
         "latest_return": latest_return,
+        "latest_price": latest_price,
+        "previous_price": previous_price,
+        "price_change": latest_price - previous_price,
         "trend_return": trend_return,
         "trend_agreement": trend_agreement,
         "signed_volume_pressure": signed_pressure,
@@ -131,6 +141,11 @@ def _positive_median(series: pd.Series) -> float | None:
     if values.empty:
         return None
     return float(values.median())
+
+
+def _positive_count(series: pd.Series) -> int:
+    values = pd.to_numeric(series, errors="coerce")
+    return int((values > 0.0).sum())
 
 
 def _latest_positive(series: pd.Series) -> float | None:
@@ -188,12 +203,17 @@ def _empty_frame() -> pd.DataFrame:
             "ticker",
             "latest_volume",
             "baseline_volume",
+            "baseline_observation_count",
+            "lookback_days",
             "volume_ratio",
             "volume_signal_band",
             "rvol_z_score",
             "rvol_mad_score",
             "volume_anomaly_band",
             "latest_return",
+            "latest_price",
+            "previous_price",
+            "price_change",
             "trend_return",
             "trend_agreement",
             "signed_volume_pressure",

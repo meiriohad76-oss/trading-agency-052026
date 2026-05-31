@@ -118,6 +118,9 @@ def market_flow_feature_frame(
         focus_notional_share = _ratio(focus_notional, total_notional)
         focus_activity_score = focus_notional_share * math.log1p(focus_trade_count)
         activity_metadata = _activity_anomaly_metadata(ticker_daily)
+        pre_market_activity_metadata = _pre_market_activity_metadata(ticker_daily)
+        latest_pressure = _latest_metric(ticker_daily, "net_notional_pressure")
+        prior_pressure = _prior_pressure_median(ticker_daily)
         trend_participation = _market_flow_trend_participation(ticker_daily)
         buy_sell_pressure = (
             normalized_config.net_notional_weight * _float_from_row(total, "net_notional_pressure")
@@ -135,10 +138,9 @@ def market_flow_feature_frame(
                 "total_notional": total_notional,
                 "net_volume_pressure": _float_from_row(total, "net_volume_pressure"),
                 "net_notional_pressure": _float_from_row(total, "net_notional_pressure"),
-                "latest_net_notional_pressure": _latest_metric(
-                    ticker_daily,
-                    "net_notional_pressure",
-                ),
+                "latest_net_notional_pressure": latest_pressure,
+                "prior_net_notional_pressure_median": prior_pressure,
+                "net_notional_pressure_delta": latest_pressure - prior_pressure,
                 "latest_pre_market_pressure": _latest_metric(
                     ticker_daily,
                     "pre_market_pressure",
@@ -183,6 +185,7 @@ def market_flow_feature_frame(
                 "buy_sell_pressure": buy_sell_pressure,
                 "block_trade_pressure": block_trade_pressure,
                 **activity_metadata,
+                **pre_market_activity_metadata,
                 "unusual_trade_activity": _unusual_trade_activity(ticker_daily),
                 "pre_market_unusual_activity": _pre_market_unusual_activity(ticker_daily),
                 "market_flow_trend": _market_flow_trend(ticker_daily),
@@ -506,6 +509,8 @@ def _feature_row(
     unusual_trade_activity = _unusual_trade_activity(daily)
     pre_market_unusual_activity = _pre_market_unusual_activity(daily)
     market_flow_trend = _market_flow_trend(daily)
+    latest_pressure = _latest_metric(daily, "net_notional_pressure")
+    prior_pressure = _prior_pressure_median(daily)
     return {
         "ticker": ticker,
         "trade_count": len(prepared),
@@ -516,6 +521,9 @@ def _feature_row(
             float(prepared["__signed_notional"].sum()),
             total_notional,
         ),
+        "latest_net_notional_pressure": latest_pressure,
+        "prior_net_notional_pressure_median": prior_pressure,
+        "net_notional_pressure_delta": latest_pressure - prior_pressure,
         "pre_market_volume": float(pre_market["__size"].sum()),
         "block_count": int(_bool(focus, "is_block_trade").sum()) if not focus.empty else 0,
         "off_exchange_count": int(_bool(focus, "is_off_exchange").sum()) if not focus.empty else 0,
@@ -662,45 +670,105 @@ def _activity_anomaly_metadata(daily: pd.DataFrame) -> dict[str, object]:
         }
     latest = daily.iloc[-1]
     baseline = daily.iloc[:-1]
+    latest_trade_count = float(latest["trade_count"])
+    latest_notional = float(latest["notional"])
+    latest_volume = float(latest["volume"])
     if baseline.empty:
         trade_count_ratio = 1.0
         notional_ratio = 1.0
         volume_ratio = 1.0
+        baseline_trade_count = 0.0
+        baseline_notional = 0.0
+        baseline_volume = 0.0
         z_score = 0.0
         mad_score = 0.0
     else:
+        baseline_trade_count = _positive_median(baseline["trade_count"]) or 0.0
+        baseline_notional = _positive_median(baseline["notional"]) or 0.0
+        baseline_volume = _positive_median(baseline["volume"]) or 0.0
         trade_count_ratio = _activity_ratio(
-            float(latest["trade_count"]),
-            _positive_median(baseline["trade_count"]),
+            latest_trade_count,
+            baseline_trade_count,
         )
         notional_ratio = _activity_ratio(
-            float(latest["notional"]),
-            _positive_median(baseline["notional"]),
+            latest_notional,
+            baseline_notional,
         )
         volume_ratio = _activity_ratio(
-            float(latest["volume"]),
-            _positive_median(baseline["volume"]),
+            latest_volume,
+            baseline_volume,
         )
         z_scores = [
-            robust_z_score(float(latest["trade_count"]), baseline["trade_count"]),
-            robust_z_score(float(latest["notional"]), baseline["notional"]),
-            robust_z_score(float(latest["volume"]), baseline["volume"]),
+            robust_z_score(latest_trade_count, baseline["trade_count"]),
+            robust_z_score(latest_notional, baseline["notional"]),
+            robust_z_score(latest_volume, baseline["volume"]),
         ]
         mad_scores = [
-            robust_mad_score(float(latest["trade_count"]), baseline["trade_count"]),
-            robust_mad_score(float(latest["notional"]), baseline["notional"]),
-            robust_mad_score(float(latest["volume"]), baseline["volume"]),
+            robust_mad_score(latest_trade_count, baseline["trade_count"]),
+            robust_mad_score(latest_notional, baseline["notional"]),
+            robust_mad_score(latest_volume, baseline["volume"]),
         ]
         z_score = max(z_scores, key=abs)
         mad_score = max(mad_scores, key=abs)
     max_ratio = max(trade_count_ratio, notional_ratio, volume_ratio)
     return {
+        "latest_activity_trade_count": latest_trade_count,
+        "baseline_activity_trade_count_median": baseline_trade_count,
+        "latest_activity_notional": latest_notional,
+        "baseline_activity_notional_median": baseline_notional,
+        "latest_activity_volume": latest_volume,
+        "baseline_activity_volume_median": baseline_volume,
         "trade_count_anomaly_ratio": trade_count_ratio,
         "notional_anomaly_ratio": notional_ratio,
         "volume_anomaly_ratio": volume_ratio,
         "activity_anomaly_z_score": z_score,
         "activity_anomaly_mad_score": mad_score,
         "activity_anomaly_band": anomaly_band(max_ratio, z_score, mad_score),
+    }
+
+
+def _pre_market_activity_metadata(daily: pd.DataFrame) -> dict[str, object]:
+    if daily.empty:
+        return {
+            "latest_pre_market_trade_count": 0.0,
+            "baseline_pre_market_trade_count_median": 0.0,
+            "latest_pre_market_notional": 0.0,
+            "baseline_pre_market_notional_median": 0.0,
+            "latest_pre_market_volume": 0.0,
+            "baseline_pre_market_volume_median": 0.0,
+            "pre_market_trade_count_anomaly_ratio": 0.0,
+            "pre_market_notional_anomaly_ratio": 0.0,
+            "pre_market_volume_anomaly_ratio": 0.0,
+        }
+    latest = daily.iloc[-1]
+    baseline = daily.iloc[:-1]
+    latest_count = float(latest["pre_market_count"])
+    latest_notional = float(latest["pre_market_notional"])
+    latest_volume = float(latest["pre_market_volume"])
+    if baseline.empty:
+        baseline_count = 0.0
+        baseline_notional = 0.0
+        baseline_volume = 0.0
+        count_ratio = 1.0
+        notional_ratio = 1.0
+        volume_ratio = 1.0
+    else:
+        baseline_count = _positive_median(baseline["pre_market_count"]) or 0.0
+        baseline_notional = _positive_median(baseline["pre_market_notional"]) or 0.0
+        baseline_volume = _positive_median(baseline["pre_market_volume"]) or 0.0
+        count_ratio = _activity_ratio(latest_count, baseline_count)
+        notional_ratio = _activity_ratio(latest_notional, baseline_notional)
+        volume_ratio = _activity_ratio(latest_volume, baseline_volume)
+    return {
+        "latest_pre_market_trade_count": latest_count,
+        "baseline_pre_market_trade_count_median": baseline_count,
+        "latest_pre_market_notional": latest_notional,
+        "baseline_pre_market_notional_median": baseline_notional,
+        "latest_pre_market_volume": latest_volume,
+        "baseline_pre_market_volume_median": baseline_volume,
+        "pre_market_trade_count_anomaly_ratio": count_ratio,
+        "pre_market_notional_anomaly_ratio": notional_ratio,
+        "pre_market_volume_anomaly_ratio": volume_ratio,
     }
 
 
@@ -715,6 +783,15 @@ def _market_flow_trend_participation(daily: pd.DataFrame) -> float:
         1.0,
         math.log1p(max(_activity_ratio(latest_notional, prior_notional) - 1.0, 0.0)),
     )
+
+
+def _prior_pressure_median(daily: pd.DataFrame) -> float:
+    if len(daily) < 2 or "net_notional_pressure" not in daily.columns:
+        return 0.0
+    history = daily.iloc[:-1]
+    if history.empty:
+        return 0.0
+    return float(history["net_notional_pressure"].median())
 
 
 def _latest_metric(daily: pd.DataFrame, column: str) -> float:
@@ -809,6 +886,8 @@ def _empty_frame() -> pd.DataFrame:
             "net_volume_pressure",
             "net_notional_pressure",
             "latest_net_notional_pressure",
+            "prior_net_notional_pressure_median",
+            "net_notional_pressure_delta",
             "latest_pre_market_pressure",
             "pre_market_volume",
             "pre_market_volume_share",
@@ -833,12 +912,27 @@ def _empty_frame() -> pd.DataFrame:
             "block_notional_threshold",
             "block_size_threshold",
             "block_threshold_method",
+            "latest_activity_trade_count",
+            "baseline_activity_trade_count_median",
+            "latest_activity_notional",
+            "baseline_activity_notional_median",
+            "latest_activity_volume",
+            "baseline_activity_volume_median",
             "trade_count_anomaly_ratio",
             "notional_anomaly_ratio",
             "volume_anomaly_ratio",
             "activity_anomaly_z_score",
             "activity_anomaly_mad_score",
             "activity_anomaly_band",
+            "latest_pre_market_trade_count",
+            "baseline_pre_market_trade_count_median",
+            "latest_pre_market_notional",
+            "baseline_pre_market_notional_median",
+            "latest_pre_market_volume",
+            "baseline_pre_market_volume_median",
+            "pre_market_trade_count_anomaly_ratio",
+            "pre_market_notional_anomaly_ratio",
+            "pre_market_volume_anomaly_ratio",
             *FEATURE_COLUMNS,
             "market_flow_trend_participation",
         ]

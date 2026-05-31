@@ -445,48 +445,142 @@ def _score_text(signal: Mapping[str, object]) -> str:
 
 def _reason_summary(reason_code: str) -> str:
     summaries = {
-        "abnormal_volume_bullish": "Volume activity is constructive.",
-        "abnormal_volume_bearish": "Volume activity is negative.",
-        "activity_alerts_bullish": "Unusual activity alerts are constructive.",
-        "activity_alerts_bearish": "Unusual activity alerts are negative.",
+        "abnormal_volume_bullish": (
+            "Abnormal volume is bullish when the latest daily volume is far above its median "
+            "baseline and the stock price rises on the same trigger bar."
+        ),
+        "abnormal_volume_bearish": (
+            "Abnormal volume is bearish when the latest daily volume is far above its median "
+            "baseline and the stock price falls on the same trigger bar."
+        ),
+        "activity_alerts_bullish": (
+            "Activity alerts are bullish when trade count, notional, or volume is above "
+            "its ticker baseline and the signed pressure leans buyer-side."
+        ),
+        "activity_alerts_bearish": (
+            "Activity alerts are bearish when trade count, notional, or volume is above "
+            "its ticker baseline and the signed pressure leans seller-side."
+        ),
         "bearish_action_not_enabled": "Bearish actions are not enabled in this runtime.",
         "below_actionability_threshold": "Signal is below the actionability threshold.",
-        "block_trade_pressure_bullish": "Block-trade pressure is constructive.",
-        "block_trade_pressure_bearish": "Block-trade pressure is negative.",
-        "buy_sell_pressure_bullish": "Buy/sell pressure is constructive.",
-        "buy_sell_pressure_bearish": "Buy/sell pressure is negative.",
+        "block_trade_pressure_bullish": (
+            "Block-trade pressure is bullish when focused block/TRF/off-exchange prints have "
+            "buy-leaning signed notional and represent a meaningful share of analyzed notional."
+        ),
+        "block_trade_pressure_bearish": (
+            "Block-trade pressure is bearish when focused block/TRF/off-exchange prints have "
+            "sell-leaning signed notional and represent a meaningful share of analyzed notional."
+        ),
+        "buy_sell_pressure_bullish": (
+            "Buy/sell pressure is bullish when signed notional from delayed trade prints is "
+            "buy-leaning; total notional is all analyzed prints, not off-exchange-only."
+        ),
+        "buy_sell_pressure_bearish": (
+            "Buy/sell pressure is bearish when signed notional from delayed trade prints is "
+            "sell-leaning; total notional is all analyzed prints, not off-exchange-only."
+        ),
         "duplicate_signal_source": "Duplicate source was ignored.",
-        "fundamentals_bullish": "Fundamental metrics are constructive.",
-        "fundamentals_bearish": "Fundamental metrics are negative.",
-        "insider_bullish": "Insider activity is constructive.",
-        "insider_bearish": "Insider activity is negative.",
-        "institutional_bullish": "Institutional positioning is constructive.",
-        "institutional_bearish": "Institutional positioning is negative.",
+        "fundamentals_bullish": (
+            "Fundamentals lane is net bullish after comparing margins, cash generation, "
+            "leverage, growth, and valuation versus the current universe."
+        ),
+        "fundamentals_bearish": (
+            "Fundamentals lane is net bearish after comparing margins, cash generation, "
+            "leverage, growth, and valuation versus the current universe; see Main drivers "
+            "for the exact metrics."
+        ),
+        "insider_bullish": (
+            "Insider lane is bullish when Form 4 purchases exceed Form 4 sales in "
+            "recent transaction value, producing positive net insider dollars."
+        ),
+        "insider_bearish": (
+            "Insider lane is bearish when Form 4 sales exceed Form 4 purchases in "
+            "recent transaction value, producing negative net insider dollars."
+        ),
+        "institutional_bullish": (
+            "Institutional lane is bullish when 13F holder share changes show net "
+            "accumulation versus the prior reported quarter."
+        ),
+        "institutional_bearish": (
+            "Institutional lane is bearish when 13F holder share changes show net "
+            "distribution versus the prior reported quarter."
+        ),
         "insufficient_confirmed_sources": "Needs more confirmed corroboration.",
         "insufficient_independent_sources": "Needs more independent source coverage.",
-        "market_flow_trend_bullish": "Market-flow trend is improving.",
-        "market_flow_trend_bearish": "Market-flow trend is deteriorating.",
-        "news_bullish": "News flow is constructive.",
-        "news_bearish": "News flow is negative.",
+        "market_flow_trend_bullish": (
+            "Market-flow trend is bullish when latest signed notional pressure improves "
+            "versus the recent median pressure baseline with enough participation."
+        ),
+        "market_flow_trend_bearish": (
+            "Market-flow trend is bearish when latest signed notional pressure deteriorates "
+            "versus the recent median pressure baseline with enough participation."
+        ),
+        "news_bullish": (
+            "News lane is bullish when confidence-weighted ticker-tagged headlines contain "
+            "more positive event cues than negative cues in the lookback window."
+        ),
+        "news_bearish": (
+            "News lane is bearish when confidence-weighted ticker-tagged headlines contain "
+            "more negative event cues than positive cues in the lookback window."
+        ),
         "not_actionable": "Useful context, but not actionable by itself.",
-        "options_anomaly_bullish": "Options anomaly activity is constructive.",
-        "options_anomaly_bearish": "Options anomaly activity is negative.",
-        "options_flow_bullish": "Options flow is constructive.",
-        "options_flow_bearish": "Options flow is negative.",
-        "prepost_bullish": "Pre/post-market activity is constructive.",
-        "prepost_bearish": "Pre/post-market activity is negative.",
-        "pre_market_unusual_activity_bullish": "Pre-market unusual activity is constructive.",
-        "pre_market_unusual_activity_bearish": "Pre-market unusual activity is negative.",
+        "options_anomaly_bullish": (
+            "Options anomaly is bullish when call-side volume, premium, or open-interest "
+            "change is unusually high versus the option baseline."
+        ),
+        "options_anomaly_bearish": (
+            "Options anomaly is bearish when put-side volume, premium, or open-interest "
+            "change is unusually high versus the option baseline."
+        ),
+        "options_flow_bullish": (
+            "Options flow is bullish when call-side premium or volume dominates put-side "
+            "activity in the available chain sample."
+        ),
+        "options_flow_bearish": (
+            "Options flow is bearish when put-side premium or volume dominates call-side "
+            "activity in the available chain sample."
+        ),
+        "prepost_bullish": (
+            "Pre/post-market activity is bullish when extended-hours volume or notional "
+            "is elevated and signed pressure leans buyer-side."
+        ),
+        "prepost_bearish": (
+            "Pre/post-market activity is bearish when extended-hours volume or notional "
+            "is elevated and signed pressure leans seller-side."
+        ),
+        "pre_market_unusual_activity_bullish": (
+            "Pre-market unusual activity is bullish when pre-market volume or notional "
+            "is above its ticker baseline and pre-market signed pressure leans buyer-side."
+        ),
+        "pre_market_unusual_activity_bearish": (
+            "Pre-market unusual activity is bearish when pre-market volume or notional "
+            "is above its ticker baseline and pre-market signed pressure leans seller-side."
+        ),
         "requires_confirmed_corroboration": "Inferred signal needs confirmed corroboration.",
-        "sector_momentum_bullish": "Sector momentum is constructive.",
-        "sector_momentum_bearish": "Sector momentum is negative.",
+        "sector_momentum_bullish": (
+            "Sector momentum is bullish when the stock's sector or benchmark group is "
+            "outperforming its recent return baseline."
+        ),
+        "sector_momentum_bearish": (
+            "Sector momentum is bearish when the stock's sector or benchmark group is "
+            "underperforming its recent return baseline."
+        ),
         "signal_strength_below_threshold": "Combined signal strength is below threshold.",
         "source_unavailable": "Source was unavailable.",
         "stale_evidence": "Evidence needs refresh, so it is context only.",
         "subscription_thesis_context_only": "Subscription article thesis is context only.",
-        "technical_analysis_bullish": "Technical setup is constructive.",
-        "technical_analysis_bearish": "Technical setup is negative.",
-        "technical_analysis_neutral": "Technical setup is mixed.",
+        "technical_analysis_bullish": (
+            "Technical analysis is bullish when trend, momentum, relative strength, "
+            "volume confirmation, and chart setup contribute a positive combined score."
+        ),
+        "technical_analysis_bearish": (
+            "Technical analysis is bearish when trend, momentum, relative strength, "
+            "volume confirmation, and chart setup contribute a negative combined score."
+        ),
+        "technical_analysis_neutral": (
+            "Technical analysis is mixed when trend, momentum, relative strength, "
+            "volume confirmation, and chart setup do not agree directionally."
+        ),
         "technical_pattern_bearish": "Named chart pattern is bearish.",
         "technical_pattern_bullish": "Named chart pattern is bullish.",
         "technical_pattern_confirmed": "Named chart pattern is confirmed.",
@@ -505,8 +599,14 @@ def _reason_summary(reason_code: str) -> str:
         "technical_setup_pullback_to_support": "Chart setup is pulling back to support.",
         "technical_setup_range_bound": "Chart setup is range-bound.",
         "technical_setup_trend_continuation": "Chart setup shows trend continuation.",
-        "unusual_trade_activity_bullish": "Unusual trade activity is constructive.",
-        "unusual_trade_activity_bearish": "Unusual trade activity is negative.",
+        "unusual_trade_activity_bullish": (
+            "Unusual trade activity is bullish when the latest trade count, notional, or "
+            "share volume is above its recent median baseline and signed notional is buy-leaning."
+        ),
+        "unusual_trade_activity_bearish": (
+            "Unusual trade activity is bearish when the latest trade count, notional, or "
+            "share volume is above its recent median baseline and signed notional is sell-leaning."
+        ),
         "zero_confidence": "Signal confidence is zero.",
     }
     return summaries.get(reason_code, f"{_label_text(reason_code)}.")
@@ -1081,6 +1181,182 @@ def dashboard_data_health(
             },
         ],
     }
+
+
+def displayed_evidence_currentness(
+    data_load_status: Mapping[str, object],
+    *,
+    displayed_cycle_id: str | None,
+    lanes: Sequence[str] = (),
+    datasets: Sequence[str] = (),
+) -> dict[str, object]:
+    """Return whether persisted report evidence may be presented as current."""
+
+    status_cycle_id = _clean_text(data_load_status.get("cycle_id")) or "None"
+    displayed = displayed_cycle_id or "None"
+    relevant_lanes = {str(lane) for lane in lanes if str(lane).strip()}
+    relevant_datasets = {str(dataset) for dataset in datasets if str(dataset).strip()}
+    lane_states = _optional_mapping_rows(
+        data_load_status.get("lane_state_rows") or data_load_status.get("lane_states")
+    )
+    relevant_state = _first_relevant_not_current_lane_state(
+        lane_states,
+        lanes=relevant_lanes,
+        datasets=relevant_datasets,
+    )
+    if relevant_state is not None:
+        state = str(relevant_state.get("state") or "").casefold()
+        if state == "loading":
+            return _displayed_evidence_status(
+                is_current=False,
+                display_mode="work_in_progress",
+                status_label="Data is being analyzed",
+                reason=(
+                    f"{relevant_state.get('label') or relevant_state.get('lane_id')} is still "
+                    f"loading ({relevant_state.get('progress_label') or 'progress not tracked'})."
+                ),
+                status_cycle_id=status_cycle_id,
+                displayed_cycle_id=displayed,
+                wip_lane_ids=_wip_lane_ids(
+                    lane_states,
+                    lanes=relevant_lanes,
+                    datasets=relevant_datasets,
+                ),
+            )
+        return _displayed_evidence_status(
+            is_current=False,
+            display_mode="not_current",
+            status_label=_operator_text(relevant_state.get("status_label"), default="Data not current"),
+            reason=str(
+                relevant_state.get("operator_message")
+                or relevant_state.get("recommended_action")
+                or "A required lane is not current enough for displayed evidence."
+            ),
+            status_cycle_id=status_cycle_id,
+            displayed_cycle_id=displayed,
+            wip_lane_ids=_wip_lane_ids(
+                lane_states,
+                lanes=relevant_lanes,
+                datasets=relevant_datasets,
+            ),
+        )
+    data_refresh = _mapping_object(data_load_status.get("data_refresh"))
+    if str(data_refresh.get("state") or "").casefold() == "running":
+        current_dataset = str(data_refresh.get("current_dataset") or "").strip()
+        if not current_dataset or current_dataset in relevant_lanes or current_dataset in relevant_datasets:
+            return _displayed_evidence_status(
+                is_current=False,
+                display_mode="work_in_progress",
+                status_label="Data is being analyzed",
+                reason=(
+                    f"{current_dataset or 'A data refresh'} is running; previous report rows "
+                    "are hidden until the current analysis finishes."
+                ),
+                status_cycle_id=status_cycle_id,
+                displayed_cycle_id=displayed,
+                wip_lane_ids=[current_dataset] if current_dataset else [],
+            )
+    if status_cycle_id not in {"", "None"} and displayed not in {"", "None"} and status_cycle_id != displayed:
+        return _displayed_evidence_status(
+            is_current=False,
+            display_mode="cycle_mismatch",
+            status_label="Report cycle is catching up",
+            reason=(
+                f"Displayed report cycle {displayed} does not match runtime status cycle "
+                f"{status_cycle_id}."
+            ),
+            status_cycle_id=status_cycle_id,
+            displayed_cycle_id=displayed,
+            wip_lane_ids=[],
+        )
+    return _displayed_evidence_status(
+        is_current=True,
+        display_mode="current",
+        status_label="Displayed evidence is current",
+        reason="Displayed report rows match the current lane state.",
+        status_cycle_id=status_cycle_id,
+        displayed_cycle_id=displayed,
+        wip_lane_ids=[],
+    )
+
+
+def _displayed_evidence_status(
+    *,
+    is_current: bool,
+    display_mode: str,
+    status_label: str,
+    reason: str,
+    status_cycle_id: str,
+    displayed_cycle_id: str,
+    wip_lane_ids: Sequence[str],
+) -> dict[str, object]:
+    return {
+        "is_current": is_current,
+        "display_mode": display_mode,
+        "status_label": status_label,
+        "reason": _operator_text(reason),
+        "status_cycle_id": status_cycle_id,
+        "displayed_cycle_id": displayed_cycle_id,
+        "wip_lane_ids": list(wip_lane_ids),
+    }
+
+
+def _first_relevant_not_current_lane_state(
+    rows: Sequence[Mapping[str, object]],
+    *,
+    lanes: set[str],
+    datasets: set[str],
+) -> Mapping[str, object] | None:
+    not_current_states = {
+        "loading",
+        "loaded_unanalyzed",
+        "needs_refresh",
+        "provider_unavailable",
+        "stale",
+        "expired",
+        "unverified",
+        "failed",
+        "blocked",
+    }
+    for row in rows:
+        if not _lane_state_matches(row, lanes=lanes, datasets=datasets):
+            continue
+        if str(row.get("state") or "").casefold() in not_current_states:
+            return row
+    return None
+
+
+def _wip_lane_ids(
+    rows: Sequence[Mapping[str, object]],
+    *,
+    lanes: set[str],
+    datasets: set[str],
+) -> list[str]:
+    return [
+        str(row.get("lane_id") or row.get("lane") or row.get("source_dataset") or "unknown")
+        for row in rows
+        if _lane_state_matches(row, lanes=lanes, datasets=datasets)
+        and str(row.get("state") or "").casefold() == "loading"
+    ]
+
+
+def _lane_state_matches(
+    row: Mapping[str, object],
+    *,
+    lanes: set[str],
+    datasets: set[str],
+) -> bool:
+    lane_id = str(row.get("lane_id") or row.get("lane") or "").strip()
+    source_dataset = str(row.get("source_dataset") or "").strip()
+    raw_lanes = {str(item) for item in _list_field(row, "raw_lanes_required")}
+    return (
+        (not lanes and not datasets)
+        or lane_id in lanes
+        or source_dataset in datasets
+        or bool(raw_lanes.intersection(lanes))
+        or bool(raw_lanes.intersection(datasets))
+    )
+
 
 def _load_dashboard_data_load_status() -> Mapping[str, object]:
     try:

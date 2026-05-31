@@ -590,6 +590,28 @@ async def test_warm_cockpit_context_cache_primes_first_runtime_request(monkeypat
     assert calls["count"] == 1
 
 
+async def test_cockpit_context_cache_covers_one_runtime_smoke_sequence(monkeypatch) -> None:
+    calls = {"count": 0}
+    now = {"value": 1000.0}
+    cockpit_module._cockpit_context_cache.clear()
+    cockpit_module._cockpit_context_inflight.clear()
+
+    async def fake_cockpit_context(**_kwargs: object) -> dict[str, object]:
+        calls["count"] += 1
+        return {"build": calls["count"]}
+
+    monkeypatch.setattr(cockpit_module, "monotonic", lambda: now["value"])
+    monkeypatch.setattr(cockpit_module, "cockpit_context", fake_cockpit_context)
+
+    first = await cockpit_module.cached_cockpit_context()
+    now["value"] += 10.0
+    second = await cockpit_module.cached_cockpit_context()
+
+    assert first == second == {"build": 1}
+    assert calls["count"] == 1
+    assert cockpit_module._cockpit_context_inflight == {}
+
+
 async def test_expired_cockpit_cache_serves_last_context_while_refreshing(monkeypatch) -> None:
     calls = {"count": 0}
     now = {"value": 1000.0}

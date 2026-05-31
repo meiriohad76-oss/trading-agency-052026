@@ -775,6 +775,37 @@ def test_shared_dashboard_data_health_explains_blocked_lanes_actionably() -> Non
     assert "diagnostic_detail" in lane_row
 
 
+def test_signal_reason_summaries_explain_method_instead_of_generic_sentiment() -> None:
+    expected_phrases = {
+        "insider_bullish": "Form 4 purchases",
+        "insider_bearish": "Form 4 sales",
+        "institutional_bullish": "13F holder",
+        "institutional_bearish": "13F holder",
+        "market_flow_trend_bullish": "latest signed notional pressure",
+        "market_flow_trend_bearish": "latest signed notional pressure",
+        "news_bullish": "ticker-tagged headlines",
+        "news_bearish": "ticker-tagged headlines",
+        "options_flow_bullish": "call-side",
+        "options_flow_bearish": "put-side",
+        "pre_market_unusual_activity_bullish": "pre-market volume or notional",
+        "pre_market_unusual_activity_bearish": "pre-market volume or notional",
+        "technical_analysis_bullish": "trend, momentum",
+        "technical_analysis_bearish": "trend, momentum",
+    }
+
+    for reason_code, phrase in expected_phrases.items():
+        summary = shared_module._reason_summary(reason_code)
+        assert phrase in summary
+        assert summary not in {
+            "Insider activity is constructive.",
+            "Insider activity is negative.",
+            "Institutional positioning is constructive.",
+            "Institutional positioning is negative.",
+            "News flow is constructive.",
+            "News flow is negative.",
+        }
+
+
 EXPECTED_SIGNALS_REPORT_LIMIT = 300
 EXPECTED_SIGNALS_RENDER_LIMIT = 30
 EXPECTED_LATEST_CYCLE_REPORT_COUNT = 2
@@ -4537,7 +4568,10 @@ def test_final_selection_rows_follow_service_contract() -> None:
     assert rows[0]["confirmed_signal_count"] == EXPECTED_CONFIRMED_SIGNAL_COUNT
     assert rows[0]["policy_gates"][0]["status"] == "PASS"
     assert rows[0]["decision_explanation"].startswith("The final action is WATCH")
-    assert rows[0]["actionable_signals"][0]["summary"] == ("Fundamental metrics are constructive.")
+    assert rows[0]["actionable_signals"][0]["summary"] == (
+        "Fundamentals lane is net bullish after comparing margins, cash generation, "
+        "leverage, growth, and valuation versus the current universe."
+    )
     assert rows[0]["actionable_signals"][0]["score"] == "+0.70 bullish"
 
 
@@ -4638,7 +4672,11 @@ def test_signal_dashboard_rows_group_sort_and_summarize_lanes() -> None:
     ]
     assert rows[0]["candidate_href"] == "/candidates/MSFT"
     assert rows[0]["source"] == "Sec Edgar / Official Filing"
-    assert "Fundamentals produced a bullish signal for MSFT" in str(rows[0]["interpretation_text"])
+    assert "Fundamentals evidence row for MSFT" in str(rows[0]["interpretation_text"])
+    assert "Sec Edgar / Official Filing as of 2026-05-07 08:59 UTC" in str(
+        rows[0]["interpretation_text"]
+    )
+    assert "produced a bullish signal" not in str(rows[0]["interpretation_text"])
     assert "Included in the latest MSFT evidence pack" in str(rows[0]["decision_effect_text"])
     assert "Supports the current WATCH posture for MSFT" in str(rows[0]["decision_alignment_text"])
     assert "Confirmed evidence" in str(rows[0]["quality_text"])
@@ -4665,6 +4703,7 @@ def test_signal_dashboard_rows_group_sort_and_summarize_lanes() -> None:
 async def test_signals_context_uses_full_cycle_report_limit(
     monkeypatch: MonkeyPatch,
 ) -> None:
+    signals_module._signals_context_cache.clear()
     current_reports = [
         _selection_report_for_cycle(
             "live-pit-current",
@@ -4689,7 +4728,35 @@ async def test_signals_context_uses_full_cycle_report_limit(
     def passthrough_rows(rows: list[dict[str, object]]) -> list[dict[str, object]]:
         return list(rows)
 
+    async def ready_status() -> dict[str, object]:
+        return {
+            "overall_percent": 100,
+            "cycle_id": "live-pit-current",
+            "status_checked_at": "2026-05-07T09:32:00Z",
+            "health_monitor": {
+                "status_label": "Live Health Monitor",
+                "status_class": "pass",
+                "live": True,
+                "reliable": True,
+                "row_count": 4,
+                "latest_checked_at": "2026-05-07T09:32:00Z",
+            },
+            "datasets": [],
+            "lanes": [],
+            "lane_states": [
+                {
+                    "lane_id": "fundamentals",
+                    "label": "Fundamentals",
+                    "state": "ready_for_review",
+                    "status_label": "Ready for review",
+                    "status_class": "pass",
+                    "source_dataset": "sec_company_facts",
+                }
+            ],
+        }
+
     monkeypatch.setattr(shared_module, "runtime_selection_reports", fake_reports)
+    monkeypatch.setattr(signals_module, "live_dashboard_data_load_status", ready_status)
     monkeypatch.setattr(
         signals_module,
         "enrich_signal_rows_with_evidence",
@@ -4715,6 +4782,104 @@ async def test_signals_context_uses_full_cycle_report_limit(
     assert context["summary"]["signal_count"] > EXPECTED_SIGNALS_RENDER_LIMIT
     assert context["summary"]["visible_signal_count"] == EXPECTED_SIGNALS_RENDER_LIMIT
     assert context["summary"]["is_limited"] is True
+
+
+async def test_signals_context_hides_previous_rows_when_signal_lane_is_loading(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    signals_module._signals_context_cache.clear()
+    current_report = _selection_report_for_cycle(
+        "live-pit-current",
+        "AAPL",
+        "2026-05-07T09:31:00Z",
+    )
+
+    async def fake_reports(*, limit: int = EXPECTED_SIGNALS_REPORT_LIMIT) -> list[dict[str, object]]:
+        assert limit == EXPECTED_SIGNALS_REPORT_LIMIT
+        return [current_report]
+
+    async def loading_status() -> dict[str, object]:
+        return {
+            "overall_percent": 80,
+            "cycle_id": "live-pit-current",
+            "status_checked_at": "2026-05-07T09:32:00Z",
+            "data_refresh": {"state": "running", "current_dataset": "technical_analysis"},
+            "health_monitor": {
+                "status_label": "Live Health Monitor",
+                "status_class": "pass",
+                "live": True,
+                "reliable": True,
+                "row_count": 4,
+                "latest_checked_at": "2026-05-07T09:32:00Z",
+            },
+            "datasets": [],
+            "lanes": [],
+            "lane_states": [
+                {
+                    "lane_id": "technical_analysis",
+                    "label": "Technical Analysis",
+                    "state": "loading",
+                    "status_label": "Data is still loading",
+                    "status_class": "warn",
+                    "progress_label": "41/168 tickers",
+                    "latest_as_of": "2026-05-07T09:31:00Z",
+                    "checked_at": "2026-05-07T09:32:00Z",
+                    "recommended_action": "Wait for Technical Analysis to finish.",
+                    "source_dataset": "prices_daily",
+                }
+            ],
+        }
+
+    def fail_if_enriched(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+        raise AssertionError(f"old signal rows must not be enriched during WIP: {rows}")
+
+    monkeypatch.setattr(shared_module, "runtime_selection_reports", fake_reports)
+    monkeypatch.setattr(signals_module, "live_dashboard_data_load_status", loading_status)
+    monkeypatch.setattr(signals_module, "enrich_signal_rows_with_evidence", fail_if_enriched)
+    monkeypatch.setattr(
+        signals_module,
+        "load_live_config_readiness",
+        lambda: {"runtime_signals": ["technical_analysis"]},
+    )
+    monkeypatch.setattr(
+        signals_module,
+        "load_lane_promotion_status",
+        lambda _signals: {"lanes": [_promotion_lane("technical_analysis", "action_weighted")]},
+    )
+
+    context = await signals_module.signals_context()
+
+    assert context["signal_rows"] == []
+    assert context["summary"]["signal_count"] == 0
+    assert context["summary"]["previous_signal_count"] > 0
+    assert context["summary"]["display_mode"] == "work_in_progress"
+    assert "analysis is still running" in context["summary"]["headline"]
+    assert context["evidence_currentness"]["is_current"] is False
+    assert context["evidence_currentness"]["status_label"] == "Data is being analyzed"
+
+
+def test_displayed_evidence_currentness_treats_refresh_needed_lane_as_not_current() -> None:
+    currentness = shared_module.displayed_evidence_currentness(
+        {
+            "cycle_id": "live-pit-current",
+            "lane_states": [
+                {
+                    "lane_id": "massive_live_trade_slices",
+                    "source_dataset": "stock_trades",
+                    "state": "stale",
+                    "status_label": "Lane Stale",
+                    "operator_message": "stock_trades stale: refresh the live trade slices lane.",
+                }
+            ],
+        },
+        displayed_cycle_id="live-pit-current",
+        datasets=("stock_trades",),
+    )
+
+    assert currentness["is_current"] is False
+    assert currentness["display_mode"] == "not_current"
+    assert "needs refresh" in str(currentness["status_label"]).lower()
+    assert "stale" not in str(currentness["reason"]).lower()
 
 
 async def test_final_selection_context_filters_to_latest_live_cycle(
@@ -7256,6 +7421,113 @@ async def test_candidate_detail_light_context_skips_timeline_and_risk_lookups(
     assert context["ticker"] == "MSFT"
     assert context["timeline"] == []
     assert context["review"]["can_record"] is True
+
+
+async def test_candidate_detail_context_hides_previous_report_when_lane_is_loading(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    report = _selection_report_with_signal_mix()
+
+    async def fake_reports(
+        *,
+        ticker: str | None = None,
+        limit: int = EXPECTED_FINAL_SELECTION_REPORT_LIMIT,
+    ) -> list[dict[str, object]]:
+        assert ticker == "MSFT"
+        assert limit == 5
+        return [report]
+
+    async def fake_timeline(**_kwargs: object) -> list[dict[str, object]]:
+        return []
+
+    async def fake_risk(**_kwargs: object) -> list[dict[str, object]]:
+        return []
+
+    async def fake_broker() -> dict[str, object]:
+        return {"positions": [], "orders": [], "connected": True}
+
+    async def loading_status() -> dict[str, object]:
+        return {
+            "overall_percent": 82,
+            "cycle_id": "live-pit-current",
+            "status_checked_at": "2026-05-07T09:32:00Z",
+            "health_monitor": {
+                "status_label": "Live Health Monitor",
+                "status_class": "pass",
+                "live": True,
+                "reliable": True,
+                "row_count": 4,
+                "latest_checked_at": "2026-05-07T09:32:00Z",
+            },
+            "datasets": [],
+            "lanes": [],
+            "lane_states": [
+                {
+                    "lane_id": "technical_analysis",
+                    "label": "Technical Analysis",
+                    "state": "loading",
+                    "status_label": "Data is still loading",
+                    "status_class": "warn",
+                    "progress_label": "41/168 tickers",
+                    "latest_as_of": "2026-05-07T09:31:00Z",
+                    "checked_at": "2026-05-07T09:32:00Z",
+                    "recommended_action": "Wait for Technical Analysis to finish.",
+                    "source_dataset": "prices_daily",
+                }
+            ],
+        }
+
+    def fail_if_enriched(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+        raise AssertionError(f"old candidate signals must not be enriched during WIP: {rows}")
+
+    email_evidence = {
+        "meaning": "No email evidence in test.",
+        "detail": "No email evidence in test.",
+        "status_class": "neutral",
+        "rows": [],
+    }
+    news_evidence = {
+        "status_class": "neutral",
+        "status_label": "No RSS evidence",
+        "rows": [],
+        "context_rows": [],
+    }
+
+    import agency.views.market_regime as market_regime_view
+
+    monkeypatch.setattr(candidates_module, "_dashboard_selection_reports", fake_reports)
+    monkeypatch.setattr(candidates_module, "_dashboard_candidate_timeline", fake_timeline)
+    monkeypatch.setattr(candidates_module, "_dashboard_risk_decisions", fake_risk)
+    monkeypatch.setattr(candidates_module, "live_dashboard_data_load_status", loading_status)
+    monkeypatch.setattr(candidates_module, "enrich_signal_rows_with_evidence", fail_if_enriched)
+    monkeypatch.setattr(market_regime_view, "broker_status_context", fake_broker)
+    monkeypatch.setattr(candidates_module, "candidate_email_evidence", lambda _ticker: email_evidence)
+    monkeypatch.setattr(
+        candidates_module,
+        "candidate_email_evidence_with_judgement",
+        lambda _ticker, evidence, _latest: evidence,
+    )
+    monkeypatch.setattr(candidates_module, "candidate_news_evidence", lambda _ticker: news_evidence)
+    monkeypatch.setattr(
+        candidates_module,
+        "candidate_local_llm_insight",
+        lambda _ticker: {"available": False, "status_class": "neutral", "status_label": "Not run"},
+    )
+    monkeypatch.setattr(
+        candidates_module,
+        "build_leveraged_alternative_review",
+        lambda *_args, **_kwargs: {"summary": "Skipped", "status_class": "neutral"},
+    )
+
+    context = await candidates_module.candidate_detail_context("msft")
+
+    assert context["latest_report"] is None
+    assert context["previous_reports"][0]["ticker"] == "MSFT"
+    assert context["review"]["can_record"] is False
+    assert context["summary"]["report_count"] == 1
+    assert context["summary"]["display_mode"] == "work_in_progress"
+    assert "Technical Analysis" in str(context["summary"]["detail"])
+    assert context["evidence_currentness"]["status_label"] == "Data is being analyzed"
 
 
 def test_candidate_signal_template_shows_hard_cards_for_all_signal_groups() -> None:

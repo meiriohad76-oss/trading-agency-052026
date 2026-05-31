@@ -36,6 +36,8 @@ research/data/parquet/**
 research/results/**
 !research/results/.gitkeep
 research/results/massive-api-usage/**
+research/state/**
+!research/state/.gitkeep
 *.parquet
 !research/data/parquet/universe_membership.parquet
 *.duckdb

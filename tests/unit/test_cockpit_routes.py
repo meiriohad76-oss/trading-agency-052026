@@ -120,6 +120,30 @@ def test_cockpit_route_renders(monkeypatch: MonkeyPatch) -> None:
     assert "ROUT" in response.text
 
 
+def test_cockpit_route_uses_default_cache_key_when_qa_is_disabled(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    captured_kwargs: dict[str, object] = {}
+
+    async def fake_cockpit_context(**kwargs: object) -> dict[str, object]:
+        captured_kwargs.update(kwargs)
+        return _context()
+
+    monkeypatch.delenv("AGENCY_COCKPIT_QA_SCENARIOS", raising=False)
+    monkeypatch.setattr(dashboard_module, "cached_cockpit_context", fake_cockpit_context)
+    cockpit_view._cockpit_context_cache.clear()
+    cockpit_view._cockpit_context_inflight.clear()
+    client = TestClient(create_app())
+
+    response = client.get("/cockpit?scenario=outage")
+
+    assert response.status_code == 200
+    assert captured_kwargs == {
+        "qa_scenario": None,
+        "qa_scenarios_enabled": None,
+    }
+
+
 def test_root_route_redirects_to_pending_review(monkeypatch: MonkeyPatch) -> None:
     async def fake_command_context() -> dict[str, object]:
         return {"review_progress": {"pending_count": 2}}

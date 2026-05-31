@@ -296,12 +296,13 @@ async def cockpit(request: Request) -> Response:
 async def _cockpit_response(request: Request) -> Response:
     qa_enabled = _env_bool_text("AGENCY_COCKPIT_QA_SCENARIOS")
     qa_scenario = request.query_params.get("scenario") if qa_enabled else None
+    qa_cache_flag = qa_enabled if qa_enabled else None
     return templates.TemplateResponse(
         request,
         "cockpit.html",
         await cached_cockpit_context(
             qa_scenario=qa_scenario,
-            qa_scenarios_enabled=qa_enabled,
+            qa_scenarios_enabled=qa_cache_flag,
         ),
     )
 

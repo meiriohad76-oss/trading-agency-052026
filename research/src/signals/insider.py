@@ -68,6 +68,11 @@ def _factor_row(ticker: str, transactions: Sequence[object]) -> dict[str, object
     sell_value = 0.0
     net_shares = 0.0
     directional_count = 0
+    buy_count = 0
+    sell_count = 0
+    largest_buy_value = 0.0
+    largest_sell_value = 0.0
+    latest_transaction_date = ""
     filers: set[str] = set()
     for transaction in transactions:
         payload = _payload(transaction)
@@ -79,10 +84,17 @@ def _factor_row(ticker: str, transactions: Sequence[object]) -> dict[str, object
         value = shares * price if price is not None else shares
         if direction > 0:
             buy_value += value
+            buy_count += 1
+            largest_buy_value = max(largest_buy_value, value)
         else:
             sell_value += value
+            sell_count += 1
+            largest_sell_value = max(largest_sell_value, value)
         net_shares += direction * shares
         directional_count += 1
+        transaction_date = _optional_str(payload.get("transaction_date") or payload.get("date"))
+        if transaction_date is not None:
+            latest_transaction_date = max(latest_transaction_date, transaction_date)
         filer = _optional_str(payload.get("filer_cik")) or _optional_str(payload.get("filer_name"))
         if filer is not None:
             filers.add(filer)
@@ -94,6 +106,11 @@ def _factor_row(ticker: str, transactions: Sequence[object]) -> dict[str, object
         "net_transaction_value": net_value,
         "net_shares": net_shares,
         "directional_transactions": directional_count,
+        "buy_count": buy_count,
+        "sell_count": sell_count,
+        "largest_buy_value": largest_buy_value,
+        "largest_sell_value": largest_sell_value,
+        "latest_transaction_date": latest_transaction_date,
         "unique_filers": len(filers),
     }
 
@@ -158,6 +175,11 @@ def _empty_frame() -> pd.DataFrame:
             "net_transaction_value",
             "net_shares",
             "directional_transactions",
+            "buy_count",
+            "sell_count",
+            "largest_buy_value",
+            "largest_sell_value",
+            "latest_transaction_date",
             "unique_filers",
             "insider_score",
         ]

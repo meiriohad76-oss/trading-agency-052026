@@ -46,6 +46,7 @@ from agency.views._shared import (
     _label_text,
     _mapping_field,
     _matching_payload,
+    _operator_text,
     _pair_text,
     _plural,
     _row_text,
@@ -57,6 +58,7 @@ from agency.views._shared import (
     _string_list,
     _timestamp_sort_value,
     dashboard_data_health,
+    displayed_evidence_currentness,
     live_dashboard_data_load_status,
 )
 
@@ -66,6 +68,15 @@ NEWS_CONSUMPTION_LEDGER_PATH = (
 )
 LOCAL_LLM_INSIGHT_PATH = LOCAL_LLM_OUTPUT_ROOT / "local-llm-insights.json"
 CANDIDATE_AUDIT_LIGHT_STATUS_CACHE_SECONDS = 60.0
+CANDIDATE_EVIDENCE_DATASETS = (
+    "prices_daily",
+    "stock_trades",
+    "sec_company_facts",
+    "sec_form4",
+    "sec_13f",
+    "news_rss",
+    "subscription_emails",
+)
 _candidate_audit_light_status_cache: tuple[float, dict[str, object]] | None = None
 
 
@@ -78,23 +89,42 @@ async def candidate_detail_context(
     from agency.views.market_regime import broker_status_context
     normalized_ticker = ticker.upper()
     if include_rich_signal_evidence:
-        reports, timeline, risk_decisions, broker = await asyncio.gather(
+        reports, timeline, risk_decisions, broker, data_load_status = await asyncio.gather(
             _dashboard_selection_reports(ticker=normalized_ticker, limit=5),
             _dashboard_candidate_timeline(ticker=normalized_ticker, limit=25),
             _dashboard_risk_decisions(ticker=normalized_ticker, limit=5),
             broker_status_context(),
+            live_dashboard_data_load_status(),
         )
     else:
         reports = await _dashboard_selection_reports(ticker=normalized_ticker, limit=1)
         timeline = []
         risk_decisions = []
         broker = {"positions": [], "orders": [], "connected": False}
-    report_rows = candidate_detail_report_rows(
+        data_load_status = await _candidate_audit_light_data_load_status()
+    base_report_rows = candidate_detail_report_rows(
         reports,
         review_events=timeline,
-        include_rich_signal_evidence=include_rich_signal_evidence,
+        include_rich_signal_evidence=False,
     )
-    latest_report = report_rows[0] if report_rows else None
+    latest_base_report = base_report_rows[0] if base_report_rows else None
+    evidence_currentness = displayed_evidence_currentness(
+        data_load_status,
+        displayed_cycle_id=str(latest_base_report.get("cycle_id") if latest_base_report else ""),
+        datasets=CANDIDATE_EVIDENCE_DATASETS,
+    )
+    evidence_is_current = evidence_currentness.get("is_current") is True
+    report_rows = (
+        candidate_detail_report_rows(
+            reports,
+            review_events=timeline,
+            include_rich_signal_evidence=include_rich_signal_evidence,
+        )
+        if evidence_is_current
+        else base_report_rows
+    )
+    displayed_report_rows = report_rows if evidence_is_current else []
+    latest_report = displayed_report_rows[0] if displayed_report_rows else None
     latest_raw_report = _matching_payload(reports, latest_report)
     latest_risk_decision = _matching_payload(risk_decisions, latest_report)
     if include_rich_signal_evidence:
@@ -109,40 +139,42 @@ async def candidate_detail_context(
         email_evidence = _candidate_email_evidence_audit_placeholder(normalized_ticker)
         news_evidence = _candidate_news_evidence_audit_placeholder(normalized_ticker)
     review = candidate_review_summary(
-        report_rows,
+        displayed_report_rows,
         timeline,
         risk_decisions=risk_decisions,
         return_source=return_source,
     )
-    data_load_status = (
-        await live_dashboard_data_load_status()
-        if include_rich_signal_evidence
-        else await _candidate_audit_light_data_load_status()
-    )
-    return {
-        "ticker": normalized_ticker,
-        "candidate_return": _candidate_return_context(normalized_ticker, return_source),
-        "decision_brief": candidate_decision_brief(
+    if not evidence_is_current:
+        review = _not_current_candidate_review_summary(evidence_currentness)
+    current_position = _candidate_current_position(normalized_ticker, broker)
+    decision_brief = (
+        candidate_decision_brief(
             normalized_ticker,
             latest_report,
             email_evidence,
             review,
-            current_position=_candidate_current_position(normalized_ticker, broker),
-        ),
+            current_position=current_position,
+        )
+        if evidence_is_current
+        else _not_current_decision_brief(
+            normalized_ticker,
+            email_evidence,
+            evidence_currentness,
+            previous_report=latest_base_report,
+            current_position=current_position,
+        )
+    )
+    return {
+        "ticker": normalized_ticker,
+        "candidate_return": _candidate_return_context(normalized_ticker, return_source),
+        "decision_brief": decision_brief,
         "data_health": dashboard_data_health(
             f"{normalized_ticker} candidate brief",
             data_load_status=data_load_status,
-            datasets=(
-                "prices_daily",
-                "stock_trades",
-                "sec_company_facts",
-                "sec_form4",
-                "sec_13f",
-                "news_rss",
-                "subscription_emails",
-            ),
+            datasets=CANDIDATE_EVIDENCE_DATASETS,
             cycle_id=str(latest_report.get("cycle_id") if latest_report else ""),
         ),
+        "evidence_currentness": evidence_currentness,
         "email_evidence": email_evidence,
         "news_evidence": news_evidence,
         "evidence_delta_since_review": evidence_delta_since_review(
@@ -157,11 +189,17 @@ async def candidate_detail_context(
             risk_decision=latest_risk_decision,
         ),
         "latest_report": latest_report,
-        "previous_reports": report_rows[1:],
-        "reports": report_rows,
+        "previous_reports": report_rows[1:] if evidence_is_current else report_rows,
+        "reports": displayed_report_rows,
         "review": review,
         "timeline": timeline_rows(timeline),
-        "summary": candidate_detail_summary(normalized_ticker, report_rows, timeline),
+        "summary": candidate_detail_summary(
+            normalized_ticker,
+            displayed_report_rows,
+            timeline,
+            evidence_currentness=evidence_currentness,
+            previous_report_count=len(report_rows),
+        ),
     }
 
 def candidate_local_llm_insight(
@@ -430,7 +468,32 @@ def candidate_detail_summary(
     ticker: str,
     reports: Sequence[Mapping[str, object]],
     timeline: Sequence[Mapping[str, object]],
+    *,
+    evidence_currentness: Mapping[str, object] | None = None,
+    previous_report_count: int | None = None,
 ) -> dict[str, object]:
+    currentness = evidence_currentness or {"is_current": True, "display_mode": "current"}
+    if currentness.get("is_current") is not True:
+        status_label = _operator_text(
+            currentness.get("status_label"),
+            default="Current analysis is not ready",
+        )
+        reason = _operator_text(
+            currentness.get("reason"),
+            default="The agency is still checking the data needed for this candidate.",
+        )
+        return {
+            "ticker": ticker,
+            "report_count": previous_report_count if previous_report_count is not None else len(reports),
+            "event_count": len(timeline),
+            "latest_action": "Analysis in progress",
+            "headline": f"{ticker} current analysis is not ready.",
+            "detail": (
+                f"{status_label}: {reason} Previous report rows are kept only as "
+                "history until the current analysis finishes."
+            ),
+            "display_mode": str(currentness.get("display_mode") or "not_current"),
+        }
     latest_action = str(reports[0]["action"]) if reports else "None"
     latest = reports[0] if reports else None
     return {
@@ -440,6 +503,7 @@ def candidate_detail_summary(
         "latest_action": latest_action,
         "headline": _candidate_detail_headline(ticker, latest_action),
         "detail": _candidate_detail_text(ticker, latest),
+        "display_mode": "current",
     }
 
 def candidate_review_summary(
@@ -509,6 +573,41 @@ def candidate_review_summary(
             as_of=as_of,
             decision="REJECT",
             return_to=return_source,
+        ),
+    }
+
+
+def _not_current_candidate_review_summary(
+    evidence_currentness: Mapping[str, object],
+) -> dict[str, object]:
+    status_label = _operator_text(
+        evidence_currentness.get("status_label"),
+        default="Current analysis is not ready",
+    )
+    reason = _operator_text(
+        evidence_currentness.get("reason"),
+        default="The agency is still checking the data needed for this candidate.",
+    )
+    return {
+        "can_record": False,
+        "cycle_id": str(evidence_currentness.get("displayed_cycle_id") or "None"),
+        "as_of": "None",
+        "decision": status_label,
+        "status_class": _not_current_status_class(evidence_currentness),
+        "reason": reason,
+        "review_reason": "",
+        "notes": "",
+        "event_time": "None",
+        "event_time_label": "Time unknown",
+        "approve_action": "#",
+        "defer_action": "#",
+        "reject_action": "#",
+        "caution_acknowledgement_required": False,
+        "caution_acknowledgement_text": "",
+        "caution_recommendation": "",
+        "empty_message": (
+            f"{status_label}: approval is disabled until the current analysis finishes. "
+            "Previous report rows are visible only in Technical Details as history."
         ),
     }
 
@@ -2210,8 +2309,9 @@ def _email_interpretation_summary(
     status = _row_text(event, "linked_content_status", "not_requested")
     status_note = _email_status_note(status)
     return _clip_text(
-        f"{service} produced a {direction} {event_type}. The agency can count the "
-        f"alert as paid-subscription context, but {status_note}. Headline: {headline}",
+        f"{service} recorded {direction} paid-email context for {event_type}. "
+        f"Dashboard use: paid-subscription context only until corroborated; {status_note}. "
+        f"Headline: {headline}",
         280,
     )
 
@@ -2501,6 +2601,87 @@ def _empty_decision_brief(
         "currently_holding": current_position is not None,
         "holding_label": _current_holding_label(current_position),
     }
+
+
+def _not_current_decision_brief(
+    ticker: str,
+    email_evidence: Mapping[str, object],
+    evidence_currentness: Mapping[str, object],
+    *,
+    previous_report: Mapping[str, object] | None,
+    current_position: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    status_label = _operator_text(
+        evidence_currentness.get("status_label"),
+        default="Current analysis is not ready",
+    )
+    reason = _operator_text(
+        evidence_currentness.get("reason"),
+        default="The agency is still checking the data needed for this candidate.",
+    )
+    previous_action = _clean_text((previous_report or {}).get("action")) or "previous report"
+    previous_cycle = _clean_text((previous_report or {}).get("cycle_id")) or "previous cycle"
+    return {
+        "ticker": ticker,
+        "action": "IN_PROGRESS",
+        "action_label": status_label,
+        "state_label": status_label,
+        "state_class": _not_current_status_class(evidence_currentness),
+        "headline": f"{ticker} is not ready for review yet.",
+        "detail": (
+            f"{reason} The last persisted report ({previous_action}, {previous_cycle}) "
+            "is intentionally not displayed as current evidence."
+        ),
+        "next_step": "Wait for this lane to finish, or use the matching lane Refresh control.",
+        "conviction_pct": 0,
+        "conviction_style": "--meter-value: 0%",
+        "gate_status": "WAIT",
+        "gate_class": "warn",
+        "generated_at": "None",
+        "source_count": 0,
+        "confirmed_signal_count": 0,
+        "signal_counts": _signal_count_cards([], [], []),
+        "signal_balance": _signal_balance(Counter()),
+        "support_cards": [],
+        "caution_cards": [
+            {
+                "label": status_label,
+                "detail": reason,
+                "meta": "Previous report rows are history only while analysis is running.",
+                "tone": _not_current_status_class(evidence_currentness),
+            }
+        ],
+        "decision_points": [
+            {
+                "label": status_label,
+                "detail": reason,
+                "tone": _not_current_status_class(evidence_currentness),
+            },
+            {
+                "label": "Previous report protected",
+                "detail": (
+                    "The agency found a persisted report, but it is not being treated as "
+                    "current while the required data lane is still loading or awaiting analysis."
+                ),
+                "tone": "neutral",
+            },
+        ],
+        "top_reason_brief": reason,
+        "signal_mix_note": (
+            "No current signal mix is displayed until the current lane state is ready."
+        ),
+        "email_takeaway": str(email_evidence["meaning"]),
+        "email_status_class": str(email_evidence["status_class"]),
+        "currently_holding": current_position is not None,
+        "holding_label": _current_holding_label(current_position),
+    }
+
+
+def _not_current_status_class(evidence_currentness: Mapping[str, object]) -> str:
+    display_mode = str(evidence_currentness.get("display_mode") or "").casefold()
+    if display_mode in {"work_in_progress", "cycle_mismatch"}:
+        return "warn"
+    return "block"
 
 
 def _top_reason_brief(decision_points: Sequence[Mapping[str, object]]) -> str:

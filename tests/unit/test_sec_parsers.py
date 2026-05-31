@@ -171,9 +171,12 @@ def test_13f_parser_maps_cusip_to_ticker() -> None:
         xml=_form13f_xml(),
         fetched_at=FETCHED_AT,
         cusip_to_ticker={AAPL_CUSIP: "AAPL"},
+        filer_name="Berkshire Hathaway",
     )
 
     assert frame.iloc[0]["ticker"] == "AAPL"
+    assert frame.iloc[0]["filer_name"] == "Berkshire Hathaway"
+    assert frame.iloc[0]["issuer_name"] == "APPLE INC"
     assert frame.iloc[0]["shares_held"] == FORM13F_SHARES
     assert frame.iloc[0]["quarter"] == "2022Q4"
 

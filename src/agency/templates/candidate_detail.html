@@ -18,6 +18,22 @@
     <a class="text-link" href="{{ candidate_return.href }}">{{ candidate_return.label }}</a>
   </p>
 
+  {% if evidence_currentness and not evidence_currentness.is_current %}
+  <section class="panel action-summary-panel" aria-label="Current analysis status">
+    <div class="section-heading">
+      <div>
+        <h2>{{ evidence_currentness.status_label }}</h2>
+        <p class="section-subtitle">{{ evidence_currentness.reason }}</p>
+      </div>
+      <span class="tag tag-{{ decision_brief.state_class }}">{{ summary.display_mode | replace("_", " ") | title }}</span>
+    </div>
+    <p class="panel-note">
+      Previous report rows are not used as current evidence while a required data lane is loading,
+      waiting for analysis, or needs a targeted refresh.
+    </p>
+  </section>
+  {% endif %}
+
   {% if review.can_record %}
   <div class="sticky-review-bar" role="navigation" aria-label="Quick review actions">
     <span class="metric-label">{{ ticker }} &middot; {{ decision_brief.action_label }} &middot; {{ decision_brief.conviction_pct }}%</span>
@@ -442,7 +458,13 @@
     </div>
     </details>
     {% else %}
-    <p class="empty-block">Signal evidence appears after the next runtime cycle persists a selection report.</p>
+    <p class="empty-block">
+      {% if evidence_currentness and not evidence_currentness.is_current %}
+      Signal evidence is hidden because {{ evidence_currentness.reason }}
+      {% else %}
+      Signal evidence appears after the next runtime cycle persists a selection report.
+      {% endif %}
+    </p>
     {% endif %}
   </section>
 
@@ -477,7 +499,7 @@
     <p class="card-next-step">Approved - execution preview updated. Open Execution Preview to inspect any paper-order details.</p>
     {% endif %}
     {% else %}
-    <p class="empty-block">No selection report available for review</p>
+    <p class="empty-block">{{ review.empty_message or "No selection report available for review" }}</p>
     {% endif %}
   </section>
 
@@ -866,7 +888,13 @@
         </div>
       </article>
       {% else %}
-      <p class="empty-block">No selection reports yet</p>
+      <p class="empty-block">
+        {% if evidence_currentness and not evidence_currentness.is_current %}
+        Current report details are hidden until analysis is ready. Open previous reports below for history only.
+        {% else %}
+        No selection reports yet
+        {% endif %}
+      </p>
       {% endif %}
     </details>
 
