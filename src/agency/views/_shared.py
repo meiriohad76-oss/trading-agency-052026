@@ -132,6 +132,121 @@ EMAIL_EVENT_LABELS = {
     "zacks_rating_change": "rating change",
 }
 
+LANE_SCORE_SCALE: Mapping[str, tuple[str, str]] = {
+    "abnormal_volume": (
+        "Cross-sectional rank",
+        (
+            "Score is a signed rank versus the current ticker universe. Positive values mean "
+            "stronger bullish pressure than peers; negative values mean stronger bearish pressure."
+        ),
+    ),
+    "block_trade_pressure": (
+        "Cross-sectional rank",
+        (
+            "Score ranks inferred block/off-exchange pressure against the current universe. "
+            "It is not a dollar amount or conviction percentage."
+        ),
+    ),
+    "buy_sell_pressure": (
+        "Cross-sectional rank",
+        (
+            "Score ranks signed notional pressure against peers in the same cycle. The evidence "
+            "cards show the dollars and buy/sell split behind the rank."
+        ),
+    ),
+    "fundamentals": (
+        "Fundamental composite",
+        (
+            "Score blends quality, growth, valuation, balance-sheet, and forward metrics. Read it "
+            "with the SEC period and driver cards, not as a peer percentile."
+        ),
+    ),
+    "insider": (
+        "Universe z-score",
+        (
+            "Score measures how far net Form 4 buying or selling is from the universe average. "
+            "Large positive values mean unusually strong insider buying."
+        ),
+    ),
+    "institutional": (
+        "Lagged 13F context",
+        (
+            "Score is based on quarterly 13F position changes. 13F data is delayed up to 45 days, "
+            "so this lane is context only and cannot be current flow evidence."
+        ),
+    ),
+    "market_flow_trend": (
+        "Cross-sectional rank",
+        (
+            "Score ranks the latest change in signed trade pressure versus the current universe. "
+            "The cards show the actual pressure delta."
+        ),
+    ),
+    "news": (
+        "Headline z-score",
+        (
+            "Score compares confidence-weighted ticker-tagged headline cues across the universe. "
+            "It is headline taxonomy, not full article sentiment."
+        ),
+    ),
+    "options_anomaly": (
+        "Options anomaly rank",
+        (
+            "Score ranks option premium, volume, and open-interest anomaly pressure when a real "
+            "options provider is configured."
+        ),
+    ),
+    "options_flow": (
+        "Options flow rank",
+        (
+            "Score ranks call-versus-put option flow pressure when a real options provider is "
+            "configured."
+        ),
+    ),
+    "pre_market_unusual_activity": (
+        "Cross-sectional rank",
+        (
+            "Score ranks pre-market volume, notional, and pressure anomalies against the current "
+            "universe. The cards show the exact pre-market ratios."
+        ),
+    ),
+    "prepost": (
+        "Extended-hours context",
+        (
+            "Score summarizes pre/post-market activity from the persisted runtime row. Inspect the "
+            "source timestamp and summary before using it."
+        ),
+    ),
+    "sector_momentum": (
+        "Relative context",
+        (
+            "Score reflects sector or benchmark strength relative to recent market baselines. It "
+            "corroborates stock-specific evidence but should not stand alone."
+        ),
+    ),
+    "subscription_thesis": (
+        "Thesis-weighted score",
+        (
+            "Score weights paid-email/article thesis direction by recency, source quality, ticker "
+            "relevance, and extraction confidence."
+        ),
+    ),
+    "technical_analysis": (
+        "Technical composite",
+        (
+            "Score blends trend, momentum, volume, relative strength, pattern, pressure, and "
+            "volatility factors. It is not a peer percentile."
+        ),
+    ),
+    "unusual_trade_activity": (
+        "Cross-sectional rank",
+        (
+            "Score ranks trade-count, volume, and notional anomalies against peers. The evidence "
+            "cards show which metric was unusual."
+        ),
+    ),
+}
+
 
 async def _dashboard_selection_reports(
     *,
@@ -443,6 +558,30 @@ def _score_text(signal: Mapping[str, object]) -> str:
         bias = "neutral"
     return f"{score:+.2f} {bias}"
 
+def _score_scale_label(lane_key: str) -> str:
+    return LANE_SCORE_SCALE.get(
+        lane_key,
+        (
+            "Lane-specific score",
+            (
+                "Score meaning depends on the signal process that produced it. Use the "
+                "inspector evidence cards for the source units and calculation basis."
+            ),
+        ),
+    )[0]
+
+def _score_scale_tooltip(lane_key: str) -> str:
+    return LANE_SCORE_SCALE.get(
+        lane_key,
+        (
+            "Lane-specific score",
+            (
+                "Score meaning depends on the signal process that produced it. Use the "
+                "inspector evidence cards for the source units and calculation basis."
+            ),
+        ),
+    )[1]
+
 def _reason_summary(reason_code: str) -> str:
     summaries = {
         "abnormal_volume_bullish": (
@@ -480,6 +619,11 @@ def _reason_summary(reason_code: str) -> str:
             "sell-leaning; total notional is all analyzed prints, not off-exchange-only."
         ),
         "duplicate_signal_source": "Duplicate source was ignored.",
+        "13f_data_delayed": (
+            "Institutional 13F filings have a mandatory delay of up to 45 days after "
+            "quarter-end. This signal is kept as ownership context because it does not "
+            "prove current institutional buying or selling."
+        ),
         "fundamentals_bullish": (
             "Fundamentals lane is net bullish after comparing margins, cash generation, "
             "leverage, growth, and valuation versus the current universe."

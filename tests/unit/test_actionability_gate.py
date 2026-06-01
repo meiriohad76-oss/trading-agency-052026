@@ -221,6 +221,27 @@ def test_actionability_gate_accepts_custom_lane_thresholds() -> None:
     assert "insufficient_independent_sources" in _reason_codes(gated[0])
 
 
+def test_actionability_gate_caps_institutional_at_context_only() -> None:
+    """Institutional signals must never reach ACTIONABLE because 13F data is 45+ days stale."""
+    signal = build_signal_result(
+        cycle_id="cycle-1",
+        ticker="AAPL",
+        as_of=AS_OF,
+        lane="institutional",
+        score=0.9,
+        provenance=_provenance("sec", "13f-q1-2026", "FRESH", "CONFIRMED"),
+        confidence=0.95,
+    )
+    # Signal would be ACTIONABLE without the lane cap
+    assert signal["actionability"] == "ACTIONABLE"
+
+    gated = apply_actionability_gate([signal])
+
+    assert gated[0]["actionability"] == "CONTEXT_ONLY"
+    assert "13f_data_delayed" in _reason_codes(gated[0])
+    validate_contract("signal-result", gated[0])
+
+
 def _reason_codes(signal: dict[str, object]) -> list[str]:
     return cast(list[str], signal["reason_codes"])
 
