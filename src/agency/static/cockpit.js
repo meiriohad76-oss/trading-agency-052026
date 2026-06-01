@@ -579,6 +579,8 @@
       article.setAttribute("data-local-exit-row", "true");
       article.setAttribute("data-cockpit-manifest-row", "true");
       article.setAttribute("data-cockpit-ticker", ticker);
+      const main = document.createElement("div");
+      main.className = "cockpit-manifest-main";
       const kind = document.createElement("span");
       kind.className = "status-pill status-pill-warn";
       kind.textContent = "exit review";
@@ -586,16 +588,34 @@
       symbol.textContent = ticker;
       const reason = document.createElement("span");
       reason.textContent = "Operator marked Close in portfolio review; server must revalidate before any paper order.";
-      const notional = document.createElement("span");
-      notional.className = "cockpit-mono";
-      notional.textContent = formatMoney(Number(row.getAttribute("data-position-notional") || "0"));
-      article.append(kind, symbol, reason, notional);
+      main.append(kind, symbol, reason);
+      const proof = document.createElement("dl");
+      proof.className = "cockpit-manifest-proof";
+      proof.append(
+        manifestProofItem("Action", "SELL"),
+        manifestProofItem("Value", formatMoney(Number(row.getAttribute("data-position-notional") || "0")), true),
+        manifestProofItem("Submit status", "Review only; no broker submit field is attached.")
+      );
+      article.append(main, proof);
       target.prepend(article);
       added += 1;
     });
     if (emptyState) {
       emptyState.hidden = added > 0;
     }
+  }
+
+  function manifestProofItem(label, value, mono = false) {
+    const wrapper = document.createElement("div");
+    const term = document.createElement("dt");
+    term.textContent = label;
+    const detail = document.createElement("dd");
+    detail.textContent = value;
+    if (mono) {
+      detail.className = "cockpit-mono";
+    }
+    wrapper.append(term, detail);
+    return wrapper;
   }
 
   function formatMoney(value) {

@@ -2132,16 +2132,33 @@ def _clearance_section(
             preview.get("notional") if preview else None,
             preview.get("notional_label") if preview else None,
         )
+        order_intent_hash = _first_text(candidate.get("order_intent_hash"))
+        order_intent_hash_label = _first_text(
+            candidate.get("order_intent_hash_label"),
+            default=order_intent_hash[:12] if order_intent_hash else "not attached",
+        )
+        side = _first_text(_mapping(preview).get("side"), default="BUY").upper()
+        cycle_id = _first_text(
+            candidate.get("cycle_id"),
+            _mapping(preview).get("cycle_id"),
+            default="not attached",
+        )
+        as_of = _first_text(
+            candidate.get("as_of"),
+            _mapping(preview).get("as_of"),
+            default="not attached",
+        )
         manifest.append(
             {
                 "kind": "buy" if candidate.get("direction") == "long" else "sell",
                 "ticker": ticker,
-                "side": _first_text(_mapping(preview).get("side"), default="BUY"),
+                "side": side,
                 "reason": _first_text(candidate.get("evidence_line"), default="Approved candidate"),
                 "notional": notional,
-                "order_intent_hash": _first_text(candidate.get("order_intent_hash")),
-                "cycle_id": _first_text(candidate.get("cycle_id")),
-                "as_of": _first_text(candidate.get("as_of")),
+                "order_intent_hash": order_intent_hash,
+                "order_intent_hash_label": order_intent_hash_label,
+                "cycle_id": cycle_id,
+                "as_of": as_of,
             }
         )
     status = _mapping(execution_status)

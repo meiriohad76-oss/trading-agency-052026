@@ -104,6 +104,17 @@ def test_clearance_phase_starts_with_bluf_sentence() -> None:
     assert "Check the manifest, confirm the paper-only gate, then submit approved paper orders." in html
 
 
+def test_clearance_manifest_displays_order_proof_fields() -> None:
+    html = _template()
+
+    assert "Action" in html
+    assert "Proof time" in html
+    assert "Intent hash" in html
+    assert "row.order_intent_hash_label" in html
+    assert "Review only; no broker submit field is attached." in html
+    assert 'name="order_intent_hash"' in html
+
+
 def test_cockpit_submit_reuses_execution_freshness_gate(monkeypatch: MonkeyPatch) -> None:
     calls: list[str] = []
 
@@ -328,6 +339,55 @@ def test_clearance_context_manifest_exits_before_buys() -> None:
 
     assert manifest[0]["kind"] == "exit"
     assert manifest[-1]["kind"] == "buy"
+
+
+def test_clearance_context_manifest_carries_visible_order_proof() -> None:
+    sources = _sample_sources()
+    sources["dashboard"]["review_queue"] = [  # type: ignore[index]
+        {
+            "ticker": "AMZN",
+            "action": "WATCH",
+            "conviction_pct": 69,
+            "gate_status": "PASS",
+            "risk_decision": "WARN",
+            "review_state": "Ready",
+            "human_review_decision": "Approve",
+            "source_count": 5,
+            "confirmed_signal_count": 2,
+            "cycle_id": "cycle-live-20260522-1530",
+            "as_of": "2026-05-22T15:28:30+00:00",
+        }
+    ]
+    sources["execution"]["preview_rows"] = [  # type: ignore[index]
+        {
+            "ticker": "AMZN",
+            "preview_state": "READY",
+            "side": "BUY",
+            "submit_enabled": True,
+            "order_value_label": "$1000.00",
+            "notional": 1000.0,
+            "order_intent_hash": "a" * 64,
+            "order_intent_hash_label": "aaaaaaaaaaaa",
+        }
+    ]
+    sources["execution"]["orderable_rows"] = sources["execution"]["preview_rows"]  # type: ignore[index]
+
+    context = cockpit_context_from_sources(sources)
+    manifest = context["clearance"]["manifest"]
+
+    assert manifest == [
+        {
+            "kind": "buy",
+            "ticker": "AMZN",
+            "side": "BUY",
+            "reason": "5 independent source(s); 2 confirmed signal(s).",
+            "notional": 1000.0,
+            "order_intent_hash": "a" * 64,
+            "order_intent_hash_label": "aaaaaaaaaaaa",
+            "cycle_id": "cycle-live-20260522-1530",
+            "as_of": "2026-05-22T15:28:30+00:00",
+        }
+    ]
 
 
 def _submit_form(*, include_second: bool = False) -> dict[str, object]:

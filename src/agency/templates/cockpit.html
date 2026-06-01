@@ -464,10 +464,40 @@
       <div class="cockpit-manifest-list">
         {% for row in clearance_vm.manifest|default([], true) %}
           <article class="cockpit-manifest-row cockpit-manifest-{{ row.kind }}" data-cockpit-manifest-row data-cockpit-ticker="{{ row.ticker }}">
-            <span class="status-pill status-pill-{% if row.kind == 'exit' %}warn{% else %}pass{% endif %}">{{ row.kind }}</span>
-            <strong>{{ row.ticker }}</strong>
-            <span>{{ row.reason }}</span>
-            <span class="cockpit-mono">${{ "%.0f"|format(row.notional|default(0, true)) }}</span>
+            <div class="cockpit-manifest-main">
+              <span class="status-pill status-pill-{% if row.kind == 'exit' %}warn{% else %}pass{% endif %}">{% if row.kind == 'exit' %}exit review{% else %}{{ row.side|default(row.kind, true) }}{% endif %}</span>
+              <strong>{{ row.ticker }}</strong>
+              <span>{{ row.reason }}</span>
+            </div>
+            <dl class="cockpit-manifest-proof">
+              <div>
+                <dt>Action</dt>
+                <dd>{{ row.side|default("SELL", true) if row.kind == 'exit' else row.side|default("BUY", true) }}</dd>
+              </div>
+              <div>
+                <dt>Value</dt>
+                <dd class="cockpit-mono">${{ "%.0f"|format(row.notional|default(0, true)) }}</dd>
+              </div>
+              {% if row.kind != 'exit' %}
+                <div>
+                  <dt>Cycle</dt>
+                  <dd class="cockpit-mono">{{ row.cycle_id|default("not attached", true) }}</dd>
+                </div>
+                <div>
+                  <dt>Proof time</dt>
+                  <dd class="cockpit-mono">{{ row.as_of|default("not attached", true) }}</dd>
+                </div>
+                <div>
+                  <dt>Intent hash</dt>
+                  <dd class="cockpit-mono" title="{{ row.order_intent_hash }}">{{ row.order_intent_hash_label|default(row.order_intent_hash, true)|default("not attached", true) }}</dd>
+                </div>
+              {% else %}
+                <div>
+                  <dt>Submit status</dt>
+                  <dd>Review only; no broker submit field is attached.</dd>
+                </div>
+              {% endif %}
+            </dl>
             {% if row.kind != 'exit' %}
               <input type="hidden" name="cycle_id" value="{{ row.cycle_id }}">
               <input type="hidden" name="ticker" value="{{ row.ticker }}">

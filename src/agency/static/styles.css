@@ -6370,6 +6370,47 @@ table.signal-table {
   background: var(--cockpit-panel-2);
 }
 
+.cockpit-manifest-main {
+  display: grid;
+  grid-template-columns: auto minmax(72px, 0.25fr) minmax(220px, 1fr);
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+}
+
+.cockpit-manifest-main > span:last-child,
+.cockpit-manifest-main > strong {
+  min-width: 0;
+}
+
+.cockpit-manifest-proof {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(120px, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.cockpit-manifest-proof div {
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 4px;
+  background: rgba(15, 23, 42, 0.28);
+}
+
+.cockpit-manifest-proof dt {
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+}
+
+.cockpit-manifest-proof dd {
+  margin: 0;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
 .cockpit-panel-stat-grid,
 .cockpit-scenario-card-grid,
 .cockpit-rule-grid,
@@ -6836,6 +6877,11 @@ table.signal-table {
 
   .cockpit-lane-head {
     display: none;
+  }
+
+  .cockpit-manifest-main,
+  .cockpit-manifest-proof {
+    grid-template-columns: 1fr;
   }
 }
 
