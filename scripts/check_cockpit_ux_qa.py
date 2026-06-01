@@ -320,6 +320,30 @@ def _exercise_focus(page: Any, focus: str) -> list[str]:
             errors.append("portfolio phase panel is missing")
         elif not portfolio_phase.first.is_visible():
             errors.append("portfolio phase did not open")
+    elif focus == "preferences":
+        preferences_button = page.locator("[data-cockpit-preferences-open]").first
+        if preferences_button.count() == 0:
+            errors.append("preferences entry point is missing")
+            return errors
+        preferences_button.click()
+        panel = page.locator("[data-cockpit-preferences]").first
+        if panel.count() == 0 or not panel.is_visible():
+            errors.append("preferences panel did not open")
+            return errors
+        page.locator('[name="cockpit-color-preset"][value="duotone"]').check()
+        page.locator('[name="cockpit-theme"][value="light"]').check()
+        page.locator('[name="cockpit-density"][value="calm"]').check()
+        page.reload(wait_until="domcontentloaded", timeout=PAGE_GOTO_TIMEOUT_MS)
+        page.wait_for_selector('[data-cockpit-cycle][data-cockpit-ready="true"]', timeout=10_000)
+        shell = page.locator("[data-cockpit-cycle]").first
+        expected = {
+            "data-cockpit-color-preset": "duotone",
+            "data-cockpit-theme": "light",
+            "data-cockpit-density": "calm",
+        }
+        for attribute, value in expected.items():
+            if shell.get_attribute(attribute) != value:
+                errors.append(f"preference {attribute} did not persist after reload")
     elif focus == "panels":
         for panel in PANEL_NAMES:
             page.locator(f'[data-cockpit-panel-target="{panel}"]').first.click()

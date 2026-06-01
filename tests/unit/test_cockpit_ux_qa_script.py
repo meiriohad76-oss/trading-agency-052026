@@ -87,6 +87,21 @@ def test_qa_script_panel_focus_uses_first_matching_panel_trigger() -> None:
     assert ".first.click()" in panels_branch
 
 
+def test_qa_script_preferences_focus_verifies_reload_persistence() -> None:
+    source = inspect.getsource(qa._exercise_focus)
+    preferences_branch = source.split('elif focus == "preferences":', 1)[1].split(
+        'elif focus == "panels":',
+        1,
+    )[0]
+
+    assert '[data-cockpit-preferences-open]' in preferences_branch
+    assert 'value="duotone"' in preferences_branch
+    assert 'value="light"' in preferences_branch
+    assert 'value="calm"' in preferences_branch
+    assert "page.reload" in preferences_branch
+    assert "did not persist after reload" in preferences_branch
+
+
 def test_qa_script_portfolio_focus_uses_first_matching_phase_controls() -> None:
     source = inspect.getsource(qa._exercise_focus)
     portfolio_branch = source.split('elif focus == "portfolio":', 1)[1].split(
