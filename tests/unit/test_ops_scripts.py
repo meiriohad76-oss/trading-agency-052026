@@ -197,35 +197,32 @@ def test_user_process_audit_flags_unavailable_execution_status_payload() -> None
     )
 
 
-def test_user_process_audit_fetch_text_closes_live_http_connection(
+def test_user_process_audit_fetch_text_uses_requests_client(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     audit = importlib.import_module("scripts.check_user_process_flow_audit")
-    seen_headers: dict[str, str] = {}
+    seen_request: dict[str, object] = {}
 
     class FakeResponse:
-        status = 200
+        status_code = 200
+        text = "ok"
+        ok = True
+        reason = "OK"
 
-        def __enter__(self) -> FakeResponse:
-            return self
-
-        def __exit__(self, *_args: object) -> None:
-            return None
-
-        def read(self) -> bytes:
-            return b"ok"
-
-    def fake_urlopen(request: object, timeout: int) -> FakeResponse:
+    def fake_get(url: str, *, headers: dict[str, str], timeout: int) -> FakeResponse:
         assert timeout == 9
-        seen_headers.update(dict(request.header_items()))
+        seen_request["url"] = url
+        seen_request["headers"] = dict(headers)
         return FakeResponse()
 
-    monkeypatch.setattr(audit, "urlopen", fake_urlopen)
+    monkeypatch.setattr(audit.requests, "get", fake_get)
 
     result = audit.fetch_text("http://example.test", "/signals", 9)
 
     assert result.status_code == 200
-    assert seen_headers["Connection"] == "close"
+    assert result.body == "ok"
+    assert seen_request["url"] == "http://example.test/signals"
+    assert seen_request["headers"] == {"Accept": "text/html"}
 
 
 def test_user_process_audit_samples_candidate_pages_from_review_queue_first() -> None:
@@ -238,6 +235,35 @@ def test_user_process_audit_samples_candidate_pages_from_review_queue_first() ->
     )
 
     assert selected == ["PLTR", "AAPL", "MSFT"]
+
+
+def test_user_process_audit_max_tickers_preserves_review_queue_first() -> None:
+    audit = importlib.import_module("scripts.check_user_process_flow_audit")
+
+    selected = audit.audit_ticker_sample(
+        ["AAPL", "MSFT", "NVDA", "PLTR"],
+        ["PLTR", "AAPL"],
+        max_tickers=3,
+    )
+
+    assert selected == ["PLTR", "AAPL", "MSFT"]
+
+
+def test_user_process_audit_candidate_review_action_only_when_expected() -> None:
+    audit = importlib.import_module("scripts.check_user_process_flow_audit")
+    html = """
+    <html data-ux-build="ux-v3-cockpit-primary-20260601">
+      <body class="v3-app">
+        <section data-v3-universal-briefing>BLUF</section>
+        <section class="data-health-panel">Cycle Last verified Recommended action</section>
+      </body>
+    </html>
+    """
+
+    assert audit.audit_candidate_html("AAPL", html, expect_review_action=False) == []
+    failures = audit.audit_candidate_html("AAPL", html, expect_review_action=True)
+
+    assert any(failure["code"] == "candidate_review_action_missing" for failure in failures)
 
 
 def _v3_html() -> str:

@@ -455,6 +455,8 @@ def _massive_lane_progress_rows(status_path: Path) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     current = datetime.now(UTC)
     for lane_id in MASSIVE_LANE_IDS:
+        required_now = _massive_lane_required_now(lane_id, current)
+        blocks_execution = MASSIVE_LANE_BLOCKS_EXECUTION.get(lane_id, False) and required_now
         progress_path = _lane_progress_path(status_path, lane_id)
         progress = _json_mapping(progress_path)
         if _running_trade_progress_lacks_window(progress_path, progress):
@@ -532,7 +534,8 @@ def _massive_lane_progress_rows(status_path: Path) -> list[dict[str, object]]:
                 "detail": detail,
                 "reason": detail,
                 "reason_code": _massive_lane_reason_code(state),
-                "required_now": MASSIVE_LANE_BLOCKS_EXECUTION.get(lane_id, False),
+                "required_now": required_now,
+                "blocks_execution": blocks_execution,
                 "next_due_at": _massive_lane_next_due_at(lane_id, state, progress, manifest),
                 "analysis_state": _massive_lane_analysis_state(state),
                 "progress_path": _display_path(progress_path),
@@ -540,6 +543,17 @@ def _massive_lane_progress_rows(status_path: Path) -> list[dict[str, object]]:
             }
         )
     return rows
+
+
+def _massive_lane_required_now(lane_id: str, now: datetime) -> bool:
+    if lane_id != "massive_premarket_trade_slices":
+        return MASSIVE_LANE_BLOCKS_EXECUTION.get(lane_id, False)
+    try:
+        from data_refresh.market_calendar import classify_market_session
+    except ModuleNotFoundError:
+        return False
+    session = classify_market_session(now)
+    return str(getattr(session, "phase", "")) == "pre_market"
 
 
 def _massive_lane_manifest_path(lane_id: str) -> Path:

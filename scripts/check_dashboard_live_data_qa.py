@@ -62,7 +62,7 @@ JSON_GET_ATTEMPTS = 3
 JSON_RETRY_DELAY_SECONDS = 1
 FULL_READINESS_SCOPE = "full"
 REVIEW_SUBSET_READINESS_SCOPE = "review-subset"
-EXPECTED_V3_BUILD = "ux-v3-all-dashboards-20260523"
+EXPECTED_V3_BUILD = "ux-v3-cockpit-primary-20260601"
 COCKPIT_ROUTES = {"/", "/cockpit"}
 DEFAULT_BRIEFING_SNIPPETS = (
     "Start with the first action card",

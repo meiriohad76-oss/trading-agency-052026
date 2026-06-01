@@ -214,7 +214,7 @@ def _derived_lane_state(
         or dataset.get("source_last_success_at"),
         "",
     )
-    return _state_payload(
+    payload = _state_payload(
         lane_id=lane_id,
         lane_kind="derived_signal",
         label=label,
@@ -248,6 +248,11 @@ def _derived_lane_state(
         window_label=_text(row.get("window_label"), ""),
         manifest_path=_text(row.get("manifest_path"), ""),
     )
+    payload["produced_count"] = _int(row.get("produced_count"), 0)
+    expected_count = _int_or_none(row.get("expected_count"))
+    if expected_count is not None:
+        payload["expected_count"] = expected_count
+    return payload
 
 
 def _raw_state(

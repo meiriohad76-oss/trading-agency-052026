@@ -9,11 +9,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urljoin
-from urllib.request import Request, urlopen
 
-EXPECTED_V3_BUILD = "ux-v3-all-dashboards-20260523"
+import requests
+
+EXPECTED_V3_BUILD = "ux-v3-cockpit-primary-20260601"
 DEFAULT_BASE_URL = "http://127.0.0.1:8000"
 DEFAULT_OUTPUT_DIR = "research/results/user-process-flow-audit/latest"
 KEY_ROUTES = (
@@ -71,9 +71,14 @@ def main(argv: list[str] | None = None) -> int:
         execution_payload,
         execution_rows,
     )
-    tickers = status_tickers(execution_payload)
+    paper_queue_tickers = paper_review_tickers(paper_review_payload)
+    tickers = audit_ticker_sample(
+        status_tickers(execution_payload),
+        paper_queue_tickers,
+        max_tickers=args.max_tickers,
+    )
     if args.max_tickers > 0:
-        tickers = tickers[: args.max_tickers]
+        execution_rows = _execution_rows_for_sample(execution_rows, tickers)
 
     key_page_results = audit_key_pages(
         args.base_url,
@@ -84,7 +89,7 @@ def main(argv: list[str] | None = None) -> int:
     if command_result.status_code == 200:
         command_failures = audit_command_links(
             command_result.body,
-            paper_review_tickers(paper_review_payload),
+            paper_queue_tickers,
         )
     else:
         command_failures = [
@@ -100,7 +105,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.all_focus_routes
         else focus_route_sample_tickers(
             tickers,
-            paper_review_tickers(paper_review_payload),
+            paper_queue_tickers,
             execution_rows,
             sample_size=args.focus_route_sample_size,
         )
@@ -117,12 +122,15 @@ def main(argv: list[str] | None = None) -> int:
     if args.candidate_pages:
         candidate_tickers = candidate_route_sample_tickers(
             tickers,
-            paper_review_tickers(paper_review_payload),
+            paper_queue_tickers,
             sample_size=args.candidate_page_sample_size,
         )
+        row_by_ticker = _row_by_ticker(execution_rows)
         candidate_results = audit_candidate_routes(
             args.base_url,
             candidate_tickers,
+            paper_review_queue_tickers=paper_queue_tickers,
+            execution_row_by_ticker=row_by_ticker,
             timeout=args.timeout,
             workers=args.workers,
             route_budget_seconds=args.route_budget_seconds,
@@ -131,7 +139,7 @@ def main(argv: list[str] | None = None) -> int:
         args.base_url,
         focus_route_sample_tickers(
             tickers,
-            paper_review_tickers(paper_review_payload),
+            paper_queue_tickers,
             execution_rows,
             sample_size=args.focus_route_sample_size,
         ),
@@ -168,7 +176,7 @@ def main(argv: list[str] | None = None) -> int:
         "base_url": args.base_url,
         "execution_row_count": len(execution_rows),
         "ticker_count": len(tickers),
-        "paper_review_queue_count": len(paper_review_tickers(paper_review_payload)),
+        "paper_review_queue_count": len(paper_queue_tickers),
         "key_page_count": len(key_page_results),
         "execution_status_contract_count": len(status_contract_results),
         "execution_focus_route_count": len(execution_results),
@@ -504,6 +512,46 @@ def focus_route_sample_tickers(
     return selected
 
 
+def audit_ticker_sample(
+    tickers: list[str],
+    paper_review_queue_tickers: list[str],
+    *,
+    max_tickers: int,
+) -> list[str]:
+    if max_tickers <= 0 or max_tickers >= len(tickers):
+        return list(tickers)
+    selected: list[str] = []
+    seen: set[str] = set()
+    for ticker in [*paper_review_queue_tickers, *tickers]:
+        normalized = ticker.strip().upper()
+        if normalized and normalized in tickers and normalized not in seen:
+            selected.append(normalized)
+            seen.add(normalized)
+        if len(selected) >= max_tickers:
+            break
+    return selected
+
+
+def _execution_rows_for_sample(
+    execution_rows: list[dict[str, object]],
+    tickers: list[str],
+) -> list[dict[str, object]]:
+    ticker_set = set(tickers)
+    return [
+        row
+        for row in execution_rows
+        if str(row.get("ticker") or "").strip().upper() in ticker_set
+    ]
+
+
+def _row_by_ticker(execution_rows: list[dict[str, object]]) -> dict[str, dict[str, object]]:
+    return {
+        str(row.get("ticker") or "").strip().upper(): row
+        for row in execution_rows
+        if str(row.get("ticker") or "").strip()
+    }
+
+
 def candidate_route_sample_tickers(
     tickers: list[str],
     paper_review_queue_tickers: list[str],
@@ -528,6 +576,8 @@ def audit_candidate_routes(
     base_url: str,
     tickers: list[str],
     *,
+    paper_review_queue_tickers: list[str],
+    execution_row_by_ticker: Mapping[str, Mapping[str, object]],
     timeout: int,
     workers: int,
     route_budget_seconds: float = 0.0,
@@ -549,7 +599,18 @@ def audit_candidate_routes(
                 route_budget_seconds=route_budget_seconds,
             )
             route_result["workflow"] = "candidate_detail"
-            route_result["failures"].extend(audit_candidate_html(ticker, result.body))
+            route_result["failures"].extend(
+                audit_candidate_html(
+                    ticker,
+                    result.body,
+                    expect_review_action=(
+                        ticker.upper() in set(paper_review_queue_tickers)
+                        or row_needs_operator_action(
+                            execution_row_by_ticker.get(ticker.upper(), {})
+                        )
+                    ),
+                )
+            )
             results.append(route_result)
     return sorted(results, key=lambda item: str(item.get("ticker") or item.get("route")))
 
@@ -767,10 +828,19 @@ def audit_execution_api_alignment(
     return failures
 
 
-def audit_candidate_html(ticker: str, html: str) -> list[dict[str, object]]:
+def audit_candidate_html(
+    ticker: str,
+    html: str,
+    *,
+    expect_review_action: bool = True,
+) -> list[dict[str, object]]:
     normalized = ticker.upper()
     failures: list[dict[str, object]] = []
-    if f"/candidates/{normalized}/reviews?" not in html and "Review recorded" not in html:
+    if (
+        expect_review_action
+        and f"/candidates/{normalized}/reviews?" not in html
+        and "Review recorded" not in html
+    ):
         failures.append(
             failure(
                 "candidate_review_action_missing",
@@ -887,20 +957,20 @@ def fetch_text(
     accept: str = "text/html",
 ) -> FetchResult:
     last_result = FetchResult(route, 0, "", 0.0, "request not attempted")
+    url = urljoin(base_url.rstrip("/") + "/", route.lstrip("/"))
+    headers = {"Accept": accept}
     for attempt in range(1, 4):
         start = time.perf_counter()
-        url = urljoin(base_url.rstrip("/") + "/", route.lstrip("/"))
-        request = Request(url, headers={"Accept": accept, "Connection": "close"})
         try:
-            with urlopen(request, timeout=timeout) as response:
-                body = response.read().decode("utf-8", errors="replace")
-                status_code = int(response.status)
-            return FetchResult(route, status_code, body, time.perf_counter() - start)
-        except HTTPError as exc:
-            body = exc.read().decode("utf-8", errors="replace")
-            status_code = int(exc.code)
-            return FetchResult(route, status_code, body, time.perf_counter() - start, str(exc))
-        except (OSError, URLError) as exc:
+            response = requests.get(url, headers=headers, timeout=timeout)
+            return FetchResult(
+                route,
+                int(response.status_code),
+                response.text,
+                time.perf_counter() - start,
+                "" if response.ok else response.reason,
+            )
+        except requests.RequestException as exc:
             last_result = FetchResult(
                 route,
                 0,
@@ -971,6 +1041,7 @@ def markdown_report(report: dict[str, object]) -> str:
             "- Every current execution ticker must preserve focus on `/execution-preview?ticker=TICKER`.",
             "- Focused ticker follow-up must render before the generic execution list.",
             "- Command review-queue execute links must carry ticker focus.",
+            "- Candidate detail pages must expose review controls only when the ticker is in the review queue or the status API says operator action is available.",
             "- V3 build marker, V3 shell, and BLUF briefing must be present on audited pages.",
             "- User-facing pages must not expose old/test UX residue terms.",
         ]

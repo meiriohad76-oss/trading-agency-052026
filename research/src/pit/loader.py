@@ -454,7 +454,7 @@ class PITLoader:
             raise DataNotAvailableAt(dataset.value, as_of, "no stock trade partitions matched")
         try:
             schema = pl.scan_parquet(files[0]).collect_schema()
-            lazy = pl.scan_parquet(files)
+            lazy = pl.scan_parquet(files, missing_columns="insert")
             filtered = (
                 lazy.with_columns(
                     self._lazy_date_expression("trade_date", schema).alias("__trade_date"),
@@ -519,7 +519,7 @@ class PITLoader:
             ticker_median_size = pl.col("__size").median().over("ticker")
             ticker_median_notional = pl.col("__notional").median().over("ticker")
             prepared = (
-                pl.scan_parquet(files)
+                pl.scan_parquet(files, missing_columns="insert")
                 .with_columns(
                     pl.col("ticker").cast(pl.Utf8).str.to_uppercase().alias("ticker"),
                     self._lazy_numeric_expression(schema, "size", 0.0).alias("__size"),

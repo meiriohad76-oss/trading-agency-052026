@@ -456,6 +456,73 @@ def test_stock_trade_activity_frames_can_allow_partial_live_slice(tmp_path: Path
     assert daily.get_column("date").to_list() == [date(2026, 5, 6)]
 
 
+def test_stock_trade_activity_frames_tolerate_optional_columns_missing_across_partitions(
+    tmp_path: Path,
+) -> None:
+    parquet_root = tmp_path / "parquet"
+    manifest_root = tmp_path / "manifests"
+    trade_root = parquet_root / "stock_trades"
+    aapl_path = trade_root / "ticker=AAPL" / "year=2026" / "trades.parquet"
+    msft_path = trade_root / "ticker=MSFT" / "year=2026" / "trades.parquet"
+    aapl_path.parent.mkdir(parents=True)
+    msft_path.parent.mkdir(parents=True)
+    manifest_root.mkdir()
+    pl.DataFrame(
+        [
+            {
+                **stock_trade("AAPL", date(2026, 5, 6), date(2026, 5, 6), "a1"),
+                "is_trf_off_exchange": True,
+                "trf_id": "T1",
+                "exchange": "4",
+            },
+        ]
+    ).write_parquet(aapl_path)
+    pl.DataFrame(
+        [
+            stock_trade("MSFT", date(2026, 5, 6), date(2026, 5, 6), "m1"),
+        ]
+    ).write_parquet(msft_path)
+    (trade_root / "_coverage.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "0.1.0",
+                "ticker_days": {
+                    "AAPL|2026-05-06": {
+                        "ticker": "AAPL",
+                        "trade_date": "2026-05-06",
+                        "coverage_status": "partial",
+                        "downloaded_row_count": 1,
+                        "pages_downloaded": 1,
+                        "order": "desc",
+                    },
+                    "MSFT|2026-05-06": {
+                        "ticker": "MSFT",
+                        "trade_date": "2026-05-06",
+                        "coverage_status": "partial",
+                        "downloaded_row_count": 1,
+                        "pages_downloaded": 1,
+                        "order": "desc",
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    write_manifest(manifest_root, DatasetName.STOCK_TRADES, "stock_trades", row_count=2)
+    loader = PITLoader(parquet_root=parquet_root, manifest_root=manifest_root, today=lambda: TODAY)
+
+    total, _daily = loader.stock_trade_activity_frames(
+        ["AAPL", "MSFT"],
+        date(2026, 5, 6),
+        lookback_days=1,
+        allow_partial_coverage=True,
+    )
+
+    assert total.get_column("ticker").to_list() == ["AAPL", "MSFT"]
+    trf_counts = dict(zip(total["ticker"].to_list(), total["trf_off_exchange_count"].to_list(), strict=True))
+    assert trf_counts == {"AAPL": 1, "MSFT": 0}
+
+
 def test_stock_trade_activity_frames_for_trade_window_uses_separate_knowledge_cutoff(
     tmp_path: Path,
 ) -> None:

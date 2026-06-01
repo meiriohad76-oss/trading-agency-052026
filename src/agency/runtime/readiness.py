@@ -14,7 +14,7 @@ DEGRADED_FRESHNESS = {"AGING", "STALE", "UNAVAILABLE"}
 BLOCKING_SOURCE_STATUSES = {"STALE", "UNAVAILABLE", "RATE_LIMITED"}
 BLOCKING_FRESHNESS = {"STALE", "UNAVAILABLE"}
 REVIEWABLE_ACTIONS = {"BUY", "SELL", "SHORT", "COVER", "WATCH", "HOLD"}
-LIVE_CYCLE_PREFIXES = ("live-pit-", "live-ready-")
+LIVE_CYCLE_PREFIXES = ("live-pit-", "live-ready-", "auto-lane-refresh-")
 NON_OPERATIONAL_CYCLE_TOKENS = ("demo", "mock", "fake", "fixture", "manual-smoke")
 CRITICAL_SOURCE_NAMES = {"daily-market-bars", "massive-stock-trades"}
 SOURCE_HEALTH_MAX_AGE_SECONDS = 30 * 60
@@ -103,6 +103,8 @@ def _source_blockers(
         source_name = str(source.get("source", "unknown"))
         status = str(source.get("status", "UNKNOWN"))
         freshness = str(source.get("freshness", "UNKNOWN"))
+        if source_name in review_ready_sources:
+            continue
         critical_or_unidentified = (
             source_name in CRITICAL_SOURCE_NAMES
             or source_name in {"unknown", "source-health-monitor"}

@@ -84,7 +84,12 @@ DASHBOARD_HEALTH_QUERY_TIMEOUT_SECONDS = 5.0
 DASHBOARD_LIFECYCLE_QUERY_TIMEOUT_SECONDS = 1.0
 LIVE_PIT_CYCLE_PREFIX = "live-pit-"
 LIVE_READY_CYCLE_PREFIX = "live-ready-"
-LIVE_SELECTION_CYCLE_PREFIXES = (LIVE_PIT_CYCLE_PREFIX, LIVE_READY_CYCLE_PREFIX)
+AUTO_LANE_REFRESH_CYCLE_PREFIX = "auto-lane-refresh-"
+LIVE_SELECTION_CYCLE_PREFIXES = (
+    LIVE_PIT_CYCLE_PREFIX,
+    LIVE_READY_CYCLE_PREFIX,
+    AUTO_LANE_REFRESH_CYCLE_PREFIX,
+)
 MAX_FULL_CYCLE_LABEL_LENGTH = 28
 CYCLE_LABEL_SUFFIX_LENGTH = 25
 MIN_BRIEF_SOURCE_COUNT = 2
@@ -1465,9 +1470,31 @@ def _first_relevant_not_current_lane_state(
     for row in rows:
         if not _lane_state_matches(row, lanes=lanes, datasets=datasets):
             continue
+        if _lane_state_is_nonblocking_derived_context(row):
+            continue
+        if _lane_state_is_review_caution(row):
+            continue
         if str(row.get("state") or "").casefold() in not_current_states:
             return row
     return None
+
+
+def _lane_state_is_nonblocking_derived_context(row: Mapping[str, object]) -> bool:
+    if str(row.get("lane_kind") or "").casefold() != "derived_signal":
+        return False
+    return row.get("blocks_execution") is False and row.get("blocker") is not True
+
+
+def _lane_state_is_review_caution(row: Mapping[str, object]) -> bool:
+    if str(row.get("state") or "").casefold() != "needs_refresh":
+        return False
+    if str(row.get("lane_kind") or "").casefold() != "derived_signal":
+        return False
+    produced = row.get("produced_count")
+    if isinstance(produced, bool) or not isinstance(produced, int | float) or produced <= 0:
+        return False
+    message = str(row.get("operator_message") or row.get("detail") or "").casefold()
+    return "review" in message and ("execution" in message or "covered ticker" in message)
 
 
 def _wip_lane_ids(

@@ -3719,10 +3719,14 @@ def test_premarket_lane_is_not_required_before_premarket_window(
     )
 
     premarket = _lane(status, "pre_market_unusual_activity")
+    premarket_raw = _lane_state(status, "massive_premarket_trade_slices")
     assert status["tradable_ready"] is True
     assert premarket["status"] == "ready"
     assert premarket["required_now"] is False
     assert premarket["expected_count"] is None
+    assert premarket_raw["required_now"] is False
+    assert premarket_raw["blocks_execution"] is False
+    assert premarket_raw["state"] == "disabled_optional"
     assert "next pre-market refresh starts at" in premarket["detail"]
 
 

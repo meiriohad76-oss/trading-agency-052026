@@ -2355,6 +2355,23 @@ async def test_operational_readiness_context_filters_to_active_cycle(
     assert context["paper_review"]["cycle_id"] == "live-pit-current"
 
 
+def test_active_cycle_reports_accept_persisted_auto_lane_refresh_cycle() -> None:
+    older = _selection_report_for_cycle(
+        "live-pit-2026-06-01-20260601T160623Z",
+        "MSFT",
+        "2026-06-01T16:06:00Z",
+    )
+    refreshed = _selection_report_for_cycle(
+        "auto-lane-refresh-20260601T173616Z",
+        "AAPL",
+        "2026-06-01T17:36:00Z",
+    )
+
+    rows = shared_module._active_cycle_reports([older, refreshed])
+
+    assert [row["cycle_id"] for row in rows] == ["auto-lane-refresh-20260601T173616Z"]
+
+
 def test_paper_review_status_endpoint_renders_empty_state(monkeypatch: MonkeyPatch) -> None:
     async def fake_reports(*, limit: int = 50) -> list[dict[str, object]]:
         del limit
@@ -4903,6 +4920,73 @@ def test_displayed_evidence_currentness_treats_refresh_needed_lane_as_not_curren
     assert currentness["display_mode"] == "not_current"
     assert "needs refresh" in str(currentness["status_label"]).lower()
     assert "stale" not in str(currentness["reason"]).lower()
+
+
+def test_displayed_evidence_currentness_allows_derived_review_caution() -> None:
+    currentness = shared_module.displayed_evidence_currentness(
+        {
+            "cycle_id": "auto-lane-refresh-20260601T173616Z",
+            "lane_states": [
+                {
+                    "lane_id": "abnormal_volume",
+                    "lane_kind": "derived_signal",
+                    "source_dataset": "prices_daily",
+                    "state": "needs_refresh",
+                    "status_label": "Analysis exists but needs refresh",
+                    "produced_count": 168,
+                    "operator_message": (
+                        "Abnormal Volume analysis exists but needs refresh. "
+                        "Covered tickers can be reviewed now; refresh or repair "
+                        "the source before full-universe paper execution."
+                    ),
+                }
+            ],
+        },
+        displayed_cycle_id="auto-lane-refresh-20260601T173616Z",
+        datasets=("prices_daily",),
+    )
+
+    assert currentness["is_current"] is True
+    assert currentness["display_mode"] == "current"
+
+
+def test_displayed_evidence_currentness_ignores_nonblocking_derived_context() -> None:
+    currentness = shared_module.displayed_evidence_currentness(
+        {
+            "cycle_id": "auto-lane-refresh-20260601T173616Z",
+            "lane_states": [
+                {
+                    "lane_id": "sector_momentum",
+                    "lane_kind": "derived_signal",
+                    "source_dataset": "prices_daily",
+                    "state": "loaded_unanalyzed",
+                    "status_label": "Data exists but agent has not analyzed it",
+                    "blocks_execution": False,
+                    "blocker": False,
+                    "operator_message": "Sector Momentum source data exists.",
+                },
+                {
+                    "lane_id": "technical_analysis",
+                    "lane_kind": "derived_signal",
+                    "source_dataset": "prices_daily",
+                    "state": "needs_refresh",
+                    "status_label": "Analysis exists but needs refresh",
+                    "blocks_execution": True,
+                    "produced_count": 168,
+                    "operator_message": (
+                        "Technical Analysis analysis exists but needs refresh. "
+                        "Covered tickers can be reviewed now; refresh or repair "
+                        "the source before full-universe paper execution."
+                    ),
+                },
+            ],
+        },
+        displayed_cycle_id="auto-lane-refresh-20260601T173616Z",
+        datasets=("prices_daily",),
+    )
+
+    assert currentness["is_current"] is True
+    assert currentness["display_mode"] == "current"
 
 
 async def test_final_selection_context_filters_to_latest_live_cycle(

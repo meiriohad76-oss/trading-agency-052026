@@ -193,6 +193,8 @@ def test_lane_states_keep_partial_derived_subset_reviewable_not_execution_ready(
     assert lane["ready_for_review"] is True
     assert lane["ready_for_paper_execution"] is False
     assert lane["blocker"] is False
+    assert lane["produced_count"] == 1
+    assert lane["expected_count"] == 168
 
 
 def test_lane_states_cover_massive_orchestrator_derived_requirements() -> None:
