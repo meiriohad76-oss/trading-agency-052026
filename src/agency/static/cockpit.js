@@ -11,6 +11,9 @@
   const cycleId = shell.getAttribute("data-cockpit-cycle") || "current";
   const storageKey = `cockpit:v3:${cycleId}:staging`;
   const preferenceStorageKey = "cockpit:v3:preferences";
+  let storageAvailable = true;
+  let memoryState = {};
+  let memoryPreferences = { ...DEFAULT_PREFERENCES };
   const state = loadState();
   const preferences = loadPreferences();
   let submitGateInvalidated = false;
@@ -106,7 +109,7 @@
 
   document.querySelectorAll("[data-cockpit-phase-target]").forEach((button) => {
     button.addEventListener("click", () => {
-      const phase = button.getAttribute("data-cockpit-phase-target") || "candidates";
+      const phase = scenarioSafePhase(button.getAttribute("data-cockpit-phase-target") || "candidates");
       const focusTicker = focusTickerFrom(button);
       if (focusTicker) {
         state.selectedTicker = focusTicker;
@@ -277,7 +280,6 @@
     state.decisions = {};
     state.exits = {};
     state.phase = "candidates";
-    saveState();
     showRestoreNotice(
       () => {
         state.decisions = pendingRestore.decisions;
@@ -301,11 +303,7 @@
   shell.dataset.cockpitReady = "true";
 
   function loadState() {
-    try {
-      return JSON.parse(localStorage.getItem(storageKey) || "{}");
-    } catch (_error) {
-      return {};
-    }
+    return readStorageObject(storageKey, memoryState);
   }
 
   function saveState() {
@@ -315,24 +313,62 @@
       exits: state.exits || {},
       selectedTicker: normalizeTicker(state.selectedTicker),
     };
-    localStorage.setItem(storageKey, JSON.stringify(payload));
+    memoryState = { ...payload };
+    writeStorageObject(storageKey, payload);
   }
 
   function loadPreferences() {
-    try {
-      return { ...DEFAULT_PREFERENCES, ...JSON.parse(localStorage.getItem(preferenceStorageKey) || "{}") };
-    } catch (_error) {
-      return { ...DEFAULT_PREFERENCES };
-    }
+    return sanitizePreferences(readStorageObject(preferenceStorageKey, memoryPreferences));
   }
 
   function savePreferences(nextPreferences) {
-    const payload = {
-      colorPreset: nextPreferences.colorPreset || DEFAULT_PREFERENCES.colorPreset,
-      theme: nextPreferences.theme || DEFAULT_PREFERENCES.theme,
-      density: nextPreferences.density || DEFAULT_PREFERENCES.density,
+    const payload = sanitizePreferences(nextPreferences);
+    memoryPreferences = { ...payload };
+    writeStorageObject(preferenceStorageKey, payload);
+  }
+
+  function readStorageObject(key, fallback) {
+    if (!storageAvailable) {
+      return { ...fallback };
+    }
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) {
+        return { ...fallback };
+      }
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : { ...fallback };
+    } catch (_error) {
+      storageAvailable = false;
+      shell.setAttribute("data-cockpit-storage", "unavailable");
+      return { ...fallback };
+    }
+  }
+
+  function writeStorageObject(key, payload) {
+    if (!storageAvailable) {
+      shell.setAttribute("data-cockpit-storage", "unavailable");
+      return;
+    }
+    try {
+      localStorage.setItem(key, JSON.stringify(payload));
+    } catch (_error) {
+      storageAvailable = false;
+      shell.setAttribute("data-cockpit-storage", "unavailable");
+    }
+  }
+
+  function sanitizePreferences(nextPreferences) {
+    const safe = nextPreferences && typeof nextPreferences === "object" ? nextPreferences : {};
+    return {
+      colorPreset: oneOf(safe.colorPreset, ["amber", "duotone", "saturated"], DEFAULT_PREFERENCES.colorPreset),
+      theme: oneOf(safe.theme, ["dark", "accent", "light"], DEFAULT_PREFERENCES.theme),
+      density: oneOf(safe.density, ["full", "calm"], DEFAULT_PREFERENCES.density),
     };
-    localStorage.setItem(preferenceStorageKey, JSON.stringify(payload));
+  }
+
+  function oneOf(value, allowed, fallback) {
+    return allowed.includes(value) ? value : fallback;
   }
 
   function applyPreferences(nextPreferences) {
@@ -349,10 +385,32 @@
 
   function setupTouchTooltips() {
     document.querySelectorAll(".info-tip[title]").forEach((tip) => {
+      let longPressTimer = 0;
+      const clearLongPress = () => {
+        if (longPressTimer) {
+          window.clearTimeout(longPressTimer);
+          longPressTimer = 0;
+        }
+      };
+      const openTip = () => {
+        closeTouchTooltips();
+        tip.setAttribute("data-tooltip-open", "true");
+      };
       if (tip.tabIndex < 0) {
         tip.tabIndex = 0;
       }
       tip.setAttribute("role", "button");
+      tip.addEventListener("pointerdown", (event) => {
+        if (event.pointerType === "mouse") {
+          return;
+        }
+        clearLongPress();
+        longPressTimer = window.setTimeout(openTip, 320);
+      });
+      tip.addEventListener("pointermove", clearLongPress);
+      tip.addEventListener("pointerup", clearLongPress);
+      tip.addEventListener("pointercancel", clearLongPress);
+      tip.addEventListener("pointerleave", clearLongPress);
       tip.addEventListener("click", (event) => {
         event.stopPropagation();
         const isOpen = tip.getAttribute("data-tooltip-open") === "true";
@@ -688,6 +746,8 @@
   }
 
   let activeTrigger = null;
+  let activeTickerDetailController = null;
+  let tickerDetailRequestId = 0;
 
   function openPanel(name, trigger) {
     const panel = document.querySelector(`#cockpit-panel-${name}`);
@@ -704,6 +764,7 @@
   }
 
   function closePanel() {
+    abortTickerDetailRequest();
     document.querySelectorAll(".cockpit-panel").forEach((panel) => {
       panel.hidden = true;
     });
@@ -713,25 +774,51 @@
     activeTrigger = null;
   }
 
+  function abortTickerDetailRequest() {
+    if (activeTickerDetailController) {
+      tickerDetailRequestId += 1;
+      activeTickerDetailController.abort();
+      activeTickerDetailController = null;
+    }
+  }
+
   async function loadTickerPanelDetails(candidate) {
     const ticker = candidate.ticker || "";
     if (!ticker) {
       return;
     }
+    abortTickerDetailRequest();
+    const requestId = tickerDetailRequestId + 1;
+    tickerDetailRequestId = requestId;
+    const controller = new AbortController();
+    activeTickerDetailController = controller;
+    const timer = window.setTimeout(() => controller.abort(), 10_000);
     try {
       const response = await fetch(`/api/cockpit/ticker/${encodeURIComponent(ticker)}`, {
         headers: { Accept: "application/json" },
+        signal: controller.signal,
       });
       if (!response.ok) {
         throw new Error(`detail API returned HTTP ${response.status}`);
       }
       const payload = await response.json();
+      if (requestId !== tickerDetailRequestId) {
+        return;
+      }
       populateTickerPanel({ ...candidate, ...payload }, { loading: false });
     } catch (error) {
+      if (requestId !== tickerDetailRequestId) {
+        return;
+      }
       populateTickerPanel({
         ...candidate,
         detail_load_error: `Could not load full candidate brief: ${error}`,
       }, { loading: false });
+    } finally {
+      window.clearTimeout(timer);
+      if (activeTickerDetailController === controller) {
+        activeTickerDetailController = null;
+      }
     }
   }
 

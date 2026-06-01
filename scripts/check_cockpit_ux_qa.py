@@ -61,6 +61,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 for viewport_name, profile in VIEWPORTS:
                     console_errors: list[str] = []
                     page_errors: list[str] = []
+                    external_requests: list[str] = []
                     page = browser.new_page(
                         viewport=profile["viewport"],
                         has_touch=bool(profile.get("has_touch")),
@@ -68,6 +69,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     )
                     page.on("console", _console_error_collector(console_errors))
                     page.on("pageerror", _page_error_collector(page_errors))
+                    page.on("request", _external_request_collector(external_requests, target_url))
                     result = {
                         "viewport": viewport_name,
                         "url": target_url,
@@ -76,6 +78,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         "http_ok": False,
                         "console_errors": console_errors,
                         "page_errors": page_errors,
+                        "external_requests": external_requests,
                         "horizontal_overflow": False,
                         "bluf_visible": False,
                         "phase_visible": False,
@@ -83,6 +86,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         "submit_gate_safe": False,
                         "panel_screenshots": [],
                         "unreadable_controls": [],
+                        "small_touch_targets": [],
                         "screenshot": "",
                         "error": "",
                     }
@@ -122,6 +126,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                               .slice(0, 10)
                             """
                         )
+                        result["small_touch_targets"] = _small_touch_targets(page)
                         screenshot_path = output_dir / f"{viewport_name}-{scenario_name}-{args.focus}.png"
                         page.screenshot(path=str(screenshot_path), full_page=False)
                         result["screenshot"] = str(screenshot_path)
@@ -243,6 +248,17 @@ def _page_error_collector(page_errors: list[str]):
     return collect
 
 
+def _external_request_collector(external_requests: list[str], page_url: str):
+    allowed = urlsplit(page_url).netloc
+
+    def collect(request: Any) -> None:
+        parsed = urlsplit(request.url)
+        if parsed.scheme in {"http", "https"} and parsed.netloc and parsed.netloc != allowed:
+            external_requests.append(request.url)
+
+    return collect
+
+
 def _is_in_first_viewport(page: Any, selector: str) -> bool:
     return bool(
         page.locator(selector).first.evaluate(
@@ -271,6 +287,13 @@ def _submit_gate_is_safe(page: Any) -> bool:
     initially_disabled = button.is_disabled()
     ack = page.locator("[data-cockpit-submit-ack]").first
     phrase = page.locator("[data-cockpit-submit-text]").first
+    if safety_scenario and (
+        ack.count() == 0
+        or phrase.count() == 0
+        or not ack.is_visible()
+        or not phrase.is_visible()
+    ):
+        return initially_disabled
     if ack.count() == 0 or phrase.count() == 0:
         return False
     ack.check()
@@ -285,11 +308,41 @@ def _submit_gate_is_safe(page: Any) -> bool:
     return initially_disabled and wrong_phrase_disabled and armed_enabled
 
 
+def _small_touch_targets(page: Any) -> list[str]:
+    return page.evaluate(
+        """
+        () => Array.from(document.querySelectorAll(
+          '.cockpit-shell button, .cockpit-shell a.button, .cockpit-shell [role="button"], .cockpit-shell summary'
+        ))
+          .filter((el) => {
+            if (el.closest('[hidden]') || el.hasAttribute('hidden')) {
+              return false;
+            }
+            const style = window.getComputedStyle(el);
+            if (style.visibility === 'hidden' || style.display === 'none') {
+              return false;
+            }
+            const rect = el.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0 && (rect.width < 44 || rect.height < 44);
+          })
+          .map((el) => {
+            const rect = el.getBoundingClientRect();
+            const label = (el.textContent || el.getAttribute('aria-label') || el.getAttribute('title') || el.tagName)
+              .trim()
+              .replace(/\\s+/g, ' ');
+            return `${label || el.tagName} ${Math.round(rect.width)}x${Math.round(rect.height)}`;
+          })
+          .slice(0, 20)
+        """
+    )
+
+
 def _failed(result: dict[str, object]) -> bool:
     return (
         result.get("http_ok") is not True
         or bool(result.get("console_errors"))
         or bool(result.get("page_errors"))
+        or bool(result.get("external_requests"))
         or result.get("horizontal_overflow") is True
         or result.get("bluf_visible") is not True
         or result.get("phase_visible") is not True
@@ -297,6 +350,7 @@ def _failed(result: dict[str, object]) -> bool:
         or result.get("submit_gate_safe") is not True
         or bool(result.get("focus_errors"))
         or bool(result.get("unreadable_controls"))
+        or bool(result.get("small_touch_targets"))
         or bool(result.get("error"))
     )
 

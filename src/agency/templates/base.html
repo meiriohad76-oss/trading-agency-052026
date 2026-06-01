@@ -2,7 +2,9 @@
 <html lang="en" data-theme="dark" data-ux-version="v3" data-ux-build="ux-v3-all-dashboards-20260523">
   <head>
     <meta charset="utf-8">
+    {% block viewport %}
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    {% endblock %}
     <title>{% block title %}Trading Agency v3{% endblock %}</title>
     <link rel="stylesheet" href="/static/styles.css?v={{ static_version | default('ux-v3-all-dashboards-20260523') }}">
     <link rel="stylesheet" href="/static/v3-screens.css?v={{ static_version | default('ux-v3-all-dashboards-20260523') }}">

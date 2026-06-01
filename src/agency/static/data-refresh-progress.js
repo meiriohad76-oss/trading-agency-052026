@@ -54,6 +54,24 @@ const guardedPoller = (callback) => {
   };
 };
 
+const repeatingPollTimers = new Set();
+
+const registerRepeatingPoll = (callback, intervalMs) => {
+  const timer = window.setInterval(() => {
+    if (document.visibilityState === "hidden") {
+      return;
+    }
+    callback();
+  }, intervalMs);
+  repeatingPollTimers.add(timer);
+  return timer;
+};
+
+window.addEventListener("pagehide", () => {
+  repeatingPollTimers.forEach((timer) => window.clearInterval(timer));
+  repeatingPollTimers.clear();
+}, { once: true });
+
 const setupReviewActionForms = () => {
   document.querySelectorAll(".review-action-form").forEach((form) => {
     if (form.dataset.reviewEnhanced === "true") {
@@ -230,7 +248,7 @@ if (document.readyState === "loading") {
     }
   };
 
-  window.setInterval(poll, 10000);
+  registerRepeatingPoll(poll, 10000);
   poll();
 })();
 
@@ -827,7 +845,7 @@ if (document.readyState === "loading") {
     }
   });
 
-  window.setInterval(poll, 5000);
+  registerRepeatingPoll(poll, 5000);
   poll();
 })();
 
@@ -875,11 +893,7 @@ if (document.readyState === "loading") {
 
   const pollServer = async () => {
     try {
-      const response = await fetch(healthEndpoint, { headers: { Accept: "application/json" } });
-      if (!response.ok) {
-        throw new Error("health failed");
-      }
-      const payload = await response.json();
+      const payload = await fetchJsonWithTimeout(healthEndpoint);
       if (payload.status === "ok") {
         heartbeat.dataset.runtimeState = "online";
         setDot("pass");
@@ -900,11 +914,7 @@ if (document.readyState === "loading") {
 
   const pollBroker = async () => {
     try {
-      const response = await fetch(brokerEndpoint, { headers: { Accept: "application/json" } });
-      if (!response.ok) {
-        throw new Error("broker failed");
-      }
-      const payload = await response.json();
+      const payload = await fetchJsonWithTimeout(brokerEndpoint);
       if (payload.connected === true) {
         setStatus(
           broker,
@@ -919,12 +929,11 @@ if (document.readyState === "loading") {
     }
   };
 
-  const poll = () => {
-    pollServer();
-    pollBroker();
-  };
+  const poll = guardedPoller(async () => {
+    await Promise.all([pollServer(), pollBroker()]);
+  });
 
-  window.setInterval(poll, 15000);
+  registerRepeatingPoll(poll, 15000);
   poll();
 })();
 
@@ -1296,7 +1305,7 @@ if (document.readyState === "loading") {
     }
   };
 
-  window.setInterval(poll, 15000);
+  registerRepeatingPoll(poll, 15000);
   poll();
 })();
 
@@ -1734,6 +1743,6 @@ if (document.readyState === "loading") {
     }
   });
 
-  window.setInterval(poll, 5000);
+  registerRepeatingPoll(poll, 5000);
   poll();
 })();

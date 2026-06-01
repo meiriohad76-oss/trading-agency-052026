@@ -2,6 +2,9 @@
 {% from "_evidence_legend.html" import evidence_legend, conviction_help %}
 
 {% block title %}{{ scenario.browser_title|default("Today's Cockpit - Trading Agency", true) }}{% endblock %}
+{% block viewport %}
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+{% endblock %}
 {% block eyebrow %}Trading Agency v3{% endblock %}
 {% block page_title %}{{ scenario.page_title|default("Today's cockpit is ready", true) }}{% endblock %}
 {% block topbar_meta %}{{ cycle.mode }} mode - {{ cycle.id }}{% endblock %}

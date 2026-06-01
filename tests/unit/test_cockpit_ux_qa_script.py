@@ -51,6 +51,19 @@ def test_qa_script_records_preflight_json_name() -> None:
     assert qa.PREFLIGHT_REPORT_NAME == "cockpit-preflight.json"
 
 
+def test_qa_script_collects_external_requests_and_small_touch_targets() -> None:
+    source = inspect.getsource(qa.main)
+    failed_source = inspect.getsource(qa._failed)
+    touch_source = inspect.getsource(qa._small_touch_targets)
+
+    assert "external_requests" in source
+    assert "_external_request_collector" in source
+    assert "small_touch_targets" in source
+    assert "external_requests" in failed_source
+    assert "small_touch_targets" in failed_source
+    assert "rect.width < 44 || rect.height < 44" in touch_source
+
+
 def test_qa_script_applies_scenario_query_param() -> None:
     url = qa._scenario_url("http://127.0.0.1:8000/cockpit?foo=bar", "outage")
 
@@ -67,6 +80,7 @@ def test_qa_script_treats_locked_submit_as_safe_in_safety_scenarios() -> None:
     source = inspect.getsource(qa._submit_gate_is_safe)
 
     assert '{"outage", "no-actionable", "submitted"}' in source
+    assert "not ack.is_visible()" in source
     assert "return initially_disabled and wrong_phrase_disabled and not armed_enabled" in source
 
 
