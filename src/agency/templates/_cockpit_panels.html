@@ -26,10 +26,8 @@
         </div>
         <div class="cockpit-lane-row cockpit-lane-head" role="row">
           <strong role="columnheader">Data pipeline</strong>
-          <strong role="columnheader">State</strong>
+          <strong role="columnheader">State / impact</strong>
           <strong role="columnheader">Progress</strong>
-          <strong role="columnheader">Required now?</strong>
-          <strong role="columnheader">Paper execution impact</strong>
           <strong role="columnheader">Latest proof/as-of</strong>
           <strong role="columnheader">Gap / next action</strong>
         </div>
@@ -41,17 +39,17 @@
             </span>
             <span role="cell">
               <span class="status-pill status-pill-{{ lane.status_class }}">{{ lane.status_label }}</span>
+              <small>{{ lane.required_label }} / Paper impact: {{ lane.blocks_paper_label }}</small>
             </span>
             <span role="cell">
               <strong>{{ lane.progress_label }}</strong>
+              <small>ETA {{ lane.eta_label }}</small>
               {% if lane.progress_percent is not none %}
                 <span class="cockpit-lane-progress" aria-label="{{ lane.progress_percent }} percent complete">
                   <span style="width: {{ lane.progress_percent }}%"></span>
                 </span>
               {% endif %}
             </span>
-            <span role="cell">{{ lane.required_label }}</span>
-            <span role="cell">{{ lane.blocks_paper_label }}</span>
             <span role="cell">
               {{ lane.latest_as_of_label }}
               <small>Checked {{ lane.checked_at_label }}</small>

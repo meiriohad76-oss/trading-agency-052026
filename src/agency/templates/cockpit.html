@@ -220,10 +220,10 @@
   {% set phase_clearance = phase_states.clearance|default({}, true) %}
   {% set phase_cleared = phase_states.cleared|default({}, true) %}
   <section class="cockpit-phase-rail" aria-label="Workflow phases" data-tour="phaserail">
-    <button type="button" class="cockpit-phase-cell" data-cockpit-phase-target="candidates" data-phase-state="{{ phase_candidates.state|default('active', true) }}"><span class="cockpit-phase-index cockpit-mono">01</span><strong>Candidates</strong><small>{{ phase_candidates.label|default("Active", true) }}</small></button>
-    <button type="button" class="cockpit-phase-cell" data-cockpit-phase-target="portfolio" data-phase-state="{{ phase_portfolio.state|default('waiting', true) }}"><span class="cockpit-phase-index cockpit-mono">02</span><strong>Portfolio Review</strong><small>{{ phase_portfolio.label|default("Review next", true) }}</small></button>
-    <button type="button" class="cockpit-phase-cell" data-cockpit-phase-target="clearance" data-phase-state="{{ phase_clearance.state|default('waiting', true) }}"><span class="cockpit-phase-index cockpit-mono">03</span><strong>Clearance</strong><small>{{ phase_clearance.label|default("Paper gate", true) }}</small></button>
-    <button type="button" class="cockpit-phase-cell" data-cockpit-phase-target="cleared" data-phase-state="{{ phase_cleared.state|default('waiting', true) }}"><span class="cockpit-phase-index cockpit-mono">04</span><strong>Cleared</strong><small>{{ phase_cleared.label|default("After submit", true) }}</small></button>
+    <button type="button" class="cockpit-phase-cell" data-cockpit-phase-target="candidates" data-phase-state="{{ phase_candidates.state|default('active', true) }}"><span class="cockpit-phase-index cockpit-mono">C</span><strong>Candidates</strong><small>{{ phase_candidates.label|default("Active", true) }}</small></button>
+    <button type="button" class="cockpit-phase-cell" data-cockpit-phase-target="portfolio" data-phase-state="{{ phase_portfolio.state|default('waiting', true) }}"><span class="cockpit-phase-index cockpit-mono">P</span><strong>Portfolio Review</strong><small>{{ phase_portfolio.label|default("Review next", true) }}</small></button>
+    <button type="button" class="cockpit-phase-cell" data-cockpit-phase-target="clearance" data-phase-state="{{ phase_clearance.state|default('waiting', true) }}"><span class="cockpit-phase-index cockpit-mono">G</span><strong>Clearance</strong><small>{{ phase_clearance.label|default("Paper gate", true) }}</small></button>
+    <button type="button" class="cockpit-phase-cell" data-cockpit-phase-target="cleared" data-phase-state="{{ phase_cleared.state|default('waiting', true) }}"><span class="cockpit-phase-index cockpit-mono">OK</span><strong>Cleared</strong><small>{{ phase_cleared.label|default("After submit", true) }}</small></button>
   </section>
 
   {% set portfolio_vm = portfolio_phase|default({}, true) %}

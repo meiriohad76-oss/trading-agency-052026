@@ -1389,12 +1389,21 @@ def _data_state_lane_row(row: Mapping[str, object]) -> dict[str, object]:
     name = _data_state_text(
         _first_text(row.get("name"), row.get("label"), row.get("lane_id"), default="Data source")
     )
-    state = _first_text(row.get("state"), default=_state_from_lane_label(row))
+    state = _normalize_lane_state(_first_text(row.get("state"), default=_state_from_lane_label(row)))
     status_label = _data_state_text(
         _first_text(row.get("status_label"), row.get("display_status_label"), default="Status not reported")
     )
     status_class = _first_text(row.get("status_class"), default=_lane_state_class(row))
     progress_label = _data_state_text(_first_text(row.get("progress_label"), default="not tracked"))
+    eta_label = _data_state_text(
+        _first_text(
+            row.get("eta_label"),
+            row.get("eta"),
+            row.get("estimated_completion_label"),
+            row.get("eta_seconds"),
+            default="not reported",
+        )
+    )
     required_now = _data_state_bool(row.get("required_now"), fallback=True)
     blocks_execution = _data_state_bool(row.get("blocks_execution"), fallback=False)
     ready_for_review = _data_state_bool(
@@ -1456,6 +1465,7 @@ def _data_state_lane_row(row: Mapping[str, object]) -> dict[str, object]:
         "status_class": status_class,
         "progress_label": progress_label,
         "progress_percent": _lane_progress_percent(row, progress_label),
+        "eta_label": eta_label,
         "required_now": required_now,
         "required_label": "Required now" if required_now else "Optional today",
         "blocks_execution": blocks_execution,
@@ -1491,6 +1501,18 @@ def _lane_refresh_action(
 ) -> dict[str, str]:
     explicit_url = _first_text(row.get("refresh_action_url"))
     explicit_label = _data_state_text(_first_text(row.get("refresh_action_label")))
+    refresh_disabled_reason = _data_state_text(
+        _first_text(row.get("refresh_disabled_reason"), row.get("refresh_action_disabled_reason"))
+    )
+    if explicit_url and (
+        refresh_disabled_reason or not _data_state_bool(row.get("refresh_runnable"), fallback=True)
+    ):
+        return {
+            "url": "",
+            "label": explicit_label or "Refresh unavailable",
+            "detail": refresh_disabled_reason
+            or "This data source has no runnable scheduler refresh job in the current policy.",
+        }
     if explicit_url:
         return {
             "url": explicit_url,
@@ -1669,6 +1691,27 @@ def _data_state_text(value: object) -> str:
     return re.sub(r"\bstale\b", "needs refresh", text, flags=re.IGNORECASE)
 
 
+def _normalize_lane_state(value: str) -> str:
+    normalized = value.strip().lower().replace("-", "_").replace(" ", "_")
+    if normalized in {"stale", "expired", "unverified", "refresh_needed", "needs_refresh"}:
+        return "needs_refresh"
+    if normalized in {"loading", "pending", "planned", "running"}:
+        return "loading"
+    if normalized in {"unavailable", "failed", "missing", "blocked"}:
+        return "provider_unavailable"
+    if normalized in {
+        "loaded_unanalyzed",
+        "provider_unavailable",
+        "ready_for_review",
+        "ready_for_paper_execution",
+        "disabled_optional",
+    }:
+        return normalized
+    if normalized == "ready":
+        return "ready_for_review"
+    return normalized or "loaded_unanalyzed"
+
+
 def _state_from_lane_label(row: Mapping[str, object]) -> str:
     text = _first_text(
         row.get("status_label"),
@@ -1677,6 +1720,8 @@ def _state_from_lane_label(row: Mapping[str, object]) -> str:
     ).lower()
     if "loading" in text or "running" in text:
         return "loading"
+    if "stale" in text or "expired" in text or "unverified" in text:
+        return "needs_refresh"
     if "not required" in text or "optional" in text:
         return "disabled_optional"
     if "unavailable" in text or "failed" in text or "missing" in text:
@@ -1776,7 +1821,7 @@ def _signal_rows(
                 "kind": "process health",
                 "detail": _first_text(item.get("detail"), default="No signal detail reported."),
                 "hard_value": "",
-                "source": _first_text(item.get("source"), item.get("lane"), default="Signal lane"),
+                "source": _first_text(item.get("source"), item.get("lane"), default="Signal process"),
                 "proof": _first_text(item.get("freshness_label"), item.get("latest_as_of_label")),
                 "meta": _first_text(item.get("freshness_label"), item.get("latest_as_of_label")),
             }

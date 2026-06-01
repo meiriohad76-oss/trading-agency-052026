@@ -172,7 +172,7 @@ LANE_SCORE_SCALE: Mapping[str, tuple[str, str]] = {
         "Lagged 13F context",
         (
             "Score is based on quarterly 13F position changes. 13F data is delayed up to 45 days, "
-            "so this lane is context only and cannot be current flow evidence."
+            "so this evidence source is context only and cannot be current flow evidence."
         ),
     ),
     "market_flow_trend": (

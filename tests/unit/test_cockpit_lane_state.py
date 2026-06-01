@@ -49,6 +49,7 @@ def _sources_with_lane_states() -> dict[str, object]:
                     "operator_message": "Massive Live Trade Slices data is still loading (36/50 ticker-days).",
                     "recommended_action": "Wait for Massive Live Trade Slices to finish, then refresh the dashboard.",
                     "progress_label": "36/50 ticker-days",
+                    "eta_label": "6m",
                     "latest_as_of": "2026-05-22T13:25:29+00:00",
                     "checked_at": "2026-05-22T13:26:00+00:00",
                     "required_now": True,
@@ -144,17 +145,20 @@ def test_cockpit_context_promotes_lane_state_operationability() -> None:
     assert first_gap["progress_label"] == "36/50 ticker-days"
     assert "still loading" in first_gap["detail"]
     assert data_state["lane_rows"][0]["progress_percent"] == 72
+    assert data_state["lane_rows"][0]["eta_label"] == "6m"
 
 
 def test_cockpit_context_sanitizes_primary_data_state_language() -> None:
     sources = _sources_with_lane_states()
     lane = sources["dashboard"]["data_load_status"]["lane_states"][0]  # type: ignore[index]
     lane["status_label"] = "Lane Stale"  # type: ignore[index]
+    lane["state"] = "stale"  # type: ignore[index]
     lane["operator_message"] = "Lane stale because the manifest is stale."  # type: ignore[index]
 
     context = cockpit_context_from_sources(sources)
     rendered_text = str(context["data_state"])
 
+    assert context["data_state"]["lane_rows"][0]["state"] == "needs_refresh"  # type: ignore[index]
     assert "stale" not in rendered_text.lower()
     assert "needs refresh" in rendered_text.lower()
 
@@ -207,6 +211,25 @@ def test_cockpit_lane_state_rows_expose_individual_refresh_actions() -> None:
     assert "{{ lane.refresh_action.label }}" in html
 
 
+def test_cockpit_lane_state_hides_explicit_refresh_when_scheduler_has_no_job() -> None:
+    sources = _sources_with_lane_states()
+    lane = sources["dashboard"]["data_load_status"]["lane_states"][2]  # type: ignore[index]
+    lane["refresh_action_url"] = "/scheduler/datasets/news_rss/refresh"  # type: ignore[index]
+    lane["refresh_runnable"] = False  # type: ignore[index]
+    lane["refresh_disabled_reason"] = "RSS refresh has no runnable scheduler job right now."  # type: ignore[index]
+
+    context = cockpit_context_from_sources(sources)
+    subscription = [
+        row
+        for row in context["data_state"]["lane_rows"]
+        if row["lane_id"] == "subscription_thesis"
+    ][0]
+
+    assert subscription["refresh_action"]["url"] == ""
+    assert subscription["refresh_action"]["label"] == "Refresh unavailable"
+    assert "no runnable scheduler job" in subscription["refresh_action"]["detail"]
+
+
 def test_cockpit_template_has_top_level_data_state_strip() -> None:
     html = _cockpit_template()
     css = _styles()
@@ -230,8 +253,10 @@ def test_cockpit_universe_panel_has_lane_state_board() -> None:
     assert "data_state.lane_rows" in html
     assert "lane.status_label" in html
     assert "lane.progress_label" in html
+    assert "lane.eta_label" in html
     assert "lane.latest_as_of_label" in html
     assert "lane.recommended_action" in html
     assert "lane.requirement_label" in html
-    assert "Paper execution impact" in html
+    assert "State / impact" in html
+    assert "Paper impact" in html
     assert ".cockpit-lane-board" in css
