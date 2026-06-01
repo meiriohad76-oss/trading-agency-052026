@@ -260,6 +260,11 @@ def _submit_gate_is_safe(page: Any) -> bool:
     clearance = page.locator('[data-cockpit-phase-target="clearance"]').first
     if clearance.count() > 0:
         clearance.click()
+    scenario_state = (
+        page.locator("[data-cockpit-cycle]").first.get_attribute("data-cockpit-scenario")
+        or "normal"
+    )
+    safety_scenario = scenario_state in {"outage", "no-actionable", "submitted"}
     button = page.locator("[data-cockpit-submit-button]").first
     if button.count() == 0:
         return True
@@ -275,6 +280,8 @@ def _submit_gate_is_safe(page: Any) -> bool:
     armed_enabled = not button.is_disabled()
     phrase.fill("")
     ack.uncheck()
+    if safety_scenario:
+        return initially_disabled and wrong_phrase_disabled and not armed_enabled
     return initially_disabled and wrong_phrase_disabled and armed_enabled
 
 

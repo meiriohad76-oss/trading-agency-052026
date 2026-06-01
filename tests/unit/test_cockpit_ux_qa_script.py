@@ -63,6 +63,13 @@ def test_qa_script_can_expand_all_required_scenarios() -> None:
     assert qa._scenario_names("outage") == ["outage"]
 
 
+def test_qa_script_treats_locked_submit_as_safe_in_safety_scenarios() -> None:
+    source = inspect.getsource(qa._submit_gate_is_safe)
+
+    assert '{"outage", "no-actionable", "submitted"}' in source
+    assert "return initially_disabled and wrong_phrase_disabled and not armed_enabled" in source
+
+
 def test_qa_script_returns_to_candidates_before_ticker_detail_focus() -> None:
     source = inspect.getsource(qa._exercise_focus)
     panels_branch = source.split('elif focus == "panels":', 1)[1]

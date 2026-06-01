@@ -162,6 +162,9 @@ def test_cockpit_script_forces_safety_scenario_starting_phase() -> None:
 
     assert 'scenarioState === "submitted" ? "cleared"' in script
     assert 'scenarioState === "outage" || scenarioState === "no-actionable"' in script
+    assert "function scenarioSafePhase(phase)" in script
+    assert "state.phase = scenarioSafePhase(pendingRestore.phase)" in script
+    assert "submitGateInvalidated = true" in script
 
 
 def test_cockpit_engine_strip_does_not_call_healthy_fresh_source_down() -> None:

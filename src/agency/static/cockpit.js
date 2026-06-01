@@ -259,6 +259,15 @@
   setupPolicyPanel();
   discardLegacyServerDecisionMarkers();
 
+  const scenarioState = shell.getAttribute("data-cockpit-scenario") || "normal";
+  const defaultPhase = scenarioState === "submitted" ? "cleared" : "candidates";
+  const forcedScenarioPhase = scenarioState === "submitted" ? "cleared" : (
+    scenarioState === "outage" || scenarioState === "no-actionable" ? "candidates" : ""
+  );
+  if (forcedScenarioPhase) {
+    submitGateInvalidated = true;
+  }
+
   if (Object.keys(state.decisions).length || Object.keys(state.exits).length) {
     const pendingRestore = {
       decisions: { ...state.decisions },
@@ -273,7 +282,7 @@
       () => {
         state.decisions = pendingRestore.decisions;
         state.exits = pendingRestore.exits;
-        state.phase = pendingRestore.phase;
+        state.phase = scenarioSafePhase(pendingRestore.phase);
         saveState();
         restoreMarks();
         updateCapacity();
@@ -284,12 +293,7 @@
       }
     );
   }
-  const scenarioState = shell.getAttribute("data-cockpit-scenario") || "normal";
-  const defaultPhase = scenarioState === "submitted" ? "cleared" : "candidates";
-  const forcedScenarioPhase = scenarioState === "submitted" ? "cleared" : (
-    scenarioState === "outage" || scenarioState === "no-actionable" ? "candidates" : ""
-  );
-  showPhase(forcedScenarioPhase || state.phase || defaultPhase, state.selectedTicker);
+  showPhase(scenarioSafePhase(state.phase), state.selectedTicker);
   restoreMarks();
   updateCapacity();
   updatePortfolioDecisions();
@@ -390,6 +394,10 @@
         });
       });
     });
+  }
+
+  function scenarioSafePhase(phase) {
+    return forcedScenarioPhase || phase || defaultPhase;
   }
 
   function showRestoreNotice(onRestore, onDiscard) {
