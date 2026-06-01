@@ -154,9 +154,18 @@
             <strong>{{ signal.name }}</strong>
             <span class="status-pill status-pill-{% if signal.state == 'ready' %}pass{% elif signal.state == 'partial' %}warn{% else %}block{% endif %}">{{ signal.status }}</span>
             <p>{{ signal.detail }}</p>
+            {% if signal.hard_value %}
+              <small>Key value: <span class="cockpit-mono">{{ signal.hard_value }}</span></small>
+            {% endif %}
+            <small>
+              {{ signal.kind|default("signal evidence", true) }}
+              {% if signal.source %} / source {{ signal.source }}{% endif %}
+              {% if signal.proof %} / proof {{ signal.proof }}{% endif %}
+              {% if signal.meta %} / {{ signal.meta }}{% endif %}
+            </small>
           </article>
         {% else %}
-          <p class="empty-state">No signal-process rows are available for this cycle.</p>
+          <p class="empty-state">No candidate signal evidence or signal-process health rows are available for this cycle.</p>
         {% endfor %}
       </div>
     </article>

@@ -485,7 +485,7 @@ def cockpit_context_from_sources(
         "sectors": _sector_rows(market),
         "sources": _source_rows(dashboard, proof_timestamp=proof_timestamp),
         "universe_blocked": _universe_blocked_rows(dashboard),
-        "signals": _signal_rows(signals_context),
+        "signals": _signal_rows(signals_context, candidates),
         "audit_lifecycle": _audit_lifecycle(candidates, _first_text(cycle.get("id"))),
         "policy": _policy_section(dashboard),
         "monitor_events": _monitor_events(dashboard),
@@ -1726,8 +1726,44 @@ def _data_lane_sort_key(
     return max(0, base)
 
 
-def _signal_rows(signals_context: Mapping[str, object]) -> list[dict[str, object]]:
+def _signal_rows(
+    signals_context: Mapping[str, object],
+    candidates: Sequence[Mapping[str, object]],
+) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
+    for candidate in candidates:
+        ticker = _first_text(candidate.get("ticker"))
+        if not ticker:
+            continue
+        conviction = _first_text(
+            candidate.get("final_conviction_label"),
+            candidate.get("score_display"),
+            default="not scored",
+        )
+        proof = _first_text(candidate.get("as_of"), default="timestamp not attached")
+        for raw_evidence in _list(candidate.get("evidence"))[:3]:
+            evidence = _mapping(raw_evidence)
+            detail = _first_text(evidence.get("text"))
+            if not detail:
+                continue
+            tier = _first_text(evidence.get("tier"), default="inferred").lower()
+            source = _first_text(evidence.get("source"), default="Candidate evidence")
+            state = "ready" if tier == "confirmed" else "partial" if tier == "inferred" else "blocked"
+            rows.append(
+                {
+                    "name": f"{ticker} - {source}",
+                    "ticker": ticker,
+                    "status": tier.title(),
+                    "state": state,
+                    "tier": tier,
+                    "kind": "candidate evidence",
+                    "detail": detail,
+                    "hard_value": _first_metric(detail),
+                    "source": source,
+                    "proof": proof,
+                    "meta": f"Candidate conviction {conviction}; source proof {proof}.",
+                }
+            )
     for raw in _list(signals_context.get("lanes")):
         item = _mapping(raw)
         state = _status_to_source_state(item.get("status_class"), item.get("status_label"))
@@ -1737,7 +1773,12 @@ def _signal_rows(signals_context: Mapping[str, object]) -> list[dict[str, object
                 "status": _first_text(item.get("status_label"), default="Signal status"),
                 "state": state,
                 "tier": _signal_tier_for_state(state),
+                "kind": "process health",
                 "detail": _first_text(item.get("detail"), default="No signal detail reported."),
+                "hard_value": "",
+                "source": _first_text(item.get("source"), item.get("lane"), default="Signal lane"),
+                "proof": _first_text(item.get("freshness_label"), item.get("latest_as_of_label")),
+                "meta": _first_text(item.get("freshness_label"), item.get("latest_as_of_label")),
             }
         )
     return rows

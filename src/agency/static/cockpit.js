@@ -916,8 +916,12 @@
       const meta = document.createElement("small");
       const signalName = signal.display_name || signal.label || "Signal process";
       title.textContent = `${signalName} / ${signal.direction || "NEUTRAL"}`;
-      summary.textContent = signal.summary || "Signal summary unavailable.";
-      hardEvidence.textContent = signal.hard_evidence ? `Hard evidence: ${signal.hard_evidence}` : signal.detail || "";
+      summary.textContent = signal.summary || signal.hard_evidence || signal.detail || `${signalName} row has no attached summary.`;
+      hardEvidence.textContent = signal.hard_evidence
+        ? `Hard evidence: ${signal.hard_evidence}`
+        : signal.detail
+          ? `Detail: ${signal.detail}`
+          : "Hard evidence values were not attached to this signal row.";
       meta.textContent = [
         signal.actionability,
         signal.freshness,

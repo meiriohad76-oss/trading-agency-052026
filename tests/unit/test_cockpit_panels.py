@@ -86,6 +86,27 @@ def test_signals_panel_has_filters_rule_cards_and_signal_log() -> None:
     assert "Signal log" in html
 
 
+def test_signals_panel_uses_candidate_evidence_not_only_lane_health() -> None:
+    context = cockpit_context_from_sources(_sample_sources())
+    signal_rows = context["signals"]
+
+    assert any(row["name"] == "AAA - Evidence" for row in signal_rows)
+    assert any(
+        row["detail"] == "Daily bars show 4.1% breakout above the 20-day range."
+        for row in signal_rows
+    )
+    assert any(row["kind"] == "process health" for row in signal_rows)
+
+
+def test_signals_panel_renders_concrete_proof_fields() -> None:
+    html = _panels()
+
+    assert "signal.hard_value" in html
+    assert "source {{ signal.source }}" in html
+    assert "proof {{ signal.proof }}" in html
+    assert "signal.kind" in html
+
+
 def test_ticker_panel_shows_llm_rationale_or_not_run_reason() -> None:
     context = cockpit_context_from_sources(_sample_sources())
     rows = {row["ticker"]: row for row in context["candidates"]}
