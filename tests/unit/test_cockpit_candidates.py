@@ -16,6 +16,7 @@ TEMPLATE = PROJECT_ROOT / "src/agency/templates/cockpit.html"
 EVIDENCE_LEGEND = PROJECT_ROOT / "src/agency/templates/_evidence_legend.html"
 STYLES = PROJECT_ROOT / "src/agency/static/styles.css"
 V3_STYLES = PROJECT_ROOT / "src/agency/static/v3-screens.css"
+COCKPIT_JS = PROJECT_ROOT / "src/agency/static/cockpit.js"
 
 
 def _template() -> str:
@@ -32,6 +33,10 @@ def _styles() -> str:
 
 def _v3_styles() -> str:
     return V3_STYLES.read_text(encoding="utf-8")
+
+
+def _cockpit_js() -> str:
+    return COCKPIT_JS.read_text(encoding="utf-8")
 
 
 def test_candidate_row_includes_concrete_evidence_not_generic_copy() -> None:
@@ -279,6 +284,19 @@ def test_cockpit_variation_a_css_removes_legacy_chrome() -> None:
     assert "--cyan: #5ad7f0;" in css
     assert "--green: #5fe49d;" in css
     assert "--red: #ff6868;" in css
+
+
+def test_cockpit_candidate_actions_preserve_ticker_context() -> None:
+    html = _template()
+    js = _cockpit_js()
+    css = _v3_styles()
+
+    assert 'data-cockpit-focus-ticker="{{ candidate.ticker }}"' in html
+    assert "#focused-preview-" in html
+    assert "data-cockpit-manifest-row" in html
+    assert "selectedTicker" in js
+    assert "data-cockpit-flow-focus" in js
+    assert ".cockpit-manifest-row[data-cockpit-flow-focus]" in css
 
 
 def test_blocked_candidate_has_audit_link_not_approve_button() -> None:
@@ -800,6 +818,7 @@ def test_ready_preview_without_submit_is_order_intent_review_not_paper_ready() -
     assert row["status"] == "pending"
     assert row["status_label"] == "Order details need approval"
     assert row["action_label"] == "Review order details"
+    assert row["execution_focus_url"] == "/execution-preview?ticker=AMZN#focused-preview-AMZN"
     assert context["scenario"]["state"] == "review"
 
 

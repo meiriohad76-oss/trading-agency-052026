@@ -863,7 +863,9 @@ def test_cockpit_renders_order_intent_review_control(monkeypatch: MonkeyPatch) -
 
     assert response.status_code == HTTP_OK
     assert "Order details need approval" in response.text
-    assert 'href="/execution-preview?ticker=AMZN">Review order details</a>' in response.text
+    assert 'href="/execution-preview?ticker=AMZN#focused-preview-AMZN"' in response.text
+    assert 'data-cockpit-focus-ticker="AMZN"' in response.text
+    assert "Review order details" in response.text
 
 
 def test_dashboard_renders_status_overview(monkeypatch: MonkeyPatch) -> None:

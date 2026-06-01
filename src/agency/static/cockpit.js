@@ -16,6 +16,7 @@
   let submitGateInvalidated = false;
   state.decisions = state.decisions || {};
   state.exits = state.exits || {};
+  state.selectedTicker = normalizeTicker(state.selectedTicker);
 
   applyPreferences(preferences);
   restorePreferenceControls(preferences);
@@ -73,7 +74,10 @@
       if (!ticker || !decision) {
         return;
       }
+      state.selectedTicker = normalizeTicker(ticker);
+      markFocusedTicker(state.selectedTicker);
       if (isServerDecisionButton(button)) {
+        saveState();
         markServerDecisionPending(button, decision);
         return;
       }
@@ -101,8 +105,24 @@
   document.querySelectorAll("[data-cockpit-phase-target]").forEach((button) => {
     button.addEventListener("click", () => {
       const phase = button.getAttribute("data-cockpit-phase-target") || "candidates";
-      showPhase(phase);
+      const focusTicker = focusTickerFrom(button);
+      if (focusTicker) {
+        state.selectedTicker = focusTicker;
+      }
+      showPhase(phase, focusTicker || state.selectedTicker);
       state.phase = phase;
+      saveState();
+    });
+  });
+
+  document.querySelectorAll("[data-cockpit-focus-ticker]:not([data-cockpit-phase-target])").forEach((element) => {
+    element.addEventListener("click", () => {
+      const focusTicker = focusTickerFrom(element);
+      if (!focusTicker) {
+        return;
+      }
+      state.selectedTicker = focusTicker;
+      markFocusedTicker(focusTicker);
       saveState();
     });
   });
@@ -255,7 +275,7 @@
         saveState();
         restoreMarks();
         updateCapacity();
-        showPhase(state.phase || "candidates");
+        showPhase(state.phase || "candidates", state.selectedTicker);
       },
       () => {
         saveState();
@@ -267,7 +287,7 @@
   const forcedScenarioPhase = scenarioState === "submitted" ? "cleared" : (
     scenarioState === "outage" || scenarioState === "no-actionable" ? "candidates" : ""
   );
-  showPhase(forcedScenarioPhase || state.phase || defaultPhase);
+  showPhase(forcedScenarioPhase || state.phase || defaultPhase, state.selectedTicker);
   restoreMarks();
   updateCapacity();
   shell.dataset.cockpitReady = "true";
@@ -285,6 +305,7 @@
       phase: state.phase || "candidates",
       decisions: state.decisions || {},
       exits: state.exits || {},
+      selectedTicker: normalizeTicker(state.selectedTicker),
     };
     localStorage.setItem(storageKey, JSON.stringify(payload));
   }
@@ -488,13 +509,61 @@
     });
   }
 
-  function showPhase(phase) {
+  function normalizeTicker(ticker) {
+    return String(ticker || "").trim().toUpperCase();
+  }
+
+  function focusTickerFrom(element) {
+    const explicit = normalizeTicker(element.getAttribute("data-cockpit-focus-ticker"));
+    if (explicit) {
+      return explicit;
+    }
+    const row = element.closest("[data-cockpit-ticker]");
+    return row ? normalizeTicker(row.getAttribute("data-cockpit-ticker")) : "";
+  }
+
+  function escapeSelector(value) {
+    if (window.CSS && typeof window.CSS.escape === "function") {
+      return window.CSS.escape(value);
+    }
+    return String(value || "").replace(/(["\\])/g, "\\$1");
+  }
+
+  function markFocusedTicker(ticker) {
+    const normalized = normalizeTicker(ticker);
+    if (normalized) {
+      shell.setAttribute("data-cockpit-selected-ticker", normalized);
+    } else {
+      shell.removeAttribute("data-cockpit-selected-ticker");
+    }
+    document.querySelectorAll("[data-cockpit-ticker]").forEach((element) => {
+      const matches = normalizeTicker(element.getAttribute("data-cockpit-ticker")) === normalized;
+      element.toggleAttribute("data-cockpit-flow-focus", Boolean(normalized && matches));
+    });
+  }
+
+  function focusTickerInPhase(phase, ticker) {
+    const normalized = normalizeTicker(ticker);
+    if (!normalized) {
+      return;
+    }
+    const section = document.querySelector(`[data-cockpit-phase="${escapeSelector(phase)}"]`);
+    const row = section?.querySelector(`[data-cockpit-ticker="${escapeSelector(normalized)}"]`);
+    if (row && typeof row.scrollIntoView === "function") {
+      row.scrollIntoView({ block: "nearest" });
+    }
+  }
+
+  function showPhase(phase, focusTicker = "") {
     document.querySelectorAll("[data-cockpit-phase]").forEach((section) => {
       section.toggleAttribute("hidden", section.getAttribute("data-cockpit-phase") !== phase);
     });
     document.querySelectorAll("[data-cockpit-phase-target]").forEach((button) => {
       button.classList.toggle("active", button.getAttribute("data-cockpit-phase-target") === phase);
     });
+    const selectedTicker = normalizeTicker(focusTicker || state.selectedTicker);
+    markFocusedTicker(selectedTicker);
+    focusTickerInPhase(phase, selectedTicker);
   }
 
   let activeTrigger = null;

@@ -1353,9 +1353,33 @@ body.v3-screen-cockpit {
 
 .v3-screen-cockpit .button-secondary,
 .v3-screen-cockpit .secondary-action {
-  color: var(--tx-2);
+  color: var(--tx);
   border-color: var(--bd-2);
-  background: transparent;
+  background: rgba(14, 25, 43, 0.74);
+}
+
+.v3-screen-cockpit .cockpit-decision-cell {
+  align-items: stretch;
+}
+
+.v3-screen-cockpit .cockpit-decision-cell .button,
+.v3-screen-cockpit .cockpit-decision-cell button {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.v3-screen-cockpit [data-cockpit-flow-focus] {
+  outline: 2px solid rgba(255, 184, 69, 0.72);
+  outline-offset: 3px;
+}
+
+.v3-screen-cockpit .cockpit-candidate-row[data-cockpit-flow-focus],
+.v3-screen-cockpit .cockpit-manifest-row[data-cockpit-flow-focus] {
+  border-color: rgba(255, 184, 69, 0.74);
+  background: rgba(255, 184, 69, 0.08);
 }
 
 @media (max-width: 1200px) {

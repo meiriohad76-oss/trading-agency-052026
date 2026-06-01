@@ -1023,6 +1023,7 @@ def _candidate_rows(
                     else ["audit"]
                 ),
                 "order_action_url": "",
+                "execution_focus_url": f"/execution-preview?ticker={ticker.upper()}#focused-preview-{ticker.upper()}",
                 "approve_review_action": _first_text(item.get("approve_review_action")),
                 "defer_review_action": _first_text(item.get("defer_review_action")),
                 "reject_review_action": _first_text(item.get("reject_review_action")),
