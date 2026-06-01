@@ -13,6 +13,7 @@ from tests.unit.test_cockpit_contract import _sample_sources
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 TEMPLATE = PROJECT_ROOT / "src/agency/templates/cockpit.html"
+PANELS_TEMPLATE = PROJECT_ROOT / "src/agency/templates/_cockpit_panels.html"
 EVIDENCE_LEGEND = PROJECT_ROOT / "src/agency/templates/_evidence_legend.html"
 STYLES = PROJECT_ROOT / "src/agency/static/styles.css"
 V3_STYLES = PROJECT_ROOT / "src/agency/static/v3-screens.css"
@@ -21,6 +22,10 @@ COCKPIT_JS = PROJECT_ROOT / "src/agency/static/cockpit.js"
 
 def _template() -> str:
     return TEMPLATE.read_text(encoding="utf-8")
+
+
+def _panels_template() -> str:
+    return PANELS_TEMPLATE.read_text(encoding="utf-8")
 
 
 def _evidence_legend() -> str:
@@ -297,6 +302,22 @@ def test_cockpit_candidate_actions_preserve_ticker_context() -> None:
     assert "selectedTicker" in js
     assert "data-cockpit-flow-focus" in js
     assert ".cockpit-manifest-row[data-cockpit-flow-focus]" in css
+
+
+def test_cockpit_ticker_drawer_has_concrete_detail_slots_and_manual_llm_action() -> None:
+    panels = _panels_template()
+    js = _cockpit_js()
+
+    for marker in (
+        "data-ticker-data-health-detail",
+        "data-ticker-llm-action",
+        "data-ticker-context",
+        "data-ticker-evidence",
+    ):
+        assert marker in panels
+    assert "manual_review_available" in js
+    assert "dataHealthDetailText" in js
+    assert "No primary signal evidence was returned for this ticker" not in js
 
 
 def test_blocked_candidate_has_audit_link_not_approve_button() -> None:
@@ -939,8 +960,12 @@ def test_cockpit_ticker_detail_payload_surfaces_rich_candidate_brief() -> None:
     )
 
     assert payload["ticker"] == "AMZN"
+    assert payload["cycle_id"] == "cycle-live"
+    assert payload["as_of"] == "2026-05-22T00:00:00+00:00"
     assert payload["headline"] == "AMZN is selected for human review."
     assert payload["llm"]["status_label"] == "Included"
+    assert payload["llm"]["manual_review_available"] is True
+    assert payload["llm"]["manual_review_action"] == "/candidates/AMZN/llm-review"
     assert payload["support_cards"][0]["detail"].startswith("Hard evidence: score +0.87")
     assert payload["signals"][0]["hard_evidence"] == (
         "Score +0.87 bullish; Confidence 55%"

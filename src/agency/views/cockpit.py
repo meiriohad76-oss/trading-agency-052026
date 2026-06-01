@@ -597,6 +597,9 @@ def _cockpit_ticker_detail_timeout_payload(ticker: str) -> dict[str, object]:
             "action": "None",
             "confidence_pct": 0,
             "rationale": "Open the full candidate page for the current LLM rationale.",
+            "manual_review_available": False,
+            "manual_review_action": "",
+            "manual_review_detail": "Manual LLM review needs the current report hash, cycle ID, and as-of timestamp.",
         },
         "data_health": {
             "status_label": "Detail delayed",
@@ -632,8 +635,15 @@ def cockpit_ticker_detail_payload_from_context(
     data_health = _mapping(context.get("data_health"))
     email_evidence = _mapping(context.get("email_evidence"))
     news_evidence = _mapping(context.get("news_evidence"))
+    cycle_id = _first_text(latest.get("cycle_id"))
+    as_of = _first_text(latest.get("as_of"))
+    generated_at = _first_text(latest.get("generated_at"))
+    manual_llm_available = bool(cycle_id and as_of)
     payload = {
         "ticker": ticker,
+        "cycle_id": cycle_id,
+        "as_of": as_of,
+        "generated_at": generated_at,
         "title": f"{ticker} Detail",
         "summary": _first_text(
             brief.get("detail"),
@@ -667,6 +677,14 @@ def cockpit_ticker_detail_payload_from_context(
                 latest.get("llm_rationale"),
                 default="LLM review has not produced a rationale for this ticker yet.",
             ),
+            "manual_review_available": manual_llm_available,
+            "manual_review_action": f"/candidates/{ticker}/llm-review" if manual_llm_available else "",
+            "manual_review_detail": (
+                "Automatic LLM review is limited to the top 10 ranked candidates. "
+                "This runs the same reviewer for the selected ticker and report timestamp."
+            )
+            if manual_llm_available
+            else "Manual LLM review is unavailable because the current report timestamp is missing.",
         },
         "data_health": {
             "status_label": _first_text(data_health.get("status_label"), default="Unverified"),

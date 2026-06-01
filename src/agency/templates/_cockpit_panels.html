@@ -299,16 +299,25 @@
           <strong data-ticker-review>--</strong>
         </article>
       </div>
+      <p class="panel-note" data-ticker-data-health-detail>Data proof appears after a ticker is selected.</p>
       <h3>Next step</h3>
       <p data-ticker-next-step>Open a ticker row to see the recommended next operator action.</p>
-      <h3>LLM rationale</h3>
+      <h3>LLM recommendation</h3>
       <p data-ticker-llm-rationale>Open a ticker row to see the LLM rationale or the not-run reason.</p>
+      <form class="ticker-llm-action" method="post" action="#" data-ticker-llm-action hidden>
+        <input type="hidden" name="cycle_id" data-ticker-llm-cycle-id>
+        <input type="hidden" name="as_of" data-ticker-llm-as-of>
+        <button class="button button-secondary" type="submit">Run LLM review for this stock</button>
+        <p class="microcopy" data-ticker-llm-action-note></p>
+      </form>
       <h3>What supports it</h3>
       <div class="cockpit-panel-list cockpit-ticker-support" data-ticker-support></div>
       <h3>What could be wrong</h3>
       <div class="cockpit-panel-list cockpit-ticker-caution" data-ticker-caution></div>
       <h3>Primary signal evidence</h3>
       <div class="cockpit-panel-list cockpit-ticker-signals" data-ticker-signals></div>
+      <h3>News and email context</h3>
+      <div class="cockpit-panel-list cockpit-ticker-context" data-ticker-context></div>
       <h3>Evidence pack</h3>
       <ul data-ticker-evidence></ul>
       <h3>Gates</h3>

@@ -626,44 +626,63 @@
     const conviction = panel.querySelector("[data-ticker-conviction]");
     const status = panel.querySelector("[data-ticker-status]");
     const dataHealth = panel.querySelector("[data-ticker-data-health]");
+    const dataHealthDetail = panel.querySelector("[data-ticker-data-health-detail]");
     const sources = panel.querySelector("[data-ticker-sources]");
     const review = panel.querySelector("[data-ticker-review]");
     const nextStep = panel.querySelector("[data-ticker-next-step]");
     const llm = panel.querySelector("[data-ticker-llm-rationale]");
+    const llmAction = panel.querySelector("[data-ticker-llm-action]");
+    const llmCycleId = panel.querySelector("[data-ticker-llm-cycle-id]");
+    const llmAsOf = panel.querySelector("[data-ticker-llm-as-of]");
+    const llmActionNote = panel.querySelector("[data-ticker-llm-action-note]");
     const gates = panel.querySelector("[data-ticker-gates]");
     const evidence = panel.querySelector("[data-ticker-evidence]");
     const support = panel.querySelector("[data-ticker-support]");
     const caution = panel.querySelector("[data-ticker-caution]");
     const signals = panel.querySelector("[data-ticker-signals]");
+    const context = panel.querySelector("[data-ticker-context]");
     const detailLink = panel.querySelector("[data-ticker-detail-link]");
     const richLlm = candidate.llm || {};
     const health = candidate.data_health || {};
     const reviewState = candidate.review || {};
     if (title) title.textContent = `${candidate.ticker || "Ticker"} Detail`;
     if (summary) summary.textContent = candidate.summary || `${candidate.name || ""} ${candidate.sector || ""}`.trim();
-    if (headline) headline.textContent = candidate.headline || "Candidate brief is loading.";
+    if (headline) headline.textContent = candidate.headline || `${candidate.ticker || "Ticker"} candidate detail is loading.`;
     if (order) order.textContent = candidate.order_preview || "No paper order yet";
     if (conviction) conviction.textContent = candidate.conviction_pct ? `${candidate.conviction_pct}%` : candidate.score_display || "--";
     if (status) status.textContent = candidate.status_label || "--";
     if (dataHealth) dataHealth.textContent = health.status_label || (options.loading ? "Loading..." : "--");
+    if (dataHealthDetail) dataHealthDetail.textContent = dataHealthDetailText(candidate, health, options.loading);
     if (sources) {
       const sourceCount = candidate.source_count || 0;
       const confirmedCount = candidate.confirmed_signal_count || 0;
-      sources.textContent = sourceCount || confirmedCount ? `${sourceCount} sources / ${confirmedCount} confirmed` : "--";
+      const asOf = candidate.as_of || candidate.generated_at || health.last_verified_label || "";
+      sources.textContent = sourceCount || confirmedCount ? `${sourceCount} sources / ${confirmedCount} confirmed${asOf ? ` / ${asOf}` : ""}` : "--";
     }
     if (review) review.textContent = reviewState.decision || candidate.human_review_decision || "Pending";
     if (nextStep) nextStep.textContent = candidate.next_step || health.recommended_action || "Review the full candidate brief before acting.";
     if (llm) {
       const llmStatus = richLlm.status_label || candidate.llm_label || "LLM not run";
-      const llmAction = richLlm.action ? ` ${richLlm.action}.` : "";
+      const llmActionText = richLlm.action ? ` ${richLlm.action}.` : "";
       const llmConfidence = richLlm.confidence_pct ? ` Confidence ${richLlm.confidence_pct}%.` : "";
       const rationale = richLlm.rationale || candidate.llm_rationale || candidate.llm_label || "LLM not run for this ticker";
-      llm.textContent = `${llmStatus}.${llmAction}${llmConfidence} ${rationale}`.trim();
+      const detail = richLlm.status_detail ? ` ${richLlm.status_detail}` : "";
+      llm.textContent = `${llmStatus}.${llmActionText}${llmConfidence}${detail} ${rationale}`.trim();
     }
+    configureManualLlmAction({
+      form: llmAction,
+      cycleInput: llmCycleId,
+      asOfInput: llmAsOf,
+      note: llmActionNote,
+      candidate,
+      llm: richLlm,
+      loading: options.loading,
+    });
     if (gates) gates.textContent = candidate.risk_line || "No gate detail available.";
-    renderCards(support, candidate.support_cards || [], "No constructive driver is active in the loaded brief.");
-    renderCards(caution, candidate.caution_cards || [], "No caution driver is active in the loaded brief.");
-    renderSignals(signals, candidate.signals || [], options.loading);
+    renderCards(support, candidate.support_cards || [], emptyPanelText(candidate, "support"));
+    renderCards(caution, candidate.caution_cards || [], emptyPanelText(candidate, "caution"));
+    renderSignals(signals, candidate.signals || [], options.loading, candidate);
+    renderCards(context, candidate.context_cards || [], emptyPanelText(candidate, "news and email context"));
     if (detailLink) {
       detailLink.href = candidate.detail_url || (candidate.ticker ? `/candidates/${candidate.ticker}` : "#");
     }
@@ -674,11 +693,64 @@
         li.textContent = candidate.detail_load_error;
         evidence.appendChild(li);
       }
-      (candidate.decision_points || candidate.evidence || []).forEach((item) => {
+      const evidenceRows = [
+        ...(candidate.context_cards || []),
+        ...(candidate.decision_points || []),
+        ...(candidate.evidence || []),
+      ];
+      if (!evidenceRows.length && !candidate.detail_load_error) {
+        const li = document.createElement("li");
+        li.textContent = emptyPanelText(candidate, "compact evidence");
+        evidence.appendChild(li);
+      }
+      evidenceRows.forEach((item) => {
         const li = document.createElement("li");
         li.textContent = `${item.label || item.tier || "evidence"}: ${item.detail || item.text || ""}`;
         evidence.appendChild(li);
       });
+    }
+  }
+
+  function dataHealthDetailText(candidate, health, loading) {
+    if (loading) {
+      return `${candidate.ticker || "Ticker"} detail is loading from the current cockpit API.`;
+    }
+    return [
+      health.headline,
+      health.primary_blocker ? `${health.primary_blocker}: ${health.primary_blocker_detail || "review data proof"}` : "",
+      health.recommended_action,
+      health.last_verified_label ? `Last verified ${health.last_verified_label}.` : candidate.as_of ? `Report as-of ${candidate.as_of}.` : "",
+    ].filter(Boolean).join(" ");
+  }
+
+  function emptyPanelText(candidate, section) {
+    const ticker = candidate.ticker || "This ticker";
+    const proof = candidate.as_of || candidate.generated_at || candidate.data_health?.last_verified_label || "timestamp not recorded";
+    return `${ticker} has no ${section} rows in the compact cockpit drawer for ${proof}. Open the full candidate brief for the complete audit trail.`;
+  }
+
+  function configureManualLlmAction({ form, cycleInput, asOfInput, note, candidate, llm, loading }) {
+    if (!form) {
+      return;
+    }
+    const status = `${llm.status_label || candidate.llm_label || ""} ${llm.rationale || candidate.llm_rationale || ""}`.toLowerCase();
+    const canRun = !loading
+      && llm.manual_review_available === true
+      && Boolean(llm.manual_review_action)
+      && (status.includes("not run") || status.includes("not produced") || status.includes("disabled") || status.includes("not enabled"));
+    form.hidden = !canRun;
+    if (!canRun) {
+      return;
+    }
+    form.action = llm.manual_review_action;
+    if (cycleInput) {
+      cycleInput.value = candidate.cycle_id || "";
+    }
+    if (asOfInput) {
+      asOfInput.value = candidate.as_of || "";
+    }
+    if (note) {
+      note.textContent = llm.manual_review_detail || "Run a manual LLM review for this exact report timestamp.";
     }
   }
 
@@ -706,7 +778,7 @@
     });
   }
 
-  function renderSignals(target, signals, loading) {
+  function renderSignals(target, signals, loading, candidate) {
     if (!target) {
       return;
     }
@@ -719,7 +791,7 @@
     }
     if (!signals.length) {
       const item = document.createElement("article");
-      item.textContent = "No primary signal evidence was returned for this ticker.";
+      item.textContent = emptyPanelText(candidate, "primary signal evidence");
       target.appendChild(item);
       return;
     }
