@@ -301,7 +301,7 @@ def test_base_audit_and_styles_expose_shared_design_system_markers() -> None:
     assert "workflow-nav" in base_html
     assert "status-icon" in base_html
     assert "nav-secondary" in base_html
-    assert "ux-v3-all-dashboards-20260523" in base_html
+    assert "ux-v3-cockpit-primary-20260601" in base_html
     assert "paper-mode-card" in audit_html
     assert "Show details: LLM rationale" in audit_html
     assert ".paper-mode-card" in css

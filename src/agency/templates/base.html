@@ -1,18 +1,18 @@
 <!doctype html>
-<html lang="en" data-theme="dark" data-ux-version="v3" data-ux-build="ux-v3-all-dashboards-20260523">
+<html lang="en" data-theme="dark" data-ux-version="v3" data-ux-build="ux-v3-cockpit-primary-20260601">
   <head>
     <meta charset="utf-8">
     {% block viewport %}
     <meta name="viewport" content="width=device-width, initial-scale=1">
     {% endblock %}
     <title>{% block title %}Trading Agency v3{% endblock %}</title>
-    <link rel="stylesheet" href="/static/styles.css?v={{ static_version | default('ux-v3-all-dashboards-20260523') }}">
-    <link rel="stylesheet" href="/static/v3-screens.css?v={{ static_version | default('ux-v3-all-dashboards-20260523') }}">
+    <link rel="stylesheet" href="/static/styles.css?v={{ static_version | default('ux-v3-cockpit-primary-20260601') }}">
+    <link rel="stylesheet" href="/static/v3-screens.css?v={{ static_version | default('ux-v3-cockpit-primary-20260601') }}">
   </head>
   <body class="v3-app v3-screen-{{ v3_screen | default(active_nav | default('agency')) }}">
     <div class="app-shell v3-app-shell">
       <aside class="sidebar" aria-label="Main navigation">
-        <a class="brand" href="/command">
+        <a class="brand" href="/cockpit">
           <span class="brand-mark" aria-hidden="true">TA</span>
           <span class="brand-text">
             <strong class="brand-name">Trading Agency v3</strong>
@@ -27,53 +27,52 @@
           </a>
           <a class="nav-link {% if active_nav == 'command' %}active{% endif %}" href="/command">
             <span class="nav-icon status-icon status-icon-data" aria-hidden="true">S</span>
-            <span>System Status</span>
+            <span>Diagnostics: System Status</span>
           </a>
 
-          <span class="nav-section">Research</span>
+          <span class="nav-section">Research diagnostics</span>
           <a class="nav-link nav-secondary {% if active_nav == 'market' %}active{% endif %}" href="/market-regime">
             <span class="nav-icon" aria-hidden="true">M</span>
-            <span>Market &amp; Universe</span>
+            <span>Diagnostic: Market &amp; Universe</span>
           </a>
           <a class="nav-link nav-secondary {% if active_nav == 'signals' %}active{% endif %}" href="/signals">
             <span class="nav-icon" aria-hidden="true">G</span>
-            <span>Signal Analysis</span>
+            <span>Diagnostic: Signal Analysis</span>
           </a>
 
-          <span class="nav-section">Core workflow</span>
-          <div class="workflow-nav" aria-label="Core workflow: Candidates, Portfolio, Execute">
+          <span class="nav-section">Legacy workflow diagnostics</span>
+          <div class="workflow-nav" aria-label="Legacy diagnostics: Candidates, Portfolio, Execute">
             <a class="nav-link {% if active_nav == 'final' %}active{% endif %}" href="/final-selection">
               <span class="nav-icon status-icon status-icon-pending" aria-hidden="true">R</span>
-              <span>Review Candidates</span>
+              <span>Diagnostic: Candidate Queue</span>
             </a>
             <a class="nav-link {% if active_nav == 'portfolio' %}active{% endif %}" href="/portfolio-monitor">
               <span class="nav-icon status-icon status-icon-warn" aria-hidden="true">P</span>
-              <span>Portfolio</span>
+              <span>Diagnostic: Portfolio</span>
             </a>
             <a class="nav-link {% if active_nav == 'execution' %}active{% endif %}" href="/execution-preview">
               <span class="nav-icon status-icon status-icon-pass" aria-hidden="true">O</span>
-              <span>Submit Orders</span>
+              <span>Diagnostic: Order Preview</span>
             </a>
           </div>
 
-          <span class="nav-section">Controls</span>
+          <span class="nav-section">Controls and trust</span>
           <a class="nav-link nav-secondary {% if active_nav == 'risk' %}active{% endif %}" href="/risk">
             <span class="nav-icon" aria-hidden="true">K</span>
-            <span>Risk Rules</span>
+            <span>Diagnostic: Risk Rules</span>
           </a>
           <a class="nav-link nav-secondary {% if active_nav == 'policy' %}active{% endif %}" href="/policy">
             <span class="nav-icon" aria-hidden="true">Y</span>
-            <span>Trading Policy</span>
+            <span>Diagnostic: Trading Policy</span>
           </a>
 
-          <span class="nav-section">Trust</span>
           <a class="nav-link nav-secondary {% if active_nav == 'learning' %}active{% endif %}" href="/learning">
             <span class="nav-icon" aria-hidden="true">L</span>
-            <span>Learning Log</span>
+            <span>Diagnostic: Learning Log</span>
           </a>
           <a class="nav-link nav-secondary {% if active_nav == 'audit' %}active{% endif %}" href="/audit">
             <span class="nav-icon" aria-hidden="true">A</span>
-            <span>Audit Trail</span>
+            <span>Diagnostic: Audit Trail</span>
           </a>
         </nav>
         {% set workflow = workflow_summary|default({}, true) %}
@@ -86,9 +85,9 @@
             <small>{{ segment.detail }}</small>
           </a>
           {% else %}
-          <a class="workflow-breadcrumb-segment workflow-state-active" href="/command#review-queue-heading">
-            <span>Review</span>
-            <small>Open queue</small>
+          <a class="workflow-breadcrumb-segment workflow-state-active" href="/cockpit">
+            <span>Cockpit</span>
+            <small>Primary workflow</small>
           </a>
           <a class="workflow-breadcrumb-segment workflow-state-waiting" href="/risk">
             <span>Risk</span>
@@ -119,30 +118,30 @@
             {% endif %}
           >
             <span class="status-dot status-dot-warn" data-runtime-dot aria-hidden="true"></span>
-            <span class="ux-build-marker" aria-label="Current UX build">UX V3 · Pre-Flight Dashboards · 2026-05-23</span>
+            <span class="ux-build-marker" aria-label="Current UX build">UX V3 · Cockpit Primary · 2026-06-01</span>
             <span class="status-pill status-pill-paper">PAPER</span>
-            <span class="topbar-meta">{% block topbar_meta %}Runtime dashboard{% endblock %}</span>
+            <span class="topbar-meta">{% block topbar_meta %}Runtime diagnostics{% endblock %}</span>
             <span class="status-pill status-pill-warn" data-runtime-server-status>Checking server</span>
             <span class="status-pill status-pill-paper" data-runtime-broker-status>Checking broker</span>
             <span class="status-pill status-pill-neutral" data-runtime-updated>Not checked</span>
           </div>
         </header>
 
-        <nav class="v3-phase-rail" aria-label="V3 paper-trading workflow">
+        <nav class="v3-phase-rail" aria-label="Legacy workflow diagnostic shortcuts">
           <a class="v3-phase {% if active_nav == 'final' %}active{% endif %}" href="/final-selection">
-            <strong>Review Candidates</strong>
-            <small>Audit evidence and approve the agent's research queue.</small>
+            <strong>Candidate Diagnostics</strong>
+            <small>Inspect the legacy research queue; operate from Today's Cockpit.</small>
           </a>
           <a class="v3-phase {% if active_nav == 'portfolio' %}active{% endif %}" href="/portfolio-monitor">
-            <strong>Portfolio Check</strong>
-            <small>Check exposure, exits, capacity, and current holdings.</small>
+            <strong>Portfolio Diagnostics</strong>
+            <small>Inspect exposure, exits, capacity, and current holdings.</small>
           </a>
           <a class="v3-phase {% if active_nav in ['execution', 'policy'] %}active{% endif %}" href="/execution-preview">
-            <strong>Order Clearance</strong>
-            <small>Review staged paper orders and open the submit gate deliberately.</small>
+            <strong>Order Diagnostics</strong>
+            <small>Inspect staged paper orders; final clearance belongs in the cockpit.</small>
           </a>
           <a class="v3-phase {% if active_nav in ['audit', 'cleared'] %}active{% endif %}" href="/audit#execution-state-heading">
-            <strong>Order Audit</strong>
+            <strong>Audit Diagnostics</strong>
             <small>Verify Cleared paper orders and lifecycle audit records.</small>
           </a>
         </nav>
@@ -156,7 +155,7 @@
           <article class="v3-briefing-card">
             <span class="v3-instrument-label">Operator move</span>
             <strong>{% block workflow_phase %}Pre-flight review{% endblock %}</strong>
-            <small>Approve, defer, reject, refresh, or leave the page with the current state unchanged.</small>
+            <small>Use the cockpit for the operating flow; diagnostic pages are for deeper inspection.</small>
           </article>
           <article class="v3-briefing-card v3-briefing-card-evidence">
             <span class="v3-instrument-label">Evidence</span>
@@ -170,8 +169,8 @@
         </main>
       </div>
     </div>
-    <script src="/static/data-refresh-progress.js?v=ux-v3-all-dashboards-20260523" defer></script>
-    <script src="/static/responsive-tables.js?v=ux-v3-all-dashboards-20260523" defer></script>
+    <script src="/static/data-refresh-progress.js?v=ux-v3-cockpit-primary-20260601" defer></script>
+    <script src="/static/responsive-tables.js?v=ux-v3-cockpit-primary-20260601" defer></script>
     <script>
       function enhanceInfoTips() {
         document.querySelectorAll(".info-tip").forEach((tip) => {

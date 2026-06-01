@@ -453,7 +453,7 @@
             <strong data-full-live-verdict title="{{ full_live_readiness.mode_tooltip }}">{{ full_live_readiness.mode_summary }}</strong>
           </div>
           <div>
-            <span class="metric-label">Scope <span class="info-tip" title="Full Universe means all active-universe data and agents are ready. Review Operational means candidate review can continue with known warnings. Loading means an active refresh is still running. Blocked means at least one required data, provider, or config gate is closed." aria-label="Agency readiness scope help">?</span></span>
+            <span class="metric-label">Scope <span class="info-tip" title="Full Universe means all active-universe data and agents are ready. Review Operational means candidate review can continue with known warnings. Loading means an active refresh is still running. Needs Attention means at least one required data, provider, or config gate is closed." aria-label="Agency readiness scope help">?</span></span>
             <strong data-full-live-scope>{{ full_live_readiness.readiness_scope_label }}</strong>
           </div>
           <div>
@@ -656,7 +656,7 @@
             <span class="metric-label">Datasets</span>
             <strong data-load-dataset-ready>{{ data_load_status.dataset_summary.ready_label }}</strong>
             <p>
-              <span data-load-dataset-blocked>{{ data_load_status.dataset_summary.blocked_count }}</span> blocked,
+              <span data-load-dataset-blocked>{{ data_load_status.dataset_summary.blocked_count }}</span> not usable,
               <span data-load-dataset-warning>{{ data_load_status.dataset_summary.warning_count }}</span> warning.
             </p>
           </article>
@@ -664,7 +664,7 @@
             <span class="metric-label">Signal Worker Readiness</span>
             <strong data-load-agent-ready>{{ data_load_status.agent_summary.critical_ready_label }}</strong>
             <p>
-              <span data-load-agent-blocked>{{ data_load_status.agent_summary.blocked_count }}</span> blocked,
+              <span data-load-agent-blocked>{{ data_load_status.agent_summary.blocked_count }}</span> not usable,
               <span data-load-agent-warning>{{ data_load_status.agent_summary.warning_count }}</span> warning.
             </p>
           </article>
@@ -1549,7 +1549,7 @@
           <tr>
             <td data-label="Source">{{ source.source }}</td>
             {% if "demo" in source_name or "mock" in source_name or "fake" in source_name or "fixture" in source_name or "manual-smoke" in source_name %}
-            <td data-label="Status"><span class="tag tag-block">TEST DATA BLOCKED</span></td>
+            <td data-label="Status"><span class="tag tag-block">TEST DATA REJECTED</span></td>
             <td data-label="Freshness">Not allowed in live dashboards</td>
             <td data-label="Reliability">0%</td>
             {% else %}

@@ -82,7 +82,7 @@ def test_candidate_row_missing_evidence_and_risk_uses_neutral_copy() -> None:
     row = context["candidates"][0]
 
     assert row["evidence_tiers"] == ["suppressed"]
-    assert row["evidence_line"] == "No concrete evidence line is available in the current pack."
+    assert row["evidence_line"] == "No current evidence row is attached for this ticker; open diagnostics for the full audit trail."
     assert row["risk_line"] == "Risk check did not attach a specific finding."
     assert row["risk_status_label"] == "Risk proof not attached"
 

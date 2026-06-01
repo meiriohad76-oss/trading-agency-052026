@@ -196,8 +196,8 @@ BROKER_RECONCILIATION_POLL_SECONDS = 0.25
 
 
 @router.get("/")
-async def dashboard(request: Request) -> Response:
-    return RedirectResponse(await _root_actionable_redirect_url(), status_code=303)
+async def dashboard() -> Response:
+    return RedirectResponse("/cockpit", status_code=303)
 
 
 @router.get("/command")
@@ -211,35 +211,6 @@ async def _command_dashboard_response(request: Request) -> Response:
         "dashboard.html",
         await _command_dashboard_route_context(),
     )
-
-
-async def _root_actionable_redirect_url() -> str:
-    command_context = await _command_dashboard_route_context()
-    review_progress = _mapping_field(command_context, "review_progress")
-    if _route_int(review_progress.get("pending_count")) > 0:
-        return "/command#review-queue-heading"
-    execution_context = await _execution_preview_route_base_context()
-    if _route_int(execution_context.get("orderable_count")) > 0:
-        return "/execution-preview"
-    if _route_int(_mapping_field(execution_context, "summary").get("ready_count")) > 0:
-        return "/execution-preview"
-    orderable_rows = execution_context.get("orderable_rows")
-    if isinstance(orderable_rows, Sequence) and not isinstance(orderable_rows, str | bytes) and len(orderable_rows) > 0:
-        return "/execution-preview"
-    return "/command"
-
-
-def _route_int(value: object) -> int:
-    if isinstance(value, bool):
-        return 0
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float):
-        return int(value)
-    if isinstance(value, str):
-        with suppress(ValueError):
-            return int(float(value.strip()))
-    return 0
 
 
 async def _command_dashboard_route_context() -> dict[str, object]:

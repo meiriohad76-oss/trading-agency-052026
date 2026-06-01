@@ -41,7 +41,7 @@
         data-cockpit-monitor-live-label="Receiving current monitor updates"
       >{{ monitor.label }}</span>
       <small>Monitor proof: {{ monitor.last_update }}</small>
-      <a class="button button-secondary" href="/command">Command</a>
+      <a class="button button-secondary" href="/command">Diagnostics</a>
       <button type="button" class="button button-secondary" data-cockpit-preferences-open>Preferences</button>
     </div>
   </header>
@@ -254,7 +254,7 @@
 
     {% if scenario.state == "outage" %}
       <section class="cockpit-scenario-panel cockpit-scenario-outage" data-cockpit-scenario-panel="outage">
-        <p class="eyebrow">Selection blocked</p>
+        <p class="eyebrow">Selection paused</p>
         <h3>{{ scenario.headline }}</h3>
         <p>{{ scenario.detail }}</p>
         <div class="cockpit-scenario-card-grid">
@@ -315,7 +315,7 @@
               {% else %}
                 <span class="evidence-tier evidence-tier-suppressed">not attached</span>
               {% endfor %}
-              <span>{{ candidate.evidence_line|default(candidate.evidence[0].text|default("No concrete evidence line is available in the current pack.", true), true) }}</span>
+              <span>{{ candidate.evidence_line|default(candidate.evidence[0].text|default("No current evidence row is attached for this ticker; open diagnostics for the full audit trail.", true), true) }}</span>
             </span>
             <span class="cockpit-risk-cell">
               <strong>{{ candidate.risk_status_label|default("Risk check", true) }}</strong>
@@ -378,7 +378,7 @@
               <h3>{{ candidate.ticker }} evidence pack</h3>
               <ul class="cockpit-evidence-list">
                 {% for item in candidate.evidence %}
-                  <li><span class="evidence-tier evidence-tier-{{ item.tier|default('suppressed', true) }}">{{ item.tier|default('suppressed', true) }}</span> {{ item.source|default("Evidence", true) }}: {{ item.text|default("No concrete evidence line is available in the current pack.", true) }}</li>
+                  <li><span class="evidence-tier evidence-tier-{{ item.tier|default('suppressed', true) }}">{{ item.tier|default('suppressed', true) }}</span> {{ item.source|default("Evidence", true) }}: {{ item.text|default("No current evidence row is attached for this ticker; open diagnostics for the full audit trail.", true) }}</li>
                 {% endfor %}
               </ul>
             </div>
@@ -572,5 +572,5 @@
 {% endblock %}
 
 {% block extra_scripts %}
-  <script src="/static/cockpit.js?v={{ static_version | default('ux-v3-all-dashboards-20260523') }}" defer></script>
+  <script src="/static/cockpit.js?v={{ static_version | default('ux-v3-cockpit-primary-20260601') }}" defer></script>
 {% endblock %}

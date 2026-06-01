@@ -2314,7 +2314,7 @@ def _evidence_items(item: Mapping[str, object]) -> list[dict[str, str]]:
         {
             "tier": "suppressed",
             "source": "Evidence",
-            "text": "No concrete evidence line is available in the current pack.",
+            "text": "No current evidence row is attached for this ticker; open diagnostics for the full audit trail.",
         }
     ]
 

@@ -208,17 +208,17 @@ def test_sidebar_uses_operator_workflow_labels_and_breadcrumb() -> None:
     nav_html = html.split('<nav class="workflow-breadcrumb"', 1)[0]
 
     assert "Today's Cockpit" in html
-    assert "System Status" in html
-    assert "Review Candidates" in html
-    assert "Submit Orders" in html
-    assert "Market &amp; Universe" in html
-    assert "Signal Analysis" in html
-    assert "Risk Rules" in html
-    assert "Trading Policy" in html
-    assert "Audit Trail" in html
+    assert "Diagnostics: System Status" in html
+    assert "Diagnostic: Candidate Queue" in html
+    assert "Diagnostic: Order Preview" in html
+    assert "Diagnostic: Market &amp; Universe" in html
+    assert "Diagnostic: Signal Analysis" in html
+    assert "Diagnostic: Risk Rules" in html
+    assert "Diagnostic: Trading Policy" in html
+    assert "Diagnostic: Audit Trail" in html
     assert "Today's cycle" in html
     assert "workflow-breadcrumb" in html
-    assert html.index("Research") < html.index("Core workflow")
+    assert html.index("Research diagnostics") < html.index("Legacy workflow diagnostics")
     assert "V3 Cockpit" not in html
     assert "Ops status" not in html
     assert "Universe &amp; market" not in nav_html
@@ -232,10 +232,10 @@ def test_global_phase_rail_uses_plain_workflow_not_numeric_steps() -> None:
     html = _template("base.html")
 
     assert "v3-phase-index" not in html
-    assert "Review Candidates" in html
-    assert "Portfolio Check" in html
-    assert "Order Clearance" in html
-    assert "Order Audit" in html
+    assert "Candidate Diagnostics" in html
+    assert "Portfolio Diagnostics" in html
+    assert "Order Diagnostics" in html
+    assert "Audit Diagnostics" in html
     assert ">01<" not in html
     assert ">02<" not in html
     assert ">03<" not in html

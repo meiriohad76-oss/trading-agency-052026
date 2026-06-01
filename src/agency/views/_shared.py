@@ -1774,7 +1774,7 @@ def _operator_issue_reason(
     if issue_state == "health_proof_needs_refresh":
         return f"{name} needs a newer health-monitor check before execution."
     if issue_state == "health_proof_unavailable":
-        return f"{name} cannot currently prove dashboard data health."
+        return f"{name} cannot currently prove displayed-data health."
     return _row_blocking_reason(name, status_class, detail)
 
 def _operator_recommended_action(
@@ -1786,14 +1786,14 @@ def _operator_recommended_action(
 ) -> str:
     if issue_state == "data_unavailable":
         return (
-            f"Fix access for {name}, then refresh that source and reload this dashboard."
+            f"Fix access for {name}, then refresh that source and reload this page."
         )
     if issue_state == "waiting_for_analysis":
         return f"Run the {name} analysis, then re-run the affected candidate cycle."
     if issue_state == "refresh_recommended":
         return f"Refresh {name}, then re-run the affected candidate cycle."
     if issue_state in {"health_proof_needs_refresh", "health_proof_unavailable"}:
-        return "Refresh source-health monitoring, then reload this dashboard."
+        return "Refresh source-health monitoring, then reload this page."
     return _row_recommended_action(kind, name, status_class)
 
 def _dashboard_dataset_health_rows(
@@ -2352,15 +2352,15 @@ def _row_recommended_action(kind: str, name: str, status_class: str) -> str:
         if kind == "Agent process":
             return f"Refresh {name}, then re-run the affected candidate cycle."
         if kind == "Dataset":
-            return f"Refresh the {name} data source, then reload this dashboard."
+            return f"Refresh the {name} data source, then reload this page."
         if kind == "Health monitor":
             return "Refresh source-health monitoring before treating any dashboard status as tradable."
-        return f"Refresh {name}, then reload this dashboard."
+        return f"Refresh {name}, then reload this page."
     if status_class in {"warn", "warning"}:
         return f"Review the caution for {name}; refresh it before paper execution if it affects the trade."
     if status_class == "pass":
         return "No action required for this input."
-    return f"Verify {name} before using this dashboard for execution."
+    return f"Verify {name} before using this page for execution."
 
 def _row_why_it_matters(kind: str, name: str) -> str:
     if kind == "Agent process":
@@ -2430,11 +2430,11 @@ def _data_health_status_label(status_class: str, health_state: str = "") -> str:
     if health_state == "refresh_recommended":
         return "Refresh recommended"
     if health_state == "data_blocked":
-        return "Blocked"
+        return "Needs Attention"
     return {
         "pass": "Verified Current",
         "warn": "Usable With Gaps",
-        "block": "Blocked",
+        "block": "Needs Attention",
         "neutral": "Displayed Data Unverified",
     }.get(status_class, "Displayed Data Unverified")
 
@@ -2458,7 +2458,7 @@ def _data_health_headline(
     if health_state == "refresh_recommended":
         return f"{page_label} has analyzed data that needs refresh before acting."
     if health_state == "data_blocked":
-        return f"{page_label} has blocked data; refresh before acting."
+        return f"{page_label} has data that is not usable yet; refresh before acting."
     if status_class == "pass":
         return f"{page_label} is using verified-current, usable data."
     if status_class == "warn":
@@ -2542,27 +2542,27 @@ def _data_health_meaning(
     issue_name = str(primary_issue.get("name") or "one required input") if primary_issue else "all required inputs"
     if health_state == "data_unavailable":
         return (
-            f"This dashboard is not execution-ready because {issue_name} has a "
+            f"This diagnostic page is not execution-ready because {issue_name} has a "
             "problem reaching or loading its data."
         )
     if health_state == "waiting_for_analysis":
         return (
-            f"This dashboard is not execution-ready because {issue_name} has source "
+            f"This diagnostic page is not execution-ready because {issue_name} has source "
             "data, but its agent has not produced analysis rows yet."
         )
     if health_state == "refresh_recommended":
         return (
-            f"This dashboard has analyzed data for {issue_name}, but the result is "
+            f"This diagnostic page has analyzed data for {issue_name}, but the result is "
             "not current enough for the policy window."
         )
     if health_state == "data_blocked":
         return (
-            f"This dashboard is not execution-ready because {issue_name} has a must-fix issue. "
+            f"This diagnostic page is not execution-ready because {issue_name} has a must-fix issue. "
             "Use it for review context only until the issue is cleared."
         )
     if health_state == "health_proof_needs_refresh":
         return (
-            "The displayed data may be usable for review, but the dashboard needs "
+            "The displayed data may be usable for review, but this page needs "
             "a newer health-monitor proof before execution."
         )
     if health_state == "health_proof_unavailable":
@@ -2571,8 +2571,8 @@ def _data_health_meaning(
             "source-health monitoring is unavailable."
         )
     if status_label == "Verified Current":
-        return "This dashboard is using data that passed the displayed-data checks."
-    return f"This dashboard is in {status_label} state for the visible data inputs."
+        return "This page is using data that passed the displayed-data checks."
+    return f"This page is in {status_label} state for the visible data inputs."
 
 def _data_health_recommended_action(
     primary_issue: Mapping[str, object] | None,
@@ -2583,15 +2583,15 @@ def _data_health_recommended_action(
         if row_action:
             return _operator_text(row_action)
     if health_state == "data_unavailable":
-        return "Fix the data access problem, refresh that source, then reload this dashboard."
+        return "Fix the data access problem, refresh that source, then reload this page."
     if health_state == "waiting_for_analysis":
         return "Run the relevant agent process, then re-run the affected candidate cycle."
     if health_state == "refresh_recommended":
         return "Refresh the relevant data source, then re-run the affected candidate cycle."
     if health_state == "data_blocked":
-        return "Refresh the relevant data source, then reload the dashboard before acting."
+        return "Refresh the relevant data source, then reload the page before acting."
     if health_state in {"health_proof_needs_refresh", "health_proof_unavailable"}:
-        return "Refresh source-health monitoring, then reload this dashboard."
+        return "Refresh source-health monitoring, then reload this page."
     return "No immediate action required; continue normal review."
 
 
@@ -2659,7 +2659,7 @@ def _data_health_tooltip(
     )
     return (
         f"{state_label}: data freshness is the source data timestamp; health proof is "
-        f"the dashboard monitor check. Latest health check: {checked}. "
+        f"the displayed-data health check. Latest health check: {checked}. "
         f"Allowed monitor age: {max_age_label}."
     )
 

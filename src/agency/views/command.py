@@ -251,7 +251,7 @@ async def dashboard_context() -> dict[str, object]:
         ),
         "command_freshness_label": _command_freshness_label(data_load_status_view_model),
         "data_health": dashboard_data_health(
-            "Command dashboard",
+            "Command diagnostics",
             data_load_status=data_load_status,
             datasets=(
                 "prices_daily",

@@ -81,7 +81,7 @@ def test_live_runtime_cycle_preserves_operator_database_url_override() -> None:
 def test_user_process_audit_accepts_focused_execution_contract() -> None:
     audit = importlib.import_module("scripts.check_user_process_flow_audit")
     html = """
-    <html data-ux-build="ux-v3-all-dashboards-20260523">
+    <html data-ux-build="ux-v3-cockpit-primary-20260601">
       <body class="v3-app v3-screen-clearance">
         <section data-v3-universal-briefing>BLUF</section>
         <section data-selected-ticker="PLTR">
@@ -99,7 +99,7 @@ def test_user_process_audit_accepts_focused_execution_contract() -> None:
 def test_user_process_audit_accepts_focused_final_selection_contract() -> None:
     audit = importlib.import_module("scripts.check_user_process_flow_audit")
     html = """
-    <html data-ux-build="ux-v3-all-dashboards-20260523">
+    <html data-ux-build="ux-v3-cockpit-primary-20260601">
       <body class="v3-app v3-screen-final">
         <section data-v3-universal-briefing>BLUF</section>
         <article id="candidate-PLTR">Approve research for PLTR</article>
@@ -141,7 +141,7 @@ def test_user_process_audit_requires_submit_ready_form() -> None:
 def test_user_process_audit_detects_buried_execution_focus() -> None:
     audit = importlib.import_module("scripts.check_user_process_flow_audit")
     html = """
-    <html data-ux-build="ux-v3-all-dashboards-20260523">
+    <html data-ux-build="ux-v3-cockpit-primary-20260601">
       <body class="v3-app v3-screen-clearance">
         <section data-v3-universal-briefing>BLUF</section>
         <section id="execution-followup-heading">Generic list</section>
@@ -242,7 +242,7 @@ def test_user_process_audit_samples_candidate_pages_from_review_queue_first() ->
 
 def _v3_html() -> str:
     return """
-    <html data-ux-build="ux-v3-all-dashboards-20260523">
+    <html data-ux-build="ux-v3-cockpit-primary-20260601">
       <body class="v3-app">
         <section data-v3-universal-briefing>BLUF</section>
       </body>

@@ -144,55 +144,21 @@ def test_cockpit_route_uses_default_cache_key_when_qa_is_disabled(
     }
 
 
-def test_root_route_redirects_to_pending_review(monkeypatch: MonkeyPatch) -> None:
-    async def fake_command_context() -> dict[str, object]:
-        return {"review_progress": {"pending_count": 2}}
+def test_root_route_redirects_to_cockpit_without_legacy_context(monkeypatch: MonkeyPatch) -> None:
+    async def fail_command_context() -> dict[str, object]:
+        raise AssertionError("root should not build the legacy command dashboard")
 
-    async def fake_execution_context() -> dict[str, object]:
-        raise AssertionError("execution context should not load while review is pending")
+    async def fail_execution_context() -> dict[str, object]:
+        raise AssertionError("root should not build the legacy execution dashboard")
 
-    monkeypatch.setattr(dashboard_module, "_command_dashboard_route_context", fake_command_context)
-    monkeypatch.setattr(dashboard_module, "_execution_preview_route_base_context", fake_execution_context)
+    monkeypatch.setattr(dashboard_module, "_command_dashboard_route_context", fail_command_context)
+    monkeypatch.setattr(dashboard_module, "_execution_preview_route_base_context", fail_execution_context)
     client = TestClient(create_app())
 
     response = client.get("/", follow_redirects=False)
 
     assert response.status_code == 303
-    assert response.headers["location"] == "/command#review-queue-heading"
-
-
-def test_root_route_redirects_to_execution_when_orders_are_ready(monkeypatch: MonkeyPatch) -> None:
-    async def fake_command_context() -> dict[str, object]:
-        return {"review_progress": {"pending_count": 0}}
-
-    async def fake_execution_context() -> dict[str, object]:
-        return {"summary": {"ready_count": 1}, "orderable_rows": [{"ticker": "AAPL"}]}
-
-    monkeypatch.setattr(dashboard_module, "_command_dashboard_route_context", fake_command_context)
-    monkeypatch.setattr(dashboard_module, "_execution_preview_route_base_context", fake_execution_context)
-    client = TestClient(create_app())
-
-    response = client.get("/", follow_redirects=False)
-
-    assert response.status_code == 303
-    assert response.headers["location"] == "/execution-preview"
-
-
-def test_root_route_redirects_to_command_when_no_action_is_waiting(monkeypatch: MonkeyPatch) -> None:
-    async def fake_command_context() -> dict[str, object]:
-        return {"review_progress": {"pending_count": 0}}
-
-    async def fake_execution_context() -> dict[str, object]:
-        return {"summary": {"ready_count": 0}, "orderable_rows": []}
-
-    monkeypatch.setattr(dashboard_module, "_command_dashboard_route_context", fake_command_context)
-    monkeypatch.setattr(dashboard_module, "_execution_preview_route_base_context", fake_execution_context)
-    client = TestClient(create_app())
-
-    response = client.get("/", follow_redirects=False)
-
-    assert response.status_code == 303
-    assert response.headers["location"] == "/command"
+    assert response.headers["location"] == "/cockpit"
 
 
 def test_root_cockpit_exposes_displayed_data_health(monkeypatch: MonkeyPatch) -> None:
@@ -232,9 +198,10 @@ def test_cockpit_is_primary_operating_entrypoint(monkeypatch: MonkeyPatch) -> No
     response = client.get("/cockpit")
 
     assert response.status_code == 200
-    assert '<a class="brand" href="/command">' in response.text
+    assert '<a class="brand" href="/cockpit">' in response.text
     nav = response.text.split('<nav class="nav-list">', 1)[1].split("</nav>", 1)[0]
     assert nav.index('href="/cockpit"') < nav.index('href="/command"')
+    assert "Diagnostics: System Status" in nav
 
 
 def test_command_dashboard_has_explicit_parallel_route() -> None:

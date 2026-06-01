@@ -117,12 +117,15 @@ def test_cockpit_template_uses_mono_class_for_numeric_readouts() -> None:
     assert ".cockpit-mono" in css
 
 
-def test_base_brand_links_to_command_without_demoting_cockpit_nav() -> None:
+def test_base_brand_links_to_cockpit_and_marks_legacy_routes_diagnostic() -> None:
     base = BASE_TEMPLATE.read_text(encoding="utf-8")
 
-    assert '<a class="brand" href="/command">' in base
+    assert '<a class="brand" href="/cockpit">' in base
     assert "href=\"/cockpit\"" in base
     assert "Cockpit" in base
+    assert "Diagnostics: System Status" in base
+    assert "Legacy workflow diagnostics" in base
+    assert "Diagnostic: Order Preview" in base
     assert "data-enable-heartbeat" in base
 
 

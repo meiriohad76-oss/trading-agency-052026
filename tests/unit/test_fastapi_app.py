@@ -162,7 +162,7 @@ def test_shared_dashboard_data_health_bounds_progress_and_coverage() -> None:
 
 def test_shared_dashboard_data_health_humanizes_monitor_seconds() -> None:
     health = shared_module.dashboard_data_health(
-        "Command dashboard",
+        "Command diagnostics",
         data_load_status={
             "overall_percent": 97,
             "cycle_id": "live-ready-20260516",
@@ -242,7 +242,7 @@ def test_shared_dashboard_data_health_formats_timestamp_labels() -> None:
 
 def test_shared_dashboard_data_health_labels_old_monitor_as_health_proof_refresh() -> None:
     health = shared_module.dashboard_data_health(
-        "Command dashboard",
+        "Command diagnostics",
         data_load_status={
             "overall_percent": 97,
             "cycle_id": "live-ready-20260516",
@@ -760,13 +760,13 @@ def test_shared_dashboard_data_health_explains_blocked_lanes_actionably() -> Non
     summary = {item["label"]: item["value"] for item in health["summary_items"]}
     lane_row = next(row for row in health["rows"] if row["kind"] == "Agent process")
 
-    assert health["meaning"].startswith("This dashboard is not execution-ready")
+    assert health["meaning"].startswith("This diagnostic page is not execution-ready")
     assert "Refresh" in health["recommended_action"]
     assert "Abnormal Volume" in health["primary_blocker"]
     assert "Provider/cache" not in health["detail"]
     assert "Runtime mode" not in health["detail"]
     assert "Cycle:" not in health["detail"]
-    assert summary["Decision status"] == "Blocked"
+    assert summary["Decision status"] == "Needs Attention"
     assert "Abnormal Volume" in summary["Main issue"]
     assert summary["Last verified"] == "2026-05-18 13:56 UTC"
     assert "refresh" in summary["Next action"].lower()
@@ -907,7 +907,7 @@ def test_dashboard_renders_status_overview(monkeypatch: MonkeyPatch) -> None:
     response = client.get("/command")
 
     assert root_response.status_code == HTTP_OK
-    assert "Command" in root_response.text
+    assert "Today's Cockpit" in root_response.text
     assert response.status_code == HTTP_OK
     assert "Command" in response.text
     assert "Paper trading" in response.text
