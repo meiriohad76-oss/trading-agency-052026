@@ -159,7 +159,7 @@
         <span class="cockpit-arc-needle" style="--needle: {{ account.gross_needle_degrees|default(0, true) }}deg"></span>
       </div>
       <p>Gross Exposure</p>
-      <strong class="cockpit-mono" data-capacity-gross-post>{{ "%.1f"|format(account.gross_post_trade|default(0, true)) }}%</strong>
+      <strong class="cockpit-mono" data-capacity-gross-post data-base-gross="{{ account.gross_exposure|default(0, true) }}" data-equity="{{ account.equity|default(0, true) }}" data-base-cash="{{ account.cash_available|default(0, true) }}">{{ "%.1f"|format(account.gross_post_trade|default(0, true)) }}%</strong>
       <small>Now {{ "%.1f"|format(account.gross_exposure|default(0, true)) }}% / cap {{ account.gross_cap_label|default("not reported", true) }}</small>
     </article>
     <article class="cockpit-arc-gauge">
@@ -168,7 +168,7 @@
         <span class="cockpit-arc-needle" style="--needle: {{ account.cash_needle_degrees|default(0, true) }}deg"></span>
       </div>
       <p>Cash Reserve</p>
-      <strong class="cockpit-mono" data-capacity-cash>{{ "%.1f"|format(account.cash_available|default(0, true)) }}%</strong>
+      <strong class="cockpit-mono" data-capacity-cash data-base-cash="{{ account.cash_available|default(0, true) }}" data-equity="{{ account.equity|default(0, true) }}">{{ "%.1f"|format(account.cash_available|default(0, true)) }}%</strong>
       <small>Floor {{ account.cash_cap_label|default("not reported", true) }}</small>
     </article>
     <article class="cockpit-arc-gauge">
@@ -413,32 +413,41 @@
         <h2 id="cockpit-portfolio-heading">{{ portfolio_vm.bluf|default("Review current positions before clearing today's manifest.", true) }}</h2>
         <p class="muted">Decide keep or close before clearing new buys. Capacity updates locally; the server revalidates on submit.</p>
       </div>
+      <button type="button" class="button button-primary" data-cockpit-phase-target="clearance">{{ portfolio_vm.advance_label|default("Continue to Clearance", true) }}</button>
     </div>
+    <div class="callout callout-{% if portfolio_vm.portfolio_review_required %}warn{% else %}pass{% endif %}" data-portfolio-guidance>{{ portfolio_vm.guidance }}</div>
     {% if account.capacity_warning %}
       <div class="callout callout-warn">{{ account.capacity_warning }}</div>
     {% endif %}
     <div class="cockpit-capacity-grid">
-      <article><span>Gross after staged orders</span><strong class="cockpit-mono" data-capacity-gross-post>{{ "%.1f"|format(account.gross_post_trade|default(0, true)) }}%</strong><small>Rule cap {{ account.gross_cap_label|default("not reported", true) }}</small></article>
+      <article><span>Gross after staged orders</span><strong class="cockpit-mono" data-capacity-gross-post data-base-gross="{{ account.gross_exposure|default(0, true) }}" data-equity="{{ account.equity|default(0, true) }}" data-base-cash="{{ account.cash_available|default(0, true) }}">{{ "%.1f"|format(account.gross_post_trade|default(0, true)) }}%</strong><small>Rule cap {{ account.gross_cap_label|default("not reported", true) }}</small></article>
       <article>
         <span class="cockpit-whymark info-tip" data-cockpit-tip="sector-exposure-threshold" title="Sector exposure compares the largest sector exposure to the deployed policy cap.">?</span>
         <span>Largest sector</span><strong class="cockpit-mono" data-capacity-sector>{{ "%.1f"|format(account.sector_exposure|default(0, true)) }}%</strong><small>Rule cap {{ "%.1f"|format(account.sector_cap|default(0, true)) }}%</small>
       </article>
-      <article><span>Cash reserve</span><strong class="cockpit-mono" data-capacity-cash>{{ "%.1f"|format(account.cash_available|default(0, true)) }}%</strong><small>Rule floor {{ account.cash_cap_label|default("not reported", true) }}</small></article>
+      <article><span>Cash reserve</span><strong class="cockpit-mono" data-capacity-cash data-base-cash="{{ account.cash_available|default(0, true) }}" data-equity="{{ account.equity|default(0, true) }}">{{ "%.1f"|format(account.cash_available|default(0, true)) }}%</strong><small>Rule floor {{ account.cash_cap_label|default("not reported", true) }}</small></article>
     </div>
+    <output class="cockpit-portfolio-summary" data-capacity-impact>No staged candidate orders in this cockpit session.</output>
+    <output class="cockpit-portfolio-summary" data-portfolio-decision-summary>{{ portfolio_vm.guidance }}</output>
     <div class="cockpit-position-table">
       {% for position in positions %}
-        <article class="cockpit-position-row" data-cockpit-position="{{ position.ticker }}">
+        <article class="cockpit-position-row" data-cockpit-position="{{ position.ticker }}" data-cockpit-ticker="{{ position.ticker }}" data-position-notional="{{ position.market_value|default(0, true) }}">
           <div><strong>{{ position.ticker }}</strong><p>{{ position.thesis }}</p></div>
           <div><span>Qty</span><strong class="cockpit-mono">{{ "%.2f"|format(position.qty) }}</strong></div>
           <div><span>P/L</span><strong class="cockpit-mono">{{ "%.2f"|format(position.pl_pct) }}%</strong></div>
           <div><span>Stop distance</span><strong class="cockpit-mono">{{ "%.2f"|format(position.stop_distance_pct) }}%</strong></div>
           <div class="cockpit-decision-cell">
-            <button type="button" class="button button-primary" data-cockpit-exit="keep" data-cockpit-ticker="{{ position.ticker }}">Keep</button>
-            <button type="button" class="button button-secondary" data-cockpit-exit="close" data-cockpit-ticker="{{ position.ticker }}">Close</button>
+            <button type="button" class="button button-primary" data-cockpit-exit="keep" data-cockpit-ticker="{{ position.ticker }}" title="Keep {{ position.ticker }} in the paper portfolio for now.">Keep</button>
+            <button type="button" class="button button-secondary" data-cockpit-exit="close" data-cockpit-ticker="{{ position.ticker }}" title="Stage {{ position.ticker }} for close review in the clearance manifest.">Close</button>
           </div>
+          <output class="microcopy" data-position-decision-state>Decision not recorded in this cockpit session.</output>
         </article>
       {% else %}
-        <p class="empty-state">{{ portfolio_vm.empty_state|default("No open paper positions are reported by the broker for this cycle.", true) }}</p>
+        <div class="empty-state">
+          <h3>No open positions to review</h3>
+          <p>{{ portfolio_vm.empty_state|default("No open paper positions are reported by the broker for this cycle.", true) }}</p>
+          <button type="button" class="button button-primary" data-cockpit-phase-target="clearance">{{ portfolio_vm.advance_label|default("Continue to Clearance", true) }}</button>
+        </div>
       {% endfor %}
     </div>
   </section>

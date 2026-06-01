@@ -320,6 +320,34 @@ def test_cockpit_ticker_drawer_has_concrete_detail_slots_and_manual_llm_action()
     assert "No primary signal evidence was returned for this ticker" not in js
 
 
+def test_cockpit_portfolio_phase_has_guidance_and_local_decision_hooks() -> None:
+    context = cockpit_context_from_sources(_sample_sources())
+    html = _template()
+    js = _cockpit_js()
+
+    assert context["portfolio_phase"]["portfolio_review_required"] is True  # type: ignore[index]
+    assert "Review 1 open paper position" in str(context["portfolio_phase"]["guidance"])  # type: ignore[index]
+    assert context["account"]["equity"] == 100000.0  # type: ignore[index]
+    assert 'data-portfolio-decision-summary' in html
+    assert 'data-capacity-impact' in html
+    assert 'data-position-decision-state' in html
+    assert 'data-position-notional="{{ position.market_value|default(0, true) }}"' in html
+    assert "updateLocalExitManifest" in js
+    assert "Operator marked Close in portfolio review" in js
+
+
+def test_cockpit_empty_portfolio_can_advance_to_clearance() -> None:
+    sources = _sample_sources()
+    sources["portfolio"]["positions"] = []  # type: ignore[index]
+
+    context = cockpit_context_from_sources(sources)
+
+    assert context["positions"] == []
+    assert context["portfolio_phase"]["portfolio_review_required"] is False  # type: ignore[index]
+    assert "continue to clearance" in str(context["portfolio_phase"]["guidance"]).lower()  # type: ignore[index]
+    assert "continue to clearance" in str(context["portfolio_phase"]["empty_state"]).lower()  # type: ignore[index]
+
+
 def test_blocked_candidate_has_audit_link_not_approve_button() -> None:
     context = cockpit_context_from_sources(_sample_sources())
     row = {row["ticker"]: row for row in context["candidates"]}["CCC"]

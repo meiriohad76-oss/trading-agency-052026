@@ -69,12 +69,12 @@
   document.querySelectorAll("[data-cockpit-decision]").forEach((button) => {
     button.addEventListener("click", (event) => {
       event.stopPropagation();
-      const ticker = button.getAttribute("data-cockpit-ticker") || "";
+      const ticker = normalizeTicker(button.getAttribute("data-cockpit-ticker"));
       const decision = button.getAttribute("data-cockpit-decision") || "";
       if (!ticker || !decision) {
         return;
       }
-      state.selectedTicker = normalizeTicker(ticker);
+      state.selectedTicker = ticker;
       markFocusedTicker(state.selectedTicker);
       if (isServerDecisionButton(button)) {
         saveState();
@@ -96,9 +96,11 @@
       if (!ticker || !decision) {
         return;
       }
-      state.exits[ticker] = decision;
+      state.exits[normalizeTicker(ticker)] = decision;
       saveState();
       markSelected(button.parentElement, decision);
+      updatePortfolioDecisions();
+      updateLocalExitManifest();
     });
   });
 
@@ -290,6 +292,8 @@
   showPhase(forcedScenarioPhase || state.phase || defaultPhase, state.selectedTicker);
   restoreMarks();
   updateCapacity();
+  updatePortfolioDecisions();
+  updateLocalExitManifest();
   shell.dataset.cockpitReady = "true";
 
   function loadState() {
@@ -499,14 +503,103 @@
     state.decisions = state.decisions || {};
     let staged = 0;
     document.querySelectorAll("[data-cockpit-candidate]").forEach((row) => {
-      const ticker = row.getAttribute("data-cockpit-ticker") || "";
+      const ticker = normalizeTicker(row.getAttribute("data-cockpit-ticker"));
       if (state.decisions[ticker] === "approve") {
         staged += Number(row.getAttribute("data-cockpit-notional") || "0");
       }
     });
     document.querySelectorAll("[data-capacity-gross-post]").forEach((target) => {
       target.setAttribute("data-staged-notional", String(staged));
+      const baseGross = Number(target.getAttribute("data-base-gross") || "0");
+      const equity = Number(target.getAttribute("data-equity") || "0");
+      const stagedPct = equity > 0 ? staged / equity * 100 : 0;
+      target.textContent = `${(baseGross + stagedPct).toFixed(1)}%`;
     });
+    document.querySelectorAll("[data-capacity-cash]").forEach((target) => {
+      const baseCash = Number(target.getAttribute("data-base-cash") || "0");
+      const equity = Number(target.getAttribute("data-equity") || "0");
+      const stagedPct = equity > 0 ? staged / equity * 100 : 0;
+      target.textContent = `${Math.max(0, baseCash - stagedPct).toFixed(1)}%`;
+    });
+    document.querySelectorAll("[data-capacity-impact]").forEach((target) => {
+      target.textContent = staged > 0
+        ? `Staged candidate orders add ${formatMoney(staged)} before server revalidation.`
+        : "No staged candidate orders in this cockpit session.";
+    });
+  }
+
+  function updatePortfolioDecisions() {
+    state.exits = state.exits || {};
+    const rows = Array.from(document.querySelectorAll("[data-cockpit-position]"));
+    let keep = 0;
+    let close = 0;
+    rows.forEach((row) => {
+      const ticker = normalizeTicker(row.getAttribute("data-cockpit-ticker"));
+      const decision = state.exits[ticker] || "";
+      row.toggleAttribute("data-position-decision-recorded", Boolean(decision));
+      row.setAttribute("data-position-decision", decision);
+      const output = row.querySelector("[data-position-decision-state]");
+      if (decision === "keep") {
+        keep += 1;
+        if (output) output.textContent = `${ticker} marked Keep for this cockpit session.`;
+      } else if (decision === "close") {
+        close += 1;
+        if (output) output.textContent = `${ticker} staged for close review in the clearance manifest.`;
+      } else if (output) {
+        output.textContent = "Decision not recorded in this cockpit session.";
+      }
+    });
+    document.querySelectorAll("[data-portfolio-decision-summary]").forEach((target) => {
+      if (!rows.length) {
+        target.textContent = "No open paper positions need review; continue to clearance when candidate review is complete.";
+      } else {
+        target.textContent = `${keep + close}/${rows.length} position decision(s) recorded: ${keep} keep, ${close} close.`;
+      }
+    });
+  }
+
+  function updateLocalExitManifest() {
+    const target = document.querySelector(".cockpit-manifest-list");
+    if (!target) {
+      return;
+    }
+    target.querySelectorAll("[data-local-exit-row]").forEach((row) => row.remove());
+    const emptyState = target.querySelector(".empty-state");
+    let added = 0;
+    document.querySelectorAll("[data-cockpit-position]").forEach((row) => {
+      const ticker = normalizeTicker(row.getAttribute("data-cockpit-ticker"));
+      if (!ticker || state.exits[ticker] !== "close") {
+        return;
+      }
+      if (target.querySelector(`.cockpit-manifest-exit[data-cockpit-ticker="${escapeSelector(ticker)}"]:not([data-local-exit-row])`)) {
+        return;
+      }
+      const article = document.createElement("article");
+      article.className = "cockpit-manifest-row cockpit-manifest-exit";
+      article.setAttribute("data-local-exit-row", "true");
+      article.setAttribute("data-cockpit-manifest-row", "true");
+      article.setAttribute("data-cockpit-ticker", ticker);
+      const kind = document.createElement("span");
+      kind.className = "status-pill status-pill-warn";
+      kind.textContent = "exit review";
+      const symbol = document.createElement("strong");
+      symbol.textContent = ticker;
+      const reason = document.createElement("span");
+      reason.textContent = "Operator marked Close in portfolio review; server must revalidate before any paper order.";
+      const notional = document.createElement("span");
+      notional.className = "cockpit-mono";
+      notional.textContent = formatMoney(Number(row.getAttribute("data-position-notional") || "0"));
+      article.append(kind, symbol, reason, notional);
+      target.prepend(article);
+      added += 1;
+    });
+    if (emptyState) {
+      emptyState.hidden = added > 0;
+    }
+  }
+
+  function formatMoney(value) {
+    return `$${Math.round(Number(value || 0)).toLocaleString("en-US")}`;
   }
 
   function normalizeTicker(ticker) {

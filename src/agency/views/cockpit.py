@@ -1203,6 +1203,7 @@ def _account_section(
     buying_power = _float(account.get("buying_power"))
     return {
         "equity_reported": equity_reported,
+        "equity": equity,
         "policy_reported": any(
             (
                 gross_cap_reported,
@@ -2076,10 +2077,23 @@ def _portfolio_phase_section(
     portfolio_status: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     status = _mapping(portfolio_status)
+    position_count = len(positions)
+    guidance = (
+        f"Review {position_count} open paper position(s). Choose Keep or Close before clearing new orders."
+        if position_count
+        else "No open paper positions are reported. You can continue to clearance; the server will still revalidate account capacity."
+    )
     return {
-        "bluf": "Review current positions before clearing today's manifest.",
-        "empty_state": "No open paper positions are reported by the broker for this cycle.",
-        "position_count": len(positions),
+        "bluf": (
+            "Review current positions before clearing today's manifest."
+            if position_count
+            else "No open paper positions need review before clearance."
+        ),
+        "empty_state": "No open paper positions are reported by the broker for this cycle; continue to clearance if candidate review is complete.",
+        "guidance": guidance,
+        "advance_label": "Continue to Clearance",
+        "portfolio_review_required": position_count > 0,
+        "position_count": position_count,
         "status_label": _first_text(status.get("status_label"), default="Ready"),
         "status_class": _first_text(status.get("status_class"), default="pass"),
         "status_detail": _first_text(status.get("detail")),
