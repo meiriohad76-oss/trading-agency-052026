@@ -375,6 +375,10 @@ Goal:
 
 Freeze the implementation target and stop ambiguity.
 
+Implementation artifact:
+
+- `docs/superpowers/specs/2026-06-01-cockpit-variation-a-decision-lock.md`
+
 Scope:
 
 - Record that Variation A is the implementation target.
@@ -399,6 +403,10 @@ Testing:
 Goal:
 
 Map the expert `COCKPIT_DATA` schema to the existing `cockpit_context` output.
+
+Implementation artifact:
+
+- `docs/audits/cockpit-contract-audit-2026-06-01.md`
 
 Scope:
 
@@ -815,6 +823,11 @@ Goal:
 
 Make "do not regress the recent audit work" an executable gate, not a reminder.
 
+Implementation artifact:
+
+- `scripts/check_ux_preservation.py`
+- `tests/unit/test_ux_preservation_harness.py`
+
 Scope:
 
 - Add or update a single script/test target that runs the preservation regression
@@ -840,6 +853,12 @@ Testing:
 - Run the preservation command after implementation.
 - Deliberately change one protected fixture locally during development and
   confirm the gate fails, then revert that local probe.
+
+Command:
+
+```powershell
+.\.venv\Scripts\python scripts\check_ux_preservation.py --group all
+```
 
 ## Quality Gates Before Any "Done" Claim
 
