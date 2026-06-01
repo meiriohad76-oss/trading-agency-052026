@@ -21,6 +21,38 @@ class FakePriceLoader:
         return pl.DataFrame(rows).filter(pl.col("ticker").is_in(tickers))
 
 
+class FakeOptionsLoader(FakePriceLoader):
+    def option_chains(self, tickers: list[str], as_of: date, lookback_days: int) -> pl.DataFrame:
+        del lookback_days
+        rows = [
+            {
+                "ticker": "AAPL",
+                "snapshot_date": as_of.isoformat(),
+                "option_type": "call",
+                "volume": 500,
+                "open_interest": 1_000,
+                "implied_volatility": 0.45,
+                "bid": 2.0,
+                "ask": 2.2,
+                "last_price": 2.1,
+                "timestamp_as_of": AS_OF,
+            },
+            {
+                "ticker": "AAPL",
+                "snapshot_date": as_of.isoformat(),
+                "option_type": "put",
+                "volume": 100,
+                "open_interest": 900,
+                "implied_volatility": 0.42,
+                "bid": 1.0,
+                "ask": 1.2,
+                "last_price": 1.1,
+                "timestamp_as_of": AS_OF,
+            },
+        ]
+        return pl.DataFrame(rows).filter(pl.col("ticker").is_in(tickers))
+
+
 class BrokenPriceLoader:
     def prices(self, tickers: list[str], as_of: date, lookback_days: int) -> pl.DataFrame:
         del tickers, as_of, lookback_days
@@ -487,6 +519,25 @@ def test_signal_inspector_rewrites_table_text_with_hard_evidence() -> None:
     assert row["interpretation_text"] != "Abnormal Volume produced a bullish signal."
 
 
+def test_signal_inspector_overrides_generic_summary_with_trigger_headline() -> None:
+    row = enrich_signal_rows_with_evidence(
+        [
+            _signal_row(
+                "abnormal_volume",
+                "Abnormal Volume",
+                summary=(
+                    "Abnormal Volume: direction bullish; no lane summary was persisted "
+                    "for this row."
+                ),
+            )
+        ],
+        loader=FakePriceLoader(),
+    )[0]
+
+    assert row["summary"].startswith("AAPL triggered abnormal volume")
+    assert "no lane summary was persisted" not in row["summary"]
+
+
 def test_signal_inspector_marks_detail_reconstruction_failures() -> None:
     rows = [
         {
@@ -546,6 +597,32 @@ def test_signal_inspector_fallback_preserves_options_reason_and_provenance() -> 
     )
     assert labels["Direction"]["value"] == "BULLISH"
     assert labels["Source ID"]["value"] == "opt-aapl-1"
+
+
+def test_options_flow_inspector_reconstructs_call_put_metrics() -> None:
+    row = enrich_signal_rows_with_evidence(
+        [_signal_row("options_flow", "Options Flow")],
+        loader=FakeOptionsLoader(),
+    )[0]
+    labels = {card["label"]: card for card in row["trigger_cards"]}
+
+    assert "call volume" in row["trigger_headline"].lower()
+    assert labels["Call volume"]["value"] == "500"
+    assert labels["Put volume"]["value"] == "100"
+    assert labels["Put/call volume ratio"]["value"] == "0.20"
+
+
+def test_options_anomaly_inspector_reconstructs_premium_and_oi_metrics() -> None:
+    row = enrich_signal_rows_with_evidence(
+        [_signal_row("options_anomaly", "Options Anomaly")],
+        loader=FakeOptionsLoader(),
+    )[0]
+    labels = {card["label"]: card for card in row["trigger_cards"]}
+
+    assert "option premium" in row["trigger_headline"].lower()
+    assert labels["Call premium"]["value"].startswith("$")
+    assert labels["Put premium"]["value"].startswith("$")
+    assert "volume divided by open interest" in labels["Volume/OI"]["detail"]
 
 
 def test_signal_inspector_reuses_wide_price_window_for_daily_bar_lanes() -> None:
@@ -718,6 +795,8 @@ def test_signal_inspector_explains_news_taxonomy_and_confidence_weighting() -> N
     assert "guidance: 1" in labels["Event mix"]["detail"]
     assert "litigation regulatory: 1" in labels["Event mix"]["detail"]
     assert "rss-guidance-aapl" in labels["Source IDs"]["detail"]
+    assert "keyword taxonomy" in row["trigger_detail"].lower()
+    assert "not full article llm sentiment" in row["trigger_detail"].lower()
 
 
 def test_signal_inspector_explains_insider_buys_sells_and_lookback() -> None:
@@ -926,15 +1005,14 @@ def test_institutional_signal_inspector_names_holder_changes_and_ratio_basis() -
     assert "Beta Partners" in labels["Top holder changes"]["detail"]
     assert "+250" in labels["Top holder changes"]["detail"]
     assert labels["Previous shares"]["value"] == "700"
-    assert labels["Current-basis change"]["value"] == "+30.0%"
-    assert "not a price return" in labels["Current-basis change"]["detail"]
+    assert labels["Position size change"]["value"] == "+30.0%"
+    assert "not stock-price return" in labels["Position size change"]["detail"]
     assert labels["Prior-basis change"]["value"] == "+42.9%"
-    assert labels["Implied value/share"]["value"] == "$100.00"
-    assert "not the execution price" in labels["Implied value/share"]["detail"]
+    assert "Implied value/share" not in labels
 
 
-def _signal_row(lane_key: str, lane: str) -> dict[str, object]:
-    return {
+def _signal_row(lane_key: str, lane: str, *, summary: str | None = None) -> dict[str, object]:
+    row: dict[str, object] = {
         "ticker": "AAPL",
         "lane_key": lane_key,
         "lane": lane,
@@ -947,6 +1025,9 @@ def _signal_row(lane_key: str, lane: str) -> dict[str, object]:
         "confidence_pct": 70,
         "reason_codes_label": lane,
     }
+    if summary is not None:
+        row["summary"] = summary
+    return row
 
 
 class _ProvenancedValue:

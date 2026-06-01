@@ -36,17 +36,17 @@
     <article class="kpi kpi-urgent">
       <span class="metric-label" title="Signals that passed all gates and can influence trade decisions.">Actionable</span>
       <strong>{{ summary.actionable_count }}</strong>
-      <p>can drive decisions</p>
+        <p title="{{ summary.actionable_description }}">can drive decisions</p>
     </article>
     <article class="kpi">
       <span class="metric-label" title="Signals that explain context but are too uncertain to drive decisions.">Context</span>
       <strong>{{ summary.context_count }}</strong>
-      <p>explains but guarded</p>
+        <p title="{{ summary.context_description }}">explains but guarded</p>
     </article>
     <article class="kpi">
       <span class="metric-label" title="Signals excluded because freshness, refresh needs, or source coverage failed policy.">Suppressed</span>
       <strong>{{ summary.suppressed_count }}</strong>
-      <p>ignored or too weak</p>
+        <p title="{{ summary.suppressed_description }}">audit only</p>
     </article>
   </section>
 
@@ -55,7 +55,7 @@
   <section class="panel" aria-labelledby="lane-heading">
     <div class="section-heading">
       <div>
-        <h2 id="lane-heading">Signal Data Health</h2>
+        <h2 id="lane-heading">Signal Process Readiness</h2>
         <p class="section-subtitle">
           {{ summary.configured_lanes }} configured process(es), {{ summary.lanes_with_data }} with latest-cycle data.
         </p>
@@ -91,7 +91,7 @@
             <strong>{{ lane.context_count }}</strong>
           </div>
           <div>
-            <span class="metric-label">Muted</span>
+            <span class="metric-label" title="Rows excluded from scoring and kept only for audit.">Excluded</span>
             <strong>{{ lane.suppressed_count }}</strong>
           </div>
         </div>
@@ -106,7 +106,7 @@
           <strong>{{ lane.top_ticker }}</strong>
           {{ lane.top_score }} / {{ lane.top_summary }}
         </p>
-        <p class="muted-line">{{ lane.runtime_effect }}</p>
+        <p class="muted-line" title="{{ lane.rationale }}">{{ lane.runtime_effect }}</p>
       </article>
       {% else %}
       <p class="empty-block">No signal processes are configured yet.</p>
@@ -120,7 +120,7 @@
         <h2 id="signal-rows-heading">Signal Rows</h2>
         <p class="section-subtitle">
           Use the column headers to sort by ticker, process, direction, score,
-          conviction, or confidence. Select <strong>Inspect</strong> to expand
+          candidate conviction, or signal confidence. Select <strong>Inspect</strong> to expand
           concrete trigger data without leaving this page.
         </p>
         <p class="section-subtitle">{{ summary.render_label }}.</p>
@@ -138,12 +138,12 @@
           <tr>
             <th><button class="table-sort-button" type="button" data-sort-key="ticker" data-sort-type="text">Ticker</button></th>
             <th><button class="table-sort-button" type="button" data-sort-key="lane" data-sort-type="text">Pipeline / Type</button></th>
-            <th>Bucket</th>
+            <th title="How this signal is allowed to affect the latest decision.">Use</th>
             <th><button class="table-sort-button" type="button" data-sort-key="direction" data-sort-type="number">Direction</button></th>
-            <th><button class="table-sort-button" type="button" data-sort-key="score" data-sort-type="number">Score</button></th>
-            <th><button class="table-sort-button" type="button" data-sort-key="conviction" data-sort-type="number">Conviction</button></th>
-            <th><button class="table-sort-button" type="button" data-sort-key="confidence" data-sort-type="number">Confidence</button></th>
-            <th>Freshness</th>
+            <th><button class="table-sort-button" type="button" data-sort-key="score" data-sort-type="number" title="Score scale is lane-specific; inspect a row for meaning.">Score</button></th>
+            <th><button class="table-sort-button" type="button" data-sort-key="conviction" data-sort-type="number" title="Overall candidate conviction from the final selection report, not this signal's confidence.">Candidate Conviction</button></th>
+            <th><button class="table-sort-button" type="button" data-sort-key="confidence" data-sort-type="number" title="Confidence assigned to this individual signal row.">Signal Confidence</button></th>
+            <th>Data State</th>
             <th>Source</th>
             <th>Summary</th>
             <th>Inspect</th>
@@ -163,12 +163,15 @@
           >
             <td data-label="Ticker"><strong>{{ row.ticker }}</strong></td>
             <td data-label="Pipeline / Type">{{ row.display_name }}</td>
-            <td data-label="Bucket"><span class="tag tag-{{ row.bucket_class }}">{{ row.bucket }}</span></td>
+            <td data-label="Use"><span class="tag tag-{{ row.bucket_class }}" title="{{ row.actionability_reason_text }}">{{ row.bucket }}</span></td>
             <td data-label="Direction"><span class="tag tag-{{ row.direction_class }}">{{ row.direction }}</span></td>
-            <td data-label="Score">{{ row.score }}</td>
-            <td data-label="Conviction">{{ row.report_conviction_pct }}%</td>
-            <td data-label="Confidence">{{ row.confidence_pct }}%</td>
-            <td data-label="Freshness"><span class="tag tag-{{ row.freshness_class }}">{{ row.freshness }}</span></td>
+            <td data-label="Score" title="{{ row.score_scale_tooltip }}">
+              <span>{{ row.score }}</span>
+              <small class="muted-line">{{ row.score_scale }}</small>
+            </td>
+            <td data-label="Candidate Conviction">{{ row.report_conviction_pct }}%</td>
+            <td data-label="Signal Confidence">{{ row.confidence_pct }}%</td>
+            <td data-label="Data State"><span class="tag tag-{{ row.freshness_class }}">{{ row.freshness }}</span></td>
             <td data-label="Source">{{ row.source }}</td>
             <td data-label="Summary">{{ row.summary }}</td>
             <td data-label="Inspect">
@@ -222,25 +225,30 @@
                     <div>
                       <span class="metric-label">Actionability</span>
                       <strong class="tag tag-{{ row.actionability_class }}">{{ row.actionability_label }}</strong>
+                      <p>{{ row.actionability_reason_text }}</p>
                     </div>
                     <div>
-                      <span class="metric-label">Quality</span>
+                      <span class="metric-label">Score Meaning</span>
+                      <p title="{{ row.score_scale_tooltip }}"><strong>{{ row.score_scale }}</strong>: {{ row.score_context_text }}</p>
+                    </div>
+                    <div>
+                      <span class="metric-label">Data Quality</span>
                       <p>{{ row.quality_text }}</p>
                     </div>
                     <div>
-                      <span class="metric-label">Reason Codes</span>
+                      <span class="metric-label">Policy Codes</span>
                       <p>{{ row.reason_codes_label }}</p>
                     </div>
                     <div>
-                      <span class="metric-label">Reason Meaning</span>
+                      <span class="metric-label">Policy Meaning</span>
                       <p>{{ row.reason_text }}</p>
                     </div>
                     <div>
-                      <span class="metric-label">Provenance</span>
+                      <span class="metric-label">Data Source</span>
                       <p>{{ row.provenance_text }}</p>
                     </div>
                     <div>
-                      <span class="metric-label">Current Candidate</span>
+                      <span class="metric-label">Current Candidate Decision</span>
                       <p>
                         {{ row.report_action }} / conviction {{ row.report_conviction_pct }}%
                         / gate {{ row.report_gate_status }}

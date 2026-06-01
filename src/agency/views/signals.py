@@ -8,6 +8,7 @@ from typing import cast
 from agency.runtime.lane_promotion import load_lane_promotion_status
 from agency.runtime.live_config_readiness import load_live_config_readiness
 from agency.runtime.signal_evidence import enrich_signal_rows_with_evidence
+from agency.services.signal_adapters import DIRECTION_EPSILON, SignalActionabilityConfig
 from agency.views._shared import (
     SIGNALS_CONTEXT_CACHE_SECONDS,
     SIGNALS_RENDER_LIMIT,
@@ -27,6 +28,8 @@ from agency.views._shared import (
     _percent,
     _reason_summary,
     _row_text,
+    _score_scale_label,
+    _score_scale_tooltip,
     _score_text,
     _selection_reports_for_cycle,
     _service_label,
@@ -39,6 +42,7 @@ from agency.views._shared import (
 )
 
 _signals_context_cache: dict[str, tuple[float, dict[str, object]]] = {}
+_SIGNAL_ACTIONABILITY_CONFIG = SignalActionabilityConfig()
 
 
 async def signals_context() -> dict[str, object]:
@@ -241,11 +245,19 @@ def signal_dashboard_summary(
     bearish_count = sum(1 for row in signal_rows if row["direction"] == "BEARISH")
     lanes_with_data = sum(1 for row in lane_rows if _int_field(row, "signal_count") > 0)
     configured_lanes = sum(1 for row in lane_rows if row["configured"] is True)
-    headline = _signals_headline(len(signal_rows), lanes_with_data)
+    top_signal = _top_signal_summary(signal_rows)
+    headline = _signals_headline(
+        len(signal_rows),
+        lanes_with_data,
+        actionable_count=actionable_count,
+        bullish_count=bullish_count,
+        bearish_count=bearish_count,
+        top_signal=top_signal,
+    )
     detail = (
-        f"Latest-cycle signal audit across {report_count} selection report(s). "
-        "Use this page to check whether each lane is firing, actionable, fresh, "
-        "and aligned with the candidate decisions."
+        f"Latest-cycle signal audit across {report_count} selection report(s): "
+        f"{actionable_count} action-weighted, {context_count} context-only, "
+        f"{suppressed_count} excluded. {top_signal or 'No strongest signal is available yet.'}"
     )
     topbar_label = f"{len(signal_rows)} signals / {lanes_with_data} active lanes"
     if not is_current:
@@ -281,6 +293,18 @@ def signal_dashboard_summary(
         "suppressed_count": suppressed_count,
         "bullish_count": bullish_count,
         "bearish_count": bearish_count,
+        "actionable_description": (
+            "Passed score, confidence, source, freshness, and lane-policy gates; can affect "
+            "the deterministic decision score."
+        ),
+        "context_description": (
+            "Useful evidence, but guarded because score, confidence, source breadth, or lane "
+            "policy is not strong enough for direct weighting."
+        ),
+        "suppressed_description": (
+            "Kept for audit only because a required source, freshness, duplicate, or policy "
+            "gate failed."
+        ),
     }
 
 def _context_signal_rows(evidence_pack: Mapping[str, object]) -> list[dict[str, object]]:
@@ -320,6 +344,9 @@ def _signal_rows(evidence_pack: Mapping[str, object], key: str) -> list[dict[str
                 "confidence_pct": _percent(signal, "confidence"),
                 "score": _score_text(signal),
                 "score_value": _float_field(signal, "score"),
+                "score_scale": _score_scale_label(lane_key),
+                "score_scale_tooltip": _score_scale_tooltip(lane_key),
+                "score_context_text": _score_context_text(signal),
                 "summary": _signal_summary(signal),
                 "source": _signal_source(signal),
                 "source_key": str(provenance.get("source") or ""),
@@ -328,6 +355,7 @@ def _signal_rows(evidence_pack: Mapping[str, object], key: str) -> list[dict[str
                 "timestamp_label": _format_timestamp_label(timestamp_as_of),
                 "reason_text": _signal_reason_text(signal),
                 "reason_codes_label": _signal_reason_codes_label(signal),
+                "actionability_reason_text": _signal_actionability_reason_text(signal),
             }
         )
     return rows
@@ -444,6 +472,61 @@ def _signal_reason_codes_label(signal: Mapping[str, object]) -> str:
         return "None"
     return _human_list([_label_text(code) for code in reason_codes])
 
+def _score_context_text(signal: Mapping[str, object]) -> str:
+    lane_key = str(signal.get("lane_key") or signal.get("lane") or "")
+    score = _signal_score_value(signal)
+    scale = _score_scale_label(lane_key)
+    detail = _score_scale_tooltip(lane_key)
+    if abs(score) <= DIRECTION_EPSILON:
+        return (
+            f"{scale}: {detail} Direction is neutral because {score:+.2f} is inside "
+            f"the +/-{DIRECTION_EPSILON:.2f} noise band."
+        )
+    direction = "bullish" if score > 0 else "bearish"
+    return f"{scale}: {detail} The sign is {direction} because the score is {score:+.2f}."
+
+def _signal_actionability_reason_text(signal: Mapping[str, object]) -> str:
+    actionability = str(signal.get("actionability") or "")
+    score = _signal_score_value(signal)
+    confidence_pct = _signal_confidence_pct(signal)
+    reason = _signal_reason_text(signal)
+    actionable_score = _SIGNAL_ACTIONABILITY_CONFIG.actionable_score
+    min_confidence_pct = round(_SIGNAL_ACTIONABILITY_CONFIG.min_confidence * 100)
+    score_clause = (
+        f"score {score:+.2f}; action-weighted threshold is +/-{actionable_score:.2f}"
+    )
+    confidence_clause = (
+        f"confidence {confidence_pct}%; minimum for action-weighted use is {min_confidence_pct}%"
+    )
+    if actionability == "ACTIONABLE":
+        return (
+            f"Action-weighted because {score_clause} and {confidence_clause}, and the "
+            "lane policy/source gates passed."
+        )
+    blockers: list[str] = []
+    if abs(score) < actionable_score:
+        blockers.append(f"score is below +/-{actionable_score:.2f}")
+    if confidence_pct < min_confidence_pct:
+        blockers.append(f"confidence is below {min_confidence_pct}%")
+    if blockers:
+        return f"Context/excluded because {', and '.join(blockers)}. {reason}"
+    if reason and reason != "No reason code recorded.":
+        return f"Actionability was limited by policy/source gates: {reason}"
+    return (
+        f"Actionability is {str(signal.get('actionability_label') or actionability or 'not recorded')}; "
+        "no detailed gate reason was recorded."
+    )
+
+def _signal_confidence_pct(signal: Mapping[str, object]) -> int:
+    if "confidence_pct" in signal:
+        return _int_field(signal, "confidence_pct")
+    return _percent(signal, "confidence")
+
+def _signal_score_value(signal: Mapping[str, object]) -> float:
+    if "score_value" in signal:
+        return _float_field(signal, "score_value")
+    return _float_field(signal, "score")
+
 def _signal_inspection_fields(
     row: Mapping[str, object],
     report: Mapping[str, object],
@@ -454,6 +537,10 @@ def _signal_inspection_fields(
         "decision_alignment_text": _signal_decision_alignment_text(row, report),
         "quality_text": _signal_quality_text(row),
         "provenance_text": _signal_provenance_text(row),
+        "score_context_text": _score_context_text(row),
+        "actionability_reason_text": _signal_actionability_reason_text(row),
+        "score_scale": _score_scale_label(str(row.get("lane_key") or "")),
+        "score_scale_tooltip": _score_scale_tooltip(str(row.get("lane_key") or "")),
     }
 
 def _signal_interpretation_text(
@@ -552,10 +639,39 @@ def _average_float(rows: Sequence[Mapping[str, object]], key: str) -> float:
         return 0.0
     return sum(_float_field(row, key) for row in rows) / len(rows)
 
-def _signals_headline(signal_count: int, lanes_with_data: int) -> str:
+def _signals_headline(
+    signal_count: int,
+    lanes_with_data: int,
+    *,
+    actionable_count: int,
+    bullish_count: int,
+    bearish_count: int,
+    top_signal: str | None,
+) -> str:
     if signal_count == 0:
         return "No latest-cycle signal rows are available yet."
-    return f"{signal_count} signal rows across {lanes_with_data} active lane(s)."
+    tilt = "balanced"
+    if bullish_count > bearish_count:
+        tilt = "bullish-tilted"
+    elif bearish_count > bullish_count:
+        tilt = "bearish-tilted"
+    top = f" {top_signal}" if top_signal else ""
+    return (
+        f"{signal_count} signal rows across {lanes_with_data} active lane(s); "
+        f"{actionable_count} can affect decisions and the mix is {tilt}.{top}"
+    )
+
+def _top_signal_summary(signal_rows: Sequence[Mapping[str, object]]) -> str | None:
+    if not signal_rows:
+        return None
+    top = _sorted_signals(signal_rows)[0]
+    lane = str(top.get("lane") or top.get("display_name") or "Signal")
+    ticker = str(top.get("ticker") or "")
+    direction = str(top.get("direction") or "UNKNOWN").lower()
+    score = str(top.get("score") or "no score")
+    summary = _clip_text(str(top.get("summary") or ""), 140)
+    base = f"Strongest visible item: {ticker} {lane} is {direction} ({score})."
+    return f"{base} {summary}" if summary else base
 
 def _decision_explanation(
     base: Mapping[str, object],
@@ -605,7 +721,13 @@ def _signal_summary(signal: Mapping[str, object]) -> str:
         return " ".join(_reason_summary(code) for code in reason_codes)
     lane = _label_text(str(signal["lane"]))
     direction = str(signal["direction"]).lower()
-    return f"{lane}: direction {direction}; no lane summary was persisted for this row."
+    provenance = _mapping_field(signal, "provenance")
+    source = _service_label(str(provenance.get("source") or signal.get("source_tier") or "source"))
+    timestamp = _format_timestamp_label(str(provenance.get("timestamp_as_of") or "unknown"))
+    return (
+        f"{lane} {direction} evidence from {source} as of {timestamp}. "
+        "Open Inspect to review the source metrics and policy gates."
+    )
 
 def _signal_source(signal: Mapping[str, object]) -> str:
     provenance = _mapping_field(signal, "provenance")

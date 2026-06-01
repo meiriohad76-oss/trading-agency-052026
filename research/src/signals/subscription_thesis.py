@@ -20,6 +20,21 @@ DIRECTION_SCORES = {
     "NEUTRAL": 0.0,
     "MIXED": 0.0,
 }
+SOURCE_QUALITY_WEIGHTS = {
+    "premium_article": 1.0,
+    "full_article": 1.0,
+    "article": 0.9,
+    "email_summary": 0.65,
+    "deterministic_fallback": 0.5,
+    "headline_only": 0.35,
+}
+RELEVANCE_WEIGHTS = {
+    "direct": 1.0,
+    "primary": 1.0,
+    "secondary": 0.55,
+    "sector": 0.35,
+    "macro": 0.25,
+}
 ANALYZED_LINK_STATUSES = {
     "article_analyzed",
     "article_analyzed_deterministic_fallback",
@@ -99,7 +114,10 @@ def _group_analyzed_events(
 def _context(ticker: str, events: list[dict[str, object]]) -> SubscriptionThesisContext:
     ordered = sorted(events, key=_timestamp_key, reverse=True)
     scores = [_direction_score(event) * _confidence(event) for event in ordered]
-    weights = [RECENCY_DECAY**index for index, _event in enumerate(ordered)]
+    weights = [
+        (RECENCY_DECAY**index) * _source_quality_weight(event) * _relevance_weight(event)
+        for index, event in enumerate(ordered)
+    ]
     total_weight = sum(weights)
     score = (
         sum(score * weight for score, weight in zip(scores, weights, strict=True))
@@ -164,6 +182,44 @@ def _confidence(event: dict[str, object]) -> float:
     if value is None:
         return 1.0
     return max(0.0, min(1.0, value))
+
+
+def _source_quality_weight(event: dict[str, object]) -> float:
+    key = _weight_key(event.get("source_quality") or event.get("linked_content_depth"))
+    if key is None and str(event.get("linked_content_status") or "").endswith(
+        "deterministic_fallback"
+    ):
+        key = "deterministic_fallback"
+    return SOURCE_QUALITY_WEIGHTS.get(key or "", 0.75)
+
+
+def _relevance_weight(event: dict[str, object]) -> float:
+    key = _relevance_key(event.get("linked_content_relevance") or event.get("ticker_relevance"))
+    return RELEVANCE_WEIGHTS.get(key or "", 0.75)
+
+
+def _relevance_key(value: object) -> str | None:
+    key = _weight_key(value)
+    if key is None:
+        return None
+    if key.startswith(("direct_relevance", "direct")):
+        return "direct"
+    if key.startswith("primary"):
+        return "primary"
+    if key.startswith("secondary"):
+        return "secondary"
+    if key.startswith("sector"):
+        return "sector"
+    if key.startswith("macro"):
+        return "macro"
+    return key
+
+
+def _weight_key(value: object) -> str | None:
+    text = _text(value)
+    if text is None:
+        return None
+    return re.sub(r"[^a-z0-9]+", "_", text.lower()).strip("_") or None
 
 
 def _timestamp_key(event: dict[str, object]) -> str:

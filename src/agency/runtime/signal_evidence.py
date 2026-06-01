@@ -17,6 +17,8 @@ from signals.fundamentals import fundamental_factor_frame
 from signals.insider import insider_factor_frame
 from signals.institutional import institutional_factor_frame
 from signals.news import news_factor_frame
+from signals.options_anomaly import options_anomaly_frame
+from signals.options_flow import options_flow_frame
 from signals.technical_analysis import technical_analysis_frame
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -167,6 +169,10 @@ def _detail_frames(
         frames["institutional"] = _safe_frame(institutional_factor_frame, as_of, tickers, loader)
     if "news" in lanes:
         frames["news"] = _safe_frame(news_factor_frame, as_of, tickers, loader)
+    if "options_flow" in lanes:
+        frames["options_flow"] = _safe_frame(options_flow_frame, as_of, tickers, loader)
+    if "options_anomaly" in lanes:
+        frames["options_anomaly"] = _safe_frame(options_anomaly_frame, as_of, tickers, loader)
     if lanes & MARKET_FLOW_LANES:
         frames["market_flow"] = _safe_frame(
             market_flow_feature_frame,
@@ -332,6 +338,8 @@ def _evidence_for_row(
         "insider": _insider_evidence,
         "institutional": _institutional_evidence,
         "news": _news_evidence,
+        "options_flow": _options_flow_evidence,
+        "options_anomaly": _options_anomaly_evidence,
     }
     builder = builders.get(lane, _fallback_evidence_from_detail)
     return builder(row, detail_row, as_of)
@@ -547,7 +555,7 @@ def _fundamentals_evidence(
         as_of,
         headline=headline,
         detail=(
-            f"SEC period alignment is {_text(detail.get('period_alignment_status'), 'unknown')}. "
+            f"{_fundamentals_period_alignment_sentence(detail)} "
             f"{trend_detail} The agency treats positive margins and growth as bullish, negative "
             "cash generation as bearish, and high leverage as bearish because it leaves less "
             f"balance-sheet cushion. {forward_status}"
@@ -804,9 +812,10 @@ def _institutional_evidence(
         as_of,
         headline=headline,
         detail=(
-            "13F holdings are delayed quarterly SEC filings. The change ratios below are "
-            "share-count ratios, not price returns; filing value/share is an implied value "
-            "from reported 13F value, not the execution price."
+            "13F holdings are delayed quarterly SEC filings, usually available up to 45 days "
+            "after quarter end. Treat this as historical ownership context, not live "
+            "institutional flow. The change ratios below are share-count ratios, not price "
+            "returns."
         ),
         cards=[
             _card(
@@ -836,9 +845,12 @@ def _institutional_evidence(
                 _money_tone(detail.get("total_change_from_prev_quarter")),
             ),
             _card(
-                "Current-basis change",
+                "Position size change",
                 _pct(detail.get("net_change_current_share_ratio") or detail.get("change_ratio")),
-                "Net share change divided by current shares held; this is not a price return.",
+                (
+                    "Net shares changed divided by currently reported shares. This measures "
+                    "reported position-size change, not stock-price return."
+                ),
             ),
             _card(
                 "Prior-basis change",
@@ -854,11 +866,6 @@ def _institutional_evidence(
                 "Total 13F value",
                 _money(total_value_dollars),
                 "Sum of filing-reported position values; 13F values are reported in USD thousands.",
-            ),
-            _card(
-                "Implied value/share",
-                _money(detail.get("implied_value_per_share")),
-                "Filing value divided by shares; this is not the execution price.",
             ),
             _card(
                 "Institutional score",
@@ -889,7 +896,9 @@ def _news_evidence(
             "This is a headline-level context lane. Ticker mapping is confidence-weighted, "
             "event taxonomy separates guidance, earnings, litigation/regulatory, SEC filing, "
             "analyst action, M&A, product, and general headlines. Stronger article/email "
-            "analysis lives on candidate pages."
+            "analysis lives on candidate pages. This is keyword taxonomy, not full article "
+            "LLM sentiment, so it should be treated as low-conviction context unless "
+            "corroborated."
         ),
         cards=[
             _card(
@@ -936,6 +945,146 @@ def _news_evidence(
                 "Source IDs",
                 _source_id_count(detail.get("source_ids")),
                 _source_id_detail(detail.get("source_ids")),
+            ),
+        ],
+    )
+
+
+def _options_flow_evidence(
+    row: Mapping[str, object],
+    detail: Mapping[str, object],
+    as_of: date,
+) -> dict[str, object]:
+    headline = (
+        f"{row['ticker']} options flow used call volume {_integer(detail.get('call_volume'))} "
+        f"versus put volume {_integer(detail.get('put_volume'))}; put/call volume ratio "
+        f"{_plain_number(detail.get('put_call_volume_ratio'))}."
+    )
+    return _detail_payload(
+        row,
+        as_of,
+        headline=headline,
+        detail=(
+            "This reconstructs the latest option-chain snapshot. Call-heavy volume is "
+            "bullish context; put-heavy volume is bearish context. The lane remains "
+            "disabled unless a real options provider is configured."
+        ),
+        cards=[
+            _card(
+                "Call volume",
+                _integer(detail.get("call_volume")),
+                "Total call contract volume in the latest snapshot.",
+            ),
+            _card(
+                "Put volume",
+                _integer(detail.get("put_volume")),
+                "Total put contract volume in the latest snapshot.",
+            ),
+            _card(
+                "Put/call volume ratio",
+                _plain_number(detail.get("put_call_volume_ratio")),
+                "Put volume divided by call volume; above 1.0 means puts traded more than calls.",
+            ),
+            _card(
+                "Call share",
+                _unsigned_pct(detail.get("call_share")),
+                "Call volume divided by total option volume.",
+            ),
+            _card(
+                "Open interest",
+                _integer(detail.get("open_interest")),
+                "Total open interest across contracts in the snapshot.",
+            ),
+            _card(
+                "Mean IV",
+                _unsigned_pct(detail.get("mean_implied_volatility")),
+                "Average implied volatility for contracts with IV values.",
+            ),
+            _card(
+                "Options pressure",
+                _number(detail.get("options_pressure")),
+                "Signed call/put pressure before universe ranking.",
+                _score_tone(detail.get("options_pressure")),
+            ),
+            _card(
+                "Options score",
+                _number(detail.get("options_flow_score")),
+                "Universe rank score for options flow pressure.",
+                _score_tone(detail.get("options_flow_score")),
+            ),
+        ],
+    )
+
+
+def _options_anomaly_evidence(
+    row: Mapping[str, object],
+    detail: Mapping[str, object],
+    as_of: date,
+) -> dict[str, object]:
+    headline = (
+        f"{row['ticker']} options anomaly detected gross option premium "
+        f"{_money(detail.get('gross_premium'))}, net premium {_money(detail.get('net_premium'))}, "
+        f"and volume/OI {_plain_number(detail.get('volume_to_open_interest'))}."
+    )
+    return _detail_payload(
+        row,
+        as_of,
+        headline=headline,
+        detail=(
+            "This reconstructs unusual option activity from premium, volume, and open "
+            "interest. Positive net premium means call-side premium dominated; negative "
+            "means put-side premium dominated."
+        ),
+        cards=[
+            _card(
+                "Call premium",
+                _money(detail.get("call_premium")),
+                "Estimated call premium: contract price times volume times 100.",
+            ),
+            _card(
+                "Put premium",
+                _money(detail.get("put_premium")),
+                "Estimated put premium: contract price times volume times 100.",
+            ),
+            _card(
+                "Net premium",
+                _money(detail.get("net_premium")),
+                "Call premium minus put premium.",
+                _money_tone(detail.get("net_premium")),
+            ),
+            _card(
+                "Gross premium",
+                _money(detail.get("gross_premium")),
+                "Call premium plus put premium.",
+            ),
+            _card(
+                "Option volume",
+                _integer(detail.get("total_option_volume")),
+                "Total contracts traded in the latest snapshot.",
+            ),
+            _card(
+                "Open interest",
+                _integer(detail.get("total_open_interest")),
+                "Total open interest across contracts.",
+            ),
+            _card(
+                "Volume/OI",
+                _plain_number(detail.get("volume_to_open_interest")),
+                "Total option volume divided by open interest; high values indicate unusual activity.",
+            ),
+            _card(
+                "Unusual contracts",
+                _integer(detail.get("unusual_contract_count")),
+                (
+                    "Contracts with volume at least 100 and volume/open-interest at least "
+                    "2.0, or no open interest."
+                ),
+            ),
+            _card(
+                "Anomaly score",
+                _number(detail.get("options_anomaly_score")),
+                "Universe rank score for unusual options pressure.",
+                _score_tone(detail.get("options_anomaly_score")),
             ),
         ],
     )
@@ -1582,8 +1731,9 @@ def _apply_concrete_inspection_text(row: dict[str, object]) -> None:
     concise_detail = f" {_clip_sentence(detail)}" if detail else ""
     row["interpretation_text"] = (
         f"{lane} hard evidence for {ticker}: {headline}{concise_detail} "
-        f"Direction is {direction}; score {score}."
+        f"Direction is {direction}; score {score}. {_score_context_sentence(row)}"
     )
+    row["summary"] = _clip_sentence(headline, max_chars=220)
     row["decision_effect_text"] = _concrete_decision_effect_text(row, headline)
     row["quality_text"] = _concrete_quality_text(row)
     if "provenance_text" in row:
@@ -1607,8 +1757,41 @@ def _concrete_decision_effect_text(row: Mapping[str, object], headline: str) -> 
         effect = "recorded for review"
     return (
         f"{bucket} signal for {ticker}: {effect}. Current report action {action}, "
-        f"conviction {conviction}%, gate {gate}. Evidence: {headline} Reason: {reason}"
+        f"conviction {conviction}%, gate {gate}. {_actionability_context_sentence(row)} "
+        f"Evidence: {headline} Reason: {reason}"
     )
+
+
+def _score_context_sentence(row: Mapping[str, object]) -> str:
+    lane = _text(row.get("lane_key") or row.get("lane"), "signal").replace("_", " ")
+    score = _float(row.get("score_value"))
+    if score is None:
+        return f"The {lane} score is lane-specific and should be read with the evidence cards."
+    if abs(score) <= SCORE_TONE_THRESHOLD:
+        return (
+            f"The {lane} score is near neutral because it is between "
+            f"-{SCORE_TONE_THRESHOLD:.2f} and +{SCORE_TONE_THRESHOLD:.2f}."
+        )
+    direction = "bullish" if score > 0.0 else "bearish"
+    return (
+        f"The {lane} score is lane-specific; its sign is {direction}, and the cards show "
+        "the underlying units."
+    )
+
+
+def _actionability_context_sentence(row: Mapping[str, object]) -> str:
+    bucket = _text(row.get("bucket"), "")
+    actionability = _text(row.get("actionability_label") or row.get("actionability"), bucket)
+    if bucket == "Actionable":
+        return f"Actionability is {actionability}: this evidence can affect the decision score."
+    if bucket == "Context":
+        return (
+            f"Actionability is {actionability}: use the evidence as context, not direct score "
+            "weight."
+        )
+    if bucket == "Suppressed":
+        return f"Actionability is {actionability}: this evidence is kept for audit only."
+    return f"Actionability is {actionability}: review the lane policy and evidence cards."
 
 
 def _concrete_quality_text(row: Mapping[str, object]) -> str:
@@ -1633,7 +1816,15 @@ def _concrete_provenance_text(row: Mapping[str, object]) -> str:
     )
 
 
-def _clip_sentence(value: str, *, limit: int = 360) -> str:
+def _clip_sentence(
+    value: str,
+    *,
+    limit: int = 360,
+    max_chars: int | None = None,
+) -> str:
+    if max_chars is not None:
+        limit = max_chars
+    value = " ".join(value.split())
     if len(value) <= limit:
         return value
     clipped = value[:limit].rsplit(" ", 1)[0].rstrip(".,;")
@@ -2062,6 +2253,19 @@ def _filing_period_label(detail: Mapping[str, object]) -> str:
     period = _text(detail.get("filing_period"), "period unknown")
     year = _text(detail.get("filing_year"), "")
     return f"{period} {year}".strip()
+
+
+def _fundamentals_period_alignment_sentence(detail: Mapping[str, object]) -> str:
+    status = _text(detail.get("period_alignment_status"), "unknown")
+    period = _filing_period_label(detail)
+    if status == "aligned":
+        return f"Using SEC metrics from one aligned reporting period: {period}."
+    if status == "incomplete_period":
+        return (
+            f"SEC metrics for {period} were incomplete, so ratio scores that need matching "
+            "revenue and income are not used."
+        )
+    return f"SEC period alignment could not be fully verified for {period}."
 
 
 def _fundamentals_bias(detail: Mapping[str, object]) -> str:

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import date
+from datetime import date, datetime
 
 import polars as pl
 
@@ -66,6 +66,17 @@ def fundamentals_from_frame(
         )
     payload = {str(row["metric"]): row["value"] for row in anchor_rows}
     newest_row = max(anchor_rows, key=_row_recency_key)
+    period_end = _period_end(newest_row)
+    payload.update(
+        {
+            "filing_period": newest_row.get("fiscal_period"),
+            "filing_year": newest_row.get("fiscal_year") or _year_from_dateish(period_end),
+            "filing_form": newest_row.get("form"),
+            "filing_period_end": period_end,
+            "period_alignment_status": "aligned",
+            "quality_score_basis": "period_aligned_only",
+        }
+    )
     return Provenanced[dict[str, object]](
         value=payload,
         provenance=provenance_from_row(newest_row),
@@ -102,7 +113,7 @@ def fundamentals_history_frame(
                 {
                     "metric": str(row["metric"]),
                     "value": row["value"],
-                    "period_end": row.get("__period_end"),
+                    "period_end": _period_end(row),
                     "fiscal_period": row.get("fiscal_period"),
                     "form": row.get("form"),
                     "filing_date": row.get("filing_date"),
@@ -265,7 +276,7 @@ def _deduplicated_rows(frame: pl.DataFrame) -> list[Mapping[str, object]]:
         metric = str(row["metric"])
         key = (
             metric,
-            row.get("__period_end"),
+            _period_end(row),
             str(row.get("fiscal_period") or ""),
             _form_family(row.get("form")),
         )
@@ -298,7 +309,7 @@ def _anchor_rows(
         return []
     quarterly = [key for key in complete if key[1] in _QUARTERLY_PERIODS]
     pool = quarterly or complete
-    best_key = max(pool, key=lambda key: (key[0] or date.min, key[2], key[1]))
+    best_key = max(pool, key=lambda key: (_date_sort_value(key[0]), key[2], key[1]))
     return sorted(by_group[best_key], key=lambda row: str(row["metric"]))
 
 
@@ -308,7 +319,7 @@ def _period_groups(
     by_group: dict[tuple[object, str, str], list[Mapping[str, object]]] = {}
     for row in candidates:
         key = (
-            row.get("__period_end"),
+            _period_end(row),
             str(row.get("fiscal_period") or ""),
             _form_family(row.get("form")),
         )
@@ -327,10 +338,32 @@ def _amendment_rank(form: object) -> int:
 def _row_recency_key(row: Mapping[str, object]) -> tuple[int, object, object, object]:
     return (
         _amendment_rank(row.get("form")),
-        row.get("__as_of") or date.min,
-        row.get("filing_date") or date.min,
-        row.get("__period_end") or date.min,
+        _date_sort_value(row.get("__as_of") or row.get("timestamp_as_of")),
+        _date_sort_value(row.get("filing_date")),
+        _date_sort_value(_period_end(row)),
     )
+
+
+def _period_end(row: Mapping[str, object]) -> object:
+    return row.get("__period_end") or row.get("period_end")
+
+
+def _date_sort_value(value: object) -> date:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        try:
+            return date.fromisoformat(value[:10])
+        except ValueError:
+            return date.min
+    return date.min
+
+
+def _year_from_dateish(value: object) -> int | None:
+    parsed = _date_sort_value(value)
+    return parsed.year if parsed != date.min else None
 
 
 def _empty_fundamentals_history_frame() -> pl.DataFrame:

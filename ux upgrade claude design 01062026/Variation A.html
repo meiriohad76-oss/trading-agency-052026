@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Trading Agency · A · Pre-Flight Cockpit</title>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<link rel="stylesheet" href="cockpit/cockpit.css">
+
+<style>
+  html, body { margin: 0; padding: 0; background: #000; overflow: hidden; height: 100%; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; color: #e6ecf3; }
+
+  /* Stage: scales the fixed 1440-wide artboard to fit the viewport.
+     Pi kiosk target is 1920x1080 — we'll show some letterboxing rather
+     than reflow, so the design stays pixel-accurate. */
+  #stage {
+    position: fixed; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: #000;
+  }
+  #artboard-wrap {
+    width: 1440px;
+    transform-origin: center center;
+    will-change: transform;
+  }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="artboard-wrap">
+    <div id="canvas-root"></div>
+  </div>
+</div>
+
+<script src="cockpit/data.js"></script>
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+<script type="text/babel" src="cockpit/shell.jsx"></script>
+<script type="text/babel" src="cockpit/panels.jsx"></script>
+<script type="text/babel" src="cockpit/variation-a-preflight.jsx"></script>
+
+<script type="text/babel" data-presets="env,react">
+  const { useTweaks, TweaksPanel, TweakSection, TweakRadio, TweakSelect } = window;
+  const { VariationA } = window;
+
+  const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+    "colorPreset": "amber",
+    "theme": "dark",
+    "density": "full",
+    "scenario": "normal"
+  }/*EDITMODE-END*/;
+
+  const COLOR_PRESETS = {
+    amber: {
+      vA: { '--amber': '#ffb845', '--amber-d': '#b87a18', '--cyan': '#ffb845' },
+    },
+    duotone: {
+      vA: { '--amber': '#ffb845', '--amber-d': '#b87a18', '--cyan': '#5ad7f0' },
+    },
+    saturated: {
+      vA: { '--amber': '#ffce3a', '--amber-d': '#c98a00', '--cyan': '#00e0ff', '--green': '#00ff9d', '--red': '#ff3a4e' },
+    },
+  };
+
+  const THEME_PRESETS = {
+    dark: {
+      vA: { '--bg': '#06080d', '--bg-2': '#0a0e15', '--bg-3': '#0f141d', '--panel': '#080c12', '--bd': '#161e2a', '--bd-2': '#212c3d' },
+    },
+    accent: {
+      vA: { '--bg': '#0a1018', '--bg-2': '#0e1622', '--bg-3': '#131e2d', '--panel': '#0c1622', '--bd': '#1d2c40', '--bd-2': '#2a3d57' },
+    },
+    light: {
+      vA: {
+        '--bg': '#f4ede0', '--bg-2': '#ece5d6', '--bg-3': '#e0d8c5',
+        '--panel': '#faf6ec', '--bd': '#d8cfba', '--bd-2': '#b8ad94',
+        '--tx': '#1c1810', '--tx-2': '#4a4231', '--tx-3': '#7a704d',
+      },
+    },
+  };
+
+  function tweaksToCss(t) {
+    const cp = COLOR_PRESETS[t.colorPreset] || COLOR_PRESETS.amber;
+    const tp = THEME_PRESETS[t.theme] || THEME_PRESETS.dark;
+    const a = { ...tp.vA, ...cp.vA };
+    const toStr = (obj) => Object.entries(obj).map(([k, v]) => `${k}:${v};`).join('');
+    return `.vA{${toStr(a)}}`;
+  }
+
+  // Scale-to-fit: keep the 1440px artboard pixel-accurate, letterbox the rest.
+  function useFitScale(targetW = 1440, targetH = 1100) {
+    React.useEffect(() => {
+      const wrap = document.getElementById('artboard-wrap');
+      if (!wrap) return;
+      const fit = () => {
+        const sx = window.innerWidth / targetW;
+        const sy = window.innerHeight / targetH;
+        const s = Math.min(sx, sy);
+        wrap.style.transform = `scale(${s})`;
+      };
+      fit();
+      window.addEventListener('resize', fit);
+      return () => window.removeEventListener('resize', fit);
+    }, []);
+  }
+
+  function App() {
+    const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
+    useFitScale(1440, 1100);
+    const css = tweaksToCss(t);
+    return (
+      <>
+        <style>{css}</style>
+        <VariationA density={t.density} scenario={t.scenario} />
+        <TweaksPanel title="Tweaks · Pre-Flight">
+          <TweakSection label="Color" />
+          <TweakRadio label="Preset" value={t.colorPreset}
+            options={['amber', 'duotone', 'saturated']}
+            onChange={(v) => setTweak('colorPreset', v)} />
+          <TweakSection label="Theme" />
+          <TweakRadio label="Backdrop" value={t.theme}
+            options={['dark', 'accent', 'light']}
+            onChange={(v) => setTweak('theme', v)} />
+          <TweakSection label="Density" />
+          <TweakRadio label="Mode" value={t.density}
+            options={['full', 'calm']}
+            onChange={(v) => setTweak('density', v)} />
+          <TweakSection label="Scenario" />
+          <TweakSelect label="State" value={t.scenario}
+            options={['normal', 'no-actionable', 'outage', 'submitted']}
+            onChange={(v) => setTweak('scenario', v)} />
+        </TweaksPanel>
+      </>
+    );
+  }
+
+  ReactDOM.createRoot(document.getElementById('canvas-root')).render(<App />);
+</script>
+</body>
+</html>

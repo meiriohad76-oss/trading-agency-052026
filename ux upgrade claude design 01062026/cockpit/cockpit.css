@@ -1,0 +1,125 @@
+/* Trading Cockpit — shared base styles.
+   Each variation gets a scoped wrapper (.vA, .vB, .vC) for its own palette. */
+
+:root {
+  --mono: ui-monospace, "JetBrains Mono", "SF Mono", "Roboto Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+  --serif: "Iowan Old Style", "Source Serif Pro", Georgia, serif;
+}
+
+/* ====== Variation A — PRE-FLIGHT CHECKLIST (instrument cluster) ====== */
+.vA {
+  --bg:      #0a1018;
+  --bg-2:    #0e1622;
+  --bg-3:    #131e2d;
+  --panel:   #0c1622;
+  --bd:      #1d2c40;
+  --bd-2:    #2a3d57;
+  --tx:      #e6ecf3;
+  --tx-2:    #97a7bc;
+  --tx-3:    #62748d;
+  --amber:   #ffb845;
+  --amber-d: #b87a18;
+  --cyan:    #5ad7f0;
+  --green:   #5fe49d;
+  --red:     #ff6868;
+  --orange:  #ff9a3c;
+  font-family: var(--sans);
+  background: radial-gradient(ellipse at 20% 0%, #142035 0%, #0a1018 70%);
+  color: var(--tx);
+}
+.vA *, .vA *::before, .vA *::after { box-sizing: border-box; }
+.vA .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.vA .stripe-bg {
+  background-image: repeating-linear-gradient(90deg,
+    rgba(255,184,69,.0) 0, rgba(255,184,69,.0) 6px,
+    rgba(255,184,69,.05) 6px, rgba(255,184,69,.05) 12px);
+}
+
+/* ====== Variation C — MISSION CONTROL (triage triptych) ====== */
+.vC {
+  --bg:       #07090d;
+  --panel:    #0d1219;
+  --panel-2:  #121821;
+  --bd:       #1b2434;
+  --bd-2:     #2b3a52;
+  --tx:       #e8ecf2;
+  --tx-2:     #93a0b5;
+  --tx-3:     #5a6779;
+  --pri:      #ff8b3d;
+  --pri-d:    #b95a16;
+  --acc:      #4dd0e1;
+  --pos:      #5be0a0;
+  --neg:      #ff6464;
+  --warn:     #ffd24d;
+  font-family: var(--sans);
+  background:
+    linear-gradient(180deg, #0a0e15 0%, #07090d 100%);
+  color: var(--tx);
+}
+.vC *, .vC *::before, .vC *::after { box-sizing: border-box; }
+.vC .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.vC .grid-bg {
+  background-image:
+    linear-gradient(rgba(255,139,61,.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,139,61,.04) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+/* ====== Calm mode — strip chrome, kill glows, focus on action surfaces ====== */
+
+/* shared: kill all radial+linear chrome backgrounds, dim borders */
+.vA.calm,
+.vC.calm {
+  background: var(--bg) !important;
+}
+.vA.calm .grid-bg,
+.vC.calm .grid-bg {
+  background-image: none !important;
+}
+
+/* shared: remove every neon text-shadow and glowing box-shadow on inline-styled
+   monospace + small lights. Wide net via !important is intentional. */
+.vA.calm .mono,
+.vC.calm .mono { text-shadow: none !important; }
+
+.vA.calm [style*="box-shadow"]:not(button),
+.vC.calm [style*="box-shadow"]:not(button) { box-shadow: none !important; }
+
+/* React serializes the JSX boxShadow key to `box-shadow` in the style attribute,
+   so any [style*="boxShadow"] selector would silently miss. Keep this in mind. */
+
+/* shared: thin out borders and dim accent backgrounds */
+.vA.calm hr,
+.vC.calm hr { opacity: .4; }
+
+/* shared: pulse / blink animations off */
+.vA.calm .cockpit-pulse,
+.vC.calm .cockpit-pulse { animation: none !important; opacity: .85; }
+
+/* ---- Variation A calm ---- */
+.vA.calm [data-tour="engines"],
+.vA.calm [data-tour="instruments"] { display: none !important; }
+
+.vA.calm [data-tour="cluster"] {
+  background: var(--bg) !important;
+  padding-top: 14px !important;
+  padding-bottom: 14px !important;
+  border-bottom: 1px solid var(--bd) !important;
+}
+
+/* tighten the candidate table */
+.vA.calm [data-tour="candidates"] {
+  background: transparent !important;
+  border-color: var(--bd) !important;
+}
+
+/* phase rail: lower the active-underline glow */
+.vA.calm [data-tour="phaserail"] > div > div[style*="box-shadow"] { box-shadow: none !important; }
+
+/* ---- Variation C calm ---- */
+.vC.calm [data-calm-hide="telem-mid"],
+.vC.calm [data-calm-hide="footer-engines"] { display: none !important; }
+
+.vC.calm { background: var(--bg) !important; }
+

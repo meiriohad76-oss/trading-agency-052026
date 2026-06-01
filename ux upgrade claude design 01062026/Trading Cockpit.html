@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Trading Agency · Cockpit</title>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<link rel="stylesheet" href="cockpit/cockpit.css">
+
+<style>
+  html, body { margin: 0; padding: 0; background: #f0eee9; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+</style>
+</head>
+<body>
+<div id="canvas-root"></div>
+
+<script src="cockpit/data.js"></script>
+<script type="text/babel" src="design-canvas.jsx"></script>
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+<script type="text/babel" src="cockpit/shell.jsx"></script>
+<script type="text/babel" src="cockpit/panels.jsx"></script>
+<script type="text/babel" src="cockpit/variation-a-preflight.jsx"></script>
+<script type="text/babel" src="cockpit/variation-c-mission.jsx"></script>
+
+<script type="text/babel" data-presets="env,react">
+  // Globals exported via Object.assign(window, …) by the loader files —
+  // alias them here so the inline script can reference them as bare names.
+  const { DesignCanvas, DCSection, DCArtboard } = window;
+  const { useTweaks, TweaksPanel, TweakSection, TweakRadio, TweakSelect } = window;
+  const { VariationA, VariationC } = window;
+
+  const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+    "colorPreset": "amber",
+    "theme": "dark",
+    "density": "full",
+    "scenario": "normal"
+  }/*EDITMODE-END*/;
+
+  // Palette presets — applied via injected <style> that overrides the
+  // CSS variables already defined in .vA and .vC.
+  const COLOR_PRESETS = {
+    amber: {
+      label: 'Amber only',
+      vA: { '--amber': '#ffb845', '--amber-d': '#b87a18', '--cyan': '#ffb845' },
+      vC: { '--pri': '#ffb845', '--pri-d': '#b87a18', '--acc': '#ffb845' },
+    },
+    duotone: {
+      label: 'Amber + cyan',
+      vA: { '--amber': '#ffb845', '--amber-d': '#b87a18', '--cyan': '#5ad7f0' },
+      vC: { '--pri': '#ff8b3d', '--pri-d': '#b95a16', '--acc': '#4dd0e1' },
+    },
+    saturated: {
+      label: 'Saturated',
+      vA: { '--amber': '#ffce3a', '--amber-d': '#c98a00', '--cyan': '#00e0ff', '--green': '#00ff9d', '--red': '#ff3a4e' },
+      vC: { '--pri': '#ff6a00', '--pri-d': '#cc4200', '--acc': '#00e0ff', '--pos': '#00ff9d', '--neg': '#ff3a4e' },
+    },
+  };
+
+  const THEME_PRESETS = {
+    dark: {
+      label: 'Pure dark',
+      vA: { '--bg': '#06080d', '--bg-2': '#0a0e15', '--bg-3': '#0f141d', '--panel': '#080c12', '--bd': '#161e2a', '--bd-2': '#212c3d' },
+      vC: { '--bg': '#03060a', '--panel': '#080c12', '--panel-2': '#0c1118', '--bd': '#141c28', '--bd-2': '#212c3d' },
+    },
+    accent: {
+      label: 'Dark + accent',
+      vA: { '--bg': '#0a1018', '--bg-2': '#0e1622', '--bg-3': '#131e2d', '--panel': '#0c1622', '--bd': '#1d2c40', '--bd-2': '#2a3d57' },
+      vC: { '--bg': '#07090d', '--panel': '#0d1219', '--panel-2': '#121821', '--bd': '#1b2434', '--bd-2': '#2b3a52' },
+    },
+    light: {
+      label: 'Light variant',
+      vA: {
+        '--bg': '#f4ede0', '--bg-2': '#ece5d6', '--bg-3': '#e0d8c5',
+        '--panel': '#faf6ec', '--bd': '#d8cfba', '--bd-2': '#b8ad94',
+        '--tx': '#1c1810', '--tx-2': '#4a4231', '--tx-3': '#7a704d',
+      },
+      vC: {
+        '--bg': '#f5f0e3', '--panel': '#fbf7ec', '--panel-2': '#f0ead9',
+        '--bd': '#d6cdba', '--bd-2': '#b8ad94',
+        '--tx': '#1c1810', '--tx-2': '#4a4231', '--tx-3': '#7a704d',
+      },
+    },
+  };
+
+  function tweaksToCss(t) {
+    const cp = COLOR_PRESETS[t.colorPreset] || COLOR_PRESETS.amber;
+    const tp = THEME_PRESETS[t.theme] || THEME_PRESETS.dark;
+    const a = { ...tp.vA, ...cp.vA };
+    const c = { ...tp.vC, ...cp.vC };
+    const toStr = (obj) => Object.entries(obj).map(([k, v]) => `${k}:${v};`).join('');
+    return `.vA{${toStr(a)}} .vC{${toStr(c)}}`;
+  }
+
+  function App() {
+    const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
+    const css = tweaksToCss(t);
+    return (
+      <>
+        <style>{css}</style>
+        <DesignCanvas initialZoom={0.55}>
+          <DCSection id="cockpit-variations" title="Trading Cockpit · A & C"
+            subtitle="Same 3-step daily workflow (Candidates → Portfolio → Execute). Both artboards are fully working prototypes — click anything, or open one fullscreen with the expand button. Use Tweaks (bottom right) to switch color preset + theme.">
+            <DCArtboard id="a-preflight" label="A · Pre-Flight Checklist · instrument-cluster cockpit, sequential phases" width={1440} height={1100}>
+              <VariationA density={t.density} scenario={t.scenario} />
+            </DCArtboard>
+            <DCArtboard id="c-mission" label="C · Mission Control · 3-column triage console, always-visible columns" width={1440} height={1000}>
+              <VariationC density={t.density} scenario={t.scenario} />
+            </DCArtboard>
+          </DCSection>
+        </DesignCanvas>
+        <TweaksPanel title="Tweaks · cockpit">
+          <TweakSection label="Color" />
+          <TweakRadio label="Preset" value={t.colorPreset}
+            options={['amber', 'duotone', 'saturated']}
+            onChange={(v) => setTweak('colorPreset', v)} />
+          <TweakSection label="Theme" />
+          <TweakRadio label="Backdrop" value={t.theme}
+            options={['dark', 'accent', 'light']}
+            onChange={(v) => setTweak('theme', v)} />
+          <TweakSection label="Density" />
+          <TweakRadio label="Mode" value={t.density}
+            options={['full', 'calm']}
+            onChange={(v) => setTweak('density', v)} />
+          <TweakSection label="Scenario" />
+          <TweakSelect label="State" value={t.scenario}
+            options={['normal', 'no-actionable', 'outage', 'submitted']}
+            onChange={(v) => setTweak('scenario', v)} />
+        </TweaksPanel>
+      </>
+    );
+  }
+
+  ReactDOM.createRoot(document.getElementById('canvas-root')).render(<App />);
+</script>
+</body>
+</html>

@@ -65,5 +65,7 @@ logs/
 # Local generated review artifacts
 mockup-*.png
 stock-agency-v2-planning-*.zip
+trading agency v3*.zip
+ux upgrade claude design 01062026/uploads/**/*.zip
 agency-process-agent-data-source-status-*.md
 HEALTHY*

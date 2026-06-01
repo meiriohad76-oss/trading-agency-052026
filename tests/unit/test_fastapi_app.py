@@ -66,6 +66,7 @@ from agency.dashboard import (
     timeline_rows,
 )
 from agency.runtime import artifact_fallbacks
+from agency.runtime.lane_promotion import load_lane_promotion_status
 from agency.services import (
     LlmReviewResult,
     PortfolioPolicy,
@@ -1126,7 +1127,7 @@ def test_signals_page_renders_empty_state() -> None:
 
     assert response.status_code == HTTP_OK
     assert "Signals" in response.text
-    assert "Signal Data Health" in response.text
+    assert "Signal Process Readiness" in response.text
     assert "Signal Rows" in response.text
     assert "Inspect" in response.text
     assert "No signal rows are available for the latest cycle" in response.text
@@ -4672,6 +4673,10 @@ def test_signal_dashboard_rows_group_sort_and_summarize_lanes() -> None:
     ]
     assert rows[0]["candidate_href"] == "/candidates/MSFT"
     assert rows[0]["source"] == "Sec Edgar / Official Filing"
+    assert rows[0]["score_scale"] == "Fundamental composite"
+    assert "quality, growth, valuation" in str(rows[0]["score_scale_tooltip"])
+    assert "+0.74" in str(rows[0]["score_context_text"])
+    assert "Action-weighted because score +0.74" in str(rows[0]["actionability_reason_text"])
     assert "Fundamentals evidence row for MSFT" in str(rows[0]["interpretation_text"])
     assert "Sec Edgar / Official Filing as of 2026-05-07 08:59 UTC" in str(
         rows[0]["interpretation_text"]
@@ -4684,8 +4689,12 @@ def test_signal_dashboard_rows_group_sort_and_summarize_lanes() -> None:
     assert "2026-05-07 08:59 UTC" in str(rows[0]["provenance_text"])
     assert "T08:59:00" not in str(rows[0]["provenance_text"])
     assert rows[1]["actionability_label"] == "Context Only"
+    assert rows[1]["score_scale"] == "Technical composite"
+    assert "score is below +/-0.50" in str(rows[1]["actionability_reason_text"])
     assert "guarded from direct scoring" in str(rows[1]["decision_effect_text"])
     assert rows[2]["freshness_class"] == "pass"
+    assert rows[2]["score_scale"] == "Headline z-score"
+    assert "neutral because -0.03 is inside" in str(rows[2]["score_context_text"])
     assert "Excluded from the latest MSFT decision score" in str(rows[2]["decision_effect_text"])
     assert lane_rows[0]["lane_key"] == "fundamentals"
     assert lane_rows[0]["actionable_count"] == 1
@@ -4698,6 +4707,18 @@ def test_signal_dashboard_rows_group_sort_and_summarize_lanes() -> None:
     assert summary["context_count"] == 1
     assert summary["suppressed_count"] == 1
     assert summary["lanes_with_data"] == EXPECTED_SIGNAL_DASHBOARD_ROW_COUNT
+    assert "Strongest visible item: MSFT Fundamentals" in str(summary["headline"])
+    assert "action-weighted" in str(summary["detail"])
+    assert "Passed score, confidence" in str(summary["actionable_description"])
+
+
+def test_institutional_lane_is_context_only_because_13f_is_lagged() -> None:
+    status = load_lane_promotion_status(["institutional"])
+    row = next(item for item in status["lanes"] if item["lane"] == "institutional")
+
+    assert row["state"] == "context_only"
+    assert "45" in row["runtime_effect"]
+    assert "lagged" in row["rationale"].lower()
 
 
 async def test_signals_context_uses_full_cycle_report_limit(

@@ -77,6 +77,10 @@ def test_uses_single_quarter_when_revenue_net_income_and_fcf_match() -> None:
     assert result.value["revenue"] == 100_000.0
     assert result.value["net_income"] == 25_000.0
     assert result.value["free_cash_flow"] == 20_000.0
+    assert result.value["period_alignment_status"] == "aligned"
+    assert result.value["quality_score_basis"] == "period_aligned_only"
+    assert result.value["filing_period"] == "Q3"
+    assert result.value["filing_form"] == "10-Q"
 
 
 def test_does_not_mix_quarterly_net_income_with_annual_revenue() -> None:
@@ -143,6 +147,25 @@ def test_raises_when_no_consistent_period_has_required_metrics() -> None:
     )
 
     with pytest.raises(DataNotAvailableAt):
+        fundamentals_from_frame(frame, as_of=AS_OF)
+
+
+def test_direct_frame_period_key_uses_period_end_when_loader_alias_is_absent() -> None:
+    frame = pl.DataFrame(
+        [
+            _row("revenue", 120_000.0, "10-Q", "Q1", date(2025, 3, 31)),
+            _row("net_income", 20_000.0, "10-Q", "Q1", date(2024, 3, 31)),
+            _row("free_cash_flow", 18_000.0, "10-Q", "Q1", date(2024, 3, 31)),
+        ],
+        schema_overrides={
+            "filing_date": pl.Date,
+            "period_end": pl.Date,
+            "timestamp_observed": pl.Datetime("us", "UTC"),
+            "timestamp_as_of": pl.Date,
+        },
+    )
+
+    with pytest.raises(DataNotAvailableAt, match="no consistent fiscal period"):
         fundamentals_from_frame(frame, as_of=AS_OF)
 
 

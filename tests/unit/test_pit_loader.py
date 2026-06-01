@@ -99,6 +99,21 @@ def test_fundamentals_use_latest_filing_before_as_of(tmp_path: Path) -> None:
     assert result.provenance.source_id == "fy22"
 
 
+def test_fundamentals_reject_quarterly_revenue_without_matching_income_period(
+    tmp_path: Path,
+) -> None:
+    frame = pl.DataFrame(
+        [
+            _fundamental_row("MIX", "revenue", 100.0, date(2025, 3, 31), "Q1", "10-Q"),
+            _fundamental_row("MIX", "net_income", 120.0, date(2024, 12, 31), "FY", "10-K"),
+        ]
+    )
+    loader = loader_with(tmp_path, {DatasetName.SEC_COMPANY_FACTS: frame})
+
+    with pytest.raises(DataNotAvailableAt, match="no consistent fiscal period"):
+        loader.fundamentals("MIX", date(2025, 5, 1))
+
+
 def test_fundamentals_history_returns_last_periods_oldest_first(tmp_path: Path) -> None:
     frame = pl.DataFrame(
         [
