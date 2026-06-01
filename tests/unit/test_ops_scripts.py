@@ -266,6 +266,29 @@ def test_user_process_audit_candidate_review_action_only_when_expected() -> None
     assert any(failure["code"] == "candidate_review_action_missing" for failure in failures)
 
 
+def test_user_process_audit_accepts_current_analysis_refresh_state() -> None:
+    audit = importlib.import_module("scripts.check_user_process_flow_audit")
+    html = """
+    <html data-ux-build="ux-v3-cockpit-primary-20260601">
+      <body class="v3-app">
+        <section data-v3-universal-briefing>BLUF</section>
+        <section class="panel action-summary-panel">
+          Previous report rows are not used as current evidence while a required data lane needs refresh.
+          Wait for this lane to finish, or use the matching lane Refresh control.
+        </section>
+        <section class="data-health-panel">
+          Displayed Data Health Cycle Last verified Recommended action
+          <form action="/scheduler/massive-lanes/massive_live_trade_slices/refresh">
+            <button>Refresh Live Trade Slices</button>
+          </form>
+        </section>
+      </body>
+    </html>
+    """
+
+    assert audit.audit_candidate_html("PLTR", html, expect_review_action=True) == []
+
+
 def _v3_html() -> str:
     return """
     <html data-ux-build="ux-v3-cockpit-primary-20260601">

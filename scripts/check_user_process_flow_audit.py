@@ -840,6 +840,7 @@ def audit_candidate_html(
         expect_review_action
         and f"/candidates/{normalized}/reviews?" not in html
         and "Review recorded" not in html
+        and not candidate_analysis_refresh_state_visible(html)
     ):
         failures.append(
             failure(
@@ -870,6 +871,22 @@ def audit_candidate_html(
                     )
                 )
     return failures
+
+
+def candidate_analysis_refresh_state_visible(html: str) -> bool:
+    normalized = re.sub(r"\s+", " ", html).casefold()
+    has_currentness_explanation = (
+        "previous report rows are not used as current evidence" in normalized
+        or "current report details are hidden until analysis is ready" in normalized
+        or "approval is disabled until the current analysis finishes" in normalized
+    )
+    has_operator_next_step = (
+        "refresh live trade slices" in normalized
+        or "matching lane refresh control" in normalized
+        or "open refresh queue" in normalized
+    )
+    has_health_proof = "displayed data health" in normalized and "recommended action" in normalized
+    return has_currentness_explanation and has_operator_next_step and has_health_proof
 
 
 def audit_command_links(html: str, tickers: list[str]) -> list[dict[str, object]]:
