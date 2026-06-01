@@ -1,40 +1,90 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
-from scripts import check_ux_preservation
+import scripts.check_ux_preservation as preservation
 
 
-def test_preservation_harness_selects_expected_groups() -> None:
-    signal_tests = check_ux_preservation.selected_tests("signals")
-    cockpit_tests = check_ux_preservation.selected_tests("cockpit")
-    all_tests = check_ux_preservation.selected_tests("all")
+def test_semantic_preservation_checks_pass() -> None:
+    results = preservation.run_semantic_checks()
 
-    assert "tests/unit/test_signal_evidence.py" in signal_tests
-    assert "tests/unit/test_signal_evidence_fundamentals.py" in signal_tests
-    assert "tests/unit/test_actionability_gate.py" in signal_tests
-    assert "tests/unit/test_cockpit_candidates.py" in cockpit_tests
-    assert "tests/unit/test_cockpit_lane_state.py" in cockpit_tests
-    assert all_tests == (*signal_tests, *cockpit_tests)
+    assert results
+    assert all(result.passed for result in results)
 
 
-def test_preservation_harness_uses_current_python_for_pytest() -> None:
-    command = check_ux_preservation.build_pytest_command(
-        ["tests/unit/test_signal_evidence.py"],
-        extra_args=["--", "-q"],
+def test_semantic_preservation_flags_generic_candidate_evidence() -> None:
+    sources = preservation.rich_cockpit_sources()
+    queue = sources["dashboard"]["review_queue"]  # type: ignore[index]
+    queue[0]["top_reasons"] = ["Bullish signal detected."]  # type: ignore[index]
+
+    results = preservation.run_semantic_checks(cockpit_sources=sources)
+
+    failure = [
+        result
+        for result in results
+        if result.name == "candidate evidence keeps concrete hard values"
+    ][0]
+    assert failure.passed is False
+    assert "Bullish signal detected" in failure.detail
+
+
+def test_semantic_preservation_flags_missing_trf_hard_evidence() -> None:
+    detail = preservation.rich_candidate_detail_context()
+    signal = detail["latest_report"]["actionable_signals"][0]  # type: ignore[index]
+    signal["trigger_cards"] = [{"label": "Directional read", "value": "+72.0% buy-side"}]
+
+    results = preservation.run_semantic_checks(detail_context=detail)
+
+    failure = [
+        result
+        for result in results
+        if result.name == "detail drawer preserves TRF/off-exchange hard evidence"
+    ][0]
+    assert failure.passed is False
+
+
+def test_pytest_group_runner_reports_command_failure() -> None:
+    def failing_runner(group: str, paths: object) -> preservation.CommandResult:
+        return preservation.CommandResult(
+            group=group,
+            command=["python", "-m", "pytest", *list(paths)],  # type: ignore[arg-type]
+            returncode=1,
+            stdout_tail="assert protected behavior changed",
+            stderr_tail="",
+        )
+
+    results = preservation.run_pytest_groups(["signals"], runner=failing_runner)
+    summary = preservation._summary_payload(
+        started_at=preservation.datetime.now(preservation.UTC),
+        selected_groups=["signals"],
+        semantic_results=[],
+        command_results=results,
     )
 
-    assert command[1:3] == ["-m", "pytest"]
-    assert command[-1] == "-q"
+    assert summary["status"] == "FAIL"
+    assert summary["failures"][0]["group"] == "signals"  # type: ignore[index]
+    assert "pytest exited 1" in summary["failures"][0]["detail"]  # type: ignore[index]
 
 
-def test_preservation_required_files_exist() -> None:
-    root = Path(__file__).resolve().parents[2]
+def test_main_writes_clear_artifacts(tmp_path: Path) -> None:
+    output_root = tmp_path / "ux-preservation"
+    audit_path = tmp_path / "audit.md"
 
-    assert check_ux_preservation.required_file_failures(root) == []
+    exit_code = preservation.main(
+        [
+            "--group",
+            "cockpit",
+            "--skip-pytest",
+            "--output-root",
+            str(output_root),
+            "--audit-path",
+            str(audit_path),
+        ]
+    )
 
-
-def test_preservation_plan_markers_exist() -> None:
-    root = Path(__file__).resolve().parents[2]
-
-    assert check_ux_preservation.required_marker_failures(root) == []
+    assert exit_code == 0
+    payload = json.loads((output_root / "ux-preservation-summary.json").read_text())
+    assert payload["status"] == "PASS"
+    assert payload["ticket"] == "UXC-014"
+    assert "candidate evidence keeps concrete hard values" in audit_path.read_text()
