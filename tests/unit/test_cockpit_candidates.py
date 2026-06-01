@@ -15,6 +15,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 TEMPLATE = PROJECT_ROOT / "src/agency/templates/cockpit.html"
 EVIDENCE_LEGEND = PROJECT_ROOT / "src/agency/templates/_evidence_legend.html"
 STYLES = PROJECT_ROOT / "src/agency/static/styles.css"
+V3_STYLES = PROJECT_ROOT / "src/agency/static/v3-screens.css"
 
 
 def _template() -> str:
@@ -27,6 +28,10 @@ def _evidence_legend() -> str:
 
 def _styles() -> str:
     return STYLES.read_text(encoding="utf-8")
+
+
+def _v3_styles() -> str:
+    return V3_STYLES.read_text(encoding="utf-8")
 
 
 def test_candidate_row_includes_concrete_evidence_not_generic_copy() -> None:
@@ -244,6 +249,36 @@ def test_candidate_row_layout_keeps_decision_controls_from_compressing_evidence(
     row_rule = css.split(".cockpit-candidate-row {", 1)[1].split("}", 1)[0]
 
     assert "grid-template-columns: 1fr;" in row_rule
+
+
+def test_cockpit_declares_variation_a_shell_markers() -> None:
+    html = _template()
+
+    assert 'class="cockpit-shell vA"' in html
+    assert 'data-ux-variation="variation-a-preflight"' in html
+    for marker in (
+        'data-tour="topline"',
+        'data-tour="datastate"',
+        'data-tour="cluster"',
+        'data-tour="engines"',
+        'data-tour="instruments"',
+        'data-tour="phaserail"',
+        'data-tour="candidates"',
+    ):
+        assert marker in html
+
+
+def test_cockpit_variation_a_css_removes_legacy_chrome() -> None:
+    css = _v3_styles()
+
+    assert "Cockpit Variation A parity layer" in css
+    assert ".v3-screen-cockpit .sidebar" in css
+    assert "display: none;" in css
+    assert 'width: min(1440px, 100%);' in css
+    assert "--amber: #ffb845;" in css
+    assert "--cyan: #5ad7f0;" in css
+    assert "--green: #5fe49d;" in css
+    assert "--red: #ff6868;" in css
 
 
 def test_blocked_candidate_has_audit_link_not_approve_button() -> None:

@@ -1,5 +1,4 @@
 {% extends "base.html" %}
-{% from "_data_health.html" import data_health_panel %}
 {% from "_evidence_legend.html" import evidence_legend, conviction_help %}
 
 {% block title %}{{ scenario.browser_title|default("Today's Cockpit - Trading Agency", true) }}{% endblock %}
@@ -9,17 +8,19 @@
 
 {% block content %}
 <section
-  class="cockpit-shell"
+  class="cockpit-shell vA"
   data-cockpit-scenario="{{ scenario.state }}"
   data-cockpit-cycle="{{ cycle.id }}"
   data-cockpit-color-preset="{{ preferences.color_preset }}"
   data-cockpit-theme="{{ preferences.theme }}"
   data-cockpit-density="{{ preferences.density }}"
+  data-ux-variation="variation-a-preflight"
+  data-ux-reference="ux-upgrade-claude-design-01062026/Variation-A"
   data-ux-feature="rich-ticker-detail"
 >
-  <header class="cockpit-topline">
+  <header class="cockpit-topline" data-tour="topline">
     <div>
-      <p class="eyebrow">Pre-flight briefing</p>
+      <p class="eyebrow">Phase 01 - Pre-flight cockpit</p>
       <h2 class="cockpit-bluf">{{ scenario.headline }}</h2>
       <p class="muted">{{ scenario.detail }}</p>
       {% if scenario.qa_override %}
@@ -60,7 +61,7 @@
   {% set data_state = data_state|default({}, true) %}
   {% set data_review = data_state.review|default({}, true) %}
   {% set data_paper = data_state.paper|default({}, true) %}
-  <section class="cockpit-data-state-strip" aria-label="Session readiness">
+  <section class="cockpit-data-state-strip" aria-label="Session readiness" data-tour="datastate">
     <div class="cockpit-data-state-headline">
       <p class="eyebrow">Data State</p>
       <h2>{{ data_review.label|default("Review status unavailable", true) }} and {{ data_paper.label|default("Paper execution status unavailable", true) }}</h2>
@@ -107,8 +108,6 @@
     </div>
   </section>
 
-  {{ data_health_panel(data_health, show_email_login_alert=false) }}
-
   <aside class="cockpit-preferences" data-cockpit-preferences hidden aria-label="Cockpit preferences">
     <div class="cockpit-panel-backdrop" data-cockpit-preferences-close></div>
     <form class="cockpit-preferences-card" data-cockpit-preferences-form>
@@ -144,7 +143,7 @@
     </form>
   </aside>
 
-  <section class="cockpit-instrument-cluster" aria-label="Cockpit instruments">
+  <section class="cockpit-instrument-cluster" aria-label="Cockpit instruments" data-tour="cluster">
     <article class="cockpit-arc-gauge">
       <span class="cockpit-whymark info-tip" title="Market regime summarizes the current environment from the production market-regime view.">?</span>
       <div class="cockpit-arc">
@@ -197,7 +196,7 @@
     </div>
   </section>
 
-  <section class="cockpit-engine-strip" aria-label="Main engines">
+  <section class="cockpit-engine-strip" aria-label="Main engines" data-tour="engines">
     <strong>Engines</strong>
     {% for engine in engines %}
       <span class="cockpit-engine cockpit-engine-{{ engine.state }}" data-cockpit-engine="{{ engine.name }}">
@@ -207,7 +206,7 @@
     {% endfor %}
   </section>
 
-  <nav class="cockpit-instrument-nav" aria-label="Cockpit instruments">
+  <nav class="cockpit-instrument-nav" aria-label="Cockpit instruments" data-tour="instruments">
     <button type="button" data-cockpit-panel-target="universe">Universe <span class="cockpit-mono">{{ sources|length }}</span></button>
     <button type="button" data-cockpit-panel-target="signals">Signals <span class="cockpit-mono">{{ signals|length }}</span></button>
     <button type="button" data-cockpit-panel-target="audit">Audit <span class="cockpit-mono">{{ audit_lifecycle.traces|length }}</span></button>
@@ -220,17 +219,17 @@
   {% set phase_portfolio = phase_states.portfolio|default({}, true) %}
   {% set phase_clearance = phase_states.clearance|default({}, true) %}
   {% set phase_cleared = phase_states.cleared|default({}, true) %}
-  <section class="cockpit-phase-rail" aria-label="Workflow phases">
-    <button type="button" class="cockpit-phase-cell" data-cockpit-phase-target="candidates" data-phase-state="{{ phase_candidates.state|default('active', true) }}"><strong>Candidates</strong><small>{{ phase_candidates.label|default("Active", true) }}</small></button>
-    <button type="button" class="cockpit-phase-cell" data-cockpit-phase-target="portfolio" data-phase-state="{{ phase_portfolio.state|default('waiting', true) }}"><strong>Portfolio Review</strong><small>{{ phase_portfolio.label|default("Review next", true) }}</small></button>
-    <button type="button" class="cockpit-phase-cell" data-cockpit-phase-target="clearance" data-phase-state="{{ phase_clearance.state|default('waiting', true) }}"><strong>Clearance</strong><small>{{ phase_clearance.label|default("Paper gate", true) }}</small></button>
-    <button type="button" class="cockpit-phase-cell" data-cockpit-phase-target="cleared" data-phase-state="{{ phase_cleared.state|default('waiting', true) }}"><strong>Cleared</strong><small>{{ phase_cleared.label|default("After submit", true) }}</small></button>
+  <section class="cockpit-phase-rail" aria-label="Workflow phases" data-tour="phaserail">
+    <button type="button" class="cockpit-phase-cell" data-cockpit-phase-target="candidates" data-phase-state="{{ phase_candidates.state|default('active', true) }}"><span class="cockpit-phase-index cockpit-mono">01</span><strong>Candidates</strong><small>{{ phase_candidates.label|default("Active", true) }}</small></button>
+    <button type="button" class="cockpit-phase-cell" data-cockpit-phase-target="portfolio" data-phase-state="{{ phase_portfolio.state|default('waiting', true) }}"><span class="cockpit-phase-index cockpit-mono">02</span><strong>Portfolio Review</strong><small>{{ phase_portfolio.label|default("Review next", true) }}</small></button>
+    <button type="button" class="cockpit-phase-cell" data-cockpit-phase-target="clearance" data-phase-state="{{ phase_clearance.state|default('waiting', true) }}"><span class="cockpit-phase-index cockpit-mono">03</span><strong>Clearance</strong><small>{{ phase_clearance.label|default("Paper gate", true) }}</small></button>
+    <button type="button" class="cockpit-phase-cell" data-cockpit-phase-target="cleared" data-phase-state="{{ phase_cleared.state|default('waiting', true) }}"><span class="cockpit-phase-index cockpit-mono">04</span><strong>Cleared</strong><small>{{ phase_cleared.label|default("After submit", true) }}</small></button>
   </section>
 
   {% set portfolio_vm = portfolio_phase|default({}, true) %}
   {% set clearance_vm = clearance|default({}, true) %}
 
-  <section class="cockpit-phase" data-cockpit-phase="candidates" aria-labelledby="cockpit-candidates-heading">
+  <section class="cockpit-phase" data-cockpit-phase="candidates" aria-labelledby="cockpit-candidates-heading" data-tour="candidates">
     <div class="section-heading">
       <div>
         <p class="eyebrow">Candidates</p>

@@ -201,11 +201,11 @@ def test_root_cockpit_exposes_displayed_data_health(monkeypatch: MonkeyPatch) ->
     response = client.get("/cockpit")
 
     assert response.status_code == 200
-    assert 'class="panel data-health-panel data-health-pass"' in response.text
-    assert "Displayed Data Health" in response.text
-    assert "Coverage" in response.text
-    assert "Freshness" in response.text
-    assert "Last update" in response.text
+    assert 'class="cockpit-data-state-strip"' in response.text
+    assert "Data State" in response.text
+    assert "Review data sources" in response.text
+    assert "Lane State Board" in response.text
+    assert "Latest proof/as-of" in response.text
 
 
 def test_cockpit_payload_scrubber_removes_common_secret_aliases() -> None:

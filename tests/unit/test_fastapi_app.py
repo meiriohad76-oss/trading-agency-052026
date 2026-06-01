@@ -701,9 +701,9 @@ def test_shared_data_health_template_promotes_subscription_login_alert() -> None
     assert command_template.index("data_health.email_login_alert") < command_template.index(
         "data_health_panel(data_health"
     )
-    assert cockpit_template.index("data_health.email_login_alert") < cockpit_template.index(
-        "data_health_panel(data_health"
-    )
+    assert "data_health.email_login_alert" in cockpit_template
+    assert "cockpit-email-login-alert" in cockpit_template
+    assert "cockpit-data-state-strip" in cockpit_template
 
 
 def test_shared_dashboard_data_health_explains_blocked_lanes_actionably() -> None:
