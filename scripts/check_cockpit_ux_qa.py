@@ -1055,7 +1055,6 @@ def _first_screen_semantic_errors(
         for index, gap in enumerate(top_gaps[:3]):
             lane = str(gap.get("lane") or "").strip()
             status_label = str(gap.get("status_label") or "").strip()
-            detail = str(gap.get("detail") or "").strip()
             recommended = str(gap.get("recommended_action") or "").strip()
             action = _mapping(gap.get("refresh_action"))
             action_label = str(action.get("label") or "").strip()
@@ -1064,8 +1063,8 @@ def _first_screen_semantic_errors(
                 errors.append(f"Top data gap {index + 1} lane {lane!r} is not visible.")
             if status_label and status_label not in data_state_text:
                 errors.append(f"Top data gap {index + 1} status {status_label!r} is not visible.")
-            if detail and detail[:40] not in compare_text:
-                errors.append(f"Top data gap {index + 1} detail is not visible.")
+            if lane and f"{lane} proof is not ready" not in data_state_text:
+                errors.append(f"Top data gap {index + 1} plain-English proof state is not visible.")
             if recommended and recommended[:32] not in compare_text:
                 errors.append(f"Top data gap {index + 1} recommendation is not visible.")
             if action_label and action_label not in compare_text:

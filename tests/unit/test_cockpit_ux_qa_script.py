@@ -206,6 +206,8 @@ def test_qa_script_first_screen_semantics_use_operator_copy() -> None:
     assert "Session Readiness strip is not visible in the first viewport." in source
     assert "First viewport is missing operator proof text" in source
     assert "Review-ready API state rendered as a {rendered_state} cockpit." in source
+    assert "plain-English proof state is not visible" in source
+    assert "detail is not visible" not in source
 
 
 def test_qa_script_detects_cross_endpoint_readiness_drift() -> None:
