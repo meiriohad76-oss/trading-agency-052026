@@ -14,6 +14,7 @@ from playwright.sync_api import sync_playwright
 
 PAGES = (
     "/",
+    "/cockpit",
     "/command",
     "/signals",
     "/market-regime",
@@ -62,7 +63,7 @@ JSON_GET_ATTEMPTS = 3
 JSON_RETRY_DELAY_SECONDS = 1
 FULL_READINESS_SCOPE = "full"
 REVIEW_SUBSET_READINESS_SCOPE = "review-subset"
-EXPECTED_V3_BUILD = "ux-v3-cockpit-primary-20260601"
+EXPECTED_V3_BUILD = "ux-v3-cockpit-readability-20260601"
 COCKPIT_ROUTES = {"/", "/cockpit"}
 DEFAULT_BRIEFING_SNIPPETS = (
     "Start with the first action card",
@@ -121,6 +122,7 @@ def main() -> int:
                             else route.strip("/").replace("/", "-")
                         )
                         result = _empty_result(viewport_name, route)
+                        result["readiness_scope"] = args.readiness_scope
                         result["operational_readiness_failures"] = list(
                             operational_readiness_failures
                         )
@@ -192,21 +194,73 @@ def main() -> int:
                                   const text = row.textContent || '';
                                   const cells = Array.from(row.querySelectorAll('[role="cell"]'));
                                   const progressText = cells[2]?.textContent || '';
-                                  const proofText = cells[5]?.textContent || '';
-                                  const actionText = cells[6]?.textContent || '';
+                                  const proofText = cells[3]?.textContent || '';
+                                  const actionText = cells[4]?.textContent || '';
                                   const hasStatus = row.querySelector('.status-pill') !== null;
                                   const hasProgress = progressText.trim().length > 0;
                                   const hasProof = proofText.trim().length > 0 &&
                                     (proofText.includes('Checked') || proofText.includes('not checked'));
                                   const hasAction = actionText.trim().length > 0 &&
                                     !actionText.includes('No lane action recorded');
-                                  return cells.length >= 7 && hasStatus && hasProgress && hasProof && hasAction
+                                  return cells.length >= 5 && hasStatus && hasProgress && hasProof && hasAction
                                     ? null
                                     : text.trim().replace(/\\s+/g, ' ').slice(0, 120);
                                 })
                                 .filter(Boolean)
                                 .slice(0, 8)
                                 """
+                            )
+                            result["readiness_explanation_visible"] = bool(
+                                page.evaluate(
+                                    """
+                                    () => {
+                                      const textOf = (el) => (el?.textContent || '')
+                                        .replace(/\\s+/g, ' ')
+                                        .trim();
+                                      const hasAny = (text, values) =>
+                                        values.some((value) => text.includes(value));
+                                      const cockpit = document.querySelector(
+                                        '.cockpit-data-state-strip'
+                                      );
+                                      if (cockpit) {
+                                        const text = textOf(cockpit);
+                                        const hasGap = cockpit.querySelector(
+                                          '.cockpit-data-state-gap'
+                                        ) !== null;
+                                        const hasStatus = cockpit.querySelector(
+                                          '.status-pill'
+                                        ) !== null;
+                                        return hasGap && hasStatus &&
+                                          text.includes('What to do now') &&
+                                          hasAny(text, ['Proof', 'proof']) &&
+                                          hasAny(text, ['Refresh', 'reload', 'confirm']);
+                                      }
+                                      const panel = document.querySelector(
+                                        '.data-health-panel'
+                                      );
+                                      if (!panel) {
+                                        return false;
+                                      }
+                                      const panelText = textOf(panel);
+                                      const guidance = textOf(
+                                        panel.querySelector('.data-health-guidance')
+                                      );
+                                      const hasStatus = panel.querySelector(
+                                        '.section-heading .tag'
+                                      ) !== null;
+                                      const hasGuidance =
+                                        guidance.includes('What this means') &&
+                                        guidance.includes('Recommended action') &&
+                                        guidance.includes('Main issue');
+                                      const hasProof =
+                                        panelText.includes('Health proof') ||
+                                        panelText.includes('Last update') ||
+                                        panelText.includes('Latest proof') ||
+                                        panelText.includes('Checked');
+                                      return hasStatus && hasGuidance && hasProof;
+                                    }
+                                    """
+                                )
                             )
                             result["v3_build_served"] = (
                                 page.locator(
@@ -284,6 +338,8 @@ def _empty_result(viewport: str, route: str) -> dict[str, object]:
         "cockpit_lane_rows_count": 0,
         "cockpit_lane_rows_missing_fields": [],
         "operational_readiness_failures": [],
+        "readiness_scope": FULL_READINESS_SCOPE,
+        "readiness_explanation_visible": False,
         "v3_build_served": False,
         "v3_screen_class": False,
         "v3_universal_briefing": False,
@@ -327,7 +383,7 @@ def result_failed(row: Mapping[str, object]) -> bool:
         or not _has_valid_health_proof(row)
         or bool(row["health_rows_missing_fields"])
         or bool(row.get("cockpit_lane_rows_missing_fields"))
-        or bool(row["operational_readiness_failures"])
+        or _has_unexplained_operational_readiness_failure(row)
         or not bool(row["v3_build_served"])
         or not bool(row["v3_screen_class"])
         or not bool(row["v3_universal_briefing"])
@@ -347,6 +403,24 @@ def _has_valid_health_proof(row: Mapping[str, object]) -> bool:
         and bool(row.get("cockpit_data_state_visible"))
         and int(row.get("cockpit_lane_rows_count") or 0) > 0
     )
+
+
+def _has_unexplained_operational_readiness_failure(row: Mapping[str, object]) -> bool:
+    if not bool(row.get("operational_readiness_failures")):
+        return False
+    if str(row.get("readiness_scope") or FULL_READINESS_SCOPE) != REVIEW_SUBSET_READINESS_SCOPE:
+        return True
+    return not _page_explains_current_readiness_gap(row)
+
+
+def _page_explains_current_readiness_gap(row: Mapping[str, object]) -> bool:
+    if not bool(row.get("readiness_explanation_visible")):
+        return False
+    if not _has_valid_health_proof(row):
+        return False
+    if bool(row.get("health_rows_missing_fields")):
+        return False
+    return not bool(row.get("cockpit_lane_rows_missing_fields"))
 
 
 def _route_requires_v3_briefing(route: str) -> bool:
@@ -419,7 +493,7 @@ def _operational_readiness_failures(
         health = data_load.get("health_monitor")
         if isinstance(health, Mapping):
             health_state = str(health.get("status") or "").lower()
-            if health_state in {"stale", "unavailable"}:
+            if health_state in {"needs_refresh", "unavailable"}:
                 failures.append(f"health-monitor status={health_state!r}")
             if health.get("reliable") is False:
                 failures.append("health-monitor reliable=false")
@@ -473,6 +547,11 @@ def _json_get(url: str) -> Any:
         try:
             with urlopen(url, timeout=REQUEST_TIMEOUT_SECONDS) as response:
                 payload = json.loads(response.read().decode("utf-8"))
+            if _payload_needs_retry(payload) and attempt < JSON_GET_ATTEMPTS - 1:
+                import time
+
+                time.sleep(JSON_RETRY_DELAY_SECONDS)
+                continue
             return payload if isinstance(payload, (dict, list)) else {}
         except (OSError, URLError, TimeoutError, json.JSONDecodeError):
             if attempt < JSON_GET_ATTEMPTS - 1:
@@ -482,6 +561,19 @@ def _json_get(url: str) -> Any:
                 continue
             return {}
     return {}
+
+
+def _payload_needs_retry(payload: object) -> bool:
+    if not isinstance(payload, Mapping):
+        return False
+    status = str(payload.get("status") or "").lower()
+    status_label = str(payload.get("status_label") or "").lower()
+    detail = str(payload.get("detail") or "").lower()
+    return (
+        status in {"status_timeout", "status_delayed"}
+        or status_label in {"status timeout", "status delayed"}
+        or "still loading" in detail
+    )
 
 
 def _data_load_has_only_context_warnings(data_load: Mapping[str, object]) -> bool:

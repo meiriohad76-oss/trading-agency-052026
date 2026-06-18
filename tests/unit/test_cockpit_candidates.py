@@ -82,7 +82,11 @@ def test_candidate_row_missing_evidence_and_risk_uses_neutral_copy() -> None:
     row = context["candidates"][0]
 
     assert row["evidence_tiers"] == ["suppressed"]
-    assert row["evidence_line"] == "No current evidence row is attached for this ticker; open diagnostics for the full audit trail."
+    assert row["evidence_line"] == (
+        "No current signal evidence was attached for this ticker; open the audit "
+        "to see whether source data is unavailable, still unanalyzed, or below "
+        "the display threshold."
+    )
     assert row["risk_line"] == "Risk check did not attach a specific finding."
     assert row["risk_status_label"] == "Risk proof not attached"
 
@@ -660,7 +664,10 @@ async def test_cached_cockpit_context_coalesces_concurrent_requests(monkeypatch)
     async def fake_cockpit_context(**_kwargs: object) -> dict[str, object]:
         calls["count"] += 1
         await cockpit_module.asyncio.sleep(0.01)
-        return {"build": calls["count"]}
+        return {
+            "build": calls["count"],
+            "data_state": {"lane_rows": [{"lane_id": "massive_live_trade_slices"}]},
+        }
 
     monkeypatch.setattr(cockpit_module, "cockpit_context", fake_cockpit_context)
 
@@ -669,7 +676,10 @@ async def test_cached_cockpit_context_coalesces_concurrent_requests(monkeypatch)
         cockpit_module.cached_cockpit_context(),
     )
 
-    assert first == second == {"build": 1}
+    assert first["build"] == second["build"] == 1
+    assert first["data_state"] == second["data_state"]
+    assert first["cockpit_context_freshness"]["status_label"] == "Cockpit data loaded"
+    assert second["cockpit_context_freshness"]["status_label"] == "Cockpit data loaded"
     assert calls["count"] == 1
 
 
@@ -680,7 +690,10 @@ async def test_warm_cockpit_context_cache_primes_first_runtime_request(monkeypat
 
     async def fake_cockpit_context(**_kwargs: object) -> dict[str, object]:
         calls["count"] += 1
-        return {"build": calls["count"]}
+        return {
+            "build": calls["count"],
+            "data_state": {"lane_rows": [{"lane_id": "massive_live_trade_slices"}]},
+        }
 
     monkeypatch.setattr(cockpit_module, "cockpit_context", fake_cockpit_context)
 
@@ -688,7 +701,9 @@ async def test_warm_cockpit_context_cache_primes_first_runtime_request(monkeypat
     context = await cockpit_module.cached_cockpit_context()
 
     assert warmed is True
-    assert context == {"build": 1}
+    assert context["build"] == 1
+    assert context["data_state"] == {"lane_rows": [{"lane_id": "massive_live_trade_slices"}]}
+    assert context["cockpit_context_freshness"]["status_label"] == "Cockpit data loaded"
     assert calls["count"] == 1
 
 
@@ -700,7 +715,10 @@ async def test_cockpit_context_cache_covers_one_runtime_smoke_sequence(monkeypat
 
     async def fake_cockpit_context(**_kwargs: object) -> dict[str, object]:
         calls["count"] += 1
-        return {"build": calls["count"]}
+        return {
+            "build": calls["count"],
+            "data_state": {"lane_rows": [{"lane_id": "massive_live_trade_slices"}]},
+        }
 
     monkeypatch.setattr(cockpit_module, "monotonic", lambda: now["value"])
     monkeypatch.setattr(cockpit_module, "cockpit_context", fake_cockpit_context)
@@ -709,9 +727,36 @@ async def test_cockpit_context_cache_covers_one_runtime_smoke_sequence(monkeypat
     now["value"] += 10.0
     second = await cockpit_module.cached_cockpit_context()
 
-    assert first == second == {"build": 1}
+    assert first["build"] == second["build"] == 1
+    assert second["cockpit_context_freshness"]["source"] == "cache"
     assert calls["count"] == 1
     assert cockpit_module._cockpit_context_inflight == {}
+
+
+async def test_cockpit_context_cache_invalidates_when_data_proof_changes(monkeypatch) -> None:
+    calls = {"count": 0}
+    proof = {"value": 1}
+    cockpit_module._cockpit_context_cache.clear()
+    cockpit_module._cockpit_context_inflight.clear()
+
+    async def fake_cockpit_context(**_kwargs: object) -> dict[str, object]:
+        calls["count"] += 1
+        return {"build": calls["count"]}
+
+    monkeypatch.setattr(cockpit_module, "cockpit_context", fake_cockpit_context)
+    monkeypatch.setattr(
+        cockpit_module,
+        "runtime_status_data_proof_version",
+        lambda: proof["value"],
+    )
+
+    first = await cockpit_module.cached_cockpit_context()
+    proof["value"] = 2
+    second = await cockpit_module.cached_cockpit_context()
+
+    assert first["build"] == 1
+    assert second["build"] == 2
+    assert calls["count"] == 2
 
 
 async def test_expired_cockpit_cache_serves_last_context_while_refreshing(monkeypatch) -> None:
@@ -719,14 +764,21 @@ async def test_expired_cockpit_cache_serves_last_context_while_refreshing(monkey
     now = {"value": 1000.0}
     cockpit_module._cockpit_context_cache.clear()
     cockpit_module._cockpit_context_inflight.clear()
-    cockpit_module._cockpit_context_cache[(None, None)] = (
+    cache_key = (None, None, cockpit_module.runtime_status_data_proof_version())
+    cockpit_module._cockpit_context_cache[cache_key] = (
         now["value"] - cockpit_module.COCKPIT_CONTEXT_CACHE_SECONDS - 1.0,
-        {"build": "last-proven"},
+        {
+            "build": "last-proven",
+            "data_state": {"lane_rows": [{"lane_id": "massive_live_trade_slices"}]},
+        },
     )
 
     async def fake_cockpit_context(**_kwargs: object) -> dict[str, object]:
         calls["count"] += 1
-        return {"build": "fresh"}
+        return {
+            "build": "fresh",
+            "data_state": {"lane_rows": [{"lane_id": "massive_live_trade_slices"}]},
+        }
 
     monkeypatch.setattr(cockpit_module, "monotonic", lambda: now["value"])
     monkeypatch.setattr(cockpit_module, "cockpit_context", fake_cockpit_context)
@@ -736,8 +788,8 @@ async def test_expired_cockpit_cache_serves_last_context_while_refreshing(monkey
     await cockpit_module.asyncio.sleep(0)
     refreshed = await cockpit_module.cached_cockpit_context()
 
-    assert context == {"build": "last-proven"}
-    assert refreshed == {"build": "fresh"}
+    assert context["build"] == "last-proven"
+    assert refreshed["build"] == "fresh"
     assert calls["count"] == 1
 
 

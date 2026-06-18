@@ -1222,7 +1222,27 @@ def _key_points(row: Mapping[str, object]) -> list[str]:
     theme = _first_text(row.get("theme"))
     if theme:
         output.append(f"Theme: {theme}")
+    for item in _json_string_items(row.get("forward_data_json")):
+        output.append(item)
+    for item in _json_string_items(row.get("price_targets_json")):
+        output.append(f"Price target: {item}")
     return output
+
+
+def _json_string_items(value: object) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if not isinstance(value, str) or not value.strip():
+        return []
+    try:
+        parsed = json.loads(value)
+    except (TypeError, ValueError):
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [str(item).strip() for item in parsed if str(item).strip()]
 
 
 def _signal_strength(confidence: float) -> str:

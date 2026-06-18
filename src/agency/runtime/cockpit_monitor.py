@@ -53,7 +53,12 @@ def source_health_rows(
         )
         rows.append(
             {
-                "name": _first_text(item.get("name"), item.get("source"), default="Data source"),
+                "name": _first_text(
+                    item.get("name"),
+                    item.get("label"),
+                    item.get("source"),
+                    default="Data source",
+                ),
                 "tier": source_tier(item),
                 "state": state["state"],
                 "state_label": state["label"],
@@ -129,9 +134,9 @@ def source_state(source: Mapping[str, object]) -> dict[str, str]:
             "next_action": "Run the lane refresh so the agent can analyze current data.",
         }
     return {
-        "state": "ready",
-        "label": "Usable with proof timestamp",
-        "next_action": "No action needed unless the policy window expires.",
+        "state": "needs_refresh",
+        "label": "Source status needs verification",
+        "next_action": "Refresh this lane, then confirm the health status is healthy or fresh.",
     }
 
 

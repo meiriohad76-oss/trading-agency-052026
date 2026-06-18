@@ -81,7 +81,7 @@ def test_live_runtime_cycle_preserves_operator_database_url_override() -> None:
 def test_user_process_audit_accepts_focused_execution_contract() -> None:
     audit = importlib.import_module("scripts.check_user_process_flow_audit")
     html = """
-    <html data-ux-build="ux-v3-cockpit-primary-20260601">
+    <html data-ux-build="ux-v3-cockpit-readability-20260601">
       <body class="v3-app v3-screen-clearance">
         <section data-v3-universal-briefing>BLUF</section>
         <section data-selected-ticker="PLTR">
@@ -99,7 +99,7 @@ def test_user_process_audit_accepts_focused_execution_contract() -> None:
 def test_user_process_audit_accepts_focused_final_selection_contract() -> None:
     audit = importlib.import_module("scripts.check_user_process_flow_audit")
     html = """
-    <html data-ux-build="ux-v3-cockpit-primary-20260601">
+    <html data-ux-build="ux-v3-cockpit-readability-20260601">
       <body class="v3-app v3-screen-final">
         <section data-v3-universal-briefing>BLUF</section>
         <article id="candidate-PLTR">Approve research for PLTR</article>
@@ -141,7 +141,7 @@ def test_user_process_audit_requires_submit_ready_form() -> None:
 def test_user_process_audit_detects_buried_execution_focus() -> None:
     audit = importlib.import_module("scripts.check_user_process_flow_audit")
     html = """
-    <html data-ux-build="ux-v3-cockpit-primary-20260601">
+    <html data-ux-build="ux-v3-cockpit-readability-20260601">
       <body class="v3-app v3-screen-clearance">
         <section data-v3-universal-briefing>BLUF</section>
         <section id="execution-followup-heading">Generic list</section>
@@ -179,6 +179,103 @@ def test_user_process_audit_flags_route_budget_exceeded() -> None:
 
     assert audited["elapsed_seconds"] == 6.4
     assert any(failure["code"] == "route_budget_exceeded" for failure in audited["failures"])
+
+
+def test_user_process_audit_flags_disabled_buttons_without_reason() -> None:
+    audit = importlib.import_module("scripts.check_user_process_flow_audit")
+    html = """
+    <html data-ux-build="ux-v3-cockpit-readability-20260601">
+      <body class="v3-app">
+        <section data-v3-universal-briefing>BLUF</section>
+        <button disabled>Approve order</button>
+      </body>
+    </html>
+    """
+
+    failures = audit.audit_disabled_operator_controls("/execution-preview", html, ticker="PLTR")
+
+    assert any(failure["code"] == "disabled_control_missing_reason" for failure in failures)
+
+
+def test_user_process_audit_accepts_disabled_buttons_with_reason() -> None:
+    audit = importlib.import_module("scripts.check_user_process_flow_audit")
+    html = """
+    <html data-ux-build="ux-v3-cockpit-readability-20260601">
+      <body class="v3-app">
+        <section data-v3-universal-briefing>BLUF</section>
+        <p>Order approval requires broker API key proof before paper submit.</p>
+        <button disabled>Approve order</button>
+      </body>
+    </html>
+    """
+
+    assert audit.audit_disabled_operator_controls("/execution-preview", html, ticker="PLTR") == []
+
+
+def test_user_process_audit_ignores_disabled_text_inside_data_payload() -> None:
+    audit = importlib.import_module("scripts.check_user_process_flow_audit")
+    html = """
+    <html data-ux-build="ux-v3-cockpit-readability-20260601">
+      <body class="v3-app">
+        <section data-v3-universal-briefing>BLUF</section>
+        <button type="button" data-cockpit-ticker-payload='{"status": "disabled"}'>
+          Open ticker detail
+        </button>
+      </body>
+    </html>
+    """
+
+    assert audit.audit_disabled_operator_controls("/", html, ticker="PLTR") == []
+
+
+def test_user_process_audit_flags_visually_disabled_links_without_reason() -> None:
+    audit = importlib.import_module("scripts.check_user_process_flow_audit")
+    html = """
+    <html data-ux-build="ux-v3-cockpit-readability-20260601">
+      <body class="v3-app">
+        <section data-v3-universal-briefing>BLUF</section>
+        <a class="button primary-action-disabled" href="#">Approve order</a>
+      </body>
+    </html>
+    """
+
+    failures = audit.audit_disabled_operator_controls("/execution-preview", html, ticker="PLTR")
+
+    assert any(failure["code"] == "disabled_control_missing_reason" for failure in failures)
+
+
+def test_user_process_audit_approval_rehearsal_requires_focused_redirect() -> None:
+    audit = importlib.import_module("scripts.check_user_process_flow_audit")
+
+    failures = audit.audit_approval_post_result(
+        "PLTR",
+        audit.PostResult(
+            route="/candidates/PLTR/reviews",
+            status_code=303,
+            location="/execution-preview?ticker=PLTR#focused-preview-PLTR",
+            body="",
+            elapsed_seconds=0.1,
+        ),
+    )
+
+    assert failures == []
+
+
+def test_user_process_audit_approval_rehearsal_flags_lost_ticker_focus() -> None:
+    audit = importlib.import_module("scripts.check_user_process_flow_audit")
+
+    failures = audit.audit_approval_post_result(
+        "PLTR",
+        audit.PostResult(
+            route="/candidates/PLTR/reviews",
+            status_code=303,
+            location="/execution-preview",
+            body="",
+            elapsed_seconds=0.1,
+        ),
+    )
+
+    assert any(failure["code"] == "approval_rehearsal_lost_ticker_focus" for failure in failures)
 
 
 def test_user_process_audit_flags_unavailable_execution_status_payload() -> None:
@@ -225,6 +322,42 @@ def test_user_process_audit_fetch_text_uses_requests_client(
     assert seen_request["headers"] == {"Accept": "text/html"}
 
 
+def test_user_process_audit_json_get_retries_delayed_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    audit = importlib.import_module("scripts.check_user_process_flow_audit")
+    calls = 0
+
+    def fake_fetch_text(
+        base_url: str,
+        route: str,
+        timeout: int,
+        *,
+        accept: str = "text/html",
+    ) -> object:
+        nonlocal calls
+        calls += 1
+        assert accept == "application/json"
+        assert base_url == "http://example.test"
+        assert route == "/status/execution-preview"
+        assert timeout == 9
+        body = (
+            '{"available": true, "verdict": "status_timeout", "rows": []}'
+            if calls == 1
+            else '{"available": true, "verdict": "ready", "rows": [{"ticker": "AAPL"}]}'
+        )
+        return audit.FetchResult(route, 200, body, 0.01)
+
+    monkeypatch.setattr(audit, "fetch_text", fake_fetch_text)
+    monkeypatch.setattr(audit.time, "sleep", lambda _seconds: None)
+
+    payload = audit.json_get("http://example.test", "/status/execution-preview", 9)
+
+    assert calls == 2
+    assert payload["verdict"] == "ready"
+    assert payload["rows"] == [{"ticker": "AAPL"}]
+
+
 def test_user_process_audit_samples_candidate_pages_from_review_queue_first() -> None:
     audit = importlib.import_module("scripts.check_user_process_flow_audit")
 
@@ -252,7 +385,7 @@ def test_user_process_audit_max_tickers_preserves_review_queue_first() -> None:
 def test_user_process_audit_candidate_review_action_only_when_expected() -> None:
     audit = importlib.import_module("scripts.check_user_process_flow_audit")
     html = """
-    <html data-ux-build="ux-v3-cockpit-primary-20260601">
+    <html data-ux-build="ux-v3-cockpit-readability-20260601">
       <body class="v3-app">
         <section data-v3-universal-briefing>BLUF</section>
         <section class="data-health-panel">Cycle Last verified Recommended action</section>
@@ -269,7 +402,7 @@ def test_user_process_audit_candidate_review_action_only_when_expected() -> None
 def test_user_process_audit_accepts_current_analysis_refresh_state() -> None:
     audit = importlib.import_module("scripts.check_user_process_flow_audit")
     html = """
-    <html data-ux-build="ux-v3-cockpit-primary-20260601">
+    <html data-ux-build="ux-v3-cockpit-readability-20260601">
       <body class="v3-app">
         <section data-v3-universal-briefing>BLUF</section>
         <section class="panel action-summary-panel">
@@ -289,9 +422,185 @@ def test_user_process_audit_accepts_current_analysis_refresh_state() -> None:
     assert audit.audit_candidate_html("PLTR", html, expect_review_action=True) == []
 
 
+def test_user_process_audit_accepts_dashboard_health_contract() -> None:
+    audit = importlib.import_module("scripts.check_user_process_flow_audit")
+    html = """
+    <html data-ux-build="ux-v3-cockpit-readability-20260601">
+      <body class="v3-app">
+        <section data-v3-universal-briefing>BLUF</section>
+        <section class="data-health-panel">
+          Displayed Data Health
+          What this means
+          Recommended action
+          Last verified
+          Next action
+        </section>
+      </body>
+    </html>
+    """
+
+    assert audit.audit_dashboard_health_html("/signals", html) == []
+
+
+def test_user_process_audit_flags_dashboard_without_health_contract() -> None:
+    audit = importlib.import_module("scripts.check_user_process_flow_audit")
+
+    failures = audit.audit_dashboard_health_html("/signals", _v3_html())
+
+    assert any(failure["code"] == "dashboard_health_panel_missing" for failure in failures)
+
+
+def test_user_process_audit_accepts_data_agent_lane_contracts() -> None:
+    audit = importlib.import_module("scripts.check_user_process_flow_audit")
+    payload = {
+        "available": True,
+        "health_monitor": {"status_label": "Healthy", "status_class": "pass"},
+        "lane_states": [
+            {
+                "lane_id": "massive_live_trade_slices",
+                "lane_kind": "raw_acquisition",
+                "state": "needs_refresh",
+                "status_label": "Lane proof needs refresh",
+                "status_class": "warn",
+                "operator_message": "Massive Live Trade Slices lane proof needs refresh.",
+                "recommended_action": "Refresh Massive Live Trade Slices using the lane refresh action.",
+                "latest_as_of": "2026-06-02T14:00:00+00:00",
+                "checked_at": "2026-06-02T14:00:00+00:00",
+                "progress_label": "85% manifest coverage",
+                "progress_percent": 85,
+                "eta_label": "4m",
+                "source_proof_label": "Provider Needs refresh; freshness Needs refresh; checked 2026-06-02T14:00:00+00:00",
+                "refresh_action_available": True,
+                "refresh_action_label": "Refresh Live Trade Slices",
+                "refresh_action_url": "/scheduler/massive-lanes/massive_live_trade_slices/refresh",
+                "refresh_action_method": "post",
+                "refresh_action_detail": "Runs this data lane through the scheduler's trade-aware policy.",
+            }
+        ],
+        "lanes": [
+            {
+                "lane": "buy_sell_pressure",
+                "label": "Buy Sell Pressure",
+                "group": "critical",
+                "analysis_state": "analyzed_needs_refresh",
+                "source_dataset": "stock_trades",
+                "status_label": "Attention",
+                "status_class": "warn",
+                "detail": "buy sell pressure is waiting on refreshed Massive trade prints.",
+                "coverage_pct": 80,
+                "produced_count": 134,
+                "source_status": "STALE",
+                "source_freshness": "STALE",
+            }
+        ],
+        "datasets": [
+            {
+                "dataset": "stock_trades",
+                "label": "Massive trade prints",
+                "status_label": "Attention",
+                "status_class": "warn",
+                "detail": "Massive trade prints need refresh before paper execution.",
+                "coverage_pct": 80,
+                "max_as_of": "2026-06-02T14:00:00+00:00",
+                "source_status": "STALE",
+                "source_freshness": "STALE",
+            }
+        ],
+    }
+
+    result = audit.audit_data_load_status_contract(payload)[0]
+
+    assert result["failures"] == []
+
+
+def test_user_process_audit_flags_lane_without_proof_and_action() -> None:
+    audit = importlib.import_module("scripts.check_user_process_flow_audit")
+    lane = {
+        "lane_id": "massive_live_trade_slices",
+        "lane_kind": "raw_acquisition",
+        "state": "needs_refresh",
+        "status_label": "Lane proof needs refresh",
+        "status_class": "warn",
+        "operator_message": "Massive Live Trade Slices lane proof needs refresh.",
+        "recommended_action": "Look later.",
+        "latest_as_of": "2026-06-02T14:00:00+00:00",
+        "checked_at": "not checked",
+        "progress_label": "unknown",
+        "progress_percent": 120,
+        "eta_label": "unknown",
+        "refresh_action_available": False,
+    }
+
+    failures = audit.audit_lane_state_contract(lane)
+
+    assert any(failure["code"] == "lane_state_field_missing" for failure in failures)
+    assert any(failure["code"] == "lane_state_progress_invalid" for failure in failures)
+    assert any(failure["code"] == "lane_state_proof_timestamp_missing" for failure in failures)
+    assert any(failure["code"] == "lane_state_action_not_operator_clear" for failure in failures)
+    assert any(failure["code"] == "lane_refresh_disabled_reason_missing" for failure in failures)
+
+
+def test_user_process_audit_flags_operator_stale_wording_in_lane_copy() -> None:
+    audit = importlib.import_module("scripts.check_user_process_flow_audit")
+
+    failures = audit.audit_lane_state_contract(
+        {
+            "lane_id": "massive_live_trade_slices",
+            "lane_kind": "raw_acquisition",
+            "state": "needs_refresh",
+            "status_label": "Lane proof stale",
+            "status_class": "warn",
+            "operator_message": "The lane is stale.",
+            "recommended_action": "Refresh this lane.",
+            "latest_as_of": "2026-06-02T14:00:00+00:00",
+            "checked_at": "2026-06-02T14:00:00+00:00",
+            "progress_label": "85% manifest coverage",
+            "progress_percent": 85,
+            "eta_label": "4m",
+            "source_proof_label": "Provider STALE",
+            "refresh_action_available": True,
+            "refresh_action_label": "Refresh Live Trade Slices",
+            "refresh_action_url": "/scheduler/massive-lanes/massive_live_trade_slices/refresh",
+            "refresh_action_method": "post",
+        }
+    )
+
+    assert any(failure["code"] == "operator_copy_forbidden_term" for failure in failures)
+
+
+def test_user_process_audit_checks_scheduler_and_source_contracts() -> None:
+    audit = importlib.import_module("scripts.check_user_process_flow_audit")
+
+    source_result = audit.audit_data_sources_contract(
+        {
+            "available": True,
+            "payload": [
+                {
+                    "source": "massive-stock-trades",
+                    "status": "HEALTHY",
+                    "freshness": "FRESH",
+                    "checked_at": "2026-06-02T14:00:00+00:00",
+                }
+            ],
+        }
+    )[0]
+    scheduler_result = audit.audit_scheduler_status_contract(
+        {
+            "available": True,
+            "headline": "Automation queue status is still loading.",
+            "status_label": "Queue status delayed",
+            "status_class": "warn",
+            "tradability_detail": "Scheduler queue proof is loading; refresh the panel after cache warm-up.",
+        }
+    )[0]
+
+    assert source_result["failures"] == []
+    assert scheduler_result["failures"] == []
+
+
 def _v3_html() -> str:
     return """
-    <html data-ux-build="ux-v3-cockpit-primary-20260601">
+    <html data-ux-build="ux-v3-cockpit-readability-20260601">
       <body class="v3-app">
         <section data-v3-universal-briefing>BLUF</section>
       </body>
@@ -601,7 +910,7 @@ def test_check_local_runtime_records_route_budget_timings() -> None:
         payload: object
         if path == "/health":
             payload = {"status": "ok"}
-        elif path in {"/reports/selection", "/risk/decisions"}:
+        elif path in {"/reports/selection?limit=1", "/risk/decisions"}:
             payload = [{"ticker": "AAPL"}]
         elif path == "/api/cockpit":
             payload = {"candidates": [{"ticker": "AAPL"}]}
@@ -615,10 +924,8 @@ def test_check_local_runtime_records_route_budget_timings() -> None:
                 path=path,
                 payload="# HELP demo Demo\nagency_source_health_total 2\n",
             )
-        if path == "/":
-            return _timed_payload(path=path, payload="<html>Command</html>")
-        if path == "/cockpit":
-            return _timed_payload(path=path, payload="<html>Cockpit</html>")
+        if path in local_runtime.DASHBOARD_TEXT_ROUTES:
+            return _timed_payload(path=path, payload=f"<html>{path}</html>")
         raise AssertionError(path)
 
     summary = local_runtime.check_runtime(
@@ -637,11 +944,15 @@ def test_check_local_runtime_records_route_budget_timings() -> None:
     assert timings["/cockpit"]["budget_metric"] == "first_byte_seconds"
     assert timings["/api/cockpit"]["budget_seconds"] == 12.0
     assert timings["/api/cockpit"]["budget_metric"] == "total_seconds"
+    assert timings["/command"]["budget_seconds"] == 12.0
+    assert timings["/command"]["budget_metric"] == "total_seconds"
+    assert timings["/signals"]["budget_seconds"] == 12.0
+    assert timings["/signals"]["budget_metric"] == "total_seconds"
 
 
 def test_check_local_runtime_fails_slow_selection_reports_route() -> None:
     def fake_fetch_json(_base_url: str, path: str) -> dict[str, object]:
-        if path == "/reports/selection":
+        if path == "/reports/selection?limit=1":
             return _timed_payload(
                 path=path,
                 payload=[{"ticker": "AAPL"}],
@@ -661,10 +972,8 @@ def test_check_local_runtime_fails_slow_selection_reports_route() -> None:
                 path=path,
                 payload="# HELP demo Demo\nagency_source_health_total 2\n",
             )
-        if path == "/":
-            return _timed_payload(path=path, payload="<html>Command</html>")
-        if path == "/cockpit":
-            return _timed_payload(path=path, payload="<html>Cockpit</html>")
+        if path in local_runtime.DASHBOARD_TEXT_ROUTES:
+            return _timed_payload(path=path, payload=f"<html>{path}</html>")
         raise AssertionError(path)
 
     with pytest.raises(RuntimeError, match="Selection reports route exceeded 5.0s"):
@@ -680,7 +989,7 @@ def test_check_local_runtime_fails_slow_cockpit_root_first_byte() -> None:
     def fake_fetch_json(_base_url: str, path: str) -> dict[str, object]:
         if path == "/health":
             return _timed_payload(path=path, payload={"status": "ok"})
-        if path == "/reports/selection":
+        if path == "/reports/selection?limit=1":
             return _timed_payload(path=path, payload=[{"ticker": "AAPL"}])
         if path == "/risk/decisions":
             return _timed_payload(path=path, payload=[{"ticker": "AAPL"}])
@@ -700,8 +1009,8 @@ def test_check_local_runtime_fails_slow_cockpit_root_first_byte() -> None:
                 payload="<html>Command</html>",
                 first_byte_seconds=12.2,
             )
-        if path == "/cockpit":
-            return _timed_payload(path=path, payload="<html>Cockpit</html>")
+        if path in local_runtime.DASHBOARD_TEXT_ROUTES:
+            return _timed_payload(path=path, payload=f"<html>{path}</html>")
         raise AssertionError(path)
 
     with pytest.raises(RuntimeError, match="V3 cockpit root route exceeded 12.0s"):
@@ -717,7 +1026,7 @@ def test_check_local_runtime_fails_slow_cockpit_api_total_time() -> None:
     def fake_fetch_json(_base_url: str, path: str) -> dict[str, object]:
         if path == "/health":
             return _timed_payload(path=path, payload={"status": "ok"})
-        if path == "/reports/selection":
+        if path == "/reports/selection?limit=1":
             return _timed_payload(path=path, payload=[{"ticker": "AAPL"}])
         if path == "/risk/decisions":
             return _timed_payload(path=path, payload=[{"ticker": "AAPL"}])
@@ -735,13 +1044,48 @@ def test_check_local_runtime_fails_slow_cockpit_api_total_time() -> None:
                 path=path,
                 payload="# HELP demo Demo\nagency_source_health_total 2\n",
             )
-        if path == "/":
-            return _timed_payload(path=path, payload="<html>Command</html>")
-        if path == "/cockpit":
-            return _timed_payload(path=path, payload="<html>Cockpit</html>")
+        if path in local_runtime.DASHBOARD_TEXT_ROUTES:
+            return _timed_payload(path=path, payload=f"<html>{path}</html>")
         raise AssertionError(path)
 
     with pytest.raises(RuntimeError, match="V3 cockpit API route exceeded 12.0s"):
+        local_runtime.check_runtime(
+            min_selection_reports=1,
+            min_risk_decisions=1,
+            timed_fetch_json=fake_fetch_json,
+            timed_fetch_text=fake_fetch_text,
+        )
+
+
+def test_check_local_runtime_fails_slow_non_cockpit_dashboard_route() -> None:
+    def fake_fetch_json(_base_url: str, path: str) -> dict[str, object]:
+        if path == "/health":
+            return _timed_payload(path=path, payload={"status": "ok"})
+        if path == "/reports/selection?limit=1":
+            return _timed_payload(path=path, payload=[{"ticker": "AAPL"}])
+        if path == "/risk/decisions":
+            return _timed_payload(path=path, payload=[{"ticker": "AAPL"}])
+        if path == "/api/cockpit":
+            return _timed_payload(path=path, payload={"candidates": []})
+        raise AssertionError(path)
+
+    def fake_fetch_text(_base_url: str, path: str) -> dict[str, object]:
+        if path == "/metrics":
+            return _timed_payload(
+                path=path,
+                payload="# HELP demo Demo\nagency_source_health_total 2\n",
+            )
+        if path == "/signals":
+            return _timed_payload(
+                path=path,
+                payload="<html>Signals</html>",
+                total_seconds=12.5,
+            )
+        if path in local_runtime.DASHBOARD_TEXT_ROUTES:
+            return _timed_payload(path=path, payload=f"<html>{path}</html>")
+        raise AssertionError(path)
+
+    with pytest.raises(RuntimeError, match="Signals dashboard route exceeded 12.0s"):
         local_runtime.check_runtime(
             min_selection_reports=1,
             min_risk_decisions=1,

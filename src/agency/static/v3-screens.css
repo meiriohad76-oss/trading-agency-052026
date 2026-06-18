@@ -1301,6 +1301,27 @@ body.v3-screen-cockpit {
   color: var(--green);
 }
 
+.v3-screen-cockpit .cockpit-phase-cell[data-phase-state="active"] {
+  opacity: 1;
+}
+
+.v3-screen-cockpit .cockpit-phase-cell[data-phase-state="pending"] {
+  opacity: 0.68;
+}
+
+.v3-screen-cockpit .cockpit-phase-cell[data-phase-state="pending"] .cockpit-phase-index {
+  color: var(--tx-2);
+}
+
+.v3-screen-cockpit .cockpit-phase-cell[data-phase-state="blocked"] {
+  opacity: 1;
+  background: rgba(255, 99, 99, 0.1);
+}
+
+.v3-screen-cockpit .cockpit-phase-cell[data-phase-state="blocked"] .cockpit-phase-index {
+  color: var(--red);
+}
+
 .v3-screen-cockpit .cockpit-phase {
   padding: 24px;
   background: var(--bg);
@@ -1373,9 +1394,17 @@ body.v3-screen-cockpit {
   text-align: center;
 }
 
-.v3-screen-cockpit .cockpit-whymark {
+.v3-screen-cockpit .cockpit-shell .info-tip {
+  display: inline-grid;
+  width: 44px;
   min-width: 44px;
+  height: 44px;
   min-height: 44px;
+  place-items: center;
+}
+
+.v3-screen-cockpit .cockpit-whymark {
+  margin-left: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1395,6 +1424,267 @@ body.v3-screen-cockpit {
   background: rgba(255, 184, 69, 0.08);
 }
 
+/* Readability recovery gate: the cockpit is an operator briefing, not a dense
+   diagnostics table. These overrides keep the v3 palette but restore readable
+   first-screen typography and obvious action hierarchy. */
+.v3-screen-cockpit .cockpit-shell.vA {
+  font-size: 16px;
+}
+
+.v3-screen-cockpit .cockpit-topline {
+  grid-template-columns: minmax(380px, 0.95fr) minmax(460px, 1.05fr);
+  padding: 18px 24px;
+}
+
+.v3-screen-cockpit .cockpit-bluf {
+  font-size: clamp(1.72rem, 2.28vw, 2.25rem);
+  line-height: 1.12;
+}
+
+.v3-screen-cockpit .cockpit-top-actions,
+.v3-screen-cockpit .cockpit-primary-action {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  margin-top: 18px;
+}
+
+.v3-screen-cockpit .cockpit-top-actions small,
+.v3-screen-cockpit .cockpit-primary-action small {
+  flex: 1 1 240px;
+  color: #b8c7dc;
+  font-size: 0.96rem;
+  line-height: 1.35;
+}
+
+.v3-screen-cockpit .cockpit-main-action {
+  min-width: min(100%, 300px);
+}
+
+.v3-screen-cockpit .cockpit-dashboard-nav {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.72fr) repeat(5, minmax(150px, 1fr));
+  gap: 1px;
+  border-bottom: 1px solid var(--bd);
+  background: var(--bd);
+}
+
+.v3-screen-cockpit .cockpit-dashboard-nav > strong,
+.v3-screen-cockpit .cockpit-dashboard-nav > a {
+  display: grid;
+  align-content: center;
+  min-height: 64px;
+  padding: 12px 18px;
+  background: rgba(12, 22, 34, 0.96);
+}
+
+.v3-screen-cockpit .cockpit-dashboard-nav > strong {
+  color: #b8c7dc;
+  font-size: 0.86rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.v3-screen-cockpit .cockpit-dashboard-nav > a {
+  color: var(--tx);
+  text-decoration: none;
+  border-bottom: 3px solid transparent;
+}
+
+.v3-screen-cockpit .cockpit-dashboard-nav > a:hover,
+.v3-screen-cockpit .cockpit-dashboard-nav > a:focus-visible {
+  color: #fff7dc;
+  border-bottom-color: var(--amber);
+  background: rgba(255, 184, 69, 0.1);
+  outline: 2px solid rgba(255, 184, 69, 0.42);
+  outline-offset: -2px;
+}
+
+.v3-screen-cockpit .cockpit-dashboard-nav span {
+  font-size: 1.03rem;
+  font-weight: 900;
+}
+
+.v3-screen-cockpit .cockpit-dashboard-nav small {
+  margin-top: 4px;
+  color: #9fb0c8;
+  font-size: 0.9rem;
+  line-height: 1.25;
+}
+
+.v3-screen-cockpit .cockpit-email-agent-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid rgba(90, 215, 240, 0.28);
+  background: rgba(90, 215, 240, 0.08);
+}
+
+.v3-screen-cockpit .cockpit-email-agent-control strong {
+  display: block;
+  margin: 4px 0;
+  color: var(--tx);
+  font-size: 1.05rem;
+  line-height: 1.25;
+}
+
+.v3-screen-cockpit .cockpit-email-agent-control p {
+  margin: 0;
+  color: #b8c7dc;
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+
+.v3-screen-cockpit .cockpit-email-agent-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.v3-screen-cockpit .cockpit-topline .muted,
+.v3-screen-cockpit .cockpit-data-state-headline > p:not(.eyebrow),
+.v3-screen-cockpit .cockpit-data-state-gaps p,
+.v3-screen-cockpit .cockpit-data-state-gap small {
+  color: #b8c7dc;
+  font-size: 1rem;
+  line-height: 1.45;
+}
+
+.v3-screen-cockpit .cockpit-topline .eyebrow,
+.v3-screen-cockpit .cockpit-engine-strip > strong,
+.v3-screen-cockpit .metric-label {
+  font-size: 0.78rem;
+}
+
+.v3-screen-cockpit .cockpit-data-state-strip {
+  grid-template-columns: minmax(300px, 0.86fr) minmax(480px, 1.26fr) minmax(360px, 1fr);
+}
+
+.v3-screen-cockpit .cockpit-data-state-headline,
+.v3-screen-cockpit .cockpit-data-state-gaps {
+  align-content: start;
+  gap: 12px;
+  padding: 18px 20px;
+}
+
+.v3-screen-cockpit .cockpit-data-state-metrics {
+  gap: 10px;
+  padding: 18px 14px;
+}
+
+.v3-screen-cockpit .cockpit-data-state-headline h2 {
+  font-size: clamp(1.28rem, 1.5vw, 1.65rem);
+  line-height: 1.22;
+}
+
+.v3-screen-cockpit .cockpit-data-state-metrics article {
+  gap: 8px;
+  min-height: 132px;
+  padding: 14px 12px;
+}
+
+.v3-screen-cockpit .cockpit-data-state-metrics span {
+  color: #9fb0c8;
+  font-size: 0.96rem;
+  line-height: 1.35;
+}
+
+.v3-screen-cockpit .cockpit-data-state-metrics small {
+  color: #b8c7dc;
+  font-size: 0.95rem;
+  line-height: 1.4;
+}
+
+.v3-screen-cockpit .cockpit-data-state-metrics .cockpit-mono {
+  color: var(--tx);
+  font-size: 1.35rem;
+  font-weight: 700;
+}
+
+.v3-screen-cockpit .cockpit-cycle-card {
+  min-width: 0;
+}
+
+.v3-screen-cockpit .cockpit-data-state-gap {
+  gap: 10px;
+  padding: 14px;
+  border-color: rgba(255, 184, 69, 0.42);
+  background: rgba(255, 184, 69, 0.07);
+}
+
+.v3-screen-cockpit .cockpit-data-state-gap > strong {
+  font-size: 1.18rem;
+  line-height: 1.25;
+}
+
+.v3-screen-cockpit .cockpit-top-actions .button,
+.v3-screen-cockpit .cockpit-primary-action .button,
+.v3-screen-cockpit .cockpit-data-state-gap .button,
+.v3-screen-cockpit .cockpit-email-agent-control .data-health-action-button,
+.v3-screen-cockpit .cockpit-email-login-alert .data-health-action-button,
+.v3-screen-cockpit .review-action-form .button,
+.v3-screen-cockpit .cockpit-decision-cell .button,
+.v3-screen-cockpit .cockpit-decision-cell button {
+  min-height: 54px;
+  padding: 0 22px;
+  border-radius: 4px;
+  font-size: 1rem;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+}
+
+.v3-screen-cockpit .cockpit-top-actions .button-primary,
+.v3-screen-cockpit .cockpit-primary-action .button,
+.v3-screen-cockpit .cockpit-data-state-gap .button-primary,
+.v3-screen-cockpit .cockpit-email-agent-control .primary-mini-action,
+.v3-screen-cockpit .cockpit-email-login-alert .data-health-action-button,
+.v3-screen-cockpit .review-action-form[data-review-action="approve"] .button,
+.v3-screen-cockpit .cockpit-decision-cell .button-primary,
+.v3-screen-cockpit .cockpit-decision-cell .action-approve {
+  color: #1a0f00;
+  border-color: rgba(255, 204, 104, 0.92);
+  background:
+    linear-gradient(180deg, #ffd377 0%, var(--amber) 68%, #dc8e1f 100%);
+  box-shadow:
+    0 0 0 1px rgba(255, 184, 69, 0.18),
+    0 0 22px rgba(255, 184, 69, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.36);
+}
+
+.v3-screen-cockpit .cockpit-cycle-card .button,
+.v3-screen-cockpit .cockpit-instrument-nav button,
+.v3-screen-cockpit .button-secondary {
+  min-height: 48px;
+  padding: 0 16px;
+  font-size: 0.96rem;
+  font-weight: 800;
+}
+
+.v3-screen-cockpit .status-pill {
+  min-height: 30px;
+  padding: 6px 10px;
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.v3-screen-cockpit .cockpit-phase-cell strong {
+  font-size: 1.06rem;
+}
+
+.v3-screen-cockpit .cockpit-phase-cell small {
+  font-size: 0.88rem;
+  line-height: 1.35;
+}
+
+.v3-screen-cockpit .cockpit-phase-index {
+  font-size: 0.86rem;
+}
+
 @media (max-width: 1200px) {
   .v3-screen-cockpit .cockpit-shell.vA {
     width: 100%;
@@ -1403,6 +1693,8 @@ body.v3-screen-cockpit {
   }
 
   .v3-screen-cockpit .cockpit-data-state-strip,
+  .v3-screen-cockpit .cockpit-dashboard-nav,
+  .v3-screen-cockpit .cockpit-email-agent-control,
   .v3-screen-cockpit .cockpit-instrument-cluster {
     grid-template-columns: 1fr;
   }
@@ -1429,5 +1721,84 @@ body.v3-screen-cockpit {
   .v3-screen-cockpit .cockpit-instrument-cluster {
     padding-right: 14px;
     padding-left: 14px;
+  }
+
+  .v3-screen-cockpit .cockpit-topline {
+    gap: 10px;
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+
+  .v3-screen-cockpit .cockpit-bluf {
+    font-size: 1.4rem;
+    line-height: 1.18;
+  }
+
+  .v3-screen-cockpit .cockpit-topline .muted,
+  .v3-screen-cockpit .cockpit-primary-action small,
+  .v3-screen-cockpit .cockpit-top-actions small {
+    display: none;
+  }
+
+  .v3-screen-cockpit .cockpit-primary-action,
+  .v3-screen-cockpit .cockpit-top-actions {
+    margin-top: 8px;
+  }
+
+  .v3-screen-cockpit .cockpit-primary-action .button,
+  .v3-screen-cockpit .cockpit-top-actions .button {
+    min-height: 54px;
+    width: 100%;
+  }
+
+  .v3-screen-cockpit .cockpit-cycle-card {
+    display: none;
+  }
+
+  .v3-screen-cockpit .cockpit-data-state-headline {
+    order: 2;
+    padding: 8px 14px;
+  }
+
+  .v3-screen-cockpit .cockpit-data-state-headline > p:not(.eyebrow) {
+    display: none;
+  }
+
+  .v3-screen-cockpit .cockpit-data-state-gaps {
+    order: 1;
+    padding: 8px 14px;
+  }
+
+  .v3-screen-cockpit .cockpit-data-state-metrics {
+    order: 3;
+    padding: 10px 14px;
+  }
+
+  .v3-screen-cockpit .cockpit-data-state-gap {
+    gap: 7px;
+    padding: 10px;
+  }
+
+  .v3-screen-cockpit .cockpit-data-state-gap > strong {
+    font-size: 1.02rem;
+  }
+
+  .v3-screen-cockpit .cockpit-data-state-gap p,
+  .v3-screen-cockpit .cockpit-data-state-gap small {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+  }
+
+  .v3-screen-cockpit .cockpit-data-state-gap p {
+    -webkit-line-clamp: 3;
+  }
+
+  .v3-screen-cockpit .cockpit-data-state-gap small {
+    -webkit-line-clamp: 2;
+  }
+
+  .v3-screen-cockpit .cockpit-data-state-gaps > .button-secondary {
+    min-height: 44px;
   }
 }

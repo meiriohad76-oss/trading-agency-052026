@@ -62,7 +62,7 @@ async def selection_reports(
     try:
         return await runtime_selection_reports(
             limit=limit,
-            prefer_latest_artifact=False,
+            prefer_latest_artifact=True,
             use_cache=True,
         )
     except RuntimeSelectionReportsUnavailable as exc:
@@ -78,7 +78,7 @@ async def selection_reports_for_ticker(
         return await runtime_selection_reports(
             ticker=ticker,
             limit=limit,
-            prefer_latest_artifact=False,
+            prefer_latest_artifact=True,
             use_cache=True,
         )
     except RuntimeSelectionReportsUnavailable as exc:
@@ -162,6 +162,15 @@ async def _cached_runtime_selection_reports(
             )
         )
         _runtime_selection_report_inflight[key] = task
+        if stale_payloads is not None:
+            task.add_done_callback(
+                lambda completed, cache_key=key: _store_runtime_selection_report_task_result(
+                    cache_key,
+                    completed,
+                )
+            )
+    if stale_payloads is not None:
+        return deepcopy(stale_payloads)
     try:
         payloads = await task
     except Exception:
@@ -176,6 +185,21 @@ async def _cached_runtime_selection_reports(
     return deepcopy(payloads)
 
 
+def _store_runtime_selection_report_task_result(
+    key: SelectionReportCacheKey,
+    task: asyncio.Task[list[dict[str, object]]],
+) -> None:
+    try:
+        payloads = task.result()
+    except Exception:
+        if _runtime_selection_report_inflight.get(key) is task:
+            _runtime_selection_report_inflight.pop(key, None)
+        return
+    if _runtime_selection_report_inflight.get(key) is task:
+        _runtime_selection_report_inflight.pop(key, None)
+    _runtime_selection_report_cache[key] = (monotonic(), deepcopy(payloads))
+
+
 async def _runtime_selection_reports_uncached(
     *,
     ticker: str | None,
@@ -187,6 +211,22 @@ async def _runtime_selection_reports_uncached(
     prefer_latest_artifact: bool,
 ) -> list[dict[str, object]]:
     report_reader = _read_selection_reports if reader is None else reader
+    artifact_payloads: list[dict[str, object]] = []
+    if prefer_latest_artifact:
+        artifact_payloads = _artifact_selection_reports(
+            ticker=ticker,
+            limit=limit,
+            artifact_root=artifact_root,
+            force=True,
+            runtime_origin="runtime_artifact_selected",
+        )
+        if _latest_payload_timestamp(artifact_payloads) != UNKNOWN_PAYLOAD_TIMESTAMP:
+            payloads = artifact_payloads
+            payloads = [payload for payload in payloads if not is_non_operational_payload(payload)]
+            if validate_payloads:
+                for payload in payloads:
+                    validate_contract("selection-report", payload)
+            return payloads
     try:
         payloads = await _read_storage_payloads(
             session_provider=session_provider,
@@ -211,13 +251,7 @@ async def _runtime_selection_reports_uncached(
         if prefer_latest_artifact:
             payloads = _prefer_newer_artifact_payloads(
                 payloads,
-                _artifact_selection_reports(
-                    ticker=ticker,
-                    limit=limit,
-                    artifact_root=artifact_root,
-                    force=True,
-                    runtime_origin="runtime_artifact_selected",
-                ),
+                artifact_payloads,
             )
         if not payloads:
             payloads = _artifact_selection_reports(

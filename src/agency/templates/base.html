@@ -1,13 +1,13 @@
 <!doctype html>
-<html lang="en" data-theme="dark" data-ux-version="v3" data-ux-build="ux-v3-cockpit-primary-20260601">
+<html lang="en" data-theme="dark" data-ux-version="v3" data-ux-build="ux-v3-cockpit-readability-20260601">
   <head>
     <meta charset="utf-8">
     {% block viewport %}
     <meta name="viewport" content="width=device-width, initial-scale=1">
     {% endblock %}
     <title>{% block title %}Trading Agency v3{% endblock %}</title>
-    <link rel="stylesheet" href="/static/styles.css?v={{ static_version | default('ux-v3-cockpit-primary-20260601') }}">
-    <link rel="stylesheet" href="/static/v3-screens.css?v={{ static_version | default('ux-v3-cockpit-primary-20260601') }}">
+    <link rel="stylesheet" href="/static/styles.css?v={{ static_version | default('ux-v3-cockpit-readability-20260601') }}">
+    <link rel="stylesheet" href="/static/v3-screens.css?v={{ static_version | default('ux-v3-cockpit-readability-20260601') }}">
   </head>
   <body class="v3-app v3-screen-{{ v3_screen | default(active_nav | default('agency')) }}">
     <div class="app-shell v3-app-shell">
@@ -118,7 +118,7 @@
             {% endif %}
           >
             <span class="status-dot status-dot-warn" data-runtime-dot aria-hidden="true"></span>
-            <span class="ux-build-marker" aria-label="Current UX build">UX V3 · Cockpit Primary · 2026-06-01</span>
+            <span class="ux-build-marker" aria-label="Current UX build">UX V3 · Cockpit Readability · 2026-06-01</span>
             <span class="status-pill status-pill-paper">PAPER</span>
             <span class="topbar-meta">{% block topbar_meta %}Runtime diagnostics{% endblock %}</span>
             <span class="status-pill status-pill-warn" data-runtime-server-status>Checking server</span>
@@ -169,8 +169,8 @@
         </main>
       </div>
     </div>
-    <script src="/static/data-refresh-progress.js?v=ux-v3-cockpit-primary-20260601" defer></script>
-    <script src="/static/responsive-tables.js?v=ux-v3-cockpit-primary-20260601" defer></script>
+    <script src="/static/data-refresh-progress.js?v=ux-v3-cockpit-readability-20260601" defer></script>
+    <script src="/static/responsive-tables.js?v=ux-v3-cockpit-readability-20260601" defer></script>
     <script>
       function enhanceInfoTips() {
         document.querySelectorAll(".info-tip").forEach((tip) => {

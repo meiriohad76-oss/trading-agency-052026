@@ -43,7 +43,7 @@ def test_risk_decisions_endpoint_reports_unavailable_when_storage_is_unavailable
     assert response.json()["detail"] == "runtime risk-decision storage is unavailable"
 
 
-def test_risk_decisions_endpoint_does_not_force_latest_runtime_artifact(
+def test_risk_decisions_endpoint_prefers_latest_runtime_artifact(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     observed: dict[str, object] = {}
@@ -59,7 +59,7 @@ def test_risk_decisions_endpoint_does_not_force_latest_runtime_artifact(
 
     assert response.status_code == HTTP_OK
     assert response.json() == [{"ticker": "AAPL"}]
-    assert observed["prefer_latest_artifact"] is False
+    assert observed["prefer_latest_artifact"] is True
 
 
 async def test_runtime_risk_decisions_uses_repository_payloads() -> None:
@@ -141,15 +141,19 @@ async def test_runtime_risk_decisions_uses_latest_artifact_when_db_unavailable(
     assert payloads[0]["runtime_origin"] == "runtime_artifact_fallback"
 
 
-async def test_runtime_risk_decisions_can_prefer_newer_runtime_artifact(
+async def test_runtime_risk_decisions_prefers_runtime_artifact_without_storage_wait(
     tmp_path: Path,
 ) -> None:
+    attempts = 0
+
     async def reader(
         session: object,
         ticker: str | None,
         limit: int,
     ) -> list[dict[str, object]]:
         del session, ticker, limit
+        nonlocal attempts
+        attempts += 1
         return [
             {
                 **_risk_decision(),
@@ -181,20 +185,25 @@ async def test_runtime_risk_decisions_can_prefer_newer_runtime_artifact(
 
     assert payloads[0]["cycle_id"] == "full-active-refresh-20260524T0625Z"
     assert payloads[0]["runtime_origin"] == "runtime_artifact_selected"
-    assert payloads[0]["runtime_storage_superseded"] is True
+    assert payloads[0]["runtime_storage_superseded"] is False
     assert str(payloads[0]["runtime_artifact_path"]).endswith("risk-decisions.json")
     assert payloads[0]["runtime_artifact_timestamp"] == "2026-05-24T06:26:28Z"
+    assert attempts == 0
 
 
-async def test_runtime_risk_decisions_do_not_supersede_unknown_db_timestamp(
+async def test_runtime_risk_decisions_prefer_valid_artifact_before_unknown_db_timestamp(
     tmp_path: Path,
 ) -> None:
+    attempts = 0
+
     async def reader(
         session: object,
         ticker: str | None,
         limit: int,
     ) -> list[dict[str, object]]:
         del session, ticker, limit
+        nonlocal attempts
+        attempts += 1
         return [
             {
                 **_risk_decision(),
@@ -226,8 +235,9 @@ async def test_runtime_risk_decisions_do_not_supersede_unknown_db_timestamp(
         validate_payloads=False,
     )
 
-    assert payloads[0]["cycle_id"] == "db-unknown-timestamp"
-    assert "runtime_storage_superseded" not in payloads[0]
+    assert payloads[0]["cycle_id"] == "artifact-valid-timestamp"
+    assert payloads[0]["runtime_origin"] == "runtime_artifact_selected"
+    assert attempts == 0
 
 
 async def test_runtime_risk_decisions_does_not_use_artifact_by_default(

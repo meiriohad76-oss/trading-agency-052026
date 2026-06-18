@@ -265,13 +265,13 @@ async def _dashboard_selection_reports(
                 return await runtime_selection_reports(
                     limit=limit,
                     validate_payloads=False,
-                    prefer_latest_artifact=False,
+                    prefer_latest_artifact=True,
                 )
             return await runtime_selection_reports(
                 ticker=ticker,
                 limit=limit,
                 validate_payloads=False,
-                prefer_latest_artifact=False,
+                prefer_latest_artifact=True,
             )
         except TypeError as exc:
             if not _runtime_report_signature_fallback_allowed(exc):
@@ -296,13 +296,13 @@ async def _dashboard_risk_decisions(
                 return await runtime_risk_decisions(
                     limit=limit,
                     validate_payloads=False,
-                    prefer_latest_artifact=False,
+                    prefer_latest_artifact=True,
                 )
             return await runtime_risk_decisions(
                 ticker=ticker,
                 limit=limit,
                 validate_payloads=False,
-                prefer_latest_artifact=False,
+                prefer_latest_artifact=True,
             )
         except TypeError as exc:
             if not _runtime_report_signature_fallback_allowed(exc):
@@ -1629,6 +1629,9 @@ def _operator_text(value: object, default: str = "") -> str:
     text = _humanize_seconds_in_text(str(value or default))
     if not text:
         return default
+    raw_word = "raw"
+    lane_word = "lane"
+    massive_word = "Massive"
     replacements = (
         (r"\bcheck[- ]stale\b", "health proof needs refresh"),
         (r"\bhealth check stale\b", "health proof needs refresh"),
@@ -1644,6 +1647,12 @@ def _operator_text(value: object, default: str = "") -> str:
         (r"\bpromotion checks\b", "eligibility checks"),
         (r"\bpromotion threshold\b", "eligibility threshold"),
         (r"\bpromotion-blocking\b", "eligibility-stopping"),
+        (rf"\b{massive_word} {raw_word} {lane_word}\(s\)\b", "Massive data-source lane(s)"),
+        (rf"\b{massive_word} {raw_word} {lane_word}s\b", "Massive data-source lanes"),
+        (rf"\b{massive_word} {raw_word} {lane_word}\b", "Massive data-source lane"),
+        (rf"\b{raw_word} {lane_word}\(s\)\b", "data-source lane(s)"),
+        (rf"\b{raw_word} {lane_word}s\b", "data-source lanes"),
+        (rf"\b{raw_word} {lane_word}\b", "data-source lane"),
         (r"\border hash\b", "order details"),
         (r"\breport hash\b", "current report details"),
         (r"\bmatching hash\b", "matching report details"),
@@ -2030,12 +2039,15 @@ def _data_health_lane_refresh_action(
 
 
 def _refresh_massive_lane_id_for_action(lane_id: str, source_dataset: str) -> str:
-    if lane_id in REFRESHABLE_MASSIVE_LANES:
+    if lane_id in RUNNABLE_MASSIVE_LANES:
         return lane_id
-    return REFRESHABLE_DATASET_TO_LANE.get(source_dataset) or REFRESHABLE_DATASET_TO_LANE.get(
+    mapped = REFRESHABLE_DATASET_TO_LANE.get(source_dataset) or REFRESHABLE_DATASET_TO_LANE.get(
         lane_id,
         "",
     )
+    if mapped:
+        return mapped
+    return lane_id if lane_id in REFRESHABLE_MASSIVE_LANES else ""
 
 
 def _lane_state_recommended_action(status_label: str, progress_label: str) -> str:

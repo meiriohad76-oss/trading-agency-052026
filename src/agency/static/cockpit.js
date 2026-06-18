@@ -115,6 +115,12 @@
         state.selectedTicker = focusTicker;
       }
       showPhase(phase, focusTicker || state.selectedTicker);
+      if (button.getAttribute("data-cockpit-scroll") === "true") {
+        const section = document.querySelector(`[data-cockpit-phase="${escapeSelector(phase)}"]`);
+        if (section && typeof section.scrollIntoView === "function") {
+          section.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      }
       state.phase = phase;
       saveState();
     });
@@ -171,13 +177,24 @@
     const button = form.querySelector("[data-cockpit-submit-button]");
     const stateOutput = form.querySelector("[data-cockpit-submit-state]");
     const feedback = form.querySelector("[data-cockpit-submit-feedback]");
+    const manifestHasOrderIntent = () =>
+      Array.from(form.querySelectorAll("[data-cockpit-manifest-row]")).some((row) => {
+        if (row.classList.contains("cockpit-manifest-exit")) return false;
+        return ["cycle_id", "ticker", "as_of", "order_intent_hash"].every((name) => {
+          const input = row.querySelector(`[name="${name}"]`);
+          return input && String(input.value || "").trim().length > 0;
+        });
+      });
     const updateSubmitGate = () => {
       const phraseMatches = phrase.value.trim() === SUBMIT_PHRASE;
       const acknowledged = ack.checked;
-      button.disabled = submitGateInvalidated || !(acknowledged && phraseMatches);
+      const manifestReady = manifestHasOrderIntent();
+      button.disabled = submitGateInvalidated || !manifestReady || !(acknowledged && phraseMatches);
       if (feedback) {
         if (submitGateInvalidated) {
           feedback.textContent = "Submit gate reset after the last attempt. Review the manifest again.";
+        } else if (!manifestReady) {
+          feedback.textContent = "No paper order manifest is attached for this cycle. Refresh execution preview before submitting.";
         } else if (!acknowledged && !phraseMatches) {
           feedback.textContent = "Type the exact phrase and acknowledge paper-only submit.";
         } else if (!acknowledged) {
@@ -264,10 +281,9 @@
 
   const scenarioState = shell.getAttribute("data-cockpit-scenario") || "normal";
   const defaultPhase = scenarioState === "submitted" ? "cleared" : "candidates";
-  const forcedScenarioPhase = scenarioState === "submitted" ? "cleared" : (
-    scenarioState === "outage" || scenarioState === "no-actionable" ? "candidates" : ""
-  );
-  if (forcedScenarioPhase) {
+  const safetyScenario = scenarioState === "outage" || scenarioState === "status-delayed" || scenarioState === "no-actionable";
+  const hasPrimaryWorkflowAction = Boolean(document.querySelector(".cockpit-top-actions [data-cockpit-phase-target]"));
+  if (safetyScenario) {
     submitGateInvalidated = true;
   }
 
@@ -295,7 +311,8 @@
       }
     );
   }
-  showPhase(scenarioSafePhase(state.phase), state.selectedTicker);
+  state.phase = hasPrimaryWorkflowAction ? defaultPhase : scenarioSafePhase(state.phase || defaultPhase);
+  showPhase(state.phase, state.selectedTicker);
   restoreMarks();
   updateCapacity();
   updatePortfolioDecisions();
@@ -455,7 +472,7 @@
   }
 
   function scenarioSafePhase(phase) {
-    return forcedScenarioPhase || phase || defaultPhase;
+    return phase || defaultPhase;
   }
 
   function showRestoreNotice(onRestore, onDiscard) {

@@ -807,6 +807,7 @@ def test_snapshot_schema_valid(tmp_path: Path) -> None:
         selection_reports=[],
         state_dir=tmp_path,
         policy=PortfolioPolicy(),
+        generated_at="2026-05-29T16:00:00+00:00",
     )
 
     assert result["schema_version"] == "1.0.0"
@@ -849,6 +850,7 @@ def test_snapshot_empty_portfolio(tmp_path: Path) -> None:
         selection_reports=[],
         state_dir=tmp_path,
         policy=PortfolioPolicy(),
+        generated_at="2026-05-29T16:00:00+00:00",
     )
 
     assert result["positions"] == []
@@ -938,6 +940,7 @@ def test_daily_circuit_breaker_flags_positions_for_review(tmp_path: Path) -> Non
         selection_reports=[],
         state_dir=tmp_path,
         policy=PortfolioPolicy(),
+        generated_at="2026-05-29T16:00:00+00:00",
     )
 
     assert "DAILY_CIRCUIT_BREAKER" in result["circuit_breaker"]["signals"]

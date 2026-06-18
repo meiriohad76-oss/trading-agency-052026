@@ -52,7 +52,7 @@ async def test_runtime_metrics_uses_payload_providers() -> None:
     assert "agency_live_readiness_blockers_total 1" in text
 
 
-async def test_default_metric_report_readers_do_not_force_artifact_fallback(monkeypatch) -> None:
+async def test_default_metric_report_readers_prefer_latest_runtime_artifact(monkeypatch) -> None:
     observed: dict[str, object] = {}
 
     async def selection_reports(**kwargs: object) -> list[dict[str, object]]:
@@ -69,8 +69,8 @@ async def test_default_metric_report_readers_do_not_force_artifact_fallback(monk
     assert await health_api._default_selection_reports() == []
     assert await health_api._default_risk_decisions() == []
 
-    assert observed["selection"]["prefer_latest_artifact"] is False
-    assert observed["risk"]["prefer_latest_artifact"] is False
+    assert observed["selection"]["prefer_latest_artifact"] is True
+    assert observed["risk"]["prefer_latest_artifact"] is True
 
 
 def test_runtime_metrics_text_escapes_labels() -> None:

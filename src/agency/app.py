@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import os
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -26,6 +27,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     load_dotenv(REPO_ROOT / ".env")
     db_url = os.environ.get("DATABASE_URL", "")
     scheduler = None
+    cockpit_warm_task: asyncio.Task[None] | None = None
     from agency.runtime.scheduler_status import record_scheduler_runtime_status
 
     if _scheduler_enabled_for_app(db_url):
@@ -69,16 +71,12 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
             state="disabled",
             detail=reason,
         )
-    try:
-        from agency.views.cockpit import warm_cockpit_context_cache
-
-        if await warm_cockpit_context_cache():
-            print("[cockpit] context cache warmed", flush=True)
-        else:
-            print("[cockpit] context cache warmup skipped after timeout or error", flush=True)
-    except Exception as exc:  # pragma: no cover - startup guardrail
-        print(f"[cockpit] context cache warmup failed: {exc}", flush=True)
+    cockpit_warm_task = asyncio.create_task(_warm_cockpit_context_cache_after_startup())
     yield
+    if cockpit_warm_task is not None and not cockpit_warm_task.done():
+        cockpit_warm_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await cockpit_warm_task
     if scheduler is not None:
         scheduler.shutdown(wait=False)
         record_scheduler_runtime_status(
@@ -112,6 +110,29 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
+
+
+async def _warm_cockpit_context_cache_after_startup() -> None:
+    try:
+        from agency.api.health import warm_runtime_status_snapshot_cache
+        from agency.dashboard import warm_execution_preview_route_cache
+        from agency.views.cockpit import warm_cockpit_context_cache
+
+        status_warmed = await warm_runtime_status_snapshot_cache()
+        if status_warmed:
+            print("[runtime] status cache warmed", flush=True)
+        else:
+            print("[runtime] status cache warmup skipped after timeout or error", flush=True)
+        if await warm_cockpit_context_cache():
+            print("[cockpit] context cache warmed", flush=True)
+        else:
+            print("[cockpit] context cache warmup skipped after timeout or error", flush=True)
+        if await warm_execution_preview_route_cache():
+            print("[execution] preview cache warmed", flush=True)
+        else:
+            print("[execution] preview cache warmup skipped after timeout or error", flush=True)
+    except Exception as exc:  # pragma: no cover - startup guardrail
+        print(f"[cockpit] context cache warmup failed: {exc}", flush=True)
 
 
 def _scheduler_enabled_for_app(db_url: str) -> bool:

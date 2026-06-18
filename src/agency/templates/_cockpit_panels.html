@@ -6,10 +6,10 @@
       <h2 id="cockpit-panel-universe-heading">Universe and Source Coverage</h2>
       <p class="muted">Use this panel to see which production sources support the current cockpit data.</p>
       <div class="cockpit-panel-stat-grid" aria-label="Universe summary">
-        <article><span>Universe</span><strong class="cockpit-mono">{{ funnel.universe }}</strong></article>
-        <article><span>Ready</span><strong class="cockpit-mono">{{ funnel.universe_ready }}</strong></article>
-        <article><span>Needs attention</span><strong class="cockpit-mono">{{ universe_blocked|length }}</strong></article>
-        <article><span>Refreshed</span><strong class="cockpit-mono">{{ cycle.as_of }}</strong></article>
+        <article><span>Active universe</span><strong class="cockpit-mono">{{ data_state.active_universe_count|default(funnel.universe, true) }}</strong></article>
+        <article><span>Reviewable candidates</span><strong class="cockpit-mono">{{ funnel.reviewable|default(funnel.universe_ready, true) }}</strong></article>
+        <article><span>Source issues</span><strong class="cockpit-mono">{{ data_state.top_gaps|length }}</strong></article>
+        <article><span>Proof checked</span><strong class="cockpit-mono">{{ data_state.proof_label|default(cycle.as_of, true) }}</strong></article>
       </div>
       <section class="cockpit-lane-board" aria-label="Lane State Board">
         <div class="cockpit-lane-board-heading">
@@ -181,11 +181,34 @@
       <p class="muted">Cycle {{ audit_lifecycle.cycle_id|default("not recorded") }}. Evidence proof fingerprints are shown when the runtime persisted them.</p>
       <div class="cockpit-panel-list cockpit-audit-timeline">
         {% for ticker, events in audit_traces.items() %}
-          <article>
-            <strong>{{ ticker }}</strong>
+          <article class="cockpit-audit-card">
+            <header class="cockpit-audit-card-head">
+              <strong>{{ ticker }}</strong>
+              <span>{{ events|length }} audit item{{ "" if events|length == 1 else "s" }}</span>
+            </header>
             {% for event in events %}
-              <p>{{ event.message }}</p>
-              <small>Status {{ event.status }}{% if event.evidence_hash %} / evidence proof fingerprint {{ event.evidence_hash }}{% endif %}</small>
+              <section class="cockpit-audit-event">
+                <div>
+                  <strong>{{ event.title|default("Audit event", true) }}</strong>
+                  <span class="status-pill status-pill-{% if event.status in ['approved', 'action', 'evidence', 'llm'] %}pass{% elif event.status in ['risk', 'blocked'] %}warn{% else %}neutral{% endif %}">{{ event.status|default("recorded", true) }}</span>
+                </div>
+                <p>{{ event.message|default("Audit event recorded without a message.", true) }}</p>
+                {% if event.detail %}
+                  <small>{{ event.detail }}</small>
+                {% endif %}
+                <footer>
+                  {% if event.evidence_hash %}
+                    <span>Evidence proof fingerprint <span class="cockpit-mono">{{ event.evidence_hash }}</span></span>
+                  {% else %}
+                    <span>Evidence proof fingerprint not recorded for this item.</span>
+                  {% endif %}
+                  {% if event.detail_url %}
+                    <a class="text-link" href="{{ event.detail_url }}">Open ticker details</a>
+                  {% endif %}
+                </footer>
+              </section>
+            {% else %}
+              <p class="empty-state">No audit events are attached for {{ ticker }}.</p>
             {% endfor %}
           </article>
         {% else %}

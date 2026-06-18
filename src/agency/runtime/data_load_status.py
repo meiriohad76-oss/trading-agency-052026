@@ -195,7 +195,9 @@ def load_data_load_status(
     if not active_tickers:
         active_tickers = _configured_tickers(config)
     expected = len(active_tickers)
-    data_refresh = load_data_refresh_progress()
+    data_refresh = load_data_refresh_progress(
+        massive_lane_manifest_root=manifest_dir / "massive_lanes",
+    )
     live_config = load_live_config_readiness(config_file if config_file.is_file() else None)
     runtime_summary = _read_json_object(runtime_file)
     current = now or datetime.now(UTC)
@@ -272,15 +274,26 @@ def load_data_load_status(
         market_session=market_session,
         now=current,
     )
+    lane_state_source_health = [
+        *monitored_source_health,
+        *_lane_specific_source_health(
+            data_refresh=data_refresh,
+            manifest_root=manifest_dir,
+            market_session=market_session,
+            now=current,
+        ),
+    ]
     lane_states = build_lane_states(
         data_refresh=data_refresh,
         dataset_rows=dataset_rows,
         lane_rows=lane_rows,
-        source_health_rows=monitored_source_health,
+        source_health_rows=lane_state_source_health,
         now=current,
     )
+    lane_states = _apply_session_lane_state_requirements(lane_states, market_session)
     market_flow = _market_flow_summary(dataset_rows, lane_rows, expected)
     blockers = _blockers(dataset_rows, lane_rows, expected)
+    blockers = _suppress_loading_lane_blockers(blockers, lane_states)
     if not config_as_of_verified:
         blockers.append(
             _issue(
@@ -293,7 +306,10 @@ def load_data_load_status(
             )
         )
     blockers.extend(_data_refresh_blockers(data_refresh, market_flow=market_flow))
+    blockers = _suppress_loading_lane_blockers(blockers, lane_states)
+    blockers.extend(_lane_state_execution_blockers(lane_states, existing_blockers=blockers))
     warnings = _warnings(dataset_rows, lane_rows, runtime_summary)
+    warnings.extend(_lane_loading_warnings(lane_states))
     warnings.extend(_data_refresh_warnings(data_refresh, market_flow=market_flow))
     data_refresh_state = _effective_data_refresh_state(data_refresh, market_flow=market_flow)
     warnings.extend(_support_refresh_warnings(data_refresh, effective_state=data_refresh_state))
@@ -324,8 +340,16 @@ def load_data_load_status(
         "state": state,
         "status_label": _status_label(state),
         "status_class": _status_class(state),
-        "headline": _headline(state),
-        "detail": _detail(state, blockers, warnings),
+        "headline": _headline(
+            state,
+            review_operational_ready=review_operational_ready,
+        ),
+        "detail": _detail(
+            state,
+            blockers,
+            warnings,
+            review_operational_ready=review_operational_ready,
+        ),
         "as_of": (
             as_of.isoformat()
             if config_as_of_verified
@@ -524,7 +548,9 @@ def _dataset_rows(
                     news_consumption_ledger_path=news_consumption_ledger_path,
                     current_source_ids=news_resolved_source_ids,
                 ),
-                "max_as_of": str(manifest.get("max_timestamp_as_of") or "not loaded"),
+                "max_as_of": str(
+                    manifest_for_status.get("max_timestamp_as_of") or "not loaded"
+                ),
                 "issue_count": len(issues),
                 "source_status": str(health.get("status") or "UNKNOWN"),
                 "source_freshness": str(health.get("freshness") or "UNKNOWN"),
@@ -697,6 +723,92 @@ def _blockers(
     ):
         blockers.append(_issue("runtime_cycle", "signals", "No critical agent lane produced rows."))
     return blockers
+
+
+def _suppress_loading_lane_blockers(
+    blockers: Sequence[Mapping[str, object]],
+    lane_states: Sequence[Mapping[str, object]],
+) -> list[dict[str, object]]:
+    loading_lane_ids = {
+        str(row.get("lane_id") or "")
+        for row in lane_states
+        if str(row.get("state") or "") == "loading"
+    }
+    if not loading_lane_ids:
+        return [dict(row) for row in blockers]
+    return [
+        dict(row)
+        for row in blockers
+        if not (
+            str(row.get("kind") or "") == "agent_lane"
+            and str(row.get("item") or "") in loading_lane_ids
+        )
+        and not (
+            str(row.get("kind") or "") in {"dataset", "data_refresh"}
+            and str(row.get("item") or "") == "stock_trades"
+            and MASSIVE_LIVE_TRADE_LANE_ID in loading_lane_ids
+        )
+    ]
+
+
+def _lane_state_execution_blockers(
+    lane_states: Sequence[Mapping[str, object]],
+    *,
+    existing_blockers: Sequence[Mapping[str, object]],
+) -> list[dict[str, object]]:
+    existing = {
+        (str(row.get("kind") or ""), str(row.get("item") or ""))
+        for row in existing_blockers
+    }
+    blockers: list[dict[str, object]] = []
+    for row in lane_states:
+        state = str(row.get("state") or "")
+        lane_id = str(row.get("lane_id") or "lane_state")
+        if state == "loading":
+            continue
+        if state == "provider_unavailable" and str(row.get("reason_code") or "").lower() in {
+            "manifest_missing",
+            "missing_manifest",
+        }:
+            continue
+        if row.get("required_now") is False or row.get("blocker") is not True:
+            continue
+        if state == "needs_refresh":
+            if str(row.get("original_status_class") or "") != "block":
+                continue
+            if str(row.get("source_freshness") or "").upper() in {"FRESH", "PARTIAL"}:
+                continue
+        key = ("lane_state", lane_id)
+        if key in existing:
+            continue
+        reason = str(
+            row.get("operator_message")
+            or row.get("recommended_action")
+            or "Required lane is not ready for paper execution."
+        )
+        issue = _issue("lane_state", lane_id, reason)
+        issue["status_class"] = str(row.get("status_class") or "warn")
+        blockers.append(issue)
+    return blockers
+
+
+def _lane_loading_warnings(
+    lane_states: Sequence[Mapping[str, object]],
+) -> list[dict[str, object]]:
+    return [
+        _issue(
+            "lane_loading",
+            str(row.get("lane_id") or "lane"),
+            str(
+                row.get("operator_message")
+                or row.get("recommended_action")
+                or "Data is still loading for this lane."
+            ),
+        )
+        for row in lane_states
+        if str(row.get("state") or "") == "loading"
+        and row.get("required_now") is not False
+    ]
 
 
 def _warnings(
@@ -1417,6 +1529,13 @@ def _session_aware_lane_readiness(
 
 def _state(data_refresh_state: str, blockers: Sequence[object], warnings: Sequence[object]) -> str:
     if blockers:
+        if all(
+            isinstance(row, Mapping)
+            and str(row.get("kind") or "") == "lane_state"
+            and str(row.get("status_class") or "") in {"warn", "warning"}
+            for row in blockers
+        ):
+            return "attention"
         return "blocked"
     if data_refresh_state in {"stale", "blocked", "failed", "planned", "unavailable"}:
         return "blocked"
@@ -2006,7 +2125,13 @@ def _lane_detail(
     return f"{lane.replace('_', ' ')} produced {count} row(s)."
 
 
-def _headline(state: str) -> str:
+def _headline(
+    state: str,
+    *,
+    review_operational_ready: bool = False,
+) -> str:
+    if state == "attention" and not review_operational_ready:
+        return "Data is still loading; review is not ready yet."
     return {
         "ready": "All configured data and agent lanes are loaded.",
         "attention": "Agency is review-operational; some data lanes need attention.",
@@ -2019,10 +2144,19 @@ def _detail(
     state: str,
     blockers: Sequence[Mapping[str, object]],
     warnings: Sequence[Mapping[str, object]],
+    *,
+    review_operational_ready: bool = False,
 ) -> str:
     if state == "ready":
         return "The latest runtime cycle has complete core coverage and usable context."
     if state == "attention" and warnings:
+        if not review_operational_ready:
+            loading = next(
+                (row for row in warnings if str(row.get("kind") or "") == "lane_loading"),
+                None,
+            )
+            if loading is not None:
+                return str(loading["reason"])
         return str(warnings[0]["reason"])
     if state == "blocked" and blockers:
         return str(blockers[0]["reason"])
@@ -2150,7 +2284,7 @@ def _health_monitor_summary(
         )
         row_sla = _source_max_age_seconds(row)
         critical_stale = bool(critical_stale_rows)
-        status = "stale" if critical_stale else "context_stale"
+        status = "needs_refresh" if critical_stale else "context_needs_refresh"
         status_class = "block" if critical_stale else "warn"
         label = "Health Monitor Needs Refresh" if critical_stale else "Context Health Needs Refresh"
         detail = (
@@ -2583,6 +2717,41 @@ def _lane_expected_count(
     return None
 
 
+def _apply_session_lane_state_requirements(
+    lane_states: Sequence[Mapping[str, object]],
+    market_session: object | None,
+) -> list[dict[str, object]]:
+    if _premarket_lane_required_now(market_session):
+        return [dict(row) for row in lane_states]
+    adjusted: list[dict[str, object]] = []
+    for row in lane_states:
+        output = dict(row)
+        if str(output.get("lane_id") or "") == MASSIVE_PREMARKET_TRADE_LANE_ID:
+            output.update(
+                {
+                    "state": "disabled_optional",
+                    "status_label": "Not required for current workflow",
+                    "status_class": "neutral",
+                    "operator_message": (
+                        "Massive Pre-Market Trade Slices is optional outside the "
+                        "04:00-09:30 ET pre-market window."
+                    ),
+                    "recommended_action": (
+                        "No action required unless this lane becomes part of today's workflow."
+                    ),
+                    "analysis_state": "not_required",
+                    "required_now": False,
+                    "blocks_execution": False,
+                    "effective_blocks_execution": False,
+                    "blocker": False,
+                    "ready_for_review": False,
+                    "ready_for_paper_execution": False,
+                }
+            )
+        adjusted.append(output)
+    return adjusted
+
+
 def _coverage(count: int, expected: int | None) -> float:
     if expected is None or expected == 0:
         return 1.0
@@ -2664,34 +2833,43 @@ def _source_health_with_massive_lanes(
             now=now,
             note=f"source-health overridden by latest {dataset} manifest",
         )
-    market_session = _current_market_session(now)
-    if _premarket_lane_required_now(market_session):
-        trade_lane_id = MASSIVE_PREMARKET_TRADE_LANE_ID
-        live_snapshot = _stock_trade_raw_lane_snapshot(
-            trade_lane_id,
-            label="Massive Pre-Market Trade Slices",
-            data_refresh=data_refresh,
-            manifest_root=manifest_root,
-            as_of=_market_session_date(market_session),
-            now=now,
-            missing_is_snapshot=True,
-        )
-    else:
-        trade_lane_id = MASSIVE_LIVE_TRADE_LANE_ID
-        live_snapshot = _stock_trade_live_lane_snapshot(
-            data_refresh,
-            manifest_root=manifest_root,
-            parquet_root=parquet_root,
-            active_tickers=active_tickers,
-            as_of=as_of,
-            now=now,
-        )
+    trade_lane_id = MASSIVE_LIVE_TRADE_LANE_ID
+    live_snapshot = _stock_trade_live_lane_snapshot(
+        data_refresh,
+        manifest_root=manifest_root,
+        parquet_root=parquet_root,
+        active_tickers=active_tickers,
+        as_of=as_of,
+        now=now,
+    )
     return _merge_lane_source_health(
         source_rows,
         _stock_trade_lane_source_health(live_snapshot, now=now),
         now=now,
         note=f"source-health overridden by {trade_lane_id} lane manifest",
     )
+
+
+def _lane_specific_source_health(
+    *,
+    data_refresh: Mapping[str, object],
+    manifest_root: Path,
+    market_session: object | None,
+    now: datetime,
+) -> list[Mapping[str, object]]:
+    if not _premarket_lane_required_now(market_session):
+        return []
+    premarket_snapshot = _stock_trade_raw_lane_snapshot(
+        MASSIVE_PREMARKET_TRADE_LANE_ID,
+        label="Massive Pre-Market Trade Slices",
+        data_refresh=data_refresh,
+        manifest_root=manifest_root,
+        as_of=_market_session_date(market_session),
+        now=now,
+        missing_is_snapshot=True,
+    )
+    premarket_health = _stock_trade_lane_source_health(premarket_snapshot, now=now)
+    return [premarket_health] if premarket_health else []
 
 
 def _merge_lane_source_health(
@@ -2875,6 +3053,7 @@ def _stock_trade_live_lane_snapshot(
             if str(row.get("coverage_status") or row.get("status") or "").lower() == "failed"
         }
     )
+    provider_error_detail = _stock_trade_provider_error_detail(coverage)
     partial_source = sorted(
         {
             str(row.get("ticker")).upper()
@@ -2899,6 +3078,7 @@ def _stock_trade_live_lane_snapshot(
         "failed_tickers": failed,
         "partial_tickers": partial,
         "partial_source_tickers": partial_source,
+        "provider_error_detail": provider_error_detail,
         "issues": _list_field(manifest, "issues"),
         "row_count": _int_value(manifest.get("row_count")),
     }
@@ -3149,6 +3329,7 @@ def _stock_trade_raw_lane_snapshot(
             if str(row.get("coverage_status") or row.get("status") or "").lower() == "failed"
         }
     )
+    provider_error_detail = _stock_trade_provider_error_detail(coverage)
     partial_source = sorted(
         {
             str(row.get("ticker")).upper()
@@ -3173,6 +3354,7 @@ def _stock_trade_raw_lane_snapshot(
         "failed_tickers": failed,
         "partial_tickers": partial,
         "partial_source_tickers": partial_source,
+        "provider_error_detail": provider_error_detail,
         "issues": _list_field(manifest, "issues"),
         "row_count": _int_value(manifest.get("row_count")),
     }
@@ -3373,6 +3555,7 @@ def _stock_trade_lane_source_health(
     if lane_status in {"missing_manifest", "out_of_window"}:
         return {
             "source": "massive-stock-trades",
+            "lane_id": lane_id,
             "status": "UNAVAILABLE" if lane_status == "missing_manifest" else "STALE",
             "freshness": "UNAVAILABLE" if lane_status == "missing_manifest" else "STALE",
             "checked_at": "not checked",
@@ -3385,6 +3568,7 @@ def _stock_trade_lane_source_health(
     if checked_at is None:
         return {
             "source": "massive-stock-trades",
+            "lane_id": lane_id,
             "status": "STALE",
             "freshness": "UNKNOWN",
             "checked_at": "not checked",
@@ -3397,6 +3581,7 @@ def _stock_trade_lane_source_health(
     failed_ticker_count = len(_list_field(live_trade_lane, "failed_tickers"))
     usable_ticker_count = len(_list_field(live_trade_lane, "usable_tickers"))
     ticker_count = len(_list_field(live_trade_lane, "tickers"))
+    provider_error_detail = str(live_trade_lane.get("provider_error_detail") or "")
     closed_market_current = _closed_market_live_trade_lane_current(checked_at, now)
     latest_slice_ready = (
         ticker_count > 0
@@ -3405,7 +3590,10 @@ def _stock_trade_lane_source_health(
         and failed_ticker_count == 0
         and weak_proof_count == 0
     )
-    if age_seconds > MASSIVE_LIVE_TRADE_SLA_SECONDS and not closed_market_current:
+    if provider_error_detail:
+        freshness = "UNAVAILABLE"
+        status = "UNAVAILABLE"
+    elif age_seconds > MASSIVE_LIVE_TRADE_SLA_SECONDS and not closed_market_current:
         freshness = "STALE"
         status = "STALE"
     elif weak_proof_count:
@@ -3424,6 +3612,7 @@ def _stock_trade_lane_source_health(
     proof_detail = str(live_trade_lane.get("proof_detail") or "")
     return {
         "source": "massive-stock-trades",
+        "lane_id": lane_id,
         "status": status,
         "freshness": freshness,
         "checked_at": checked,
@@ -3453,9 +3642,46 @@ def _stock_trade_lane_source_health(
                 if closed_market_current
                 else ""
             )
+            + (f" {provider_error_detail}" if provider_error_detail else "")
             + (f" {proof_detail}" if proof_detail else "")
         ),
     }
+
+
+def _stock_trade_provider_error_detail(
+    coverage: Sequence[Mapping[str, object]],
+) -> str:
+    denied: list[str] = []
+    code_label = "access denied"
+    for row in coverage:
+        reason = str(
+            row.get("reason")
+            or row.get("error")
+            or row.get("detail")
+            or ""
+        )
+        reason_lc = reason.lower()
+        if not (
+            "403" in reason_lc
+            or "forbidden" in reason_lc
+            or "401" in reason_lc
+            or "unauthorized" in reason_lc
+        ):
+            continue
+        ticker = str(row.get("ticker") or "").upper()
+        if ticker:
+            denied.append(ticker)
+        if "403" in reason_lc or "forbidden" in reason_lc:
+            code_label = "403 Forbidden"
+        elif "401" in reason_lc or "unauthorized" in reason_lc:
+            code_label = "401 Unauthorized"
+    if not denied:
+        return ""
+    return (
+        f"Provider returned {code_label} for "
+        f"{_ticker_list_preview(sorted(set(denied)))}; check the Massive/Polygon API "
+        "key, account plan, and trade endpoint entitlement before retrying this lane."
+    )
 
 
 def _context_manifest_source_health(

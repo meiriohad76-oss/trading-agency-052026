@@ -3163,6 +3163,11 @@ def _optional_mapping_field(payload: Mapping[str, object], key: str) -> Mapping[
 
 def _candidate_return_context(ticker: str, return_source: str | None) -> dict[str, str]:
     normalized_ticker = ticker.upper()
+    if str(return_source or "").strip().lower() == "cockpit":
+        return {
+            "label": "Back to cockpit",
+            "href": f"/cockpit?ticker={normalized_ticker}#candidate-{normalized_ticker}",
+        }
     if str(return_source or "").strip().lower() == "execution-preview":
         query = urlencode({"ticker": normalized_ticker})
         return {
@@ -3190,6 +3195,9 @@ def _candidate_review_redirect_url(
     if str(return_to or "").strip().lower() == "execution-preview":
         query = urlencode({"ticker": normalized_ticker})
         return f"/execution-preview?{query}#focused-preview-{normalized_ticker}"
+    if str(return_to or "").strip().lower() == "cockpit":
+        query = urlencode({"ticker": normalized_ticker})
+        return f"/cockpit?{query}#candidate-{normalized_ticker}"
     return f"/candidates/{normalized_ticker}"
 
 def _review_action_url(
@@ -3205,7 +3213,7 @@ def _review_action_url(
     if caution_acknowledged:
         query_values["caution_acknowledged"] = "true"
     cleaned_return = str(return_to or "").strip().lower()
-    if cleaned_return in {"final-selection", "execution-preview"}:
+    if cleaned_return in {"final-selection", "execution-preview", "cockpit"}:
         query_values["return_to"] = cleaned_return
     query = urlencode(query_values)
     return f"/candidates/{ticker}/reviews?{query}"

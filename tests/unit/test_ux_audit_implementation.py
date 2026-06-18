@@ -249,9 +249,15 @@ def test_command_lane_tables_show_eta_and_progress_meters() -> None:
     assert "lane.progress_style" in dashboard_html
     assert "row.progress_meter_label" in dashboard_html
     assert "row.eta_label" in dashboard_html
+    assert "row.source_proof_label" in dashboard_html
+    assert "row.refresh_action.enabled" in dashboard_html
+    assert "row.refresh_action.action" in dashboard_html
     assert "lane.progress_percent" in progress_js
     assert "item.progress_percent" in progress_js
     assert "lane.progress_detail_label" in progress_js
+    assert "laneStateRefreshControl" in progress_js
+    assert "item.source_proof_label" in progress_js
+    assert "lane.refresh_action_available" in progress_js
 
 
 def test_cockpit_local_storage_cannot_restore_server_approval_markers() -> None:
@@ -301,7 +307,7 @@ def test_base_audit_and_styles_expose_shared_design_system_markers() -> None:
     assert "workflow-nav" in base_html
     assert "status-icon" in base_html
     assert "nav-secondary" in base_html
-    assert "ux-v3-cockpit-primary-20260601" in base_html
+    assert "ux-v3-cockpit-readability-20260601" in base_html
     assert "paper-mode-card" in audit_html
     assert "Show details: LLM rationale" in audit_html
     assert ".paper-mode-card" in css

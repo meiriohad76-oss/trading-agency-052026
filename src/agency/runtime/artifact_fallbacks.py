@@ -49,6 +49,20 @@ def runtime_risk_decision_artifacts(
     )
 
 
+def runtime_execution_preview_artifacts(
+    *,
+    artifact_root: Path | None = None,
+    ticker: str | None = None,
+    limit: int = 500,
+) -> list[dict[str, object]]:
+    return _runtime_rows(
+        "execution-previews.json",
+        artifact_root=artifact_root,
+        ticker=ticker,
+        limit=limit,
+    )
+
+
 def runtime_source_health_artifacts(
     *,
     artifact_root: Path | None = None,

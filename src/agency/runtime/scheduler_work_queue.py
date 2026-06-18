@@ -1501,8 +1501,9 @@ def _massive_lane_tickers(
 ) -> list[str]:
     row_tickers = _row_tickers(row)
     tier_tickers = _tier_tickers(tiers, ticker_tier)
+    profile = str(row.get("command_profile") or "")
     if (
-        str(row.get("command_profile") or "") in {"stock_trades_live", "stock_trades_premarket"}
+        profile in {"stock_trades_live", "stock_trades_premarket"}
         and tier_tickers
     ):
         return tier_tickers
@@ -1513,6 +1514,10 @@ def _massive_lane_tickers(
             return scoped
     if tier_tickers:
         return tier_tickers
+    if profile in {"stock_trades_live", "stock_trades_premarket"}:
+        active_scope = _tier_tickers(tiers, "T0/T1/T2")
+        if active_scope:
+            return active_scope
     return row_tickers
 
 
@@ -2442,7 +2447,7 @@ def _massive_orchestrator_detail(
         return f"Run due Massive raw acquisition lane(s): {', '.join(due[:3])}."
     if counts.get("ready_from_raw", 0):
         return "Local derived Massive lanes are ready to read current raw slices without extra API calls."
-    return "Massive raw lanes are either fresh, deferred to their proper window, or disabled."
+    return "Massive data-source lanes are either fresh, deferred to their proper window, or disabled."
 
 
 def _queue_summary(
@@ -2562,7 +2567,7 @@ def _age_label(seconds: int) -> str:
 
 def _dataset_ticker_tier(dataset: str, phase: str) -> str:
     if dataset == "stock_trades" and phase in ACTIVE_MARKET_PHASES:
-        return "T0/T1"
+        return "T0/T1/T2"
     if dataset in {"news_rss", "subscription_emails"}:
         return "T0/T1"
     if dataset in {"sec_form4", "prices_daily"}:
@@ -3269,7 +3274,7 @@ def _raw_requirement_gate(
         return {
             "state": "not_required",
             "status": "NOT_REQUIRED",
-            "detail": "No Massive raw lane requirement is declared.",
+            "detail": "No Massive data-source lane requirement is declared.",
         }
     lane_index = {
         str(row.get("lane_id")): row for row in _mapping_rows(massive_orchestrator, "lanes")
@@ -3279,7 +3284,7 @@ def _raw_requirement_gate(
         return {
             "state": "blocked",
             "status": "BLOCKED",
-            "detail": (f"Missing Massive raw lane declaration(s): {', '.join(missing)}."),
+            "detail": (f"Missing Massive data-source lane declaration(s): {', '.join(missing)}."),
         }
     waiting = [
         lane
@@ -3293,7 +3298,7 @@ def _raw_requirement_gate(
             "state": "waiting",
             "status": "WAITING",
             "detail": (
-                "Waiting for Massive raw lane(s) before this signal reads data: "
+                "Waiting for Massive data-source lane(s) before this signal reads data: "
                 f"{', '.join(waiting)}."
             ),
         }
@@ -3308,13 +3313,13 @@ def _raw_requirement_gate(
             "state": "blocked",
             "status": "BLOCKED",
             "detail": (
-                f"Required Massive raw lane(s) are blocked or unverified: {', '.join(blocked)}."
+                f"Required Massive data-source lane(s) are blocked or unverified: {', '.join(blocked)}."
             ),
         }
     return {
         "state": "ready",
         "status": "READY",
-        "detail": (f"Massive raw lane requirement is satisfied: {', '.join(required_lanes)}."),
+        "detail": (f"Massive data-source lane requirement is satisfied: {', '.join(required_lanes)}."),
     }
 
 

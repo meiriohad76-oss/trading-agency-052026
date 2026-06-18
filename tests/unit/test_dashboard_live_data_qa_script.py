@@ -8,6 +8,7 @@ from scripts.check_dashboard_live_data_qa import _empty_result, result_failed
 QA_SCRIPT = Path("scripts/check_dashboard_live_data_qa.py")
 EXPECTED_QA_ROUTES = {
     "/",
+    "/cockpit",
     "/command",
     "/signals",
     "/market-regime",
@@ -90,6 +91,9 @@ def test_dashboard_live_data_qa_cockpit_lane_probe_accepts_row_count_progress() 
 
     assert "progressText.trim().length > 0" in script
     assert "No lane action recorded" in script
+    assert "const proofText = cells[3]?.textContent" in script
+    assert "const actionText = cells[4]?.textContent" in script
+    assert "cells.length >= 5" in script
 
 
 def test_dashboard_live_data_qa_checks_cockpit_root_and_command_route() -> None:
@@ -129,6 +133,60 @@ def test_dashboard_live_data_qa_result_fails_on_operational_readiness_gap() -> N
     row["operational_readiness_failures"] = ["full-live tradable_ready=false"]
 
     assert result_failed(row) is True
+
+
+def test_dashboard_live_data_qa_review_subset_accepts_visible_readiness_gap() -> None:
+    row = _empty_result("desktop", "/")
+    row["readiness_scope"] = qa.REVIEW_SUBSET_READINESS_SCOPE
+    row["cockpit_data_state_visible"] = True
+    row["cockpit_lane_rows_count"] = 3
+    row["readiness_explanation_visible"] = True
+    row["operational_readiness_failures"] = ["data-load blocker_count=4"]
+    row["v3_build_served"] = True
+    row["v3_screen_class"] = True
+    row["v3_universal_briefing"] = True
+    row["v3_briefing_visible"] = False
+
+    assert result_failed(row) is False
+
+
+def test_dashboard_live_data_qa_review_subset_rejects_hidden_readiness_gap() -> None:
+    row = _empty_result("desktop", "/")
+    row["readiness_scope"] = qa.REVIEW_SUBSET_READINESS_SCOPE
+    row["cockpit_data_state_visible"] = True
+    row["cockpit_lane_rows_count"] = 3
+    row["readiness_explanation_visible"] = False
+    row["operational_readiness_failures"] = ["data-load blocker_count=4"]
+    row["v3_build_served"] = True
+    row["v3_screen_class"] = True
+    row["v3_universal_briefing"] = True
+    row["v3_briefing_visible"] = False
+
+    assert result_failed(row) is True
+
+
+def test_dashboard_live_data_qa_full_scope_rejects_visible_readiness_gap() -> None:
+    row = _empty_result("desktop", "/")
+    row["readiness_scope"] = qa.FULL_READINESS_SCOPE
+    row["cockpit_data_state_visible"] = True
+    row["cockpit_lane_rows_count"] = 3
+    row["readiness_explanation_visible"] = True
+    row["operational_readiness_failures"] = ["data-load blocker_count=4"]
+    row["v3_build_served"] = True
+    row["v3_screen_class"] = True
+    row["v3_universal_briefing"] = True
+    row["v3_briefing_visible"] = False
+
+    assert result_failed(row) is True
+
+
+def test_dashboard_live_data_qa_readiness_probe_uses_health_selectors() -> None:
+    script = QA_SCRIPT.read_text(encoding="utf-8")
+
+    assert ".data-health-panel" in script
+    assert ".data-health-guidance" in script
+    assert ".cockpit-data-state-strip" in script
+    assert ".cockpit-data-state-gap" in script
 
 
 def test_dashboard_live_data_qa_result_fails_when_v3_build_is_not_served() -> None:
@@ -243,6 +301,40 @@ def test_dashboard_live_data_qa_json_get_retries_cold_endpoint_timeout(monkeypat
     assert attempts["count"] == 2
 
 
+def test_dashboard_live_data_qa_json_get_retries_status_timeout_payload(monkeypatch) -> None:
+    class Response:
+        def __init__(self, payload: bytes) -> None:
+            self.payload = payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self) -> bytes:
+            return self.payload
+
+    responses = [
+        b'{"status":"status_timeout","status_label":"Status delayed","detail":"still loading"}',
+        b'{"ready":true,"review_operational_ready":true,"verdict":"ready_with_partial_lanes"}',
+    ]
+    attempts = {"count": 0}
+
+    def fake_urlopen(*_args, **_kwargs):
+        attempts["count"] += 1
+        return Response(responses[min(attempts["count"] - 1, len(responses) - 1)])
+
+    monkeypatch.setattr(qa, "urlopen", fake_urlopen)
+
+    assert qa._json_get("http://unit.test/status/full-live-readiness") == {
+        "ready": True,
+        "review_operational_ready": True,
+        "verdict": "ready_with_partial_lanes",
+    }
+    assert attempts["count"] == 2
+
+
 def test_dashboard_live_data_qa_allows_context_only_data_load_warnings(monkeypatch) -> None:
     def fake_json_get(url: str):
         if url.endswith(("/reports/selection", "/risk/decisions")):
@@ -299,7 +391,7 @@ def test_dashboard_live_data_qa_allows_nonblocking_trade_progress_warning(monkey
                     "signal_ticker_count": 168,
                     "expected_ticker_count": 168,
                 },
-                "health_monitor": {"status": "context_stale", "reliable": True},
+                "health_monitor": {"status": "context_needs_refresh", "reliable": True},
             }
         if url.endswith("/status/data-sources"):
             return [{"source": "daily-market-bars", "status": "HEALTHY"}]

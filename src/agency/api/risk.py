@@ -196,7 +196,7 @@ async def risk_decisions(
     try:
         return await runtime_risk_decisions(
             limit=limit,
-            prefer_latest_artifact=False,
+            prefer_latest_artifact=True,
         )
     except RuntimeRiskDecisionsUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -211,7 +211,7 @@ async def risk_decisions_for_ticker(
         return await runtime_risk_decisions(
             ticker=ticker,
             limit=limit,
-            prefer_latest_artifact=False,
+            prefer_latest_artifact=True,
         )
     except RuntimeRiskDecisionsUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -228,6 +228,25 @@ async def runtime_risk_decisions(
     prefer_latest_artifact: bool = False,
 ) -> list[dict[str, object]]:
     decision_reader = _read_risk_decisions if reader is None else reader
+    artifact_payloads: list[dict[str, object]] = []
+    if prefer_latest_artifact:
+        artifact_payloads = _artifact_risk_decisions(
+            ticker=ticker,
+            limit=limit,
+            artifact_root=artifact_root,
+            force=True,
+            runtime_origin="runtime_artifact_selected",
+        )
+        if _latest_payload_timestamp(artifact_payloads) != UNKNOWN_PAYLOAD_TIMESTAMP:
+            payloads = [
+                payload
+                for payload in artifact_payloads
+                if not is_non_operational_payload(payload)
+            ]
+            if validate_payloads:
+                for payload in payloads:
+                    validate_contract("risk-decision", payload)
+            return payloads
     try:
         async with session_provider() as session:
             payloads = await decision_reader(session, ticker, limit)
@@ -248,13 +267,7 @@ async def runtime_risk_decisions(
         if prefer_latest_artifact:
             payloads = _prefer_newer_artifact_payloads(
                 payloads,
-                _artifact_risk_decisions(
-                    ticker=ticker,
-                    limit=limit,
-                    artifact_root=artifact_root,
-                    force=True,
-                    runtime_origin="runtime_artifact_selected",
-                ),
+                artifact_payloads,
             )
         if not payloads:
             payloads = _artifact_risk_decisions(

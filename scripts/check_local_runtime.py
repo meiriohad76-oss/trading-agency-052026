@@ -42,7 +42,66 @@ ROUTE_BUDGETS: dict[str, dict[str, object]] = {
         "kind": "total",
         "seconds": COCKPIT_ROOT_FIRST_BYTE_BUDGET_SECONDS,
     },
+    "/command": {
+        "label": "Command dashboard",
+        "metric": "total_seconds",
+        "kind": "total",
+        "seconds": COCKPIT_ROOT_FIRST_BYTE_BUDGET_SECONDS,
+    },
+    "/final-selection": {
+        "label": "Final selection dashboard",
+        "metric": "total_seconds",
+        "kind": "total",
+        "seconds": COCKPIT_ROOT_FIRST_BYTE_BUDGET_SECONDS,
+    },
+    "/execution-preview": {
+        "label": "Execution preview dashboard",
+        "metric": "total_seconds",
+        "kind": "total",
+        "seconds": COCKPIT_ROOT_FIRST_BYTE_BUDGET_SECONDS,
+    },
+    "/signals": {
+        "label": "Signals dashboard",
+        "metric": "total_seconds",
+        "kind": "total",
+        "seconds": COCKPIT_ROOT_FIRST_BYTE_BUDGET_SECONDS,
+    },
+    "/portfolio-monitor": {
+        "label": "Portfolio monitor dashboard",
+        "metric": "total_seconds",
+        "kind": "total",
+        "seconds": COCKPIT_ROOT_FIRST_BYTE_BUDGET_SECONDS,
+    },
+    "/risk": {
+        "label": "Risk dashboard",
+        "metric": "total_seconds",
+        "kind": "total",
+        "seconds": COCKPIT_ROOT_FIRST_BYTE_BUDGET_SECONDS,
+    },
+    "/learning": {
+        "label": "Learning dashboard",
+        "metric": "total_seconds",
+        "kind": "total",
+        "seconds": COCKPIT_ROOT_FIRST_BYTE_BUDGET_SECONDS,
+    },
+    "/audit": {
+        "label": "Audit dashboard",
+        "metric": "total_seconds",
+        "kind": "total",
+        "seconds": COCKPIT_ROOT_FIRST_BYTE_BUDGET_SECONDS,
+    },
+    "/market-regime": {
+        "label": "Market regime dashboard",
+        "metric": "total_seconds",
+        "kind": "total",
+        "seconds": COCKPIT_ROOT_FIRST_BYTE_BUDGET_SECONDS,
+    },
 }
+DASHBOARD_TEXT_ROUTES = tuple(
+    path
+    for path in ROUTE_BUDGETS
+    if path not in {"/reports/selection", "/api/cockpit"}
+)
 
 
 def main() -> None:
@@ -65,21 +124,26 @@ def check_runtime(
 ) -> dict[str, object]:
     fetch_json = timed_fetch_json or _fetch_json_with_timing
     fetch_text = timed_fetch_text or _fetch_text_with_timing
+    reports_probe_path = _selection_reports_probe_path(min_selection_reports)
     health_result = fetch_json(base_url, "/health")
-    reports_result = fetch_json(base_url, "/reports/selection")
+    reports_result = fetch_json(base_url, reports_probe_path)
     decisions_result = fetch_json(base_url, "/risk/decisions")
     cockpit_api_result = fetch_json(base_url, "/api/cockpit")
     metrics_result = fetch_text(base_url, "/metrics")
-    dashboard_result = fetch_text(base_url, "/")
-    cockpit_result = fetch_text(base_url, "/cockpit")
+    text_route_results = {
+        path: fetch_text(base_url, path)
+        for path in DASHBOARD_TEXT_ROUTES
+    }
     route_timings = {
         "/health": _route_timing("/health", health_result),
         "/reports/selection": _route_timing("/reports/selection", reports_result),
         "/risk/decisions": _route_timing("/risk/decisions", decisions_result),
         "/api/cockpit": _route_timing("/api/cockpit", cockpit_api_result),
         "/metrics": _route_timing("/metrics", metrics_result),
-        "/": _route_timing("/", dashboard_result),
-        "/cockpit": _route_timing("/cockpit", cockpit_result),
+        **{
+            path: _route_timing(path, result)
+            for path, result in text_route_results.items()
+        },
     }
     _enforce_route_budgets(route_timings)
     health = _payload(health_result)
@@ -103,6 +167,11 @@ def check_runtime(
         "source_health": metric_value(str(metrics), "agency_source_health_total"),
         "route_timings": route_timings,
     }
+
+
+def _selection_reports_probe_path(min_selection_reports: int) -> str:
+    limit = max(1, min_selection_reports)
+    return f"/reports/selection?limit={limit}"
 
 
 def metric_value(metrics: str, name: str) -> float:

@@ -142,6 +142,8 @@ def test_audit_panel_shows_cycle_and_evidence_proof_when_available() -> None:
 
     assert context["audit_lifecycle"]["cycle_id"] == "cycle-live-20260522-1530"
     assert context["audit_lifecycle"]["traces"]["BBB"][0]["evidence_hash"] == "hash-bbb"
+    assert context["audit_lifecycle"]["traces"]["BBB"][0]["title"] == "Current cockpit status"
+    assert "BBB is shown as" in context["audit_lifecycle"]["traces"]["BBB"][0]["detail"]
     panel_text = _panels().lower()
     assert "evidence proof fingerprint" in panel_text
     assert "evidence hash" not in panel_text
@@ -151,6 +153,11 @@ def test_audit_panel_uses_timeline_and_reproducibility_note() -> None:
     html = _panels()
 
     assert "cockpit-audit-timeline" in html
+    assert "cockpit-audit-card" in html
+    assert "cockpit-audit-event" in html
+    assert "event.title" in html
+    assert "event.detail" in html
+    assert "event.detail_url" in html
     assert "state transitions are deterministic" in html
     assert "evidence proof fingerprint" in html.lower()
     assert "evidence pack hash" not in html.lower()

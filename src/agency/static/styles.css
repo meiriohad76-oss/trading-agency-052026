@@ -1898,6 +1898,8 @@ th {
   flex-wrap: wrap;
   align-items: center;
   gap: 2px 0;
+  width: 100%;
+  height: auto;
   max-width: 100%;
   min-height: 40px;
   padding: 0;
@@ -1906,9 +1908,18 @@ th {
   font-weight: 800;
   line-height: 1.2;
   text-align: left;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  white-space: normal;
   border: 0;
   background: transparent;
   cursor: pointer;
+}
+
+.signal-table th .table-sort-button {
+  min-width: 92px;
+  min-height: 58px;
+  align-content: flex-start;
 }
 
 .table-sort-button::after {
@@ -5870,6 +5881,20 @@ table.signal-table {
   color: var(--text);
 }
 
+.cockpit-primary-action {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  margin-top: 12px;
+}
+
+.cockpit-primary-action small {
+  max-width: 520px;
+  color: var(--text-muted);
+  line-height: 1.35;
+}
+
 .cockpit-data-state-strip {
   display: grid;
   grid-template-columns: minmax(240px, 0.9fr) minmax(360px, 1.4fr) minmax(280px, 1fr);
@@ -5939,6 +5964,25 @@ table.signal-table {
 
 .cockpit-data-state-gaps strong {
   color: var(--text);
+}
+
+.cockpit-data-state-gap {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid rgba(204, 143, 44, 0.28);
+  border-radius: 4px;
+  background: rgba(11, 18, 32, 0.34);
+}
+
+.cockpit-data-state-gap strong {
+  overflow-wrap: anywhere;
+}
+
+.cockpit-data-state-gap .status-pill,
+.cockpit-data-state-gap .inline-action-form {
+  justify-self: start;
 }
 
 .cockpit-data-state-gaps .button {
@@ -6179,6 +6223,13 @@ table.signal-table {
   gap: 10px;
 }
 
+.cockpit-candidate-table-paused {
+  padding: 10px;
+  border: 1px solid rgba(245, 158, 11, 0.28);
+  border-radius: 4px;
+  background: rgba(245, 158, 11, 0.06);
+}
+
 .cockpit-candidate-row {
   display: grid;
   grid-template-columns: 1fr;
@@ -6188,6 +6239,18 @@ table.signal-table {
   border: 1px solid rgba(148, 163, 184, 0.18);
   border-radius: 4px;
   background: var(--cockpit-panel-2);
+}
+
+.cockpit-candidate-table-paused .cockpit-candidate-row {
+  border-color: rgba(245, 158, 11, 0.24);
+}
+
+.cockpit-candidate-table-paused .cockpit-decision-cell .microcopy {
+  display: block;
+  max-width: 260px;
+  color: var(--text-muted);
+  font-size: 0.83rem;
+  line-height: 1.35;
 }
 
 .cockpit-row-toggle {
@@ -6609,6 +6672,60 @@ table.signal-table {
   top: 12px;
   bottom: 12px;
   border-left: 1px solid rgba(245, 158, 11, 0.55);
+}
+
+.cockpit-audit-card {
+  align-items: stretch;
+}
+
+.cockpit-audit-card-head,
+.cockpit-audit-event > div,
+.cockpit-audit-event footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.cockpit-audit-card-head {
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+}
+
+.cockpit-audit-card-head > strong {
+  font-size: 1.02rem;
+}
+
+.cockpit-audit-card-head > span,
+.cockpit-audit-event small,
+.cockpit-audit-event footer {
+  color: var(--text-muted);
+}
+
+.cockpit-audit-event {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 4px;
+  background: rgba(15, 23, 42, 0.34);
+}
+
+.cockpit-audit-event p {
+  margin: 0;
+  color: var(--text);
+  line-height: 1.45;
+}
+
+.cockpit-audit-event small,
+.cockpit-audit-event footer {
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.cockpit-audit-event .text-link {
+  color: var(--cockpit-amber);
 }
 
 .cockpit-scenario-panel {

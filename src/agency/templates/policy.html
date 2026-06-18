@@ -99,8 +99,20 @@
         <span class="tag tag-neutral">Next-cycle review</span>
       </div>
       <p class="section-subtitle">Policy edits are deliberate operator actions. Review the values, acknowledge the next-cycle effect, then save.</p>
-      <button class="disabled-button" type="button" disabled>Reset planned</button>
-      <button class="disabled-button" type="button" disabled>Audit planned</button>
+      <button
+        class="disabled-button"
+        type="button"
+        disabled
+        data-disabled-reason="Reset requires a saved editable policy baseline. Next action: edit thresholds, acknowledge the next-cycle effect, then save."
+        title="Reset requires a saved editable policy baseline. Next action: edit thresholds, acknowledge the next-cycle effect, then save."
+      >Reset planned</button>
+      <button
+        class="disabled-button"
+        type="button"
+        disabled
+        data-disabled-reason="Audit export is not available because the export workflow is not connected yet. Next action: review the displayed policy source and save deliberate edits before audit export is enabled."
+        title="Audit export is not available because the export workflow is not connected yet. Next action: review the displayed policy source and save deliberate edits before audit export is enabled."
+      >Audit planned</button>
     </section>
 
     <details id="policy-edit-form" class="panel details-panel policy-edit-disclosure">

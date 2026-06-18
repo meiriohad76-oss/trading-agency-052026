@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agency.views.cockpit import cockpit_context_from_sources
+from agency.views.cockpit import _cockpit_context_has_universe_proof, cockpit_context_from_sources
 from tests.unit.test_cockpit_contract import _sample_sources
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -211,6 +211,63 @@ def test_cockpit_lane_state_rows_expose_individual_refresh_actions() -> None:
     assert "{{ lane.refresh_action.label }}" in html
 
 
+def test_cockpit_universe_panel_uses_data_load_registry_when_source_rows_missing() -> None:
+    sources = _sources_with_lane_states()
+    dashboard = sources["dashboard"]  # type: ignore[assignment]
+    dashboard.pop("data_sources", None)  # type: ignore[union-attr]
+    dashboard["data_load_status"]["freshness_rows"] = [  # type: ignore[index]
+        {
+            "source": "massive-stock-trades",
+            "label": "Massive Stock Trades",
+            "status": "STALE",
+            "freshness": "STALE",
+            "status_class": "block",
+            "checked_at": "2026-05-22T13:25:29+00:00",
+            "last_success_at": "2026-05-22T13:25:29+00:00",
+            "coverage_label": "36/50 ticker-days",
+            "detail": "Massive live trade slices need refresh before paper execution.",
+        },
+        {
+            "source": "rss-news",
+            "label": "RSS News",
+            "status": "HEALTHY",
+            "freshness": "FRESH",
+            "status_class": "pass",
+            "checked_at": "2026-05-22T13:25:45+00:00",
+            "coverage_label": "latest feed rows",
+            "detail": "RSS feed manifest is healthy.",
+        },
+    ]
+
+    context = cockpit_context_from_sources(sources)
+
+    assert context["funnel"]["universe"] == 168
+    assert context["funnel"]["universe_ready"] == context["funnel"]["reviewable"]
+    assert len(context["data_state"]["lane_rows"]) == 4
+    assert [row["name"] for row in context["sources"]] == [
+        "Massive Stock Trades",
+        "RSS News",
+    ]
+    assert context["sources"][0]["coverage"] == "36/50 ticker-days"
+
+
+def test_cockpit_universe_panel_never_caches_hollow_source_context() -> None:
+    context = {
+        "sources": [],
+        "data_state": {
+            "lane_rows": [],
+        },
+    }
+
+    assert _cockpit_context_has_universe_proof(context) is False
+    assert _cockpit_context_has_universe_proof(
+        {"sources": [], "data_state": {"lane_rows": [{"lane_id": "data_proof"}]}}
+    ) is False
+    assert _cockpit_context_has_universe_proof(
+        {"sources": [], "data_state": {"lane_rows": [{"lane_id": "source_proof"}]}}
+    ) is True
+
+
 def test_cockpit_lane_state_hides_explicit_refresh_when_scheduler_has_no_job() -> None:
     sources = _sources_with_lane_states()
     lane = sources["dashboard"]["data_load_status"]["lane_states"][2]  # type: ignore[index]
@@ -235,7 +292,7 @@ def test_cockpit_template_has_top_level_data_state_strip() -> None:
     css = _styles()
 
     assert "cockpit-data-state-strip" in html
-    assert "Data State" in html
+    assert "Session Readiness" in html
     assert "data_review.label" in html
     assert "data_paper.label" in html
     assert "data_state.overall_percent" in html

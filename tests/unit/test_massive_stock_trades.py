@@ -25,6 +25,7 @@ from market_flow.storage import (
 )
 
 from research.scripts.pull_massive_stock_trades import (
+    MAX_LIVE_LANE_TICKERS,
     StockTradeProgressWriter,
     _lane_default_limit,
     _lane_resume_enabled,
@@ -348,7 +349,17 @@ def test_stock_trade_script_requires_explicit_lane_tickers_and_single_day() -> N
     multi_day = SimpleNamespace(
         **{**valid.__dict__, "end": (FETCHED_AT + timedelta(days=1)).date()}
     )
-    broad = SimpleNamespace(**{**valid.__dict__, "ticker": [f"T{i:02d}" for i in range(51)]})
+    active_universe = SimpleNamespace(
+        **{**valid.__dict__, "ticker": [f"T{i:03d}" for i in range(168)]}
+    )
+    broad = SimpleNamespace(
+        **{
+            **valid.__dict__,
+            "ticker": [f"T{i:03d}" for i in range(MAX_LIVE_LANE_TICKERS + 1)],
+        }
+    )
+
+    _validate_lane_invocation(active_universe)
 
     for args in (no_ticker, bad_lane, multi_day, broad):
         try:

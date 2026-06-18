@@ -100,6 +100,9 @@ def test_cockpit_css_has_touch_targets_and_focus_tooltips() -> None:
     assert ".info-tip:focus-visible::after" in css
     assert '.info-tip[data-tooltip-open="true"]::after' in css
     assert ".v3-screen-cockpit .cockpit-whymark" in v3_css
+    assert ".v3-screen-cockpit .cockpit-shell .info-tip" in v3_css
+    assert "width: 44px" in v3_css
+    assert "height: 44px" in v3_css
     assert "min-height: 44px" in v3_css
 
 

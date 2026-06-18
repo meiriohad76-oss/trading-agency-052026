@@ -67,6 +67,7 @@ RECORDED_ORDER_STATES = {
     "REJECTED",
     "EXPIRED",
 }
+EXECUTION_STATUS_AUDIT_QUERY_TIMEOUT_SECONDS = 2.0
 
 
 async def execution_preview_context(
@@ -113,12 +114,12 @@ async def execution_preview_context(
         risk_decisions=[],
         lane_states=_mapping_list_field_or_empty(data_load_status, "lane_states"),
     )
-    review_states = _human_review_index(
-        await human_review_events_for_reports(reports, readiness)
+    review_events, operator_advance_events = await asyncio.gather(
+        human_review_events_for_reports(reports, readiness),
+        operator_manual_advance_events_for_reports(reports, readiness),
     )
-    operator_advance_states = _human_review_index(
-        await operator_manual_advance_events_for_reports(reports, readiness)
-    )
+    review_states = _human_review_index(review_events)
+    operator_advance_states = _human_review_index(operator_advance_events)
     promotion_config = PaperTradePromotionConfig.from_env()
     promotion_evaluations = paper_trade_promotion_evaluations(
         reports,
@@ -146,10 +147,9 @@ async def execution_preview_context(
         pending_opening_order_exposure_pct=_pending_opening_order_exposure_pct(broker),
         validate_contracts=validate_contracts,
     )
-    research_approval_keys = await execution_approval_keys(
-        reports=reports,
-        data_sources=data_sources,
-        risk_decisions=[result.risk_decision for result in risk_results],
+    research_approval_keys = _research_approval_keys_from_review_states(
+        reports,
+        review_states,
     )
     preview_results = build_execution_previews(
         [result.risk_decision for result in risk_results],
@@ -182,13 +182,13 @@ async def execution_preview_context(
         freshness_gate=freshness_gate,
         scheduler_status=scheduler_gate,
     )
-    order_approval_keys = await order_approval_keys_for_reports(
-        reports=promoted_reports,
-        data_sources=data_sources,
-        previews=[result.preview for result in preview_results],
-    )
-    execution_states = await execution_states_for_previews(
-        [result.preview for result in preview_results]
+    order_approval_keys, execution_states = await asyncio.gather(
+        order_approval_keys_for_reports(
+            reports=promoted_reports,
+            data_sources=data_sources,
+            previews=[result.preview for result in preview_results],
+        ),
+        execution_states_for_previews([result.preview for result in preview_results]),
     )
     preview_rows = execution_preview_rows(
         [result.preview for result in preview_results],
@@ -253,13 +253,17 @@ async def execution_preview_context(
         "preview_rows": preview_rows,
         "focused_execution": focused_execution,
         "orderable_rows": [row for row in preview_rows if row["preview_state"] == "READY"],
-        "review_only_rows": [row for row in preview_rows if row["preview_state"] == "DISABLED"],
+        "review_only_rows": [
+            row for row in preview_rows if _execution_preview_is_context_only(row)
+        ],
         "approved_review_only_rows": [
             row
             for row in preview_rows
-            if row["preview_state"] == "DISABLED" and row["human_approved"] is True
+            if _execution_preview_is_context_only(row) and row["human_approved"] is True
         ],
-        "blocked_rows": [row for row in preview_rows if row["preview_state"] == "BLOCKED"],
+        "blocked_rows": [
+            row for row in preview_rows if _execution_preview_is_operator_blocker(row)
+        ],
         "leveraged_alternatives": leveraged_alternative_panel(leveraged_reviews),
         "summary": execution_preview_summary(
             preview_rows,
@@ -504,6 +508,25 @@ async def execution_approval_keys(
     return approved
 
 
+def _research_approval_keys_from_review_states(
+    reports: Sequence[Mapping[str, object]],
+    review_states: Mapping[tuple[str, str, str], Mapping[str, object]],
+) -> set[tuple[str, str, str]]:
+    approved: set[tuple[str, str, str]] = set()
+    for report in reports:
+        key = _runtime_payload_key(report)
+        event = review_states.get(key)
+        if event is None:
+            continue
+        payload = _mapping_field(event, "payload")
+        if str(payload.get("review_decision", "")).upper() != "APPROVE":
+            continue
+        if str(payload.get("selection_report_hash") or "") != selection_report_hash(report):
+            continue
+        approved.add(key)
+    return approved
+
+
 async def execution_states_for_previews(
     previews: Sequence[Mapping[str, object]],
 ) -> dict[tuple[str, str, str, str], Mapping[str, object]]:
@@ -513,7 +536,10 @@ async def execution_states_for_previews(
     if not cycle_id:
         return {}
     try:
-        states = await runtime_execution_states(cycle_id=cycle_id, limit=500)
+        states = await asyncio.wait_for(
+            runtime_execution_states(cycle_id=cycle_id, limit=500),
+            timeout=EXECUTION_STATUS_AUDIT_QUERY_TIMEOUT_SECONDS,
+        )
     except Exception:  # noqa: BLE001
         return {}
     return _execution_state_index(states)
@@ -670,7 +696,7 @@ async def order_approval_events_for_reports(
         reports,
         readiness,
         event_type="ORDER_APPROVAL",
-        limit_per_ticker=100,
+        limit_per_ticker=5,
     )
 
 
@@ -682,7 +708,7 @@ async def operator_manual_advance_events_for_reports(
         reports,
         readiness,
         event_type="OPERATOR_MANUAL_ADVANCE",
-        limit_per_ticker=100,
+        limit_per_ticker=5,
     )
 
 def _remove_research_only_promoted_order_approvals(
@@ -808,8 +834,8 @@ def execution_preview_summary(
     )
     normalized_policy = policy or PortfolioPolicy()
     ready_count = sum(1 for row in rows if row["preview_state"] == "READY")
-    blocked_count = sum(1 for row in rows if row["preview_state"] == "BLOCKED")
-    disabled_count = sum(1 for row in rows if row["preview_state"] == "DISABLED")
+    blocked_count = sum(1 for row in rows if _execution_preview_is_operator_blocker(row))
+    disabled_count = sum(1 for row in rows if _execution_preview_is_context_only(row))
     submit_ready_count = sum(1 for row in rows if row["submit_enabled"] is True)
     broker_connected = bool(broker is not None and broker.get("connected") is True)
     broker_mode = str(broker.get("mode", "paper")) if broker is not None else "paper"
@@ -879,7 +905,8 @@ def execution_preview_summary(
         "no_order_explanation": (
             "A paper transaction can be approved only when a row is READY, has side "
             "BUY/SELL/SHORT/COVER, has an order value or quantity, passes risk, and "
-            "has human approval. WATCH, HOLD, and NO_TRADE rows cannot be submitted."
+            "has human approval. WATCH, HOLD, and NO_TRADE rows are review-only or "
+            "context-only rows and cannot be submitted."
         ),
     }
 
@@ -984,6 +1011,7 @@ def _execution_preview_row(
     order_intent_hash = str(preview["order_intent_hash"])
     llm_action = str(preview.get("llm_action") or "LLM review unavailable - rules-only")
     deterministic_score_label = _execution_deterministic_score_label(preview)
+    final_action = _execution_final_action_label(preview, raw_reason)
     review_decision = str(human_review["decision"])
     display_preview_state = (
         execution_state_name
@@ -1006,6 +1034,7 @@ def _execution_preview_row(
         "order_integrity_label": "Order details verified against current intent",
         "order_integrity_status_class": "pass",
         "preview_state": display_preview_state,
+        "final_action": final_action,
         "state_class": _preview_state_class(display_preview_state),
         "side": str(preview["side"]),
         "risk_decision": str(preview["risk_decision"]),
@@ -1192,6 +1221,28 @@ def _execution_final_action_label(
     if token in {"WATCH", "HOLD", "NO_TRADE"}:
         return token
     return ""
+
+
+def _execution_preview_is_context_only(row: Mapping[str, object]) -> bool:
+    final_action = str(row.get("final_action") or "").upper()
+    if not final_action:
+        preview = row.get("preview")
+        if isinstance(preview, Mapping):
+            final_action = str(preview.get("final_action") or "").upper()
+            if not final_action and "side" in preview:
+                final_action = _execution_final_action_label(preview)
+    return (
+        row.get("submit_enabled") is not True
+        and final_action in {"NO_TRADE", "WATCH", "HOLD"}
+    )
+
+
+def _execution_preview_is_operator_blocker(row: Mapping[str, object]) -> bool:
+    return (
+        str(row.get("preview_state") or "").upper() == "BLOCKED"
+        and not _execution_preview_is_context_only(row)
+    )
+
 
 def _order_approval_key(event: Mapping[str, object]) -> tuple[str, str, str, str]:
     payload = event.get("payload", {})

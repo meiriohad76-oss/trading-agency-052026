@@ -58,17 +58,26 @@ ATTENTION_STATES = {"blocked", "failed"}
 STALE_RUNNING_STATUS_SECONDS = int(os.environ.get("AGENCY_STALE_PROGRESS_SECONDS", "300"))
 
 
-def load_data_refresh_progress(path: Path | None = None) -> dict[str, object]:
+def load_data_refresh_progress(
+    path: Path | None = None,
+    *,
+    massive_lane_manifest_root: Path | None = None,
+) -> dict[str, object]:
     status_path = path or data_refresh_status_path()
+    lane_manifest_root = massive_lane_manifest_root or DEFAULT_MASSIVE_LANE_MANIFEST_ROOT
     if not status_path.is_file():
-        return _idle_progress(status_path)
+        return _idle_progress(status_path, massive_lane_manifest_root=lane_manifest_root)
     try:
         payload = json.loads(status_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return _unavailable_progress(status_path)
+        return _unavailable_progress(status_path, massive_lane_manifest_root=lane_manifest_root)
     if not isinstance(payload, Mapping):
-        return _unavailable_progress(status_path)
-    return _progress_from_payload(cast(Mapping[str, object], payload), status_path)
+        return _unavailable_progress(status_path, massive_lane_manifest_root=lane_manifest_root)
+    return _progress_from_payload(
+        cast(Mapping[str, object], payload),
+        status_path,
+        massive_lane_manifest_root=lane_manifest_root,
+    )
 
 
 def data_refresh_status_path() -> Path:
@@ -79,7 +88,12 @@ def data_refresh_status_path() -> Path:
     return Path(value)
 
 
-def _progress_from_payload(payload: Mapping[str, object], status_path: Path) -> dict[str, object]:
+def _progress_from_payload(
+    payload: Mapping[str, object],
+    status_path: Path,
+    *,
+    massive_lane_manifest_root: Path,
+) -> dict[str, object]:
     progress = _mapping(payload.get("progress"))
     jobs = _sequence(payload.get("jobs"))
     state = _state(payload, progress, jobs)
@@ -106,10 +120,44 @@ def _progress_from_payload(payload: Mapping[str, object], status_path: Path) -> 
             )
         if state == "stale":
             eta_value = eta_seconds(progress, jobs, state) or 0
-    eta_text = eta_label(eta_value, state)
     current_dataset = progress.get("current_dataset") or _current_dataset(jobs)
     updated_at = payload.get("updated_at")
-    trade_pull = _trade_pull_status(payload, status_path)
+    massive_lanes = _massive_lane_progress_rows(
+        status_path,
+        massive_lane_manifest_root=massive_lane_manifest_root,
+    )
+    active_massive_lane = _active_massive_lane(massive_lanes)
+    active_lane_id = ""
+    active_lane_label = ""
+    current_ticker = ""
+    ticker_days_processed = 0
+    ticker_days_total = 0
+    if active_massive_lane:
+        state = "running"
+        stale_reason = ""
+        active_lane_id = str(active_massive_lane.get("lane_id") or "")
+        active_lane_label = str(active_massive_lane.get("label") or active_lane_id)
+        current_dataset = active_lane_id or current_dataset
+        current_ticker = str(active_massive_lane.get("current_ticker") or "")
+        ticker_days_processed = _int_value(active_massive_lane.get("ticker_days_processed"), 0)
+        ticker_days_total = _int_value(active_massive_lane.get("ticker_days_total"), 0)
+        if ticker_days_total:
+            completed_jobs = ticker_days_processed
+            total_jobs = ticker_days_total
+        percent = _int_value(active_massive_lane.get("percent_complete"), percent)
+        eta_value = _int_value(active_massive_lane.get("eta_seconds"), eta_value)
+        updated_at = active_massive_lane.get("updated_at") or updated_at
+    eta_text = eta_label(eta_value, state)
+    trade_pull = _trade_pull_status(
+        payload,
+        status_path,
+        massive_lane_manifest_root=massive_lane_manifest_root,
+    )
+    detail = (
+        _active_massive_lane_detail(active_massive_lane, eta_label_text=eta_text)
+        if active_massive_lane
+        else _detail(state, stale_reason=stale_reason)
+    )
     return {
         "state": state,
         "status_label": _status_label(state),
@@ -118,20 +166,29 @@ def _progress_from_payload(payload: Mapping[str, object], status_path: Path) -> 
         "completed_jobs": completed_jobs,
         "total_jobs": total_jobs,
         "current_dataset": str(current_dataset or "None"),
+        "active_lane_id": active_lane_id,
+        "active_lane_label": active_lane_label,
+        "current_ticker": current_ticker,
+        "ticker_days_processed": ticker_days_processed,
+        "ticker_days_total": ticker_days_total,
         "eta_seconds": eta_value,
         "eta_label": eta_text,
         "updated_at": str(updated_at or "Not recorded"),
-        "detail": _detail(state, stale_reason=stale_reason),
+        "detail": detail,
         "status_path": _display_path(status_path),
         "is_loading": state == "running",
         "has_failures": payload.get("has_failures") is True,
         "failed_datasets": [str(d) for d in _sequence(payload.get("failed_datasets"))],
         "trade_pull": trade_pull,
-        "massive_lanes": _massive_lane_progress_rows(status_path),
+        "massive_lanes": massive_lanes,
     }
 
 
-def _idle_progress(status_path: Path) -> dict[str, object]:
+def _idle_progress(
+    status_path: Path,
+    *,
+    massive_lane_manifest_root: Path,
+) -> dict[str, object]:
     return {
         "state": "idle",
         "status_label": "Idle",
@@ -147,13 +204,27 @@ def _idle_progress(status_path: Path) -> dict[str, object]:
         "is_loading": False,
         "has_failures": False,
         "failed_datasets": [],
-        "trade_pull": _trade_pull_status({}, status_path),
-        "massive_lanes": _massive_lane_progress_rows(status_path),
+        "trade_pull": _trade_pull_status(
+            {},
+            status_path,
+            massive_lane_manifest_root=massive_lane_manifest_root,
+        ),
+        "massive_lanes": _massive_lane_progress_rows(
+            status_path,
+            massive_lane_manifest_root=massive_lane_manifest_root,
+        ),
     }
 
 
-def _unavailable_progress(status_path: Path) -> dict[str, object]:
-    progress = _idle_progress(status_path)
+def _unavailable_progress(
+    status_path: Path,
+    *,
+    massive_lane_manifest_root: Path,
+) -> dict[str, object]:
+    progress = _idle_progress(
+        status_path,
+        massive_lane_manifest_root=massive_lane_manifest_root,
+    )
     progress.update(
         {
             "state": "unavailable",
@@ -165,14 +236,46 @@ def _unavailable_progress(status_path: Path) -> dict[str, object]:
     return progress
 
 
+def _active_massive_lane(rows: Sequence[Mapping[str, object]]) -> Mapping[str, object] | None:
+    for row in rows:
+        if str(row.get("state") or "").lower() == "running":
+            return row
+    return None
+
+
+def _active_massive_lane_detail(
+    row: Mapping[str, object] | None,
+    *,
+    eta_label_text: str,
+) -> str:
+    if not row:
+        return "Data refresh is running."
+    label = str(row.get("label") or row.get("lane_id") or "Data lane")
+    progress_label = str(row.get("progress_label") or "").strip()
+    current_ticker = str(row.get("current_ticker") or "").strip().upper()
+    parts = [f"{label} is refreshing"]
+    if progress_label and progress_label != "not tracked":
+        parts.append(progress_label)
+    if current_ticker:
+        parts.append(f"current ticker {current_ticker}")
+    if eta_label_text and eta_label_text != "not available":
+        parts.append(f"ETA {eta_label_text}")
+    return "; ".join(parts) + "."
+
+
 def _trade_pull_status(
     payload: Mapping[str, object],
     status_path: Path,
+    *,
+    massive_lane_manifest_root: Path,
 ) -> dict[str, object]:
     config = _mapping(payload.get("config"))
     jobs = _sequence(payload.get("jobs"))
     job_index, job_total, job = _stock_trade_job(jobs)
-    progress_path, progress = _selected_stock_trade_progress(status_path)
+    progress_path, progress = _selected_stock_trade_progress(
+        status_path,
+        massive_lane_manifest_root=massive_lane_manifest_root,
+    )
     job_status = str(job.get("status") or "")
     progress_state = str(progress.get("state") or "")
     backfill_status_path, backfill_progress = _running_stock_trade_backfill_progress(
@@ -185,7 +288,7 @@ def _trade_pull_status(
         progress_state = str(progress.get("state") or "")
     lane_id = str(progress.get("lane_id") or "massive_live_trade_slices")
     lane_manifest = (
-        _json_mapping(_massive_lane_manifest_path(lane_id))
+        _json_mapping(_massive_lane_manifest_path(lane_id, massive_lane_manifest_root))
         if progress.get("lane_id") or progress_path.name.startswith("massive_")
         else {}
     )
@@ -334,6 +437,8 @@ def _lane_progress_path(status_path: Path, lane_id: str) -> Path:
 
 def _selected_stock_trade_progress(
     status_path: Path,
+    *,
+    massive_lane_manifest_root: Path,
 ) -> tuple[Path, Mapping[str, object]]:
     candidates = [
         _lane_progress_path(status_path, "massive_live_trade_slices"),
@@ -362,7 +467,9 @@ def _selected_stock_trade_progress(
         if live_progress:
             return live_progress[0]
         return max(available, key=lambda item: _progress_timestamp(item[0], item[1]))
-    live_manifest = _json_mapping(_massive_lane_manifest_path("massive_live_trade_slices"))
+    live_manifest = _json_mapping(
+        _massive_lane_manifest_path("massive_live_trade_slices", massive_lane_manifest_root)
+    )
     if live_manifest:
         return candidates[0], {}
     return candidates[0], {}
@@ -451,7 +558,11 @@ def _running_stock_trade_backfill_progress(
     }
 
 
-def _massive_lane_progress_rows(status_path: Path) -> list[dict[str, object]]:
+def _massive_lane_progress_rows(
+    status_path: Path,
+    *,
+    massive_lane_manifest_root: Path,
+) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     current = datetime.now(UTC)
     for lane_id in MASSIVE_LANE_IDS:
@@ -479,7 +590,7 @@ def _massive_lane_progress_rows(status_path: Path) -> list[dict[str, object]]:
                 progress = dict(backfill_progress)
                 progress["lane_id"] = lane_id
                 progress_path = backfill_path
-        manifest_path = _massive_lane_manifest_path(lane_id)
+        manifest_path = _massive_lane_manifest_path(lane_id, massive_lane_manifest_root)
         manifest = _json_mapping(manifest_path)
         if (
             str(progress.get("state") or "").lower() == "running"
@@ -505,6 +616,7 @@ def _massive_lane_progress_rows(status_path: Path) -> list[dict[str, object]]:
             state,
             progress,
             manifest,
+            massive_lane_manifest_root=massive_lane_manifest_root,
             now=current,
         )
         rows.append(
@@ -518,6 +630,10 @@ def _massive_lane_progress_rows(status_path: Path) -> list[dict[str, object]]:
                 "eta_seconds": lane_eta_seconds,
                 "eta_label": _massive_lane_eta_label(state, lane_eta_seconds),
                 "progress_label": _massive_lane_progress_label(progress, manifest),
+                "current_ticker": _text_value(progress.get("current_ticker"), ""),
+                "current_trade_date": _text_value(progress.get("current_trade_date"), ""),
+                "ticker_days_processed": _int_value(progress.get("ticker_days_processed"), 0),
+                "ticker_days_total": _int_value(progress.get("ticker_days_total"), 0),
                 "ticker_count": _massive_lane_ticker_count(state, progress, manifest),
                 "row_count": _int_value(manifest.get("row_count"), 0),
                 "row_count_label": _count_label(_int_value(manifest.get("row_count"), 0)),
@@ -556,9 +672,12 @@ def _massive_lane_required_now(lane_id: str, now: datetime) -> bool:
     return str(getattr(session, "phase", "")) == "pre_market"
 
 
-def _massive_lane_manifest_path(lane_id: str) -> Path:
+def _massive_lane_manifest_path(
+    lane_id: str,
+    manifest_root: Path = DEFAULT_MASSIVE_LANE_MANIFEST_ROOT,
+) -> Path:
     safe = "".join(char if char.isalnum() or char in {"-", "_"} else "_" for char in lane_id)
-    return DEFAULT_MASSIVE_LANE_MANIFEST_ROOT / f"{safe.strip('_') or 'unknown'}.json"
+    return manifest_root / f"{safe.strip('_') or 'unknown'}.json"
 
 
 def _massive_lane_state(
@@ -698,6 +817,21 @@ def _massive_lane_issues(
                 text = str(issue).strip()
                 if text and text.casefold() not in {"none", "null", "<none>"}:
                     issues.append({"reason": text})
+    for row in _sequence(manifest.get("coverage")):
+        if not isinstance(row, Mapping):
+            continue
+        status = str(row.get("coverage_status") or row.get("status") or "").lower()
+        if status not in {"failed", "blocked", "provider_unavailable"}:
+            continue
+        reason = str(row.get("reason") or row.get("detail") or "").strip()
+        if not reason:
+            continue
+        ticker = str(row.get("ticker") or "").strip().upper()
+        issue = {"reason": reason}
+        if ticker:
+            issue["ticker"] = ticker
+        if issue not in issues:
+            issues.append(issue)
     return issues
 
 
@@ -752,6 +886,7 @@ def _massive_lane_detail(
     progress: Mapping[str, object],
     manifest: Mapping[str, object],
     *,
+    massive_lane_manifest_root: Path,
     now: datetime,
 ) -> str:
     if state == "running":
@@ -782,7 +917,7 @@ def _massive_lane_detail(
             f"{status} with {coverage}% coverage and {issues} issue(s)."
             f"{coverage_note}"
         )
-    manifest_path = _display_path(_massive_lane_manifest_path(lane_id))
+    manifest_path = _display_path(_massive_lane_manifest_path(lane_id, massive_lane_manifest_root))
     return (
         f"{MASSIVE_LANE_LABELS.get(lane_id, lane_id)} has no lane manifest yet "
         f"at {manifest_path}; lane health is not verified."

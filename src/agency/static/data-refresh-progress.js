@@ -22,7 +22,7 @@ const meter = (percent) => {
   return wrapper;
 };
 
-const fetchJsonWithTimeout = async (endpoint, timeoutMs = 4500) => {
+const fetchJsonWithTimeout = async (endpoint, timeoutMs = 12000) => {
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -634,7 +634,11 @@ if (document.readyState === "loading") {
 
   const massiveImpact = (lane) => {
     const laneId = String(lane.lane_id || lane.name || "");
-    if (lane.blocks_execution === true || ["massive_daily_bars", "massive_live_trade_slices", "massive_premarket_trade_slices", "massive_block_trade_feed"].includes(laneId)) {
+    const blocksPaper = lane.effective_blocks_execution === true || (
+      lane.effective_blocks_execution === undefined &&
+      lane.blocks_execution === true
+    );
+    if (blocksPaper || ["massive_daily_bars", "massive_live_trade_slices", "massive_block_trade_feed"].includes(laneId)) {
       return {
         label: "Paper-critical",
         detail: "This data pipeline can affect paper-order readiness because live decisions depend on its market data.",
@@ -704,10 +708,14 @@ if (document.readyState === "loading") {
   const massiveBucketLabel = (lane, displayStatus) => {
     const laneId = String(lane.lane_id || lane.name || "");
     const status = normalized(lane.status);
-    if (lane.blocks_execution !== true && (["DISABLED", "DEFERRED"].includes(status) || laneId.includes("backtest") || laneId.includes("options"))) {
+    const blocksPaper = lane.effective_blocks_execution === true || (
+      lane.effective_blocks_execution === undefined &&
+      lane.blocks_execution === true
+    );
+    if (!blocksPaper && (["DISABLED", "DEFERRED"].includes(status) || laneId.includes("backtest") || laneId.includes("options"))) {
       return "Research / Optional / Entitlement";
     }
-    if (lane.blocks_execution === true) {
+    if (blocksPaper) {
       if (["Needs Attention", "Refresh Due", "Refreshing", "Waiting For Source Data"].includes(displayStatus)) {
         return "Needs refresh before paper";
       }
@@ -968,8 +976,12 @@ if (document.readyState === "loading") {
     const item = row || {};
     const dataset = String(item.dataset || item.raw_source_dataset || "");
     const signal = String(item.signal_lane || item.name || "");
+    const blocksPaper = item.effective_blocks_execution === true || (
+      item.effective_blocks_execution === undefined &&
+      item.blocks_execution === true
+    );
     return (
-      item.blocks_execution === true ||
+      blocksPaper ||
       ["prices_daily", "stock_trades"].includes(dataset) ||
       [
         "abnormal_volume",
@@ -991,7 +1003,8 @@ if (document.readyState === "loading") {
 
   const isAutomaticRefreshRow = (item) => {
     const kind = String(item.kind || (item.lane_id ? "massive_lane" : ""));
-    return statusOf(item) === "DUE_NOW" && ["dataset", "massive_lane"].includes(kind) && Boolean(item.command);
+    const hasCommand = Boolean(item.command) || item.command_available === true;
+    return statusOf(item) === "DUE_NOW" && ["dataset", "massive_lane"].includes(kind) && hasCommand;
   };
 
   const workloadStatusLabel = (liveCount, supportCount, repairCount, runningCount) => {
@@ -1103,6 +1116,30 @@ if (document.readyState === "loading") {
     reason.className = "muted-line";
     reason.textContent =
       lane.refresh_disabled_reason || "Current policy does not allow this data refresh.";
+    container.appendChild(reason);
+    return container;
+  };
+
+  const laneStateRefreshControl = (lane) => {
+    const container = document.createElement("div");
+    container.className = "lane-refresh-control";
+    container.title = lane.refresh_action_detail || lane.refresh_action_disabled_reason || "";
+    if (lane.refresh_action_available && lane.refresh_action_url) {
+      const form = document.createElement("form");
+      form.className = "inline-actions";
+      form.method = lane.refresh_action_method || "post";
+      form.action = lane.refresh_action_url;
+      const button = document.createElement("button");
+      button.className = "mini-button";
+      button.type = "submit";
+      button.textContent = lane.refresh_action_label || "Refresh data source";
+      form.appendChild(button);
+      container.appendChild(form);
+      return container;
+    }
+    const reason = document.createElement("small");
+    reason.textContent =
+      lane.refresh_action_disabled_reason || "No direct source refresh action is available.";
     container.appendChild(reason);
     return container;
   };
@@ -1560,16 +1597,24 @@ if (document.readyState === "loading") {
         proofText.textContent = item.progress_label || "not tracked";
         const checkedText = document.createElement("span");
         checkedText.textContent = `ETA ${item.eta_label || "not available"} - as of ${item.latest_as_of || "not recorded"} - checked ${item.checked_at || "not checked"}`;
+        const sourceText = document.createElement("span");
+        sourceText.textContent =
+          item.source_proof_label ||
+          `Provider ${item.source_status || "UNKNOWN"}; freshness ${item.source_freshness || "UNKNOWN"}`;
         appendCell(row, "Proof", [
           meter(item.progress_percent),
           proofText,
           document.createElement("br"),
           checkedText,
+          document.createElement("br"),
+          sourceText,
         ]);
         appendCell(row, "Action", [
           document.createTextNode(item.operator_message || "No data-source explanation recorded."),
           document.createElement("br"),
           document.createTextNode(item.recommended_action || "No data-source action recorded."),
+          document.createElement("br"),
+          laneStateRefreshControl(item),
         ]);
       } else {
         const coverageCell = document.createElement("td");

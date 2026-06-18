@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Mapping, Sequence
+import time
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Request
@@ -35,11 +37,121 @@ def _operator_template_finalize(value: object) -> object:
 
 
 templates.env.finalize = _operator_template_finalize
+AUDIT_ROUTE_CONTEXT_TIMEOUT_SECONDS = 2.5
+AUDIT_ROUTE_CONTEXT_CACHE_TTL_SECONDS = 120.0
+_audit_route_context_cache: tuple[float, dict[str, object], int] | None = None
+_audit_route_context_task: asyncio.Task[dict[str, object]] | None = None
 
 
 @router.get("/audit")
 async def audit(request: Request) -> Response:
-    return templates.TemplateResponse(request, "audit.html", await audit_context())
+    return templates.TemplateResponse(
+        request,
+        "audit.html",
+        await bounded_audit_context(),
+    )
+
+
+async def bounded_audit_context() -> dict[str, object]:
+    global _audit_route_context_cache, _audit_route_context_task
+    builder_id = id(audit_context)
+    if _audit_route_context_cache is not None:
+        cached_at, context, cached_builder_id = _audit_route_context_cache
+        if (
+            cached_builder_id == builder_id
+            and time.monotonic() - cached_at <= AUDIT_ROUTE_CONTEXT_CACHE_TTL_SECONDS
+        ):
+            return dict(context)
+    if _audit_route_context_task is None or _audit_route_context_task.done():
+        _audit_route_context_task = asyncio.create_task(_call_context_builder(audit_context))
+    try:
+        context = await asyncio.wait_for(
+            _audit_route_context_task,
+            timeout=AUDIT_ROUTE_CONTEXT_TIMEOUT_SECONDS,
+        )
+    except TimeoutError:
+        _audit_route_context_task.cancel()
+        _audit_route_context_task = None
+        return delayed_audit_context()
+    except Exception as exc:  # noqa: BLE001 - route should render an operator state
+        _audit_route_context_task = None
+        context = delayed_audit_context()
+        context["summary"]["headline"] = "Audit dashboard check failed"
+        context["summary"]["detail"] = f"Audit context could not be loaded: {exc}"
+        return context
+    _audit_route_context_task = None
+    _audit_route_context_cache = (time.monotonic(), dict(context), builder_id)
+    return dict(context)
+
+
+async def _call_context_builder(builder: Callable[[], object]) -> dict[str, object]:
+    return await asyncio.to_thread(_run_context_builder, builder)
+
+
+def _run_context_builder(builder: Callable[[], object]) -> dict[str, object]:
+    result = builder()
+    if isinstance(result, Awaitable):
+        return dict(asyncio.run(result))
+    return dict(result)
+
+
+def _store_audit_context_result(task: asyncio.Task[dict[str, object]]) -> None:
+    global _audit_route_context_cache, _audit_route_context_task
+    if _audit_route_context_task is task:
+        _audit_route_context_task = None
+    try:
+        context = task.result()
+    except Exception:
+        return
+    _audit_route_context_cache = (time.monotonic(), dict(context), id(audit_context))
+
+
+def delayed_audit_context() -> dict[str, object]:
+    return {
+        "agent_runs": [],
+        "prompt_audits": [],
+        "risk_snapshots": [],
+        "execution_states": [],
+        "portfolio_snapshots": [],
+        "summary": {
+            "run_count": 0,
+            "running_count": 0,
+            "failed_count": 0,
+            "prompt_count": 0,
+            "risk_snapshot_count": 0,
+            "execution_state_count": 0,
+            "portfolio_snapshot_count": 0,
+            "headline": "Audit trail is checking source proof",
+            "detail": "Runtime trace rows are hidden until the current audit context finishes loading.",
+        },
+        "data_health": dashboard_data_health(
+            "Audit dashboard",
+            data_load_status={
+                "status_checked_at": datetime.now(UTC).isoformat(),
+                "overall_percent": 0,
+                "health_monitor": {
+                    "status_label": "Audit check still running",
+                    "status_class": "warn",
+                    "live": False,
+                    "origin": "bounded audit route",
+                    "latest_checked_at": datetime.now(UTC).isoformat(),
+                    "detail": "Audit rows did not finish loading inside the first-screen budget.",
+                },
+            },
+            extra_rows=(
+                {
+                    "kind": "Audit route",
+                    "name": "Runtime audit trail",
+                    "status_label": "Still checking",
+                    "status_class": "warn",
+                    "coverage_label": "audit rows not displayed yet",
+                    "freshness_label": "source proof pending",
+                    "last_update": datetime.now(UTC).isoformat(),
+                    "detail": "Audit rows are hidden until the live context finishes loading.",
+                },
+            ),
+        ),
+    }
 
 
 async def audit_context() -> dict[str, object]:

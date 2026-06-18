@@ -166,7 +166,7 @@ def test_scheduler_dataset_command_prefers_extraction_tickers_over_tier() -> Non
     assert "stock_trades is lane-owned" in str(dataset_job["reason"])
 
 
-def test_scheduler_market_stock_trade_job_prioritizes_tier_intersection() -> None:
+def test_scheduler_market_stock_trade_job_includes_full_active_universe_tier() -> None:
     tiers = build_ticker_tiers(
         review_queue=[
             {"ticker": "XOM", "human_review_decision": "Pending"},
@@ -185,8 +185,15 @@ def test_scheduler_market_stock_trade_job_prioritizes_tier_intersection() -> Non
     )
     command = queue["next_jobs"][0]["command"]
 
-    assert queue["next_jobs"][0]["ticker_sample"] == ["XOM", "AAPL"]
-    assert command[-4:] == ["--ticker", "XOM", "--ticker", "AAPL"]
+    assert queue["next_jobs"][0]["ticker_sample"] == ["XOM", "AAPL", "MSFT"]
+    assert command[-6:] == [
+        "--ticker",
+        "XOM",
+        "--ticker",
+        "AAPL",
+        "--ticker",
+        "MSFT",
+    ]
 
 
 def test_active_stock_trade_dataset_job_runs_planned_universe_when_t0_t1_empty() -> None:
@@ -202,7 +209,7 @@ def test_active_stock_trade_dataset_job_runs_planned_universe_when_t0_t1_empty()
     )
     dataset_job = next(job for job in queue["jobs"] if job["kind"] == "dataset")
 
-    assert dataset_job["ticker_tier"] == "T0/T1"
+    assert dataset_job["ticker_tier"] == "T0/T1/T2"
     assert dataset_job["status"] == "SKIPPED"
     assert dataset_job["ticker_sample"] == ["AAPL", "MSFT", "NVDA"]
     assert dataset_job["command"] == []
@@ -845,7 +852,7 @@ def test_stock_trade_signal_does_not_bypass_waiting_massive_raw_lanes() -> None:
     signal_job = next(job for job in queue["jobs"] if job["kind"] == "signal_lane")
     assert signal_job["status"] == "WAITING"
     assert signal_job["command"] == []
-    assert "Waiting for Massive raw lane" in str(signal_job["reason"])
+    assert "Waiting for Massive data-source lane" in str(signal_job["reason"])
 
 
 def test_raw_requirement_gate_does_not_treat_empty_skipped_lane_as_ready() -> None:
@@ -891,10 +898,10 @@ def test_raw_requirement_gate_does_not_treat_empty_skipped_lane_as_ready() -> No
     signal_job = next(job for job in queue["jobs"] if job["kind"] == "signal_lane")
     assert signal_job["status"] == "WAITING"
     assert signal_job["command"] == []
-    assert "Waiting for Massive raw lane" in str(signal_job["reason"])
+    assert "Waiting for Massive data-source lane" in str(signal_job["reason"])
 
 
-def test_stock_trade_signal_ready_tickers_outside_active_tier_are_not_handed_off() -> None:
+def test_stock_trade_signal_ready_tickers_in_t2_active_universe_are_handed_off() -> None:
     tiers = build_ticker_tiers(review_queue=[{"ticker": "AAPL"}], active_universe=["AAPL", "MSFT"])
 
     queue = build_scheduler_work_queue(
@@ -916,10 +923,10 @@ def test_stock_trade_signal_ready_tickers_outside_active_tier_are_not_handed_off
     )
     signal_job = next(job for job in queue["jobs"] if job["kind"] == "signal_lane")
 
-    assert signal_job["status"] == "WAITING"
-    assert signal_job["ticker_sample"] == []
-    assert signal_job["command"] == []
-    assert "none are in active tier" in signal_job["reason"]
+    assert signal_job["status"] == "DUE_NOW"
+    assert signal_job["ticker_sample"] == ["MSFT"]
+    assert signal_job["command"]
+    assert "fully complete" in signal_job["reason"]
 
 
 def test_stock_trade_signal_job_passes_partial_usable_tickers_during_pull() -> None:
@@ -974,7 +981,7 @@ def test_stock_trade_signal_job_waits_for_first_complete_ticker() -> None:
     assert "first fully completed" in signal_job["reason"]
 
 
-def test_empty_signal_tier_is_skipped_instead_of_falling_back_to_universe() -> None:
+def test_signal_lane_uses_full_active_universe_when_review_tiers_are_empty() -> None:
     tiers = build_ticker_tiers(active_universe=["AAPL", "MSFT"])
 
     queue = build_scheduler_work_queue(
@@ -988,8 +995,9 @@ def test_empty_signal_tier_is_skipped_instead_of_falling_back_to_universe() -> N
     signal_job = next(job for job in queue["jobs"] if job["kind"] == "signal_lane")
     dataset_job = next(job for job in queue["jobs"] if job["kind"] == "dataset")
 
-    assert signal_job["status"] == "SKIPPED"
-    assert signal_job["command"] == []
+    assert signal_job["status"] == "DUE_NOW"
+    assert signal_job["ticker_sample"] == ["AAPL", "MSFT"]
+    assert signal_job["command"][-4:] == ["--ticker", "AAPL", "--ticker", "MSFT"]
     assert dataset_job["status"] == "SKIPPED"
     assert dataset_job["command"] == []
 
@@ -1738,6 +1746,118 @@ def test_scheduler_suppresses_generic_dataset_pull_when_massive_lane_owns_endpoi
         massive_job["command"][COMMAND_SCRIPT_INDEX]
         == "research\\scripts\\pull_massive_stock_trades.py"
     )
+
+
+def test_scheduler_live_lane_falls_back_to_active_universe_when_t0_t1_empty(
+    tmp_path: Path,
+) -> None:
+    tiers = build_ticker_tiers(active_universe=["AAPL", "MSFT", "NVDA"])
+    plan = _market_plan("after_hours")
+    plan["massive_orchestrator"] = {
+        "provider": "massive",
+        "market_phase": "after_hours",
+        "lanes": [
+            {
+                "lane_id": "massive_live_trade_slices",
+                "label": "Live Trade Slices",
+                "purpose": "Keep latest Massive trade tape current.",
+                "dataset": "stock_trades",
+                "raw_source_dataset": "stock_trades",
+                "endpoint_family": "trades",
+                "acquisition_mode": "massive_api",
+                "command_profile": "stock_trades_live",
+                "batch_action": "run_now",
+                "priority": 100,
+                "cadence_minutes": 30,
+                "max_tickers_per_batch": 2,
+                "ticker_tier": "T0/T1",
+                "start": "2026-05-11",
+                "end": "2026-05-11",
+                "freshness_requirement_seconds": 1800,
+                "blocks_execution": True,
+                "request_budget_label": "bounded latest-print pages for active tiers",
+                "storage_manifest": str(tmp_path / "massive_live_trade_slices.json"),
+                "creates_massive_request": True,
+                "reason": "Massive trade coverage is missing for the active universe.",
+            }
+        ],
+        "derived_signal_lanes": [],
+    }
+
+    queue = build_scheduler_work_queue(
+        plan,
+        tiers=tiers,
+        data_load_status={"state": "blocked", "datasets": []},
+        source_health=_fresh_sources(),
+        broker={"connected": True, "checked_at": NOW.isoformat()},
+        now=NOW,
+    )
+
+    lane = queue["massive_orchestrator"]["lanes"][0]
+    assert lane["status"] == "DUE_NOW"
+    assert lane["ticker_tier"] == "T0/T1"
+    assert lane["ticker_count"] == 3
+    assert lane["ticker_sample"] == ["AAPL", "MSFT", "NVDA"]
+    assert lane["batch_ticker_count"] == 2
+    assert lane["command"][-4:] == ["--ticker", "AAPL", "--ticker", "MSFT"]
+
+
+def test_scheduler_live_lane_uses_full_active_universe_when_policy_unbounded(
+    tmp_path: Path,
+) -> None:
+    active = [f"T{i:03d}" for i in range(168)]
+    tiers = build_ticker_tiers(active_universe=active)
+    plan = _market_plan("regular_market", tickers=tuple(active))
+    plan["massive_orchestrator"] = {
+        "provider": "massive",
+        "market_phase": "regular_market",
+        "lanes": [
+            {
+                "lane_id": "massive_live_trade_slices",
+                "label": "Live Trade Slices",
+                "purpose": "Keep latest Massive trade tape current.",
+                "dataset": "stock_trades",
+                "raw_source_dataset": "stock_trades",
+                "endpoint_family": "trades",
+                "acquisition_mode": "massive_api",
+                "command_profile": "stock_trades_live",
+                "batch_action": "run_now",
+                "priority": 100,
+                "cadence_minutes": 5,
+                "max_tickers_per_batch": None,
+                "ticker_tier": "T0/T1/T2",
+                "start": "2026-05-11",
+                "end": "2026-05-11",
+                "freshness_requirement_seconds": 1800,
+                "blocks_execution": True,
+                "request_budget_label": "one latest-print page per active ticker",
+                "storage_manifest": str(tmp_path / "massive_live_trade_slices.json"),
+                "creates_massive_request": True,
+                "reason": "Massive trade coverage is missing for the active universe.",
+            }
+        ],
+        "derived_signal_lanes": [],
+    }
+
+    queue = build_scheduler_work_queue(
+        plan,
+        tiers=tiers,
+        data_load_status={"state": "blocked", "datasets": []},
+        source_health=_fresh_sources(),
+        broker={"connected": True, "checked_at": NOW.isoformat()},
+        now=NOW,
+    )
+
+    lane = queue["massive_orchestrator"]["lanes"][0]
+    selected = [
+        lane["command"][index + 1]
+        for index, token in enumerate(lane["command"])
+        if token == "--ticker"
+    ]
+    assert selected == active
+    assert lane["ticker_count"] == 168
+    assert lane["batch_ticker_count"] == 168
+    assert lane["command_ticker_count"] == 168
 
 
 def test_scheduler_massive_lane_prioritizes_tier_before_broad_extraction_order() -> None:

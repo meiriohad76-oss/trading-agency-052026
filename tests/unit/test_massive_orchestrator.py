@@ -116,7 +116,11 @@ def test_regular_market_does_not_duplicate_live_trade_endpoint_for_derived_signa
     ]
 
     assert api_trade_lanes == ["massive_live_trade_slices"]
+    assert _lane(plan, "massive_live_trade_slices")["ticker_tier"] == "T0/T1/T2"
+    assert _lane(plan, "massive_live_trade_slices")["max_tickers_per_batch"] is None
     assert _lane(plan, "massive_block_trade_feed")["batch_action"] == "derive_from_raw"
+    assert _lane(plan, "massive_block_trade_feed")["ticker_tier"] == "T0/T1/T2"
+    assert _lane(plan, "massive_block_trade_feed")["max_tickers_per_batch"] is None
     assert _lane(plan, "massive_block_trade_feed")["request_budget_label"].startswith("0 Massive")
     assert _lane(plan, "massive_premarket_trade_slices")["batch_action"] == "disabled"
 
@@ -155,8 +159,8 @@ def test_orchestrator_repairs_live_slices_in_closed_market_when_required(
     assert _lane(plan, "massive_premarket_trade_slices")["batch_action"] == "defer"
     assert "04:00 ET" in _lane(plan, "massive_premarket_trade_slices")["reason"]
     assert _lane(plan, "massive_block_trade_feed")["batch_action"] == "derive_from_raw"
-    assert _lane(plan, "massive_live_trade_slices")["max_tickers_per_batch"] == 50
-    assert _lane(plan, "massive_premarket_trade_slices")["max_tickers_per_batch"] == 50
+    assert _lane(plan, "massive_live_trade_slices")["max_tickers_per_batch"] is None
+    assert _lane(plan, "massive_premarket_trade_slices")["max_tickers_per_batch"] is None
     assert plan["execution_blocking_lane_count"] == 2
 
 
@@ -288,6 +292,8 @@ def test_live_trade_lanes_target_active_universe_not_full_depth_gap_subset(
         "MSFT",
         "NVDA",
     ]
+    assert _lane(plan, "massive_live_trade_slices")["max_tickers_per_batch"] is None
+    assert _lane(plan, "massive_premarket_trade_slices")["max_tickers_per_batch"] is None
     assert _lane(plan, "massive_backtest_trade_tape")["tickers"] == ["MSFT"]
 
 

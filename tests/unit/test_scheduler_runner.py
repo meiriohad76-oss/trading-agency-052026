@@ -173,7 +173,12 @@ def test_work_queue_tick_prefers_massive_lanes_and_refreshes_runtime(monkeypatch
             ],
         }
 
-    def fake_run(command: list[str]) -> CompletedProcess[str]:
+    def fake_run(
+        command: list[str],
+        *,
+        timeout_seconds: int | None = None,
+    ) -> CompletedProcess[str]:
+        assert timeout_seconds is not None
         commands.append(command)
         return CompletedProcess(command, 0, stdout="ok", stderr="")
 
@@ -235,7 +240,11 @@ def test_manual_massive_lane_refresh_runs_only_requested_due_lane(monkeypatch) -
         recorded.append(dict(kwargs))
         return dict(kwargs)
 
-    def fake_run(command: list[str]) -> CompletedProcess[str]:
+    def fake_run(
+        command: list[str],
+        *,
+        timeout_seconds: int | None = None,
+    ) -> CompletedProcess[str]:
         commands.append(command)
         return CompletedProcess(command, 0, stdout="ok", stderr="")
 
@@ -280,7 +289,11 @@ def test_manual_massive_lane_refresh_refuses_policy_unavailable_lane(monkeypatch
         recorded.append(dict(kwargs))
         return dict(kwargs)
 
-    def fake_run(command: list[str]) -> CompletedProcess[str]:
+    def fake_run(
+        command: list[str],
+        *,
+        timeout_seconds: int | None = None,
+    ) -> CompletedProcess[str]:
         commands.append(command)
         return CompletedProcess(command, 0, stdout="should not run", stderr="")
 
@@ -355,7 +368,12 @@ def test_work_queue_tick_marks_timed_out_dataset_refresh_status_failed(
             ],
         }
 
-    def fake_run(command: list[str]) -> CompletedProcess[str]:
+    def fake_run(
+        command: list[str],
+        *,
+        timeout_seconds: int | None = None,
+    ) -> CompletedProcess[str]:
+        assert timeout_seconds is not None
         return CompletedProcess(
             command,
             124,
@@ -390,6 +408,39 @@ def test_work_queue_tick_marks_timed_out_dataset_refresh_status_failed(
     assert payload["in_progress"] is False
 
 
+def test_massive_lane_command_timeout_scales_with_eta(monkeypatch) -> None:
+    monkeypatch.setattr(scheduler_runner, "COMMAND_TIMEOUT_SECONDS", 240)
+    monkeypatch.setattr(scheduler_runner, "COMMAND_TIMEOUT_GRACE_SECONDS", 120)
+    monkeypatch.setattr(scheduler_runner, "MAX_COMMAND_TIMEOUT_SECONDS", 1800)
+
+    timeout = scheduler_runner._command_timeout_seconds(
+        {
+            "kind": "massive_lane",
+            "name": "massive_live_trade_slices",
+            "eta_seconds": 1560,
+            "ticker_count": 168,
+        }
+    )
+
+    assert timeout == 1680
+
+
+def test_run_queue_command_uses_supplied_timeout(monkeypatch, tmp_path: Path) -> None:
+    calls: list[dict[str, object]] = []
+
+    def fake_run(cmd, **kwargs):  # type: ignore[no-untyped-def]
+        calls.append({"cmd": list(cmd), **kwargs})
+        return CompletedProcess(cmd, 0, stdout="ok", stderr="")
+
+    monkeypatch.setattr(scheduler_runner, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(scheduler_runner.subprocess, "run", fake_run)
+
+    result = scheduler_runner._run_queue_command(["python", "pull.py"], timeout_seconds=900)
+
+    assert result.returncode == 0
+    assert calls[0]["timeout"] == 900
+
+
 def test_work_queue_tick_records_job_success_cadence_memory(monkeypatch) -> None:
     command_started = datetime(2026, 5, 17, 14, 0, tzinfo=UTC)
 
@@ -418,7 +469,7 @@ def test_work_queue_tick_records_job_success_cadence_memory(monkeypatch) -> None
     monkeypatch.setattr(
         scheduler_runner,
         "_run_queue_command",
-        lambda command: CompletedProcess(command, 0, stdout="ok", stderr=""),
+        lambda command, **_kwargs: CompletedProcess(command, 0, stdout="ok", stderr=""),
     )
     monkeypatch.setattr(scheduler_runner, "WORK_QUEUE_MAX_COMMANDS", 1)
     monkeypatch.setattr(scheduler_runner, "RUNTIME_CYCLE_AFTER_DATA_REFRESH", False)

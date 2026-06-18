@@ -14,6 +14,38 @@
 {% block evidence_contract %}Health, data-progress proof, source proof, ETA, and review queue state come from current runtime artifacts.{% endblock %}
 
 {% block content %}
+  {% if email_alert_active and data_health.email_login_alert %}
+  <section class="data-health-email-login-alert command-email-login-alert" aria-label="Email evidence login required">
+    <div>
+      <span class="metric-label">Email evidence</span>
+      <strong>{{ data_health.email_login_alert.title|default("Email evidence needs login", true) }}</strong>
+      <p>{{ data_health.email_login_alert.detail }}</p>
+    </div>
+    <form method="post" action="{{ data_health.email_login_alert.action }}" title="{{ data_health.email_login_alert.detail }}">
+      <button class="mini-button data-health-action-button" type="submit">
+        {{ data_health.email_login_alert.label|default("Open Seeking Alpha login refresh", true) }}
+      </button>
+    </form>
+  </section>
+  {% endif %}
+
+  {% if route_context_status %}
+  <section class="next-action hero-watch" aria-label="Command status">
+    <div class="next-action-step" aria-hidden="true">Now</div>
+    <div class="next-action-copy">
+      <p class="eyebrow">Command status</p>
+      <h2>{{ route_context_status.status_label }}</h2>
+      <p>{{ route_context_status.detail }}</p>
+      <p class="next-action-sub">{{ route_context_status.action }}</p>
+    </div>
+    <div class="next-action-buttons">
+      <a class="primary-action" href="/cockpit">Open cockpit</a>
+      <a class="secondary-action" href="/command">Recheck Command</a>
+    </div>
+  </section>
+
+  {{ data_health_panel(data_health) }}
+  {% else %}
   <section class="command-act-zone" aria-label="Today's operator workflow">
     <section class="operator-checklist-card {{ summary.hero_class }}" aria-label="Today's operator checklist">
       <div class="operator-checklist-header">
@@ -40,21 +72,6 @@
         {% endfor %}
       </div>
     </section>
-
-  {% if email_alert_active and data_health.email_login_alert %}
-  <section class="data-health-email-login-alert command-email-login-alert" aria-label="Email evidence login required">
-    <div>
-      <span class="metric-label">Email evidence</span>
-      <strong>{{ data_health.email_login_alert.title|default("Email evidence needs login", true) }}</strong>
-      <p>{{ data_health.email_login_alert.detail }}</p>
-    </div>
-    <form method="post" action="{{ data_health.email_login_alert.action }}" title="{{ data_health.email_login_alert.detail }}">
-      <button class="mini-button data-health-action-button" type="submit">
-        {{ data_health.email_login_alert.label|default("Open Seeking Alpha login refresh", true) }}
-      </button>
-    </form>
-  </section>
-  {% endif %}
 
   {% set email_status = data_load_status.subscription_email_status|default({}, true) %}
   {% if email_progress_active %}
@@ -741,10 +758,18 @@
                         </div>
                         <span>{{ row.progress_label }}</span>
                         <span>ETA {{ row.eta_label }} &middot; as of {{ row.latest_as_of_label }} &middot; checked {{ row.checked_at_label }}</span>
+                        <span title="{{ row.manifest_path_label }}">{{ row.source_proof_label }}</span>
                       </td>
                       <td data-label="Action">
                         <span>{{ row.operator_message }}</span>
                         <span>{{ row.recommended_action }}</span>
+                        {% if row.refresh_action.enabled %}
+                        <form class="inline-actions" method="post" action="{{ row.refresh_action.action }}" title="{{ row.refresh_action.detail }}">
+                          <button class="mini-button" type="submit">{{ row.refresh_action.label }}</button>
+                        </form>
+                        {% elif row.refresh_action.disabled_reason %}
+                        <small title="{{ row.refresh_action.detail }}">{{ row.refresh_action.disabled_reason }}</small>
+                        {% endif %}
                       </td>
                     </tr>
                     {% else %}
@@ -1580,4 +1605,5 @@
   </section>
     </details>
   </section>
+  {% endif %}
 {% endblock %}

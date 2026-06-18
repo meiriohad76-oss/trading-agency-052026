@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import re
 from collections.abc import Awaitable, Mapping, Sequence
 from datetime import UTC, datetime
@@ -50,7 +51,18 @@ from agency.views._shared import (
     workflow_phase_summary,
 )
 
-DASHBOARD_RUNTIME_QUERY_TIMEOUT_SECONDS = 30.0
+
+def _dashboard_runtime_query_timeout_seconds() -> float:
+    raw = os.environ.get("AGENCY_DASHBOARD_RUNTIME_QUERY_TIMEOUT_SECONDS", "")
+    if raw.strip():
+        try:
+            return max(1.0, float(raw))
+        except ValueError:
+            pass
+    return 6.0
+
+
+DASHBOARD_RUNTIME_QUERY_TIMEOUT_SECONDS = _dashboard_runtime_query_timeout_seconds()
 COMMAND_DASHBOARD_REPORT_LIMIT = 20
 LIVE_CRITICAL_SCHEDULER_DATASETS = {"prices_daily", "stock_trades"}
 LIVE_CRITICAL_SCHEDULER_SIGNALS = {
@@ -412,12 +424,7 @@ def _email_alert_active(email_status: Mapping[str, object]) -> bool:
 
 
 def _email_progress_active(email_status: Mapping[str, object]) -> bool:
-    return (
-        _optional_int(email_status, "linked_content_processing") > 0
-        or _optional_int(email_status, "linked_content_attempted") > 0
-        or _optional_int(email_status, "processed_email_count") > 0
-        or _optional_int(email_status, "summary_count") > 0
-    )
+    return True
 
 
 def command_actions() -> list[dict[str, str]]:
@@ -1894,9 +1901,9 @@ def _subscription_email_status_view(row: Mapping[str, object]) -> dict[str, obje
     )
     view.setdefault("mini_cycle_ticker_rows", [])
     view.setdefault("refresh_action_url", "/scheduler/subscription-emails/login-refresh")
-    view.setdefault("refresh_button_label", "Open Seeking Alpha login refresh")
-    view.setdefault("continue_action_url", "")
-    view.setdefault("continue_button_label", "")
+    view.setdefault("refresh_button_label", "Open SA browser and verify login")
+    view.setdefault("continue_action_url", "/scheduler/subscription-emails/continue-after-login")
+    view.setdefault("continue_button_label", "I logged in - analyze unread SA emails")
     view["last_update_label"] = _format_timestamp_or_text(
         view.get("updated_at"),
         default="not recorded",
@@ -2049,14 +2056,16 @@ def scheduler_work_queue_view(status: Mapping[str, object]) -> dict[str, object]
     gate = _mapping_field(view, "execution_freshness_gate")
     scheduler_runtime = _mapping_field(view, "scheduler_runtime")
     massive_orchestrator = _mapping_field(view, "massive_orchestrator")
+    job_rows = _mapping_list_field(view, "jobs")
+    next_job_rows = _mapping_list_field(view, "next_jobs")
     view["headline"] = str(summary["headline"])
     view["status_label"] = str(tradability["status_label"])
     view["status_class"] = str(tradability["status_class"])
     view["tradability_detail"] = str(tradability["detail"])
     view["runtime"] = scheduler_runtime
-    view["job_rows"] = _mapping_list_field(view, "jobs")[:10]
-    view["next_job_rows"] = _mapping_list_field(view, "next_jobs")
-    job_rows = _mapping_list_field(view, "jobs")
+    view["job_count"] = len(job_rows)
+    view["job_rows"] = [_compact_scheduler_job_row(row) for row in job_rows[:10]]
+    view["next_job_rows"] = [_compact_scheduler_job_row(row) for row in next_job_rows[:10]]
     view["stale_rows"] = [
         _scheduler_dataset_review_row(row, jobs=job_rows)
         for row in _mapping_list_field(view, "stale_datasets")[:8]
@@ -2079,20 +2088,29 @@ def scheduler_work_queue_view(status: Mapping[str, object]) -> dict[str, object]
     view["massive_orchestrator"] = massive_view
     view["massive_lane_rows"] = massive_lane_rows
     view["massive_signal_rows"] = massive_signal_rows
-    view["repair"] = repair
-    view["repair_rows"] = _mapping_list_field(repair, "jobs")[:6]
-    view["freshness_checks"] = _mapping_list_field(gate, "checks")
     repair_rows = _mapping_list_field(repair, "jobs")
+    compact_repair = dict(repair)
+    compact_repair["jobs"] = [_compact_scheduler_job_row(row) for row in repair_rows[:10]]
+    compact_repair["job_count"] = len(repair_rows)
+    compact_repair["jobs_truncated_count"] = max(0, len(repair_rows) - 10)
+    view["repair"] = compact_repair
+    view["repair_plan"] = compact_repair
+    view["repair_rows"] = [_compact_scheduler_job_row(row) for row in repair_rows[:6]]
+    view["freshness_checks"] = _mapping_list_field(gate, "checks")
     view["automation_status"] = _scheduler_automation_status(scheduler_runtime)
     view["trading_freshness_gate"] = _scheduler_trading_freshness_gate(tradability)
     view["refresh_workload"] = _scheduler_refresh_workload(
-        jobs=_mapping_list_field(view, "jobs"),
+        jobs=job_rows,
         massive_lanes=massive_lane_rows,
         repair_rows=repair_rows,
     )
     view["tier_rows"] = [
         dict(_mapping_field(tiers, key)) for key in ("T0", "T1", "T2", "T3") if key in tiers
     ]
+    view["jobs"] = [_compact_scheduler_job_row(row) for row in job_rows[:25]]
+    view["jobs_truncated_count"] = max(0, len(job_rows) - 25)
+    view["next_jobs"] = [_compact_scheduler_job_row(row) for row in next_job_rows[:25]]
+    view["next_jobs_truncated_count"] = max(0, len(next_job_rows) - 25)
     return view
 
 
@@ -2133,6 +2151,74 @@ def scheduler_candidate_impact_context(
         "status_class": status_class,
         "detail": detail,
     }
+
+
+def _compact_scheduler_job_row(row: Mapping[str, object]) -> dict[str, object]:
+    output = dict(row)
+    command = output.pop("command", None)
+    command_items = [str(item) for item in command] if isinstance(command, list) else []
+    ticker_values = _row_tickers(output)
+    command_tickers = _command_ticker_values(command_items)
+    ticker_sample = ticker_values[:8] or command_tickers[:8]
+    ticker_count = _optional_int(output, "ticker_count") or len(ticker_values) or len(command_tickers)
+    output.pop("tickers", None)
+    output["command_available"] = bool(command_items)
+    output["command_arg_count"] = len(command_items)
+    output["command_preview"] = _command_preview(command_items, command_tickers)
+    output["ticker_count"] = ticker_count
+    output["ticker_sample"] = ticker_sample
+    output["ticker_sample_label"] = ", ".join(ticker_sample) if ticker_sample else "not ticker-scoped"
+    if len(command_tickers) > len(ticker_sample):
+        output["ticker_sample_label"] = (
+            f"{output['ticker_sample_label']} +{len(command_tickers) - len(ticker_sample)} more"
+        )
+    return output
+
+
+def _row_tickers(row: Mapping[str, object]) -> list[str]:
+    value = row.get("tickers")
+    if isinstance(value, list):
+        return [str(ticker).upper() for ticker in value if str(ticker).strip()]
+    value = row.get("ticker_sample")
+    if isinstance(value, list):
+        return [str(ticker).upper() for ticker in value if str(ticker).strip()]
+    ticker = str(row.get("ticker") or "").strip().upper()
+    return [ticker] if ticker else []
+
+
+def _command_ticker_values(command: Sequence[str]) -> list[str]:
+    tickers: list[str] = []
+    index = 0
+    while index < len(command):
+        if command[index] == "--ticker" and index + 1 < len(command):
+            tickers.append(command[index + 1])
+            index += 2
+            continue
+        index += 1
+    return tickers
+
+
+def _command_preview(command: Sequence[str], tickers: Sequence[str]) -> str:
+    if not command:
+        return ""
+    preview: list[str] = []
+    index = 0
+    skipped_tickers = 0
+    while index < len(command) and len(preview) < 12:
+        token = command[index]
+        if token == "--ticker" and index + 1 < len(command):
+            skipped_tickers += 1
+            if skipped_tickers <= 3:
+                preview.extend([token, command[index + 1]])
+            index += 2
+            continue
+        preview.append(token)
+        index += 1
+    if len(command) > index:
+        preview.append("...")
+    if len(tickers) > 3:
+        preview.append(f"+{len(tickers) - 3} tickers")
+    return " ".join(preview)
 
 
 def _scheduler_dataset_review_row(
@@ -2301,10 +2387,11 @@ def _scheduler_row_is_automatic_refresh(row: Mapping[str, object]) -> bool:
     kind = str(row.get("kind") or "")
     if not kind and row.get("lane_id"):
         kind = "massive_lane"
+    command_available = bool(row.get("command")) or row.get("command_available") is True
     return (
         _scheduler_row_status(row) == "DUE_NOW"
         and kind in {"dataset", "massive_lane"}
-        and bool(row.get("command"))
+        and command_available
     )
 
 
@@ -2384,7 +2471,20 @@ def _massive_lane_view(row: Mapping[str, object]) -> dict[str, object]:
             **refresh_control,
         }
     )
-    return view
+    compact = _compact_scheduler_job_row(view)
+    fresh_tickers = compact.pop("fresh_tickers", None)
+    if isinstance(fresh_tickers, list):
+        fresh_sample = [str(ticker).upper() for ticker in fresh_tickers[:8] if str(ticker).strip()]
+        compact["fresh_ticker_sample"] = fresh_sample
+        compact["fresh_ticker_sample_label"] = (
+            ", ".join(fresh_sample) if fresh_sample else "no current ticker sample"
+        )
+        if len(fresh_tickers) > len(fresh_sample):
+            compact["fresh_ticker_sample_label"] = (
+                f"{compact['fresh_ticker_sample_label']} +{len(fresh_tickers) - len(fresh_sample)} more"
+            )
+    compact.pop("command_profile", None)
+    return compact
 
 
 def _massive_signal_view_rows(
@@ -3071,7 +3171,7 @@ def _data_load_row(row: Mapping[str, object]) -> dict[str, object]:
 def _lane_state_row(row: Mapping[str, object]) -> dict[str, object]:
     view = dict(row)
     view["name"] = _label_text(str(row.get("label") or row.get("lane_id") or "Unknown"))
-    view["lane_kind_label"] = _label_text(str(row.get("lane_kind") or "lane"))
+    view["lane_kind_label"] = _lane_kind_operator_label(row.get("lane_kind"))
     view["status_label"] = _operator_text(row.get("status_label") or "Unknown")
     view["operator_message"] = _operator_text(
         row.get("operator_message") or "No data-source explanation recorded."
@@ -3081,6 +3181,11 @@ def _lane_state_row(row: Mapping[str, object]) -> dict[str, object]:
     )
     view["latest_as_of_label"] = _format_timestamp_or_text(row.get("latest_as_of"))
     view["checked_at_label"] = _format_timestamp_or_text(row.get("checked_at"))
+    view["source_proof_label"] = _operator_text(
+        row.get("source_proof_label")
+        or _lane_source_proof_label(row)
+    )
+    view["manifest_path_label"] = _operator_text(row.get("manifest_path") or "manifest not recorded")
     progress_percent = _bounded_lane_state_progress(row)
     view["progress_percent"] = progress_percent
     view["progress_style"] = f"width: {progress_percent}%"
@@ -3090,7 +3195,48 @@ def _lane_state_row(row: Mapping[str, object]) -> dict[str, object]:
         str(item) for item in _list_field_or_empty(row, "raw_lanes_required") if str(item).strip()
     ]
     view["requirement_label"] = ", ".join(requirements) if requirements else "Direct source"
+    view["refresh_action"] = _lane_refresh_action(row)
     return view
+
+
+def _lane_source_proof_label(row: Mapping[str, object]) -> str:
+    status = str(row.get("source_status") or "UNKNOWN")
+    freshness = str(row.get("source_freshness") or "UNKNOWN")
+    if freshness.upper() == "STALE":
+        freshness = "Needs refresh"
+    checked = _format_timestamp_or_text(row.get("checked_at"), default="not checked")
+    manifest = str(row.get("manifest_path") or "manifest not recorded")
+    return f"Provider {status}; freshness {freshness}; checked {checked}; {manifest}"
+
+
+def _lane_refresh_action(row: Mapping[str, object]) -> dict[str, object]:
+    available = row.get("refresh_action_available") is True
+    return {
+        "enabled": available,
+        "label": _operator_text(row.get("refresh_action_label") or "No direct refresh"),
+        "action": str(row.get("refresh_action_url") or ""),
+        "method": str(row.get("refresh_action_method") or "post").lower(),
+        "detail": _operator_text(
+            row.get("refresh_action_detail") or "No source refresh detail recorded."
+        ),
+        "disabled_reason": _operator_text(
+            row.get("refresh_action_disabled_reason")
+            or (
+                ""
+                if available
+                else "No scheduler refresh action is attached to this data source."
+            )
+        ),
+    }
+
+
+def _lane_kind_operator_label(value: object) -> str:
+    normalized = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if normalized in {"raw", "raw_acquisition", "source", "data_source"}:
+        return "Data source"
+    if normalized in {"derived", "derived_signal", "agent", "signal"}:
+        return "Agent analysis"
+    return _label_text(str(value or "lane"))
 
 
 def _bounded_lane_state_progress(row: Mapping[str, object]) -> int:
@@ -3650,23 +3796,30 @@ def _runtime_unavailable_readiness(*errors: object) -> dict[str, object]:
 def _runtime_unavailable_paper_status(
     readiness: Mapping[str, object],
 ) -> dict[str, object]:
+    progress = {
+        "total_count": 0,
+        "reviewed_count": 0,
+        "pending_count": 0,
+        "approve_count": 0,
+        "defer_count": 0,
+        "reject_count": 0,
+        "reviewed_label": "0/0",
+        "status_label": "Runtime Unavailable",
+        "status_class": "block",
+        "detail": "Paper-review queue cannot be read until runtime storage is available.",
+    }
     return {
         "schema_version": "0.1.0",
         "cycle_id": readiness.get("cycle_id"),
         "ready": False,
         "verdict": readiness.get("verdict"),
-        "progress": {
-            "total_count": 0,
-            "reviewed_count": 0,
-            "pending_count": 0,
-            "approve_count": 0,
-            "defer_count": 0,
-            "reject_count": 0,
-            "reviewed_label": "0/0",
-            "status_label": "Runtime Unavailable",
-            "status_class": "block",
-            "detail": "Paper-review queue cannot be read until runtime storage is available.",
-        },
+        "status_label": progress["status_label"],
+        "status_class": progress["status_class"],
+        "detail": progress["detail"],
+        "total_count": progress["total_count"],
+        "pending_count": progress["pending_count"],
+        "approved_count": progress["approve_count"],
+        "progress": progress,
         "queue": [],
     }
 
@@ -3725,12 +3878,19 @@ async def paper_review_status_from_runtime(
         readiness,
         review_events=review_events,
     )
+    progress = paper_review_progress(queue)
     return {
         "schema_version": "0.1.0",
         "cycle_id": readiness.get("cycle_id"),
         "ready": readiness.get("ready"),
         "verdict": readiness.get("verdict"),
-        "progress": paper_review_progress(queue),
+        "status_label": progress.get("status_label"),
+        "status_class": progress.get("status_class"),
+        "detail": progress.get("detail"),
+        "total_count": progress.get("total_count"),
+        "pending_count": progress.get("pending_count"),
+        "approved_count": progress.get("approve_count"),
+        "progress": progress,
         "queue": queue,
     }
 
@@ -3745,7 +3905,7 @@ async def human_review_events_for_reports(
                 reports,
                 readiness,
                 event_type="HUMAN_REVIEW",
-                limit_per_ticker=50,
+                limit_per_ticker=5,
             ),
             timeout=DASHBOARD_RUNTIME_QUERY_TIMEOUT_SECONDS,
         )
