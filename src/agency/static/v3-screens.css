@@ -1440,7 +1440,12 @@ body.v3-screen-cockpit {
 .v3-screen-cockpit .cockpit-primary-action,
 .v3-screen-cockpit .cockpit-top-actions,
 .v3-screen-cockpit .cockpit-dashboard-nav > *,
-.v3-screen-cockpit .cockpit-email-agent-control > * {
+.v3-screen-cockpit .cockpit-email-agent-control > *,
+.v3-screen-cockpit .cockpit-engine-strip > *,
+.v3-screen-cockpit .cockpit-phase,
+.v3-screen-cockpit .cockpit-phase *,
+.v3-screen-cockpit .cockpit-scenario-panel,
+.v3-screen-cockpit .cockpit-scenario-panel * {
   min-width: 0;
   max-width: 100%;
 }
@@ -1549,6 +1554,30 @@ body.v3-screen-cockpit {
   color: #9fb0c8;
   font-size: 0.9rem;
   line-height: 1.25;
+}
+
+.v3-screen-cockpit .cockpit-engine-strip {
+  flex-wrap: wrap;
+  overflow-x: hidden;
+}
+
+.v3-screen-cockpit .cockpit-engine {
+  flex: 1 1 180px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.v3-screen-cockpit .cockpit-phase,
+.v3-screen-cockpit .cockpit-phase p,
+.v3-screen-cockpit .cockpit-phase small,
+.v3-screen-cockpit .cockpit-scenario-panel,
+.v3-screen-cockpit .cockpit-scenario-panel p,
+.v3-screen-cockpit .cockpit-scenario-panel small {
+  overflow-wrap: anywhere;
+}
+
+.v3-screen-cockpit .cockpit-arc {
+  overflow: hidden;
 }
 
 .v3-screen-cockpit .cockpit-email-agent-control {
@@ -1808,6 +1837,14 @@ body.v3-screen-cockpit {
     flex: 1 1 100%;
     min-height: 30px;
     font-size: 0.78rem;
+  }
+
+  .v3-screen-cockpit .cockpit-engine-strip {
+    gap: 8px;
+  }
+
+  .v3-screen-cockpit .cockpit-engine {
+    flex-basis: 100%;
   }
 
   .v3-screen-cockpit .cockpit-cycle-card {
