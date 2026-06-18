@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import copy
+from pathlib import Path
 
 import pytest
 
+import agency.contracts.validation as validation_module
 from agency.contracts import (
     ContractValidationError,
     is_valid_contract,
@@ -51,6 +53,36 @@ def test_load_contract_schema_returns_schema_by_name() -> None:
 
     assert schema["title"] == "RiskDecision"
     assert schema["x-version"] == "0.1.0"
+
+
+def test_schema_dir_falls_back_to_runtime_working_directory(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    missing_source_tree = tmp_path / "installed" / "schemas"
+    runtime_schema_dir = tmp_path / "runtime" / "schemas"
+    runtime_schema_dir.mkdir(parents=True)
+
+    monkeypatch.setattr(
+        validation_module,
+        "__file__",
+        str(
+            tmp_path
+            / "installed"
+            / "site-packages"
+            / "agency"
+            / "contracts"
+            / "validation.py"
+        ),
+    )
+    monkeypatch.setattr(
+        validation_module.Path,
+        "cwd",
+        staticmethod(lambda: tmp_path / "runtime"),
+    )
+
+    assert validation_module._resolve_schema_dir(None) == runtime_schema_dir
+    assert validation_module._resolve_schema_dir(missing_source_tree) == missing_source_tree
 
 
 def _source_health() -> dict[str, object]:

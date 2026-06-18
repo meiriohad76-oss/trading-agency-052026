@@ -117,4 +117,10 @@ def _load_schemas(schema_dir: Path) -> dict[str, dict[str, Any]]:
 def _resolve_schema_dir(schema_dir: Path | None) -> Path:
     if schema_dir is not None:
         return schema_dir
-    return Path(__file__).resolve().parents[3] / "schemas"
+    source_tree_schema_dir = Path(__file__).resolve().parents[3] / "schemas"
+    if source_tree_schema_dir.is_dir():
+        return source_tree_schema_dir
+    runtime_schema_dir = Path.cwd() / "schemas"
+    if runtime_schema_dir.is_dir():
+        return runtime_schema_dir
+    return source_tree_schema_dir
