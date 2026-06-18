@@ -1429,6 +1429,20 @@ body.v3-screen-cockpit {
    first-screen typography and obvious action hierarchy. */
 .v3-screen-cockpit .cockpit-shell.vA {
   font-size: 16px;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: clip;
+}
+
+.v3-screen-cockpit .cockpit-shell.vA > *,
+.v3-screen-cockpit .cockpit-topline > *,
+.v3-screen-cockpit .cockpit-data-state-strip > *,
+.v3-screen-cockpit .cockpit-primary-action,
+.v3-screen-cockpit .cockpit-top-actions,
+.v3-screen-cockpit .cockpit-dashboard-nav > *,
+.v3-screen-cockpit .cockpit-email-agent-control > * {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .v3-screen-cockpit .cockpit-topline {
@@ -1448,6 +1462,29 @@ body.v3-screen-cockpit {
   align-items: center;
   gap: 10px 14px;
   margin-top: 18px;
+}
+
+.v3-screen-cockpit .cockpit-proof-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.v3-screen-cockpit .cockpit-proof-strip span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  max-width: 100%;
+  padding: 6px 10px;
+  color: #dfe9f5;
+  border: 1px solid rgba(90, 215, 240, 0.28);
+  border-radius: 4px;
+  background: rgba(90, 215, 240, 0.08);
+  font-size: 0.88rem;
+  font-weight: 800;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
 }
 
 .v3-screen-cockpit .cockpit-top-actions small,
@@ -1573,6 +1610,7 @@ body.v3-screen-cockpit {
 }
 
 .v3-screen-cockpit .cockpit-data-state-metrics {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
   padding: 18px 14px;
 }
@@ -1584,7 +1622,7 @@ body.v3-screen-cockpit {
 
 .v3-screen-cockpit .cockpit-data-state-metrics article {
   gap: 8px;
-  min-height: 132px;
+  min-height: 108px;
   padding: 14px 12px;
 }
 
@@ -1596,7 +1634,7 @@ body.v3-screen-cockpit {
 
 .v3-screen-cockpit .cockpit-data-state-metrics small {
   color: #b8c7dc;
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   line-height: 1.4;
 }
 
@@ -1636,6 +1674,10 @@ body.v3-screen-cockpit {
   font-size: 1rem;
   font-weight: 900;
   letter-spacing: 0.02em;
+  max-width: 100%;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .v3-screen-cockpit .cockpit-top-actions .button-primary,
@@ -1690,6 +1732,7 @@ body.v3-screen-cockpit {
     width: 100%;
     border-right: 0;
     border-left: 0;
+    overflow-x: hidden;
   }
 
   .v3-screen-cockpit .cockpit-data-state-strip,
@@ -1727,6 +1770,8 @@ body.v3-screen-cockpit {
     gap: 10px;
     padding-top: 10px;
     padding-bottom: 10px;
+    width: 100%;
+    max-width: 100%;
   }
 
   .v3-screen-cockpit .cockpit-bluf {
@@ -1743,12 +1788,26 @@ body.v3-screen-cockpit {
   .v3-screen-cockpit .cockpit-primary-action,
   .v3-screen-cockpit .cockpit-top-actions {
     margin-top: 8px;
+    width: 100%;
   }
 
   .v3-screen-cockpit .cockpit-primary-action .button,
   .v3-screen-cockpit .cockpit-top-actions .button {
     min-height: 54px;
     width: 100%;
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+
+  .v3-screen-cockpit .cockpit-proof-strip {
+    gap: 6px;
+    margin-top: 8px;
+  }
+
+  .v3-screen-cockpit .cockpit-proof-strip span {
+    flex: 1 1 100%;
+    min-height: 30px;
+    font-size: 0.78rem;
   }
 
   .v3-screen-cockpit .cockpit-cycle-card {

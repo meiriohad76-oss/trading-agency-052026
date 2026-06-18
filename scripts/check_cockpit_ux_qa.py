@@ -97,6 +97,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         "submit_gate_safe": False,
                         "semantic_errors": [],
                         "readability_errors": [],
+                        "inner_overflow_errors": [],
                         "panel_screenshots": [],
                         "unreadable_controls": [],
                         "small_touch_targets": [],
@@ -134,6 +135,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                             page_preflight,
                         )
                         result["readability_errors"] = _first_screen_readability_errors(page)
+                        result["inner_overflow_errors"] = _inner_horizontal_overflow_errors(page)
                         result["submit_gate_safe"] = _submit_gate_is_safe(page)
                         result["focus_errors"] = _exercise_focus(page, args.focus)
                         result["panel_screenshots"] = _screenshot_panels(
@@ -958,6 +960,7 @@ def _failed(result: dict[str, object]) -> bool:
         or bool(result.get("focus_errors"))
         or bool(result.get("semantic_errors"))
         or bool(result.get("readability_errors"))
+        or bool(result.get("inner_overflow_errors"))
         or bool(result.get("unreadable_controls"))
         or bool(result.get("small_touch_targets"))
         or bool(result.get("error"))
@@ -1268,6 +1271,47 @@ def _first_screen_readability_errors(page: Any) -> list[str]:
                   }
                 });
               });
+              return errors;
+            }
+            """
+        )
+    )
+
+
+def _inner_horizontal_overflow_errors(page: Any) -> list[str]:
+    return list(
+        page.evaluate(
+            """
+            () => {
+              const viewportWidth = document.documentElement.clientWidth;
+              const labels = [
+                ['app shell', '.app-shell'],
+                ['page frame', '.page-frame'],
+                ['layout', '.layout'],
+                ['cockpit shell', '.cockpit-shell'],
+                ['top briefing', '.cockpit-topline'],
+                ['primary action', '.cockpit-primary-action'],
+                ['readiness strip', '.cockpit-data-state-strip'],
+                ['action gaps', '.cockpit-data-state-gaps'],
+                ['dashboard nav', '.cockpit-dashboard-nav'],
+                ['email agent', '.cockpit-email-agent-control']
+              ];
+              const errors = [];
+              for (const [label, selector] of labels) {
+                const el = document.querySelector(selector);
+                if (!el) continue;
+                const style = getComputedStyle(el);
+                const rect = el.getBoundingClientRect();
+                if (style.display === 'none' || style.visibility === 'hidden' || rect.width === 0 || rect.height === 0) {
+                  continue;
+                }
+                if (el.scrollWidth > el.clientWidth + 2) {
+                  errors.push(`${label} has hidden horizontal overflow: scrollWidth ${el.scrollWidth}px > clientWidth ${el.clientWidth}px`);
+                }
+                if (rect.left < -1 || rect.right > viewportWidth + 1) {
+                  errors.push(`${label} extends outside viewport: left ${Math.round(rect.left)}px right ${Math.round(rect.right)}px viewport ${viewportWidth}px`);
+                }
+              }
               return errors;
             }
             """

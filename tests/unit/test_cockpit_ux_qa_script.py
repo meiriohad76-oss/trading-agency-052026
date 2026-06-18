@@ -115,6 +115,17 @@ def test_qa_script_collects_external_requests_and_small_touch_targets() -> None:
     assert "rect.width < 44 || rect.height < 44" in touch_source
 
 
+def test_qa_script_fails_hidden_inner_horizontal_overflow() -> None:
+    source = inspect.getsource(qa.main)
+    failed_source = inspect.getsource(qa._failed)
+    overflow_source = inspect.getsource(qa._inner_horizontal_overflow_errors)
+
+    assert "inner_overflow_errors" in source
+    assert "inner_overflow_errors" in failed_source
+    assert "scrollWidth" in overflow_source
+    assert "extends outside viewport" in overflow_source
+
+
 def test_qa_script_applies_scenario_query_param() -> None:
     url = qa._scenario_url("http://127.0.0.1:8000/cockpit?foo=bar", "outage")
 

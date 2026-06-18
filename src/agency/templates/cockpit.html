@@ -25,7 +25,21 @@
     <div>
       <p class="eyebrow">Today's trading workflow</p>
       <h2 class="cockpit-bluf">{{ scenario.headline }}</h2>
-      <p class="muted">{{ scenario.detail }}</p>
+      {% set scenario_gap = scenario.data_gap|default({}, true) %}
+      <p class="muted cockpit-operator-summary">
+        {% if scenario_gap %}
+          {{ scenario_gap.status_label|default("Needs attention", true) }}:
+          {{ scenario_gap.lane|default("Required data", true) }} proof is not ready.
+          {{ scenario_gap.recommended_action|default("Use the highlighted action, then confirm the proof timestamp changed.", true) }}
+        {% else %}
+          {{ scenario.detail }}
+        {% endif %}
+      </p>
+      <div class="cockpit-proof-strip" aria-label="Current proof summary">
+        <span>Mode: {{ cycle.mode }}</span>
+        <span>Review: {{ data_state.review.label|default("not checked", true) if data_state is defined else "not checked" }}</span>
+        <span>Proof: {{ data_state.proof_label|default("not checked", true) if data_state is defined else "not checked" }}</span>
+      </div>
       {% set primary_nav_action = scenario.primary_nav_action|default({}, true) %}
       {% if primary_nav_action and primary_nav_action.phase %}
         <div class="cockpit-top-actions" aria-label="Primary cockpit action">
