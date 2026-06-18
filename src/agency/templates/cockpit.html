@@ -124,10 +124,13 @@
     <div class="cockpit-data-state-gaps" aria-label="Action required">
       <strong>What to do now</strong>
       {% for gap in data_state.top_gaps|default([], true) %}
-        <article class="cockpit-data-state-gap">
+        <article class="cockpit-data-state-gap" title="{{ gap.detail }}">
           <span class="status-pill status-pill-{{ gap.status_class|default('warn', true) }}">{{ gap.lane }}</span>
           <strong>{{ gap.status_label|default("Needs attention", true) }}</strong>
-          <p>{{ gap.detail }}</p>
+          <p>
+            {{ gap.lane }} proof is not ready.
+            {{ gap.recommended_action|default("Use the available refresh action, then confirm the proof timestamp changed.", true) }}
+          </p>
           <small>{{ gap.progress_label }} - {{ gap.recommended_action }}</small>
           {% if gap.refresh_action and gap.refresh_action.url %}
             <form class="inline-action-form" method="post" action="{{ gap.refresh_action.url }}">
