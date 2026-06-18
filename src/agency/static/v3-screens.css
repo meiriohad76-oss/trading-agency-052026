@@ -1451,8 +1451,59 @@ body.v3-screen-cockpit {
 }
 
 .v3-screen-cockpit .cockpit-topline {
+  order: 1;
   grid-template-columns: minmax(380px, 0.95fr) minmax(460px, 1.05fr);
   padding: 18px 24px;
+}
+
+.v3-screen-cockpit .cockpit-instrument-cluster {
+  order: 2;
+}
+
+.v3-screen-cockpit .cockpit-engine-strip {
+  order: 3;
+}
+
+.v3-screen-cockpit .cockpit-instrument-nav {
+  order: 4;
+}
+
+.v3-screen-cockpit .cockpit-phase-rail {
+  order: 5;
+}
+
+.v3-screen-cockpit .cockpit-phase {
+  order: 6;
+}
+
+.v3-screen-cockpit .cockpit-data-state-strip {
+  order: 7;
+}
+
+.v3-screen-cockpit .cockpit-email-login-alert,
+.v3-screen-cockpit .cockpit-email-agent-control,
+.v3-screen-cockpit .cockpit-dashboard-nav {
+  order: 8;
+}
+
+.v3-screen-cockpit .cockpit-shell[data-cockpit-scenario="outage"] .cockpit-phase-rail,
+.v3-screen-cockpit .cockpit-shell[data-cockpit-scenario="status-delayed"] .cockpit-phase-rail {
+  order: 2;
+}
+
+.v3-screen-cockpit .cockpit-shell[data-cockpit-scenario="outage"] .cockpit-phase,
+.v3-screen-cockpit .cockpit-shell[data-cockpit-scenario="status-delayed"] .cockpit-phase {
+  order: 3;
+}
+
+.v3-screen-cockpit .cockpit-shell[data-cockpit-scenario="outage"] .cockpit-instrument-cluster,
+.v3-screen-cockpit .cockpit-shell[data-cockpit-scenario="status-delayed"] .cockpit-instrument-cluster {
+  order: 4;
+}
+
+.v3-screen-cockpit .cockpit-shell[data-cockpit-scenario="outage"] .cockpit-engine-strip,
+.v3-screen-cockpit .cockpit-shell[data-cockpit-scenario="status-delayed"] .cockpit-engine-strip {
+  order: 5;
 }
 
 .v3-screen-cockpit .cockpit-bluf {
@@ -1467,6 +1518,43 @@ body.v3-screen-cockpit {
   align-items: center;
   gap: 10px 14px;
   margin-top: 18px;
+}
+
+.v3-screen-cockpit .cockpit-startup-checklist {
+  display: grid;
+  gap: 8px;
+  max-width: 900px;
+  margin-top: 14px;
+  padding: 14px 16px;
+  color: #d9e6f7;
+  border: 1px solid rgba(255, 184, 69, 0.45);
+  border-left: 4px solid var(--amber);
+  border-radius: 4px;
+  background: rgba(255, 184, 69, 0.08);
+}
+
+.v3-screen-cockpit .cockpit-startup-checklist strong {
+  color: #fff2ca;
+  font-size: 1rem;
+}
+
+.v3-screen-cockpit .cockpit-startup-checklist span {
+  position: relative;
+  padding-left: 22px;
+  font-size: 0.98rem;
+  line-height: 1.35;
+}
+
+.v3-screen-cockpit .cockpit-startup-checklist span::before {
+  content: "";
+  position: absolute;
+  top: 0.58em;
+  left: 4px;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--amber);
+  box-shadow: 0 0 12px rgba(255, 184, 69, 0.55);
 }
 
 .v3-screen-cockpit .cockpit-proof-strip {
@@ -1682,6 +1770,13 @@ body.v3-screen-cockpit {
   padding: 14px;
   border-color: rgba(255, 184, 69, 0.42);
   background: rgba(255, 184, 69, 0.07);
+}
+
+.v3-screen-cockpit .cockpit-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
 }
 
 .v3-screen-cockpit .cockpit-data-state-gap > strong {

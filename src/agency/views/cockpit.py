@@ -981,6 +981,8 @@ def _cycle_section(
         dashboard.get("cycle_id"),
         default="current-cycle",
     )
+    if cycle_id.lower() in {"none", "null", "undefined"}:
+        cycle_id = "cycle not attached"
     sources_total = _int(readiness.get("source_count"), fallback=len(engines))
     if sources_total <= 0:
         sources_total = len(engines)
@@ -2429,6 +2431,7 @@ def _scenario_from_context(
     actionable_count = sum(1 for row in candidates if row.get("actionable") is True)
     reviewable_count = sum(1 for row in candidates if row.get("reviewable") is True)
     order_reviewable_count = sum(1 for row in candidates if row.get("order_reviewable") is True)
+    active_universe_count = _int(data_state.get("active_universe_count"), fallback=0)
     submitted_rows = _submitted_order_rows(execution)
     if submitted_rows:
         total_notional = round(sum(_money_value(row.get("notional")) for row in submitted_rows), 2)
@@ -2443,7 +2446,20 @@ def _scenario_from_context(
     if context.get("status_delayed") is True and data_review.get("ready") is not True:
         return _scenario_from_status_delay(context)
     if data_review.get("ready") is False and top_gaps:
-        return _scenario_from_data_gap(data_state, top_gaps)
+        scenario = _scenario_from_data_gap(data_state, top_gaps)
+        if not candidates and active_universe_count <= 0:
+            scenario["headline"] = "Cockpit is not operational yet: active universe and lane proof are missing."
+            scenario["detail"] = (
+                f"{scenario.get('detail', '')} The cockpit has no active-universe count and no candidate queue, "
+                "so this is a startup/runtime configuration problem, not a quiet trading day."
+            ).strip()
+            scenario["runtime_setup_required"] = True
+            scenario["setup_steps"] = [
+                "Confirm the Pi runtime has the agency environment file and provider keys loaded.",
+                "Start the scheduler or run the required lane refresh from Diagnostics.",
+                "Reload this cockpit and verify Active universe shows 168 tickers and a current proof timestamp.",
+            ]
+        return scenario
     down_engines = [engine for engine in engines if engine.get("state") == "down"]
     if down_engines and actionable_count == 0 and reviewable_count + order_reviewable_count == 0:
         return {

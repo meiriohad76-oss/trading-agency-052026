@@ -203,7 +203,9 @@ def test_qa_script_first_screen_semantics_use_operator_copy() -> None:
     source = inspect.getsource(qa._first_screen_semantic_errors)
 
     assert '"Diagnostics"' in source
-    assert "Session Readiness strip is not visible in the first viewport." in source
+    assert "First viewport is missing the proof strip." in source
+    assert "First viewport is missing the workflow phase rail." in source
+    assert "First viewport is missing the cockpit instruments." in source
     assert "First viewport is missing operator proof text" in source
     assert "Review-ready API state rendered as a {rendered_state} cockpit." in source
     assert "plain-English proof state is not visible" in source

@@ -66,6 +66,14 @@
           </form>
         {% endif %}
       {% endif %}
+      {% if scenario.runtime_setup_required %}
+        <div class="cockpit-startup-checklist" aria-label="Startup checklist">
+          <strong>Startup checklist</strong>
+          {% for step in scenario.setup_steps|default([], true) %}
+            <span>{{ step }}</span>
+          {% endfor %}
+        </div>
+      {% endif %}
       {% if scenario.qa_override %}
         <p class="cockpit-scenario-banner" role="status">Training scenario only - not operational evidence and not readiness proof.</p>
       {% endif %}
@@ -337,18 +345,34 @@
           <p class="muted">Cycle {{ cycle.id }} has {{ funnel.final }} visible candidates; {{ funnel.reviewable|default(funnel.actionable, true) }} can be reviewed now.</p>
         {% endif %}
       </div>
-      <button type="button" class="button button-secondary" data-cockpit-phase-target="portfolio">Advance to Portfolio</button>
+      {% if candidate_actions_paused and not candidates %}
+        {% if scenario.primary_action and scenario.primary_action.url %}
+          {% if scenario.primary_action.method|default("post", true) == "get" %}
+            <a class="button button-primary" href="{{ scenario.primary_action.url }}" title="{{ scenario.primary_action.detail }}">{{ scenario.primary_action.label }}</a>
+          {% else %}
+            <form class="inline-action-form" method="post" action="{{ scenario.primary_action.url }}">
+              <button class="button button-primary" type="submit" title="{{ scenario.primary_action.detail }}">{{ scenario.primary_action.label }}</button>
+            </form>
+          {% endif %}
+        {% else %}
+          <a class="button button-primary" href="/command">Open Diagnostics</a>
+        {% endif %}
+      {% else %}
+        <button type="button" class="button button-secondary" data-cockpit-phase-target="portfolio">Advance to Portfolio</button>
+      {% endif %}
     </div>
 
-    {{ evidence_legend(compact=true) }}
+    {% if candidates %}
+      {{ evidence_legend(compact=true) }}
 
-    <aside class="candidate-action-legend" aria-label="Candidate action guide">
-      <strong>Why buttons change</strong>
-      <span><b>Review manifest</b>: this stock is already staged for the current cockpit flow.</span>
-      <span><b>Review order details</b>: research was approved and the next step is approving the current paper order details.</span>
-      <span><b>Approve / Defer / Reject</b>: this stock is waiting for your research decision.</span>
-      <span><b>Open audit</b>: this row is not actionable yet; inspect the record and the reason shown beside the button.</span>
-    </aside>
+      <aside class="candidate-action-legend" aria-label="Candidate action guide">
+        <strong>Why buttons change</strong>
+        <span><b>Review manifest</b>: this stock is already staged for the current cockpit flow.</span>
+        <span><b>Review order details</b>: research was approved and the next step is approving the current paper order details.</span>
+        <span><b>Approve / Defer / Reject</b>: this stock is waiting for your research decision.</span>
+        <span><b>Open audit</b>: this row is not actionable yet; inspect the record and the reason shown beside the button.</span>
+      </aside>
+    {% endif %}
 
     {% if scenario.state in ["outage", "status-delayed"] %}
       <section class="cockpit-scenario-panel cockpit-scenario-outage" {% if scenario.state == "outage" %}data-cockpit-scenario-panel="outage"{% else %}data-cockpit-scenario-panel="status-delayed"{% endif %}>
@@ -379,6 +403,8 @@
         <p class="empty-state">
           {% if scenario.state == "status-delayed" %}
             Candidate controls are hidden until the cockpit has current proof. This page is still checking; it is not reporting an empty review queue.
+          {% elif scenario.runtime_setup_required %}
+            This is not a no-trade result. The cockpit has no active-universe proof and no candidate queue yet, so the agency runtime must be refreshed or configured before review can start.
           {% else %}
             Candidate approvals are locked until critical data access recovers. Existing candidates remain visible below for inspection.
           {% endif %}
@@ -533,8 +559,25 @@
         </article>
       {% else %}
         <div class="empty-state">
-          <h3>Nothing actionable today.</h3>
-          <p>The agent has no reviewable candidates in the current cycle. Open the monitor to check data sources and next scheduled refresh.</p>
+          {% if scenario.runtime_setup_required or scenario.state in ["outage", "status-delayed"] %}
+            <h3>Candidate queue is unavailable until the data lanes report current proof.</h3>
+            <p>This is not a completed market review. {{ scenario.detail|default("Refresh the required data lane, then reload the cockpit and confirm the proof timestamp changed.", true) }}</p>
+            <div class="cockpit-empty-actions">
+              {% if scenario.primary_action and scenario.primary_action.url %}
+                {% if scenario.primary_action.method|default("post", true) == "get" %}
+                  <a class="button button-primary" href="{{ scenario.primary_action.url }}" title="{{ scenario.primary_action.detail }}">{{ scenario.primary_action.label }}</a>
+                {% else %}
+                  <form class="inline-action-form" method="post" action="{{ scenario.primary_action.url }}">
+                    <button class="button button-primary" type="submit" title="{{ scenario.primary_action.detail }}">{{ scenario.primary_action.label }}</button>
+                  </form>
+                {% endif %}
+              {% endif %}
+              <a class="button button-secondary" href="/command">Open Diagnostics</a>
+            </div>
+          {% else %}
+            <h3>Nothing actionable today.</h3>
+            <p>The agent completed the current review and found no reviewable candidates. Open Monitor to check data sources and the next scheduled refresh.</p>
+          {% endif %}
         </div>
       {% endfor %}
     </div>

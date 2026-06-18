@@ -32,6 +32,20 @@ def test_cockpit_template_has_bluf_before_diagnostics() -> None:
     assert "System diagnostics" not in html.split("cockpit-phase", 1)[0]
 
 
+def test_cockpit_startup_runtime_gap_has_operator_checklist_and_truthful_empty_state() -> None:
+    html = _template()
+    css = V3_STYLES.read_text(encoding="utf-8")
+
+    assert "cockpit-startup-checklist" in html
+    assert "scenario.setup_steps" in html
+    assert "This is not a no-trade result" in html
+    assert "Candidate queue is unavailable until the data lanes report current proof." in html
+    assert "This is not a completed market review." in html
+    assert "cockpit-empty-actions" in html
+    assert ".v3-screen-cockpit .cockpit-startup-checklist" in css
+    assert ".v3-screen-cockpit .cockpit-empty-actions" in css
+
+
 def test_cockpit_template_has_phase_rail() -> None:
     html = _template()
 
@@ -226,6 +240,7 @@ def test_cockpit_script_allows_phase_navigation_in_safety_scenarios() -> None:
     assert 'scenarioState === "no-actionable"' in script
     assert "function scenarioSafePhase(phase)" in script
     assert "return phase || defaultPhase;" in script
+    assert "state.phase = safetyScenario || hasPrimaryWorkflowAction" in script
     assert "state.phase = scenarioSafePhase(pendingRestore.phase)" in script
     assert "submitGateInvalidated = true" in script
 

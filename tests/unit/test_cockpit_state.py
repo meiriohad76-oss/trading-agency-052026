@@ -36,6 +36,54 @@ def test_outage_scenario_exposes_blocked_engine_cards_and_retry_context() -> Non
     assert "last good" in context["scenario"]["last_good_cycle_label"].lower()
 
 
+def test_runtime_setup_gap_is_not_presented_as_quiet_no_trade_day() -> None:
+    sources = _sample_sources()
+    dashboard = sources["dashboard"]
+    dashboard["review_queue"] = []  # type: ignore[index]
+    dashboard["candidates"] = []  # type: ignore[index]
+    dashboard["live_config"] = {"active_universe_count": 0}  # type: ignore[index]
+    dashboard["full_live_readiness"] = {"cycle_id": "None"}  # type: ignore[index]
+    dashboard["data_load_status"] = {  # type: ignore[index]
+        "cycle_id": "None",
+        "as_of": "target 2026-06-17 (config end missing)",
+        "status_label": "Blocked",
+        "status_class": "block",
+        "review_operational_ready": False,
+        "tradable_ready": False,
+        "expected_ticker_count": 0,
+        "overall_percent": 70,
+        "critical_lane_percent": 14,
+        "lane_states": [
+            {
+                "lane_id": "massive_daily_bars",
+                "label": "Massive Daily Bars",
+                "state": "provider_unavailable",
+                "status_label": "Provider unavailable",
+                "status_class": "block",
+                "progress_label": "not tracked",
+                "required_now": True,
+                "blocks_execution": True,
+                "blocker": True,
+                "operator_message": "Daily bars lane manifest is missing.",
+                "recommended_action": "Refresh Daily Bars, then reload the cockpit.",
+                "refresh_action_url": "/scheduler/massive-lanes/massive_daily_bars/refresh",
+                "refresh_action_label": "Refresh Daily Bars",
+            }
+        ],
+    }
+    sources["execution"]["preview_rows"] = []  # type: ignore[index]
+    sources["execution"]["orderable_rows"] = []  # type: ignore[index]
+
+    context = cockpit_context_from_sources(sources)
+
+    assert context["cycle"]["id"] == "cycle not attached"
+    assert context["scenario"]["state"] == "outage"
+    assert context["scenario"]["runtime_setup_required"] is True
+    assert "not operational yet" in context["scenario"]["headline"]
+    assert "not a quiet trading day" in context["scenario"]["detail"]
+    assert "Active universe shows 168 tickers" in context["scenario"]["setup_steps"][2]
+
+
 def test_no_actionable_scenario_has_skip_and_closest_candidate_explanations() -> None:
     sources = _sample_sources()
     for row in sources["dashboard"]["review_queue"]:  # type: ignore[index]

@@ -311,7 +311,9 @@
       }
     );
   }
-  state.phase = hasPrimaryWorkflowAction ? defaultPhase : scenarioSafePhase(state.phase || defaultPhase);
+  state.phase = safetyScenario || hasPrimaryWorkflowAction
+    ? defaultPhase
+    : scenarioSafePhase(state.phase || defaultPhase);
   showPhase(state.phase, state.selectedTicker);
   restoreMarks();
   updateCapacity();

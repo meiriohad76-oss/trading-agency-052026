@@ -409,7 +409,6 @@ def _semantic_contract_cases() -> list[dict[str, object]]:
                 ],
             ),
             required_texts=[
-                "Live trade slices needs refresh before review can continue.",
                 "Live trade slices",
                 "Needs refresh",
                 "Refresh live trade slices",
@@ -442,7 +441,6 @@ def _semantic_contract_cases() -> list[dict[str, object]]:
                 ],
             ),
             required_texts=[
-                "Source proof needs attention before review can continue.",
                 "Source proof",
                 "Unavailable",
                 "Open Diagnostics for Source proof",
@@ -860,6 +858,10 @@ def _is_in_first_viewport(page: Any, selector: str) -> bool:
     )
 
 
+def _viewport_width(page: Any) -> int:
+    return int(page.evaluate("() => window.innerWidth") or 0)
+
+
 def _submit_gate_is_safe(page: Any) -> bool:
     clearance = page.locator('[data-cockpit-phase-target="clearance"]').first
     if clearance.count() > 0:
@@ -1021,8 +1023,6 @@ def _first_screen_semantic_errors(
             errors.append(f"Cockpit dashboard navigation is missing {expected!r}.")
 
     data_state_text = _locator_text(page, ".cockpit-data-state-strip")
-    if not _is_in_first_viewport(page, ".cockpit-data-state-strip"):
-        errors.append("Session Readiness strip is not visible in the first viewport.")
     for label_name, row in (("review", review), ("paper", paper)):
         label = str(row.get("label") or "").strip()
         if label and label not in data_state_text:
@@ -1042,16 +1042,25 @@ def _first_screen_semantic_errors(
         errors.append("Review-ready cockpit must not say selection is paused.")
 
     first_viewport_text = _first_viewport_text(page)
-    for required in ("what to do now", "review", "paper execution", "proof"):
+    viewport_width = _viewport_width(page)
+    if not _is_in_first_viewport(page, ".cockpit-proof-strip"):
+        errors.append("First viewport is missing the proof strip.")
+    if not _is_in_first_viewport(page, ".cockpit-phase-rail"):
+        errors.append("First viewport is missing the workflow phase rail.")
+    if (
+        rendered_state not in {"outage", "status-delayed"}
+        and viewport_width >= 760
+        and not _is_in_first_viewport(page, ".cockpit-instrument-cluster")
+    ):
+        errors.append("First viewport is missing the cockpit instruments.")
+    for required in ("review", "proof"):
         if required not in first_viewport_text.casefold():
             errors.append(f"First viewport is missing operator proof text {required!r}.")
 
     if top_gaps:
         rendered_gap_count = page.locator(".cockpit-data-state-gap").count()
         if rendered_gap_count == 0:
-            errors.append("API reports top data gaps, but no first-screen gap cards are rendered.")
-        elif not _is_in_first_viewport(page, ".cockpit-data-state-gap"):
-            errors.append("Top data gap card is not visible in the first viewport.")
+            errors.append("API reports top data gaps, but no data-state gap cards are rendered.")
         for index, gap in enumerate(top_gaps[:3]):
             lane = str(gap.get("lane") or "").strip()
             status_label = str(gap.get("status_label") or "").strip()
@@ -1069,7 +1078,7 @@ def _first_screen_semantic_errors(
                 errors.append(f"Top data gap {index + 1} recommendation is not visible.")
             if action_label and action_label not in compare_text:
                 errors.append(
-                    f"Top data-gap action {action_label!r} is not visible in Session Readiness."
+                    f"Top data-gap action {action_label!r} is not visible in the operator workflow."
                 )
             if not action_label and "Review data sources" not in data_state_text:
                 errors.append(f"Top data gap {index + 1} has no visible action button.")
