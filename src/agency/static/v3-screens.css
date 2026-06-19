@@ -2039,6 +2039,10 @@ body.v3-screen-cockpit {
     min-height: 52px;
   }
 
+  .v3-screen-cockpit .cockpit-startup-checklist {
+    display: none;
+  }
+
   .v3-screen-cockpit .cockpit-cycle-actions {
     grid-template-columns: 1fr;
   }
