@@ -1452,8 +1452,9 @@ body.v3-screen-cockpit {
 
 .v3-screen-cockpit .cockpit-topline {
   order: 1;
-  grid-template-columns: minmax(380px, 0.95fr) minmax(460px, 1.05fr);
-  padding: 18px 24px;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 380px);
+  gap: 22px;
+  padding: 22px 26px 18px;
 }
 
 .v3-screen-cockpit .cockpit-instrument-cluster {
@@ -1488,22 +1489,22 @@ body.v3-screen-cockpit {
 
 .v3-screen-cockpit .cockpit-shell[data-cockpit-scenario="outage"] .cockpit-phase-rail,
 .v3-screen-cockpit .cockpit-shell[data-cockpit-scenario="status-delayed"] .cockpit-phase-rail {
-  order: 2;
+  order: 3;
 }
 
 .v3-screen-cockpit .cockpit-shell[data-cockpit-scenario="outage"] .cockpit-phase,
 .v3-screen-cockpit .cockpit-shell[data-cockpit-scenario="status-delayed"] .cockpit-phase {
-  order: 3;
+  order: 4;
 }
 
 .v3-screen-cockpit .cockpit-shell[data-cockpit-scenario="outage"] .cockpit-instrument-cluster,
 .v3-screen-cockpit .cockpit-shell[data-cockpit-scenario="status-delayed"] .cockpit-instrument-cluster {
-  order: 4;
+  order: 5;
 }
 
 .v3-screen-cockpit .cockpit-shell[data-cockpit-scenario="outage"] .cockpit-engine-strip,
 .v3-screen-cockpit .cockpit-shell[data-cockpit-scenario="status-delayed"] .cockpit-engine-strip {
-  order: 5;
+  order: 6;
 }
 
 .v3-screen-cockpit .cockpit-bluf {
@@ -1578,6 +1579,61 @@ body.v3-screen-cockpit {
   font-weight: 800;
   line-height: 1.2;
   overflow-wrap: anywhere;
+}
+
+.v3-screen-cockpit .cockpit-first-nav {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(112px, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  margin-top: 14px;
+  border: 1px solid rgba(90, 215, 240, 0.28);
+  border-radius: 6px;
+  background: rgba(90, 215, 240, 0.22);
+}
+
+.v3-screen-cockpit .cockpit-first-nav a {
+  display: grid;
+  gap: 3px;
+  min-height: 58px;
+  align-content: center;
+  padding: 10px 12px;
+  color: #f3f8ff;
+  text-decoration: none;
+  background: rgba(7, 16, 28, 0.94);
+}
+
+.v3-screen-cockpit .cockpit-first-nav a:first-child {
+  color: #1a0f00;
+  background: linear-gradient(180deg, #ffd377 0%, var(--amber) 72%, #dc8e1f 100%);
+}
+
+.v3-screen-cockpit .cockpit-first-nav a:hover,
+.v3-screen-cockpit .cockpit-first-nav a:focus-visible {
+  color: #fff7dc;
+  background: rgba(255, 184, 69, 0.14);
+  outline: 2px solid rgba(255, 184, 69, 0.52);
+  outline-offset: -2px;
+}
+
+.v3-screen-cockpit .cockpit-first-nav a:first-child:hover,
+.v3-screen-cockpit .cockpit-first-nav a:first-child:focus-visible {
+  color: #1a0f00;
+  background: linear-gradient(180deg, #ffe0a0 0%, #ffc45d 72%, #e79a2c 100%);
+}
+
+.v3-screen-cockpit .cockpit-first-nav span {
+  font-size: 0.98rem;
+  font-weight: 950;
+  line-height: 1.1;
+}
+
+.v3-screen-cockpit .cockpit-first-nav small {
+  color: inherit;
+  opacity: 0.78;
+  font-size: 0.78rem;
+  font-weight: 750;
+  line-height: 1.2;
 }
 
 .v3-screen-cockpit .cockpit-top-actions small,
@@ -1763,6 +1819,46 @@ body.v3-screen-cockpit {
 
 .v3-screen-cockpit .cockpit-cycle-card {
   min-width: 0;
+  grid-template-columns: 1fr;
+  gap: 9px;
+  align-self: stretch;
+  padding: 16px;
+  border-color: rgba(90, 215, 240, 0.22);
+  background:
+    linear-gradient(180deg, rgba(10, 22, 36, 0.96) 0%, rgba(4, 10, 18, 0.96) 100%);
+}
+
+.v3-screen-cockpit .cockpit-cycle-label {
+  color: #9fb0c8;
+  font-size: 0.78rem;
+  font-weight: 950;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.v3-screen-cockpit .cockpit-cycle-card > span:not(.status-pill):not(.cockpit-cycle-label),
+.v3-screen-cockpit .cockpit-cycle-card > small {
+  color: #c4d1e1;
+  font-size: 0.9rem;
+  line-height: 1.3;
+}
+
+.v3-screen-cockpit .cockpit-cycle-card > strong {
+  color: #ffffff;
+  font-size: 1rem;
+  overflow-wrap: anywhere;
+}
+
+.v3-screen-cockpit .cockpit-cycle-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.v3-screen-cockpit .cockpit-cycle-actions .button {
+  justify-content: center;
+  min-height: 44px;
 }
 
 .v3-screen-cockpit .cockpit-data-state-gap {
@@ -1860,6 +1956,7 @@ body.v3-screen-cockpit {
   }
 
   .v3-screen-cockpit .cockpit-data-state-strip,
+  .v3-screen-cockpit .cockpit-first-nav,
   .v3-screen-cockpit .cockpit-dashboard-nav,
   .v3-screen-cockpit .cockpit-email-agent-control,
   .v3-screen-cockpit .cockpit-instrument-cluster {
@@ -1932,6 +2029,18 @@ body.v3-screen-cockpit {
     flex: 1 1 100%;
     min-height: 30px;
     font-size: 0.78rem;
+  }
+
+  .v3-screen-cockpit .cockpit-first-nav {
+    margin-top: 10px;
+  }
+
+  .v3-screen-cockpit .cockpit-first-nav a {
+    min-height: 52px;
+  }
+
+  .v3-screen-cockpit .cockpit-cycle-actions {
+    grid-template-columns: 1fr;
   }
 
   .v3-screen-cockpit .cockpit-engine-strip {

@@ -39,11 +39,16 @@ def test_cockpit_startup_runtime_gap_has_operator_checklist_and_truthful_empty_s
     assert "cockpit-startup-checklist" in html
     assert "scenario.setup_steps" in html
     assert "This is not a no-trade result" in html
+    assert "Candidate queue waits for live runtime proof." in html
+    assert "Candidate queue waits for current data proof." in html
+    assert "This is not a no-candidate verdict." in html
     assert "Candidate queue is unavailable until the data lanes report current proof." in html
     assert "This is not a completed market review." in html
     assert "cockpit-empty-actions" in html
+    assert "cockpit-first-nav" in html
     assert ".v3-screen-cockpit .cockpit-startup-checklist" in css
     assert ".v3-screen-cockpit .cockpit-empty-actions" in css
+    assert ".v3-screen-cockpit .cockpit-first-nav" in css
 
 
 def test_cockpit_template_has_phase_rail() -> None:
@@ -127,6 +132,9 @@ def test_cockpit_template_has_instrument_nav() -> None:
 def test_cockpit_template_exposes_dashboard_navigation() -> None:
     html = _template()
 
+    assert "cockpit-first-nav" in html
+    assert "Fix Data" in html
+    assert "SA Login" in html
     assert "cockpit-dashboard-nav" in html
     assert "Open dashboards" in html
     assert 'href="/signals"' in html

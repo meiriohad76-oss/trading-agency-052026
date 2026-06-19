@@ -204,7 +204,10 @@ def test_qa_script_first_screen_semantics_use_operator_copy() -> None:
 
     assert '"Diagnostics"' in source
     assert "First viewport is missing the proof strip." in source
+    assert "First viewport is missing primary dashboard navigation." in source
     assert "First viewport is missing the workflow phase rail." in source
+    assert '"Fix Data"' in source
+    assert '"SA Login"' in source
     assert "First viewport is missing the cockpit instruments." in source
     assert "First viewport is missing operator proof text" in source
     assert "Review-ready API state rendered as a {rendered_state} cockpit." in source

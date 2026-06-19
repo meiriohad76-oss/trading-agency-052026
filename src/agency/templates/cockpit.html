@@ -40,6 +40,28 @@
         <span>Review: {{ data_state.review.label|default("not checked", true) if data_state is defined else "not checked" }}</span>
         <span>Proof: {{ data_state.proof_label|default("not checked", true) if data_state is defined else "not checked" }}</span>
       </div>
+      <nav class="cockpit-first-nav" aria-label="Primary dashboard navigation">
+        <a href="/command">
+          <span>Fix Data</span>
+          <small>Refresh lanes and workers</small>
+        </a>
+        <a href="/signals">
+          <span>Signals</span>
+          <small>Evidence and scoring</small>
+        </a>
+        <a href="/signals?lane=fundamentals#signal-rows-heading">
+          <span>Fundamentals</span>
+          <small>SEC, ownership, company facts</small>
+        </a>
+        <a href="/portfolio-monitor">
+          <span>Portfolio</span>
+          <small>Positions and exposure</small>
+        </a>
+        <a href="#email-agent">
+          <span>SA Login</span>
+          <small>Email evidence agent</small>
+        </a>
+      </nav>
       {% set primary_nav_action = scenario.primary_nav_action|default({}, true) %}
       {% if primary_nav_action and primary_nav_action.phase %}
         <div class="cockpit-top-actions" aria-label="Primary cockpit action">
@@ -79,6 +101,7 @@
       {% endif %}
     </div>
     <div class="cockpit-cycle-card" aria-label="Current cycle">
+      <span class="cockpit-cycle-label">Runtime Proof</span>
       <span class="status-pill status-pill-paper">{{ cycle.mode }}</span>
       <strong class="cockpit-mono">{{ cycle.id }}</strong>
       <span>{{ cycle.as_of }}</span>
@@ -93,8 +116,10 @@
       <small title="{{ cockpit_freshness.detail|default('Cockpit data age was not reported.', true) }}">
         Cockpit data: {{ cockpit_freshness.age_label|default("not checked", true) }}
       </small>
-      <a class="button button-secondary" href="/command">Diagnostics</a>
-      <button type="button" class="button button-secondary" data-cockpit-preferences-open>Preferences</button>
+      <div class="cockpit-cycle-actions">
+        <a class="button button-secondary" href="/command">Diagnostics</a>
+        <button type="button" class="button button-secondary" data-cockpit-preferences-open>Preferences</button>
+      </div>
     </div>
   </header>
 
@@ -338,9 +363,25 @@
     <div class="section-heading">
       <div>
         <p class="eyebrow">Candidates</p>
-        <h2 id="cockpit-candidates-heading">{{ scenario.headline }}</h2>
+        <h2 id="cockpit-candidates-heading">
+          {% if scenario.runtime_setup_required %}
+            Candidate queue waits for live runtime proof.
+          {% elif candidate_actions_paused %}
+            Candidate queue waits for current data proof.
+          {% else %}
+            {{ scenario.headline }}
+          {% endif %}
+        </h2>
         {% if candidate_actions_paused %}
-          <p class="muted">Cycle {{ cycle.id }} has {{ funnel.final }} candidate(s) from the latest analysis. Approval controls are locked until the data proof above is refreshed; you can still inspect each ticker.</p>
+          <p class="muted">
+            {% if scenario.runtime_setup_required %}
+              The agency is not reporting a quiet trading day. It has no active-universe proof yet, so candidates will appear only after the required lane refresh proves the current 168-stock universe.
+            {% elif not candidates %}
+              This is not a no-candidate verdict. The cockpit is waiting for current source proof before it shows review decisions or paper order actions.
+            {% else %}
+              Cycle {{ cycle.id }} has {{ funnel.final }} candidate(s) from the latest analysis. Approval controls are locked until the data proof above is refreshed; you can still inspect each ticker.
+            {% endif %}
+          </p>
         {% else %}
           <p class="muted">Cycle {{ cycle.id }} has {{ funnel.final }} visible candidates; {{ funnel.reviewable|default(funnel.actionable, true) }} can be reviewed now.</p>
         {% endif %}

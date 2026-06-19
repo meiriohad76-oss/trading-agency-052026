@@ -79,7 +79,7 @@ def test_runtime_setup_gap_is_not_presented_as_quiet_no_trade_day() -> None:
     assert context["cycle"]["id"] == "cycle not attached"
     assert context["scenario"]["state"] == "outage"
     assert context["scenario"]["runtime_setup_required"] is True
-    assert "not operational yet" in context["scenario"]["headline"]
+    assert "Agency startup needed" in context["scenario"]["headline"]
     assert "not a quiet trading day" in context["scenario"]["detail"]
     assert "Active universe shows 168 tickers" in context["scenario"]["setup_steps"][2]
 

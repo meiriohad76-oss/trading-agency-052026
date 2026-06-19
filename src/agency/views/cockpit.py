@@ -2448,7 +2448,7 @@ def _scenario_from_context(
     if data_review.get("ready") is False and top_gaps:
         scenario = _scenario_from_data_gap(data_state, top_gaps)
         if not candidates and active_universe_count <= 0:
-            scenario["headline"] = "Cockpit is not operational yet: active universe and lane proof are missing."
+            scenario["headline"] = "Agency startup needed: load universe and market-data proof."
             scenario["detail"] = (
                 f"{scenario.get('detail', '')} The cockpit has no active-universe count and no candidate queue, "
                 "so this is a startup/runtime configuration problem, not a quiet trading day."

@@ -1021,6 +1021,10 @@ def _first_screen_semantic_errors(
     for expected in ("Signals", "Fundamentals", "Portfolio", "Market", "Diagnostics"):
         if expected.casefold() not in dashboard_nav.casefold():
             errors.append(f"Cockpit dashboard navigation is missing {expected!r}.")
+    first_nav = _locator_text(page, ".cockpit-first-nav")
+    for expected in ("Fix Data", "Signals", "Fundamentals", "Portfolio", "SA Login"):
+        if expected.casefold() not in first_nav.casefold():
+            errors.append(f"First-screen dashboard navigation is missing {expected!r}.")
 
     data_state_text = _locator_text(page, ".cockpit-data-state-strip")
     for label_name, row in (("review", review), ("paper", paper)):
@@ -1045,6 +1049,8 @@ def _first_screen_semantic_errors(
     viewport_width = _viewport_width(page)
     if not _is_in_first_viewport(page, ".cockpit-proof-strip"):
         errors.append("First viewport is missing the proof strip.")
+    if not _is_in_first_viewport(page, ".cockpit-first-nav"):
+        errors.append("First viewport is missing primary dashboard navigation.")
     if not _is_in_first_viewport(page, ".cockpit-phase-rail"):
         errors.append("First viewport is missing the workflow phase rail.")
     if (
