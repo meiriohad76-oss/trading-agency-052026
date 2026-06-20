@@ -578,15 +578,34 @@ def _dataset_requires_interactive_user_action(dataset: str, config_path: Path) -
         return False
     config_file = overrides.subscription_email_config
     if config_file is None:
-        return False
+        return True
     path = config_file if config_file.is_absolute() else REPO_ROOT / config_file
     try:
         payload = json.loads(path.read_text(encoding="utf-8-sig"))
     except OSError, json.JSONDecodeError:
-        return False
+        return True
     if not isinstance(payload, Mapping):
+        return True
+    if payload.get("article_login_preflight_required") is True:
+        return True
+    if payload.get("follow_article_links") is not True:
         return False
-    return payload.get("article_login_preflight_required") is True
+    enabled_services = {
+        str(service).strip().lower()
+        for service in _sequence(payload.get("enabled_services"))
+        if str(service).strip()
+    }
+    article_domains = {
+        str(domain).strip().lower()
+        for domain in _sequence(payload.get("article_link_domains"))
+        if str(domain).strip()
+    }
+    protected_services = {"seeking_alpha"}
+    protected_domains = {"seekingalpha.com", "email.seekingalpha.com"}
+    return bool(
+        protected_services.intersection(enabled_services)
+        or protected_domains.intersection(article_domains)
+    )
 
 
 def _signal_job(

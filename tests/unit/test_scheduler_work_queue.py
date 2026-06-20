@@ -2924,6 +2924,171 @@ def test_scheduler_does_not_run_interactive_subscription_email_login_headlessly(
     assert "User login is required" in str(job["reason"])
 
 
+def test_scheduler_infers_subscription_email_login_gate_from_protected_links(
+    tmp_path: Path,
+) -> None:
+    email_config = tmp_path / "subscription-email.local.json"
+    live_config = tmp_path / "live-refresh.local.json"
+    email_config.write_text(
+        json.dumps(
+            {
+                "follow_article_links": True,
+                "enabled_services": ["seeking_alpha"],
+                "article_link_domains": ["seekingalpha.com"],
+            },
+        ),
+        encoding="utf-8",
+    )
+    live_config.write_text(
+        json.dumps({"subscription_email_config": str(email_config)}),
+        encoding="utf-8",
+    )
+    tiers = build_ticker_tiers(active_universe=["AAPL"])
+    plan = _market_plan("regular_market", dataset="subscription_emails")
+
+    queue = build_scheduler_work_queue(
+        plan,
+        tiers=tiers,
+        data_load_status={"state": "ready", "datasets": []},
+        source_health=_fresh_sources(),
+        broker={"connected": True, "checked_at": NOW.isoformat()},
+        config_path=live_config,
+        now=NOW,
+    )
+
+    job = next(item for item in queue["jobs"] if item["job_id"] == "dataset:subscription_emails")
+    assert job["status"] == "WAITING"
+    assert job["command"] == []
+    assert all(
+        item["job_id"] != "dataset:subscription_emails"
+        for item in queue["next_jobs"]
+    )
+
+
+def test_scheduler_treats_missing_subscription_email_config_as_manual_only(
+    tmp_path: Path,
+) -> None:
+    live_config = tmp_path / "live-refresh.local.json"
+    live_config.write_text(
+        json.dumps({"subscription_email_config": str(tmp_path / "missing-email-config.json")}),
+        encoding="utf-8",
+    )
+    tiers = build_ticker_tiers(active_universe=["AAPL"])
+    plan = _market_plan("regular_market", dataset="subscription_emails")
+
+    queue = build_scheduler_work_queue(
+        plan,
+        tiers=tiers,
+        data_load_status={"state": "ready", "datasets": []},
+        source_health=_fresh_sources(),
+        broker={"connected": True, "checked_at": NOW.isoformat()},
+        config_path=live_config,
+        now=NOW,
+    )
+
+    job = next(item for item in queue["jobs"] if item["job_id"] == "dataset:subscription_emails")
+    assert job["status"] == "WAITING"
+    assert job["command"] == []
+
+
+def test_scheduler_treats_omitted_subscription_email_config_as_manual_only(
+    tmp_path: Path,
+) -> None:
+    live_config = tmp_path / "live-refresh.local.json"
+    live_config.write_text(json.dumps({}), encoding="utf-8")
+    tiers = build_ticker_tiers(active_universe=["AAPL"])
+    plan = _market_plan("regular_market", dataset="subscription_emails")
+
+    queue = build_scheduler_work_queue(
+        plan,
+        tiers=tiers,
+        data_load_status={"state": "ready", "datasets": []},
+        source_health=_fresh_sources(),
+        broker={"connected": True, "checked_at": NOW.isoformat()},
+        config_path=live_config,
+        now=NOW,
+    )
+
+    job = next(item for item in queue["jobs"] if item["job_id"] == "dataset:subscription_emails")
+    assert job["status"] == "WAITING"
+    assert job["command"] == []
+
+
+def test_scheduler_treats_string_subscription_email_login_flag_as_manual_only(
+    tmp_path: Path,
+) -> None:
+    email_config = tmp_path / "subscription-email.local.json"
+    live_config = tmp_path / "live-refresh.local.json"
+    email_config.write_text(
+        json.dumps(
+            {
+                "follow_article_links": True,
+                "article_login_preflight_required": "true",
+                "article_link_domains": ["seekingalpha.com"],
+            },
+        ),
+        encoding="utf-8",
+    )
+    live_config.write_text(
+        json.dumps({"subscription_email_config": str(email_config)}),
+        encoding="utf-8",
+    )
+    tiers = build_ticker_tiers(active_universe=["AAPL"])
+    plan = _market_plan("regular_market", dataset="subscription_emails")
+
+    queue = build_scheduler_work_queue(
+        plan,
+        tiers=tiers,
+        data_load_status={"state": "ready", "datasets": []},
+        source_health=_fresh_sources(),
+        broker={"connected": True, "checked_at": NOW.isoformat()},
+        config_path=live_config,
+        now=NOW,
+    )
+
+    job = next(item for item in queue["jobs"] if item["job_id"] == "dataset:subscription_emails")
+    assert job["status"] == "WAITING"
+    assert job["command"] == []
+
+
+def test_scheduler_can_run_non_interactive_subscription_email_refresh(
+    tmp_path: Path,
+) -> None:
+    email_config = tmp_path / "subscription-email.local.json"
+    live_config = tmp_path / "live-refresh.local.json"
+    email_config.write_text(
+        json.dumps(
+            {
+                "mode": "local_eml",
+                "follow_article_links": False,
+                "enabled_services": ["zacks"],
+            },
+        ),
+        encoding="utf-8",
+    )
+    live_config.write_text(
+        json.dumps({"subscription_email_config": str(email_config)}),
+        encoding="utf-8",
+    )
+    tiers = build_ticker_tiers(active_universe=["AAPL"])
+    plan = _market_plan("regular_market", dataset="subscription_emails")
+
+    queue = build_scheduler_work_queue(
+        plan,
+        tiers=tiers,
+        data_load_status={"state": "ready", "datasets": []},
+        source_health=_fresh_sources(),
+        broker={"connected": True, "checked_at": NOW.isoformat()},
+        config_path=live_config,
+        now=NOW,
+    )
+
+    job = next(item for item in queue["jobs"] if item["job_id"] == "dataset:subscription_emails")
+    assert job["status"] == "DUE_NOW"
+    assert job["command"]
+    assert queue["next_jobs"][0]["job_id"] == "dataset:subscription_emails"
+
+
 def _market_plan(
     phase: str,
     *,
