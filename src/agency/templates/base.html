@@ -27,7 +27,7 @@
           </a>
           <a class="nav-link {% if active_nav == 'command' %}active{% endif %}" href="/command">
             <span class="nav-icon status-icon status-icon-data" aria-hidden="true">S</span>
-            <span>Diagnostics: System Status</span>
+            <span>System Health</span>
           </a>
 
           <span class="nav-section">Research</span>
@@ -44,15 +44,15 @@
           <div class="workflow-nav" aria-label="Workflow: Candidates, Portfolio, Execute">
             <a class="nav-link {% if active_nav == 'final' %}active{% endif %}" href="/final-selection">
               <span class="nav-icon status-icon status-icon-pending" aria-hidden="true">R</span>
-              <span>Candidate Diagnostics</span>
+              <span>Candidate Review</span>
             </a>
             <a class="nav-link {% if active_nav == 'portfolio' %}active{% endif %}" href="/portfolio-monitor">
               <span class="nav-icon status-icon status-icon-warn" aria-hidden="true">P</span>
-              <span>Portfolio Diagnostics</span>
+              <span>Portfolio Review</span>
             </a>
             <a class="nav-link {% if active_nav == 'execution' %}active{% endif %}" href="/execution-preview">
               <span class="nav-icon status-icon status-icon-pass" aria-hidden="true">O</span>
-              <span>Order Diagnostics</span>
+              <span>Order Clearance</span>
             </a>
           </div>
 
@@ -72,7 +72,7 @@
           </a>
           <a class="nav-link nav-secondary {% if active_nav == 'audit' %}active{% endif %}" href="/audit">
             <span class="nav-icon" aria-hidden="true">A</span>
-            <span>Audit Diagnostics</span>
+            <span>Audit Trail</span>
           </a>
         </nav>
         {% set workflow = workflow_summary|default({}, true) %}
@@ -120,7 +120,7 @@
             <span class="status-dot status-dot-warn" data-runtime-dot aria-hidden="true"></span>
             <span class="ux-build-marker" aria-label="Current UX build">UX V3 · Cockpit Readability · 2026-06-01</span>
             <span class="status-pill status-pill-paper">PAPER</span>
-            <span class="topbar-meta">{% block topbar_meta %}Runtime diagnostics{% endblock %}</span>
+            <span class="topbar-meta">{% block topbar_meta %}Runtime checks{% endblock %}</span>
             <span class="status-pill status-pill-warn" data-runtime-server-status>Checking server</span>
             <span class="status-pill status-pill-paper" data-runtime-broker-status>Checking broker</span>
             <span class="status-pill status-pill-neutral" data-runtime-updated>Not checked</span>

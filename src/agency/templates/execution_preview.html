@@ -289,11 +289,11 @@
     </div>
     {% else %}
     <p class="empty-block">
-      {{ focused_execution.ticker }} is not present in the latest execution preview. Open the candidate detail page, refresh the current cycle, or return to cockpit diagnostics.
+      {{ focused_execution.ticker }} is not present in the latest execution preview. Open the candidate detail page, refresh the current cycle, or return to System Health.
     </p>
     <div class="inline-links">
       <a class="text-link" href="/candidates/{{ focused_execution.ticker }}?from=execution-preview#paper-review-heading">Open candidate detail</a>
-      <a class="text-link" href="/command">Back to diagnostics</a>
+      <a class="text-link" href="/command">Back to System Health</a>
     </div>
     {% endif %}
   </section>

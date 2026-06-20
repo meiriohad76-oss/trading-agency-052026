@@ -438,7 +438,7 @@ def _semantic_contract_cases() -> list[dict[str, object]]:
                             "The cockpit has no current source-proof rows for this request. "
                             "What remains usable: nothing should be trusted for approval until proof appears."
                         ),
-                        action_label="Open Diagnostics for Source proof",
+                        action_label="Open System Health for Source proof",
                         action_url="/command",
                         method="get",
                     )
@@ -447,7 +447,7 @@ def _semantic_contract_cases() -> list[dict[str, object]]:
             required_texts=[
                 "Source proof",
                 "Unavailable",
-                "Open Diagnostics for Source proof",
+                "Open System Health for Source proof",
                 "not checked",
                 "nothing should be trusted",
                 "confirm proof timestamp changed",

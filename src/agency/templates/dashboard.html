@@ -10,7 +10,7 @@
 {% block page_title %}Command shows the current operating picture{% endblock %}
 {% block topbar_meta %}{{ summary.source_count }} sources &middot; {{ summary.candidate_count }} candidates{% endblock %}
 {% block workflow_phase %}Operating picture{% endblock %}
-{% block operator_focus %}Start with the next-action card and the top review queue before scanning lower diagnostics.{% endblock %}
+{% block operator_focus %}Start with the next-action card and the top review queue before scanning lower system checks.{% endblock %}
 {% block evidence_contract %}Health, data-progress proof, source proof, ETA, and review queue state come from current runtime artifacts.{% endblock %}
 
 {% block content %}
@@ -291,14 +291,14 @@
 
   </section>
 
-  <section class="command-diagnose-zone" id="system-diagnostics" aria-label="System diagnostics">
+  <section class="command-diagnose-zone" id="system-diagnostics" aria-label="System health checks">
     <details class="advanced-detail">
-      <summary>System diagnostics</summary>
+      <summary>System health details</summary>
 
   <section class="panel system-overview-panel" aria-labelledby="system-status-heading">
     <div class="section-heading">
       <div>
-        <h2 id="system-status-heading">System diagnostics</h2>
+        <h2 id="system-status-heading">System health details</h2>
         <p class="section-subtitle">Live runtime, broker, data, review, and tradability gates for the latest cycle.</p>
       </div>
       <span class="tag tag-{{ full_live_readiness.status_class }}">{{ full_live_readiness.status_label }}</span>

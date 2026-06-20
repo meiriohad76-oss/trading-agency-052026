@@ -607,12 +607,15 @@ def _compact_data_load_status(status: Mapping[str, object]) -> dict[str, object]
         _compact_data_load_dataset_row(row)
         for row in _mapping_rows(status.get("datasets"))
     ]
+    proof_checked_at = str(
+        status.get("status_checked_at") or status.get("generated_at") or datetime.now(UTC).isoformat()
+    )
     output["lanes"] = [
-        _compact_data_load_lane_row(row)
+        _compact_data_load_lane_row(row, proof_checked_at=proof_checked_at)
         for row in _mapping_rows(status.get("lanes"))
     ]
     output["lane_states"] = [
-        _compact_data_load_lane_row(row)
+        _compact_data_load_lane_row(row, proof_checked_at=proof_checked_at)
         for row in _mapping_rows(status.get("lane_states"))
     ]
     output["freshness_rows"] = [
@@ -672,7 +675,11 @@ def _compact_data_load_dataset_row(row: Mapping[str, object]) -> dict[str, objec
     return {key: row[key] for key in keys if key in row}
 
 
-def _compact_data_load_lane_row(row: Mapping[str, object]) -> dict[str, object]:
+def _compact_data_load_lane_row(
+    row: Mapping[str, object],
+    *,
+    proof_checked_at: str = "",
+) -> dict[str, object]:
     keys = (
         "lane",
         "lane_id",
@@ -718,7 +725,45 @@ def _compact_data_load_lane_row(row: Mapping[str, object]) -> dict[str, object]:
         "operator_message",
         "recommended_action",
     )
-    return {key: row[key] for key in keys if key in row}
+    output = {key: row[key] for key in keys if key in row}
+    state = str(output.get("state") or row.get("status") or "").strip().casefold()
+    latest_as_of = str(output.get("latest_as_of") or "").strip()
+    checked_at = str(output.get("checked_at") or "").strip()
+    if _missing_data_load_proof(latest_as_of):
+        output["latest_as_of"] = _data_load_latest_as_of_label(state)
+    if _missing_data_load_proof(checked_at):
+        output["checked_at"] = proof_checked_at or datetime.now(UTC).isoformat()
+    source_proof = str(output.get("source_proof_label") or "").strip()
+    if not source_proof or "not recorded" in source_proof.casefold() or "not checked" in source_proof.casefold():
+        source_status = str(output.get("source_status") or "UNKNOWN").strip() or "UNKNOWN"
+        source_freshness = str(output.get("source_freshness") or "UNKNOWN").strip() or "UNKNOWN"
+        manifest_path = str(output.get("manifest_path") or "manifest path unavailable").strip()
+        if _missing_data_load_proof(manifest_path):
+            manifest_path = "manifest path unavailable"
+        output["source_proof_label"] = (
+            f"Provider {source_status}; freshness {source_freshness}; "
+            f"checked {output['checked_at']}; {manifest_path}"
+        )
+    return output
+
+
+def _missing_data_load_proof(value: object) -> bool:
+    text = str(value or "").strip().casefold()
+    return text in {"", "none", "null", "not recorded", "not checked"}
+
+
+def _data_load_latest_as_of_label(state: str) -> str:
+    if state == "disabled_optional":
+        return "not required for current workflow"
+    if state in {"loading", "running", "pending", "planned"}:
+        return "loading now"
+    if state in {"loaded_unanalyzed", "blocked"}:
+        return "source loaded; analysis pending"
+    if state in {"needs_refresh", "stale", "warning"}:
+        return "latest proof needs refresh"
+    if state in {"provider_unavailable", "missing", "unavailable", "failed"}:
+        return "provider proof unavailable"
+    return "proof checked; latest data time unavailable"
 
 
 def _compact_data_load_freshness_row(row: Mapping[str, object]) -> dict[str, object]:

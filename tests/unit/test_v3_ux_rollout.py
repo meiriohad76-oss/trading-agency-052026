@@ -57,17 +57,18 @@ def test_shared_base_declares_v3_operating_shell() -> None:
     assert "UX V3" in html
     assert "Cockpit Readability" in html
     assert "Today's Cockpit" in html
-    assert "Diagnostics: System Status" in html
+    assert "System Health" in html
     assert "PAPER" in html
     assert "v3-phase-rail" in html
     assert "/static/v3-screens.css" in html
     assert "ux-v3-visible-20260523" not in html
     assert "ux-v3-all-screens-20260522" not in html
     assert "ux-v3-review-readable-2-20260522" not in html
-    assert "Candidate Diagnostics" in html
-    assert "Portfolio Diagnostics" in html
-    assert "Order Diagnostics" in html
-    assert "Audit Diagnostics" in html
+    assert "Candidate Review" in html
+    assert "Portfolio Review" in html
+    assert "Order Clearance" in html
+    assert "Audit Trail" in html
+    assert "Runtime diagnostics" not in html
     assert "active_nav in ['audit', 'cleared']" in html
 
 
