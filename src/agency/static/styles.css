@@ -6144,15 +6144,16 @@ table.signal-table {
 }
 
 .cockpit-instrument-cluster-brief .cockpit-arc-gauge {
-  min-height: 72px;
+  min-height: 58px;
   justify-items: start;
   gap: 2px;
-  padding: 9px 11px;
+  padding: 8px 10px;
   text-align: left;
 }
 
 .cockpit-instrument-cluster-brief .cockpit-arc-gauge strong {
-  font-size: 1.02rem;
+  font-size: 0.98rem;
+  line-height: 1.1;
 }
 
 .cockpit-instrument-cluster-brief .cockpit-arc-gauge small {
@@ -7185,9 +7186,12 @@ table.signal-table {
   }
 
   .cockpit-operator-path,
-  .cockpit-first-nav,
-  .cockpit-instrument-cluster-brief {
+  .cockpit-first-nav {
     grid-template-columns: 1fr;
+  }
+
+  .cockpit-instrument-cluster-brief {
+    display: none;
   }
 
   .cockpit-cycle-card {
@@ -7264,8 +7268,8 @@ table.signal-table {
   }
 
   .cockpit-instrument-cluster-brief .cockpit-arc-gauge {
-    min-height: 62px;
-    padding: 7px 9px;
+    min-height: 52px;
+    padding: 6px 8px;
   }
 
   .cockpit-arc-gauge {
@@ -7291,6 +7295,11 @@ table.signal-table {
 
   .cockpit-arc-gauge small {
     display: none;
+  }
+
+  .cockpit-instrument-cluster-brief .cockpit-arc-gauge {
+    min-height: 52px;
+    padding: 6px 8px;
   }
 
   .cockpit-segment-readout {

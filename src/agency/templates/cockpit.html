@@ -80,7 +80,7 @@
         <article class="cockpit-operator-step">
           <span>2</span>
           <div>
-            <strong>Review stocks</strong>
+            <strong>Inspect evidence</strong>
             <small>{{ funnel.reviewable|default(funnel.actionable|default(0, true), true) }} reviewable from {{ funnel.final|default(0, true) }} visible candidates.</small>
           </div>
         </article>
@@ -88,7 +88,7 @@
           <span>3</span>
           <div>
             <strong>Clear paper orders</strong>
-            <small>{{ data_paper.label|default("Paper gate not checked", true) }}. No live order is sent without explicit clearance.</small>
+            <small>{{ data_paper.label|default("Paper gate not checked", true) }}. Fix paper checks before submit; no live order is sent without explicit clearance.</small>
           </div>
         </article>
       </div>
@@ -239,7 +239,7 @@
           <strong>{{ gap.status_label|default("Needs attention", true) }}</strong>
           <p>
             {% if review_is_ready and not paper_is_ready %}
-              Research review can continue. Paper submit waits for this check:
+              Research review can continue. For paper submit, {{ gap.lane }} proof is not ready.
             {% else %}
               {{ gap.lane }} proof is not ready.
             {% endif %}

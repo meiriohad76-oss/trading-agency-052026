@@ -1715,8 +1715,8 @@ def _data_state_section(dashboard: Mapping[str, object]) -> dict[str, object]:
     elif review_ready and not paper_ready and top_gaps:
         headline = (
             f"{review_label}; {paper_label}. "
-            f"Research review can continue now; paper submit needs {len(top_gaps)} "
-            "readiness check(s) first."
+            "Research review can continue now; paper submit needs the listed "
+            "readiness checks first."
         )
     else:
         headline = (
