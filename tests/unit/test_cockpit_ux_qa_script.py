@@ -202,7 +202,7 @@ def test_qa_script_panel_focus_uses_first_matching_panel_trigger() -> None:
 def test_qa_script_first_screen_semantics_use_operator_copy() -> None:
     source = inspect.getsource(qa._first_screen_semantic_errors)
 
-    assert '"Diagnostics"' in source
+    assert '"System Status"' in source
     assert "First viewport is missing the proof strip." in source
     assert "First viewport is missing primary dashboard navigation." in source
     assert "First viewport is missing the workflow phase rail." in source

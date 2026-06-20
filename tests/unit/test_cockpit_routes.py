@@ -94,6 +94,21 @@ def _context() -> dict[str, object]:
                 }
             ],
         },
+        "data_state": {
+            "status_label": "Ready",
+            "status_class": "pass",
+            "headline": "Review ready; Paper execution gated.",
+            "overall_percent": 100,
+            "critical_lane_percent": 100,
+            "active_universe_count": 168,
+            "active_universe_label": "168 active-universe tickers",
+            "review": {"ready": True, "label": "Review ready", "status_class": "pass"},
+            "paper": {"ready": False, "label": "Paper execution gated", "status_class": "warn"},
+            "top_gaps": [],
+            "lane_rows": [],
+            "as_of_label": "2026-05-22",
+            "proof_label": "2026-05-22 19:12 UTC",
+        },
         "preferences": {"color_preset": "amber", "theme": "accent", "density": "full"},
         "qa_scenarios_enabled": False,
         "qa_scenarios": [],
@@ -169,13 +184,38 @@ async def test_cockpit_context_timeout_returns_conservative_same_shape_payload(
 
     context = await cockpit_view.cached_cockpit_context_with_timeout(timeout_seconds=0.01)
 
-    assert context["cockpit_context_freshness"]["status_label"] == "Cockpit status delayed"  # type: ignore[index]
+    assert context["cockpit_context_freshness"]["status_label"] == "Cockpit shell loading"  # type: ignore[index]
     assert context["data_state"]["review"]["ready"] is False  # type: ignore[index]
     assert context["data_state"]["paper"]["ready"] is False  # type: ignore[index]
     assert context["status_delayed"] is True
     assert context["scenario"]["state"] == "status-delayed"  # type: ignore[index]
     assert "still loading" in str(context["scenario"]["headline"]).lower()  # type: ignore[index]
     assert "not a no-candidate verdict" in str(context["scenario"]["detail"]).lower()  # type: ignore[index]
+
+
+async def test_cockpit_context_timeout_does_not_cancel_warming_context(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    completed = asyncio.Event()
+    cancelled = False
+
+    async def slow_cockpit_context(**_kwargs: object) -> dict[str, object]:
+        nonlocal cancelled
+        try:
+            await asyncio.sleep(0.05)
+        except asyncio.CancelledError:
+            cancelled = True
+            raise
+        completed.set()
+        return _context()
+
+    monkeypatch.setattr(cockpit_view, "cached_cockpit_context", slow_cockpit_context)
+
+    context = await cockpit_view.cached_cockpit_context_with_timeout(timeout_seconds=0.01)
+    await asyncio.wait_for(completed.wait(), timeout=0.5)
+
+    assert context["cockpit_context_freshness"]["status_label"] == "Cockpit shell loading"  # type: ignore[index]
+    assert cancelled is False
 
 
 def test_cockpit_status_delayed_context_is_not_cacheable_universe_proof() -> None:
@@ -261,7 +301,7 @@ def test_cockpit_is_primary_operating_entrypoint(monkeypatch: MonkeyPatch) -> No
     assert '<a class="brand" href="/cockpit">' in response.text
     nav = response.text.split('<nav class="nav-list">', 1)[1].split("</nav>", 1)[0]
     assert nav.index('href="/cockpit"') < nav.index('href="/command"')
-    assert "Diagnostics: System Status" in nav
+    assert "System Status" in nav
 
 
 def test_command_dashboard_has_explicit_parallel_route() -> None:

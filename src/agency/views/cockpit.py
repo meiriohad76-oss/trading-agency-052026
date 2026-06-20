@@ -152,11 +152,11 @@ async def cached_cockpit_context_with_timeout(
             qa_scenarios_enabled=qa_scenarios_enabled,
         )
     )
+    task.add_done_callback(_consume_context_task_result)
     try:
-        return await asyncio.wait_for(task, timeout=timeout)
+        return await asyncio.wait_for(asyncio.shield(task), timeout=timeout)
     except TimeoutError:
-        task.cancel()
-        return cockpit_status_delayed_context(
+        return await _cockpit_status_delayed_context_with_data_proof(
             timeout_seconds=timeout,
             qa_scenario=qa_scenario,
             qa_scenarios_enabled=qa_scenarios_enabled,
@@ -191,6 +191,50 @@ def cockpit_status_delayed_context(
         "detail": (
             "Cockpit data did not finish loading inside the first-screen budget. "
             "The next poll can use warmed cache; do not treat this fallback as source proof."
+        ),
+    }
+    return context
+
+
+async def _cockpit_status_delayed_context_with_data_proof(
+    *,
+    timeout_seconds: float,
+    qa_scenario: str | None = None,
+    qa_scenarios_enabled: bool | None = None,
+) -> dict[str, object]:
+    from agency.views.command import data_load_status_view, source_status_rows
+
+    dashboard = _delayed_context("dashboard", timeout_seconds=timeout_seconds)
+    dashboard = await _dashboard_with_direct_data_load_proof(
+        dashboard,
+        detail=(
+            "The full cockpit model is still loading, but the data-lane proof was "
+            "loaded separately for this first screen."
+        ),
+        data_load_status_view_builder=data_load_status_view,
+        source_status_rows_builder=source_status_rows,
+    )
+    context = cockpit_context_from_sources(
+        {
+            "dashboard": dashboard,
+            "execution": _delayed_context("execution", timeout_seconds=timeout_seconds),
+            "portfolio": _delayed_context("portfolio", timeout_seconds=timeout_seconds),
+            "market": _delayed_context("market", timeout_seconds=timeout_seconds),
+            "signals": _delayed_context("signals", timeout_seconds=timeout_seconds),
+        },
+        qa_scenario=qa_scenario,
+        qa_scenarios_enabled=qa_scenarios_enabled,
+    )
+    context["cockpit_context_freshness"] = {
+        "status_label": "Cockpit shell loading",
+        "status_class": "warn",
+        "age_seconds": 0,
+        "age_label": "checking",
+        "source": "bounded first-load fallback with data proof",
+        "detail": (
+            "The full cockpit model did not finish inside the first-screen budget. "
+            "The data-state proof shown on this page was loaded directly from the "
+            "runtime lane registry."
         ),
     }
     return context
