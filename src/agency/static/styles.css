@@ -7326,7 +7326,37 @@ table.signal-table {
     grid-template-columns: 1fr;
   }
 
+  .cockpit-topline > div:first-child {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .cockpit-topline > div:first-child > .eyebrow {
+    order: 10;
+  }
+
+  .cockpit-bluf {
+    order: 20;
+  }
+
+  .cockpit-operator-summary {
+    order: 30;
+  }
+
+  .cockpit-proof-strip {
+    order: 40;
+  }
+
+  .cockpit-topline .cockpit-phase-rail-proof {
+    order: 50;
+  }
+
+  .cockpit-top-actions {
+    order: 60;
+  }
+
   .cockpit-operator-path {
+    order: 70;
     grid-template-columns: repeat(3, minmax(220px, 1fr));
     overflow-x: auto;
     padding-bottom: 2px;
@@ -7337,6 +7367,7 @@ table.signal-table {
   }
 
   .cockpit-first-nav {
+    order: 80;
     grid-template-columns: repeat(5, minmax(96px, 1fr));
     gap: 6px;
     overflow-x: auto;
@@ -7357,6 +7388,7 @@ table.signal-table {
   }
 
   .cockpit-topline .cockpit-data-state-strip-compact {
+    order: 90;
     grid-template-columns: 1fr;
   }
 
