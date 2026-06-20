@@ -9,10 +9,11 @@ from prices.massive_grouped_daily import (
     normalize_massive_grouped_daily,
     pull_massive_grouped_daily,
 )
-from prices.storage import DateRange
+from prices.storage import DateRange, write_price_frame
 
 from research.scripts.pull_massive_grouped_daily import (
     _fill_grouped_daily_missing_tickers,
+    _tickers_needing_history,
     _validate_lane_invocation,
 )
 
@@ -175,6 +176,30 @@ async def test_grouped_daily_script_uses_latest_available_daily_aggs_bar() -> No
     assert frame.iloc[0]["close"] == 39.5
 
 
+def test_grouped_daily_history_bootstrap_detects_shallow_price_history(tmp_path) -> None:
+    price_root = tmp_path / "prices_daily"
+    write_price_frame(
+        price_root,
+        pd.DataFrame(
+            [
+                _price_row("AAPL", date(2026, 5, 7)),
+                _price_row("AAPL", date(2026, 5, 8)),
+                *[_price_row("MSFT", date(2026, 4, day)) for day in range(1, 6)],
+            ]
+        ),
+    )
+
+    needed = _tickers_needing_history(
+        price_root,
+        ["AAPL", "MSFT", "NVDA"],
+        end=date(2026, 5, 8),
+        lookback_days=60,
+        min_observations=5,
+    )
+
+    assert needed == ["AAPL", "NVDA"]
+
+
 def _row(
     ticker: str,
     open_price: float,
@@ -196,3 +221,29 @@ def _row(
 
 def _ms(value: str) -> int:
     return int(pd.Timestamp(value).timestamp() * 1_000)
+
+
+def _price_row(ticker: str, observed: date) -> dict[str, object]:
+    return {
+        "ticker": ticker,
+        "year": observed.year,
+        "date": observed,
+        "open": 100.0,
+        "high": 101.0,
+        "low": 99.0,
+        "close": 100.5,
+        "adj_close": 100.5,
+        "volume": 1_000,
+        "dividend": 0.0,
+        "split_factor": 1.0,
+        "source": "massive",
+        "fetched_at": FETCHED_AT,
+        "source_tier": "MARKET_DATA",
+        "source_id": f"massive:{ticker}:{observed.isoformat()}",
+        "source_url": "https://api.polygon.io",
+        "timestamp_observed": FETCHED_AT,
+        "timestamp_as_of": observed,
+        "freshness": "FRESH",
+        "confidence": 0.9,
+        "verification_level": "CONFIRMED",
+    }

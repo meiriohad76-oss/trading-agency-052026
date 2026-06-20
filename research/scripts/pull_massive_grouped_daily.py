@@ -30,12 +30,19 @@ from prices.massive_grouped_daily import (  # noqa: E402
     MassiveGroupedDailyConfig,
     pull_massive_grouped_daily,
 )
-from prices.puller import universe_tickers  # noqa: E402
+from prices.puller import pull_prices, universe_tickers  # noqa: E402
 from prices.sector_etfs import include_sector_etfs  # noqa: E402
-from prices.storage import DateRange, write_manifest, write_price_frame  # noqa: E402
+from prices.storage import (  # noqa: E402
+    DateRange,
+    existing_dates_for_ticker,
+    write_manifest,
+    write_price_frame,
+)
 
 DAILY_BARS_LANE_ID = "massive_daily_bars"
 DAILY_AGGS_FALLBACK_LOOKBACK_DAYS = 7
+HISTORY_BOOTSTRAP_LOOKBACK_DAYS = 370
+MIN_HISTORY_OBSERVATIONS = 40
 
 
 def main() -> int:
@@ -84,6 +91,36 @@ def main() -> int:
         default=None,
         help="Optional explicit lane-level manifest path.",
     )
+    parser.add_argument(
+        "--history-lookback-days",
+        type=int,
+        default=HISTORY_BOOTSTRAP_LOOKBACK_DAYS,
+        help=(
+            "Calendar-day window to keep available for daily-bar signals. "
+            "The lane bootstraps missing history only for tickers below the "
+            "minimum observation threshold."
+        ),
+    )
+    parser.add_argument(
+        "--min-history-observations",
+        type=int,
+        default=MIN_HISTORY_OBSERVATIONS,
+        help=(
+            "Minimum local daily observations required before skipping the "
+            "per-ticker historical bootstrap."
+        ),
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=4,
+        help="Concurrent per-ticker Massive aggregate downloads for history bootstrap.",
+    )
+    parser.add_argument(
+        "--skip-history-bootstrap",
+        action="store_true",
+        help="Only write the latest grouped daily snapshot; intended for narrow diagnostics.",
+    )
     args = parser.parse_args()
     _validate_lane_invocation(args)
     tickers = args.tickers or _active_universe_tickers(args)
@@ -111,6 +148,37 @@ def main() -> int:
         )
     )
     rows_written = write_price_frame(args.price_root, frame)
+    history_summary = None
+    history_issues: list[dict[str, str]] = []
+    history_start = _history_start(args.date, args.history_lookback_days)
+    if not args.skip_history_bootstrap:
+        history_tickers = _tickers_needing_history(
+            args.price_root,
+            tickers,
+            end=args.date,
+            lookback_days=args.history_lookback_days,
+            min_observations=args.min_history_observations,
+        )
+        if history_tickers:
+            history_summary = asyncio.run(
+                pull_prices(
+                    tickers=history_tickers,
+                    requested=DateRange(history_start, args.date),
+                    price_root=args.price_root,
+                    manifest_path=args.manifest_path,
+                    refresh=False,
+                    workers=args.workers,
+                    downloader=build_massive_downloader(
+                        MassiveDailyConfig.from_env(base_url=args.massive_base_url)
+                    ),
+                    normalizer=normalize_massive_bars,
+                    source="massive",
+                    source_url=config.base_url,
+                    clock=lambda: fetched_at,
+                )
+            )
+            rows_written += history_summary.rows_written
+            history_issues = history_summary.issues
     coverage = _daily_lane_coverage(tickers, frame, requested_day=args.date)
     missing = [
         str(row["ticker"])
@@ -118,11 +186,36 @@ def main() -> int:
         if row.get("complete") is not True
     ]
     issues = [{"ticker": ticker, "reason": "no_daily_bar_available"} for ticker in missing]
+    issues.extend(history_issues)
+    coverage = _annotate_history_coverage(
+        args.price_root,
+        coverage,
+        end=args.date,
+        lookback_days=args.history_lookback_days,
+        min_observations=args.min_history_observations,
+    )
+    insufficient_history = [
+        str(row["ticker"])
+        for row in coverage
+        if int(row.get("history_observation_count") or 0) < args.min_history_observations
+    ]
+    issues.extend(
+        {
+            "ticker": ticker,
+            "reason": "insufficient_daily_history",
+            "detail": (
+                f"fewer than {args.min_history_observations} daily observations are available "
+                f"inside the {args.history_lookback_days}-calendar-day signal window"
+            ),
+        }
+        for ticker in insufficient_history
+        if ticker not in missing
+    )
     write_manifest(
         args.manifest_path,
         args.price_root,
         fetched_at=fetched_at,
-        requested=DateRange(args.date, args.date),
+        requested=DateRange(history_start, args.date),
         issues=issues,
         source="massive",
         source_url=config.base_url,
@@ -133,7 +226,7 @@ def main() -> int:
         dataset="prices_daily",
         raw_source_dataset="prices_daily",
         fetched_at=fetched_at,
-        requested_start=args.date,
+        requested_start=history_start,
         requested_end=args.date,
         tickers=tickers,
         row_count=rows_written,
@@ -141,16 +234,26 @@ def main() -> int:
         status="complete" if not issues else "partial",
         issues=issues,
         coverage=coverage,
-        request_budget_label="1 grouped-daily request per market date",
+        request_budget_label=(
+            "1 grouped-daily request per market date plus per-ticker daily aggregate "
+            "requests only while historical signal coverage is below threshold"
+        ),
         merge_existing=True,
     )
     print(
         json.dumps(
             {
                 "date": args.date.isoformat(),
+                "history_start": history_start.isoformat(),
                 "tickers_requested": len({ticker.upper() for ticker in tickers}),
                 "rows_returned": len(frame),
                 "rows_written": rows_written,
+                "history_tickers_downloaded": (
+                    history_summary.tickers_requested if history_summary is not None else 0
+                ),
+                "history_rows_written": (
+                    history_summary.rows_written if history_summary is not None else 0
+                ),
                 "issues": issues,
             },
             sort_keys=True,
@@ -245,6 +348,65 @@ def _daily_lane_coverage(
                 }
             )
     return coverage
+
+
+def _tickers_needing_history(
+    price_root: Path,
+    tickers: Sequence[str],
+    *,
+    end: date,
+    lookback_days: int,
+    min_observations: int,
+) -> list[str]:
+    if lookback_days < 1:
+        raise ValueError("history-lookback-days must be >= 1")
+    if min_observations < 1:
+        raise ValueError("min-history-observations must be >= 1")
+    start = _history_start(end, lookback_days)
+    needed: list[str] = []
+    for ticker in sorted({str(item).upper() for item in tickers if str(item).strip()}):
+        count = _history_observation_count(price_root, ticker, start=start, end=end)
+        if count < min_observations:
+            needed.append(ticker)
+    return needed
+
+
+def _annotate_history_coverage(
+    price_root: Path,
+    coverage: list[dict[str, object]],
+    *,
+    end: date,
+    lookback_days: int,
+    min_observations: int,
+) -> list[dict[str, object]]:
+    start = _history_start(end, lookback_days)
+    output: list[dict[str, object]] = []
+    for row in coverage:
+        current = dict(row)
+        ticker = str(current.get("ticker") or "").upper()
+        count = _history_observation_count(price_root, ticker, start=start, end=end)
+        current["history_window_start"] = start.isoformat()
+        current["history_window_end"] = end.isoformat()
+        current["history_observation_count"] = count
+        current["history_required_observation_count"] = min_observations
+        current["history_complete"] = count >= min_observations
+        output.append(current)
+    return output
+
+
+def _history_observation_count(
+    price_root: Path,
+    ticker: str,
+    *,
+    start: date,
+    end: date,
+) -> int:
+    dates = existing_dates_for_ticker(price_root, ticker)
+    return sum(1 for observed in dates if start <= observed <= end)
+
+
+def _history_start(end: date, lookback_days: int) -> date:
+    return end - timedelta(days=max(lookback_days, 1) - 1)
 
 
 def _date(value: str) -> date:
