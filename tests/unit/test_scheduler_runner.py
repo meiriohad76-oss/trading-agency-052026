@@ -472,6 +472,16 @@ def test_normalize_command_keeps_non_path_backslash_text() -> None:
     assert command == ["python", "--message", "operator\\typed\\text"]
 
 
+def test_resolve_repo_root_prefers_candidate_with_runtime_scripts(tmp_path: Path) -> None:
+    repo_root = tmp_path / "app"
+    (repo_root / "research" / "scripts").mkdir(parents=True)
+    (repo_root / "schemas").mkdir()
+    site_packages_root = tmp_path / "usr" / "local" / "lib" / "python3.14"
+    site_packages_root.mkdir(parents=True)
+
+    assert scheduler_runner._resolve_repo_root([site_packages_root, repo_root]) == repo_root
+
+
 def test_work_queue_tick_records_job_success_cadence_memory(monkeypatch) -> None:
     command_started = datetime(2026, 5, 17, 14, 0, tzinfo=UTC)
 

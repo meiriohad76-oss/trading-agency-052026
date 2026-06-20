@@ -4,7 +4,7 @@ import json
 import os
 import subprocess
 import sys
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from subprocess import TimeoutExpired
@@ -19,7 +19,26 @@ from agency.runtime.portfolio_news_agent_bridge import (
     portfolio_news_agent_root,
 )
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+
+def _resolve_repo_root(candidates: Sequence[Path] | None = None) -> Path:
+    env_root = os.environ.get("AGENCY_REPO_ROOT")
+    probe_roots = list(candidates or [])
+    if env_root:
+        probe_roots.append(Path(env_root))
+    probe_roots.extend([Path.cwd(), Path("/app"), Path(__file__).resolve().parents[3]])
+    for root in probe_roots:
+        try:
+            resolved = root.resolve()
+        except OSError:
+            resolved = root
+        if (resolved / "research" / "scripts").exists() and (resolved / "src").exists():
+            return resolved
+        if (resolved / "research" / "scripts").exists() and (resolved / "schemas").exists():
+            return resolved
+    return Path(__file__).resolve().parents[3]
+
+
+REPO_ROOT = _resolve_repo_root()
 PYTHON = os.environ.get("AGENCY_PYTHON", sys.executable)
 WORK_QUEUE_TICK_SECONDS = int(os.environ.get("AGENCY_WORK_QUEUE_TICK_SECONDS", "60"))
 WORK_QUEUE_MAX_COMMANDS = int(os.environ.get("AGENCY_WORK_QUEUE_MAX_COMMANDS", "3"))
