@@ -13,6 +13,7 @@ from urllib.parse import urlencode, urlsplit
 import pandas as pd
 from news.consumption import load_news_consumption_entries
 
+from agency.paths import REPO_ROOT
 from agency.runtime.local_llm import DEFAULT_OUTPUT_ROOT as LOCAL_LLM_OUTPUT_ROOT
 from agency.runtime.signal_evidence import enrich_signal_rows_with_evidence
 from agency.services import build_leveraged_alternative_review
@@ -62,7 +63,6 @@ from agency.views._shared import (
     live_dashboard_data_load_status,
 )
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
 NEWS_CONSUMPTION_LEDGER_PATH = (
     REPO_ROOT / "research" / "data" / "state" / "news_rss_consumed.json"
 )

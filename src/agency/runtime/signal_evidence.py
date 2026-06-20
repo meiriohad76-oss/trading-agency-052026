@@ -4,7 +4,6 @@ import logging
 from collections.abc import Mapping, Sequence
 from datetime import UTC, date, datetime, timedelta
 from inspect import signature
-from pathlib import Path
 from typing import Any, cast
 
 import pandas as pd
@@ -21,7 +20,8 @@ from signals.options_anomaly import options_anomaly_frame
 from signals.options_flow import options_flow_frame
 from signals.technical_analysis import technical_analysis_frame
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+from agency.paths import REPO_ROOT
+
 DEFAULT_PARQUET_ROOT = REPO_ROOT / "research" / "data" / "parquet"
 DEFAULT_MANIFEST_ROOT = REPO_ROOT / "research" / "data" / "manifests"
 LOGGER = logging.getLogger(__name__)

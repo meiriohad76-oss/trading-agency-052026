@@ -13,7 +13,8 @@ from urllib.request import urlopen
 
 import pandas as pd
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+from agency.paths import REPO_ROOT
+
 DEFAULT_AGENT_ROOT = REPO_ROOT.parent / "email news agent"
 DEFAULT_CONFIG_NAME = "config.yaml"
 DEFAULT_RUN_CONFIG_NAME = "data/agency_config.yaml"

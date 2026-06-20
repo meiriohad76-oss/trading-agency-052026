@@ -7,7 +7,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+from agency.paths import REPO_ROOT
+
 DEFAULT_RUNTIME_ARTIFACT_ROOT = (
     REPO_ROOT / "research" / "results" / "latest-live-runtime-cycle"
 )

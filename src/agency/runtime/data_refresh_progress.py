@@ -11,9 +11,9 @@ from typing import cast
 
 from dotenv import load_dotenv
 
+from agency.paths import REPO_ROOT
 from agency.runtime.data_refresh_eta import eta_label, eta_seconds
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
 RESEARCH_SRC = REPO_ROOT / "research" / "src"
 if str(RESEARCH_SRC) not in sys.path:
     sys.path.insert(0, str(RESEARCH_SRC))

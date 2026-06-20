@@ -12,7 +12,8 @@ from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+from agency.paths import REPO_ROOT
+
 DEFAULT_INPUT_ROOT = REPO_ROOT / "research" / "results" / "latest-live-runtime-cycle"
 DEFAULT_OUTPUT_ROOT = REPO_ROOT / "research" / "results" / "latest-local-llm-insights"
 DEFAULT_LOCAL_LLM_MODEL = "local-default"

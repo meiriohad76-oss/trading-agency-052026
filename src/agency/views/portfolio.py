@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Mapping, Sequence
-from pathlib import Path
 from typing import cast
 
 from agency.api.audit import runtime_portfolio_snapshots
+from agency.paths import REPO_ROOT
 from agency.services import PortfolioPolicy, build_portfolio_monitor, load_active_portfolio_policy
 from agency.views._shared import (
     _dashboard_selection_reports,
@@ -18,7 +18,6 @@ from agency.views._shared import (
     live_dashboard_data_load_status,
 )
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
 HIGH_WATER_MARKS_PATH = REPO_ROOT / "research" / "data" / "portfolio-high-water-marks.json"
 
 

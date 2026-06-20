@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from subprocess import CompletedProcess, TimeoutExpired
 
+from agency.paths import REPO_ROOT
 from agency.runtime.portfolio_news_agent_bridge import (
     DEFAULT_MANIFEST_PATH,
     DEFAULT_MINI_CYCLE_STATUS_PATH,
@@ -16,7 +17,6 @@ from agency.runtime.portfolio_news_agent_bridge import (
     export_portfolio_news_agent_events,
 )
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
 PYTHON = os.environ.get("AGENCY_PYTHON", str(REPO_ROOT / ".venv" / "Scripts" / "python"))
 DEFAULT_CONFIG_PATH = REPO_ROOT / "research" / "config" / "live-refresh.local.json"
 DEFAULT_MINI_CYCLE_OUTPUT_ROOT = (

@@ -15,12 +15,12 @@ from fundamentals.forward_state import (
 )
 from news.consumption import load_news_consumption_entries
 
+from agency.paths import REPO_ROOT
 from agency.runtime.data_refresh_progress import load_data_refresh_progress
 from agency.runtime.lane_state import build_lane_states
 from agency.runtime.live_config_readiness import load_live_config_readiness
 from agency.runtime.portfolio_news_agent_bridge import load_portfolio_news_agent_status
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_CONFIG_PATH = REPO_ROOT / "research" / "config" / "live-refresh.local.json"
 DEFAULT_UNIVERSE_PATH = REPO_ROOT / "research" / "data" / "parquet" / "universe_membership.parquet"
 DEFAULT_MANIFEST_ROOT = REPO_ROOT / "research" / "data" / "manifests"

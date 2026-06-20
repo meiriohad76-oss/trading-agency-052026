@@ -4,7 +4,6 @@ import asyncio
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
-from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
@@ -18,8 +17,7 @@ from agency.api.risk import policy_router
 from agency.api.risk import router as risk_router
 from agency.audit_dashboard import router as audit_dashboard_router
 from agency.dashboard import router as dashboard_router
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
+from agency.paths import REPO_ROOT
 
 
 @asynccontextmanager

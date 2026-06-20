@@ -27,9 +27,9 @@ from agency.market_regime.metrics import (
     rows as _rows,
     sector_spread as _sector_spread,
 )
+from agency.paths import REPO_ROOT
 from agency.market_regime.policy import RegimePolicy
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_STATE_DIR = REPO_ROOT / "research" / "state" / "market_regime"
 DEFAULT_TICKER_SECTOR_MAP = REPO_ROOT / "research" / "config" / "ticker-sector-map.json"
 BENCHMARKS = ("SPY", "QQQ", "IWM", "DIA")

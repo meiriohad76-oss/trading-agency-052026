@@ -21,6 +21,7 @@ from agency.contracts import (
     validate_contract,
 )
 from agency.db import MissingDatabaseConfigurationError, get_session
+from agency.paths import REPO_ROOT
 from agency.runtime import build_live_readiness, list_source_health, runtime_metrics_text
 from agency.runtime.artifact_fallbacks import (
     artifact_fallback_enabled,
@@ -55,7 +56,6 @@ _status_snapshot_cache: dict[str, object] = {
 }
 _status_snapshot_inflight: asyncio.Task[dict[str, object]] | None = None
 _status_snapshot_cache_lock = asyncio.Lock()
-REPO_ROOT = Path(__file__).resolve().parents[3]
 STATUS_DATA_PROOF_FILES = (
     REPO_ROOT
     / "research"

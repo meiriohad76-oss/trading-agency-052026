@@ -10,6 +10,7 @@ from typing import cast
 
 from dotenv import load_dotenv
 
+from agency.paths import REPO_ROOT
 from agency.runtime.data_load_status import load_data_load_status
 from agency.runtime.data_refresh_progress import (
     data_refresh_status_path,
@@ -18,7 +19,6 @@ from agency.runtime.data_refresh_progress import (
 from agency.runtime.live_config_readiness import load_live_config_readiness
 from agency.runtime.provider_readiness import load_provider_readiness
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
 RESEARCH_SRC = REPO_ROOT / "research" / "src"
 if str(RESEARCH_SRC) not in sys.path:
     sys.path.insert(0, str(RESEARCH_SRC))

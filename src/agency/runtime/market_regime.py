@@ -12,7 +12,8 @@ from typing import Any, Protocol, cast
 
 import polars as pl
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+from agency.paths import REPO_ROOT
+
 RESEARCH_SRC = REPO_ROOT / "research" / "src"
 DEFAULT_PARQUET_ROOT = REPO_ROOT / "research" / "data" / "parquet"
 DEFAULT_MANIFEST_ROOT = REPO_ROOT / "research" / "data" / "manifests"

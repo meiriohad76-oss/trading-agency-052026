@@ -10,7 +10,8 @@ from typing import cast
 import pandas as pd
 from dotenv import dotenv_values, load_dotenv
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+from agency.paths import REPO_ROOT
+
 DEFAULT_CONFIG_PATH = REPO_ROOT / "research" / "config" / "live-refresh.local.json"
 DEFAULT_UNIVERSE_PATH = REPO_ROOT / "research" / "data" / "parquet" / "universe_membership.parquet"
 DEFAULT_MANIFEST_ROOT = REPO_ROOT / "research" / "data" / "manifests"
