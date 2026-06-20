@@ -2111,18 +2111,16 @@ body.v3-screen-cockpit {
 
   .v3-screen-cockpit .cockpit-shell.vA .cockpit-topline .cockpit-first-nav {
     order: 70;
-    grid-template-columns: repeat(5, minmax(96px, 1fr));
-    overflow-x: auto;
-    overflow-y: hidden;
-    padding-bottom: 2px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow: visible;
+    padding-bottom: 0;
   }
 
   .v3-screen-cockpit .cockpit-shell.vA .cockpit-topline .cockpit-operator-path {
     order: 80;
-    grid-template-columns: repeat(3, minmax(220px, 1fr));
-    overflow-x: auto;
-    overflow-y: hidden;
-    padding-bottom: 2px;
+    grid-template-columns: 1fr;
+    overflow: visible;
+    padding-bottom: 0;
   }
 
   .v3-screen-cockpit .cockpit-shell.vA .cockpit-topline .cockpit-data-state-strip-compact {
@@ -2170,11 +2168,12 @@ body.v3-screen-cockpit {
   }
 
   .v3-screen-cockpit .cockpit-first-nav a {
-    min-height: 58px;
+    min-height: 62px;
   }
 
   .v3-screen-cockpit .cockpit-operator-step {
     grid-template-columns: 36px minmax(0, 1fr);
+    min-height: 0;
     width: 100%;
   }
 
