@@ -51,6 +51,12 @@
         <span>Proof: {{ data_state.proof_label|default("not checked", true) if data_state is defined else "not checked" }}</span>
       </div>
       {% set first_gap = (data_state.top_gaps|default([], true))[0]|default({}, true) %}
+      <section class="cockpit-instrument-cluster cockpit-instrument-cluster-proof" aria-label="Cockpit instruments">
+        <article><span>Market</span><strong>{{ market.status_label }}</strong></article>
+        <article><span>Exposure</span><strong class="cockpit-mono">{{ "%.1f"|format(account.gross_post_trade|default(0, true)) }}%</strong></article>
+        <article><span>Cash</span><strong class="cockpit-mono">{{ "%.1f"|format(account.cash_available|default(0, true)) }}%</strong></article>
+        <article><span>Ready</span><strong class="cockpit-mono">{{ account.ready_to_trade|default("0/0", true) }}</strong></article>
+      </section>
       <section class="cockpit-data-state-strip cockpit-data-state-strip-compact" aria-label="Session readiness">
         <div class="cockpit-data-state-headline">
           <p class="eyebrow">Session readiness</p>
