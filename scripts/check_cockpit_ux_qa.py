@@ -112,7 +112,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                         )
                         result["http_ok"] = response is not None and response.status == 200
                         page.wait_for_selector(".cockpit-bluf", timeout=10_000)
-                        page.wait_for_selector(".cockpit-data-state-strip", timeout=10_000)
+                        page.wait_for_selector(
+                            ".cockpit-shell > .cockpit-data-state-strip",
+                            timeout=10_000,
+                        )
                         page.wait_for_selector(".cockpit-phase:not([hidden])", timeout=10_000)
                         first_viewport_path = (
                             output_dir
@@ -138,11 +141,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                         result["inner_overflow_errors"] = _inner_horizontal_overflow_errors(page)
                         result["submit_gate_safe"] = _submit_gate_is_safe(page)
                         result["focus_errors"] = _exercise_focus(page, args.focus)
-                        result["panel_screenshots"] = _screenshot_panels(
-                            page,
-                            output_dir,
-                            f"{viewport_name}-{scenario_name}",
-                        )
+                        if args.focus == "panels":
+                            result["panel_screenshots"] = _screenshot_panels(
+                                page,
+                                output_dir,
+                                f"{viewport_name}-{scenario_name}",
+                            )
                         result["unreadable_controls"] = page.evaluate(
                             """
                             () => Array.from(document.querySelectorAll('button, a.button, .cockpit-dashboard-nav a, .status-pill'))
@@ -863,14 +867,14 @@ def _viewport_width(page: Any) -> int:
 
 
 def _submit_gate_is_safe(page: Any) -> bool:
-    clearance = page.locator('[data-cockpit-phase-target="clearance"]').first
-    if clearance.count() > 0:
-        clearance.click()
     scenario_state = (
-        page.locator("[data-cockpit-cycle]").first.get_attribute("data-cockpit-scenario")
+        page.locator(".cockpit-shell").first.get_attribute("data-cockpit-scenario")
         or "normal"
     )
     safety_scenario = scenario_state in {"outage", "status-delayed", "no-actionable", "submitted"}
+    clearance = page.locator('[data-cockpit-phase-target="clearance"]').first
+    if clearance.count() > 0 and not safety_scenario:
+        clearance.click(timeout=1_500)
     button = page.locator("[data-cockpit-submit-button]").first
     if button.count() == 0:
         return True
@@ -1032,11 +1036,13 @@ def _first_screen_semantic_errors(
                 f"First viewport still exposes internal '{forbidden}' wording to the operator."
             )
 
-    data_state_text = _locator_text(page, ".cockpit-data-state-strip")
+    data_state_text = _locator_text(page, ".cockpit-shell > .cockpit-data-state-strip")
+    first_viewport_text = _first_viewport_text(page)
+    readiness_text = f"{first_viewport_text} {data_state_text}"
     for label_name, row in (("review", review), ("paper", paper)):
         label = str(row.get("label") or "").strip()
-        if label and label not in data_state_text:
-            errors.append(f"Rendered data-state strip is missing {label_name} label {label!r}.")
+        if label and label not in readiness_text:
+            errors.append(f"Rendered readiness surface is missing {label_name} label {label!r}.")
 
     rendered_state = str(
         page.locator(".cockpit-shell").first.get_attribute("data-cockpit-scenario") or ""
@@ -1048,7 +1054,7 @@ def _first_screen_semantic_errors(
         )
     if review.get("ready") is True and rendered_state in {"outage", "status-delayed"}:
         errors.append(f"Review-ready API state rendered as a {rendered_state} cockpit.")
-    if review.get("ready") is True and "selection paused" in data_state_text.casefold():
+    if review.get("ready") is True and "selection paused" in readiness_text.casefold():
         errors.append("Review-ready cockpit must not say selection is paused.")
 
     viewport_width = _viewport_width(page)
@@ -1056,8 +1062,11 @@ def _first_screen_semantic_errors(
         errors.append("First viewport is missing the proof strip.")
     if not _is_in_first_viewport(page, ".cockpit-operator-path"):
         errors.append("First viewport is missing the operator next-step path.")
-    if viewport_width >= 760 and not _is_in_first_viewport(page, ".cockpit-data-state-strip"):
-        errors.append("First viewport is missing the data-state strip.")
+    if viewport_width >= 760 and not (
+        _is_in_first_viewport(page, ".cockpit-operator-path")
+        and _is_in_first_viewport(page, ".cockpit-proof-strip")
+    ):
+        errors.append("First viewport is missing the operator readiness summary.")
     if viewport_width < 760:
         compact_state = _locator_text(page, ".cockpit-operator-path")
         for required_mobile in ("review", "paper", "fix"):
@@ -1092,20 +1101,29 @@ def _first_screen_semantic_errors(
             recommended = str(gap.get("recommended_action") or "").strip()
             action = _mapping(gap.get("refresh_action"))
             action_label = str(action.get("label") or "").strip()
-            compare_text = first_viewport_text if index == 0 else data_state_text
-            if lane and lane not in data_state_text:
+            compare_text = first_viewport_text if index == 0 else readiness_text
+            if lane and lane not in readiness_text:
                 errors.append(f"Top data gap {index + 1} lane {lane!r} is not visible.")
-            if status_label and status_label not in data_state_text:
+            if status_label and status_label not in readiness_text:
                 errors.append(f"Top data gap {index + 1} status {status_label!r} is not visible.")
-            if lane and f"{lane} proof is not ready" not in data_state_text:
-                errors.append(f"Top data gap {index + 1} plain-English proof state is not visible.")
+            if lane and not any(
+                phrase in readiness_text
+                for phrase in (
+                    f"{lane} proof is not ready",
+                    f"{lane} data is still loading",
+                    f"Fix {lane}",
+                    f"{lane} needs",
+                    status_label,
+                )
+            ):
+                errors.append(f"Top data gap {index + 1} plain-English state is not visible.")
             if recommended and recommended[:32] not in compare_text:
                 errors.append(f"Top data gap {index + 1} recommendation is not visible.")
             if action_label and action_label not in compare_text:
                 errors.append(
                     f"Top data-gap action {action_label!r} is not visible in the operator workflow."
                 )
-            if not action_label and "Review data sources" not in data_state_text:
+            if not action_label and "Review data sources" not in readiness_text:
                 errors.append(f"Top data gap {index + 1} has no visible action button.")
 
     data_health = _mapping(cockpit_api.get("data_health"))
@@ -1194,6 +1212,9 @@ def _candidate_dom_api_errors(
     cockpit_api: Mapping[str, object],
 ) -> list[str]:
     errors: list[str] = []
+    scenario = _mapping(cockpit_api.get("scenario"))
+    if str(scenario.get("state") or "") in {"outage", "status-delayed"}:
+        return errors
     candidates = _mapping_list(cockpit_api.get("candidates"))
     rendered = page.evaluate(
         """

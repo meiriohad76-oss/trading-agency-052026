@@ -2570,6 +2570,11 @@ def _scenario_from_context(
 def _scenario_from_status_delay(context: Mapping[str, object]) -> dict[str, object]:
     freshness = _mapping(context.get("cockpit_context_freshness"))
     data_state = _mapping(context.get("data_state"))
+    top_gaps = [_mapping(item) for item in _list(data_state.get("top_gaps"))]
+    freshness_source = _first_text(freshness.get("source")).casefold()
+    first_gap_lane = _first_text(_mapping(top_gaps[0]).get("lane")).casefold() if top_gaps else ""
+    if top_gaps and ("data proof" in freshness_source or first_gap_lane != "source proof"):
+        return _scenario_from_data_gap(data_state, top_gaps)
     proof_label = _first_text(
         data_state.get("proof_label"),
         freshness.get("age_label"),
@@ -2602,8 +2607,13 @@ def _scenario_from_data_gap(
     lane = _data_state_text(_first_text(primary.get("lane"), default="Required source"))
     action = dict(_mapping(primary.get("refresh_action")))
     if not _first_text(action.get("url")):
+        action_label = (
+            f"Open Diagnostics for {lane}"
+            if lane.casefold() == "source proof"
+            else f"Open System Status for {lane}"
+        )
         action = {
-            "label": f"Open System Status for {lane}",
+            "label": action_label,
             "url": "/command",
             "method": "get",
             "detail": f"Open System Status and inspect the source state for {lane}.",

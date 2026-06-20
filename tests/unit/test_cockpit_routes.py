@@ -189,8 +189,8 @@ async def test_cockpit_context_timeout_returns_conservative_same_shape_payload(
     assert context["data_state"]["paper"]["ready"] is False  # type: ignore[index]
     assert context["status_delayed"] is True
     assert context["scenario"]["state"] == "status-delayed"  # type: ignore[index]
-    assert "still loading" in str(context["scenario"]["headline"]).lower()  # type: ignore[index]
-    assert "not a no-candidate verdict" in str(context["scenario"]["detail"]).lower()  # type: ignore[index]
+    assert "needs analysis before review can continue" in str(context["scenario"]["headline"]).lower()  # type: ignore[index]
+    assert "what to do now" in str(context["scenario"]["detail"]).lower()  # type: ignore[index]
 
 
 async def test_cockpit_context_timeout_does_not_cancel_warming_context(

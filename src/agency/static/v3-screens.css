@@ -1452,9 +1452,9 @@ body.v3-screen-cockpit {
 
 .v3-screen-cockpit .cockpit-topline {
   order: 1;
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 380px);
-  gap: 18px;
-  padding: 18px 24px 14px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+  padding: 20px 24px 18px;
 }
 
 .v3-screen-cockpit .cockpit-instrument-cluster {
@@ -1513,7 +1513,7 @@ body.v3-screen-cockpit {
 }
 
 .v3-screen-cockpit .cockpit-bluf {
-  font-size: clamp(1.58rem, 2.1vw, 2.12rem);
+  font-size: clamp(2.05rem, 3vw, 3rem);
   line-height: 1.12;
   max-width: 920px;
   font-weight: 750;
@@ -1545,19 +1545,20 @@ body.v3-screen-cockpit {
 .v3-screen-cockpit .cockpit-operator-path {
   display: grid;
   grid-template-columns: minmax(260px, 1.35fr) repeat(2, minmax(190px, 1fr));
-  gap: 10px;
-  margin-top: 12px;
+  gap: 12px;
+  margin-top: 16px;
 }
 
 .v3-screen-cockpit .cockpit-operator-step {
   display: grid;
-  grid-template-columns: 38px minmax(0, 1fr);
-  gap: 10px;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 12px;
   align-items: start;
   min-width: 0;
-  padding: 10px 12px;
+  min-height: 98px;
+  padding: 14px 15px;
   border: 1px solid rgba(90, 215, 240, 0.24);
-  border-radius: 8px;
+  border-radius: 10px;
   background:
     linear-gradient(180deg, rgba(90, 215, 240, 0.08), rgba(15, 28, 47, 0.72));
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
@@ -1572,8 +1573,8 @@ body.v3-screen-cockpit {
 .v3-screen-cockpit .cockpit-operator-step > span {
   display: inline-grid;
   place-items: center;
-  width: 34px;
-  height: 34px;
+  width: 38px;
+  height: 38px;
   border-radius: 999px;
   color: #08111f;
   background: var(--cyan);
@@ -1593,15 +1594,15 @@ body.v3-screen-cockpit {
 
 .v3-screen-cockpit .cockpit-operator-step strong {
   color: #f7fbff;
-  font-size: 0.96rem;
+  font-size: 1.08rem;
   line-height: 1.2;
 }
 
 .v3-screen-cockpit .cockpit-operator-step small {
-  margin-top: 4px;
+  margin-top: 6px;
   color: #bfcede;
-  font-size: 0.84rem;
-  line-height: 1.3;
+  font-size: 0.96rem;
+  line-height: 1.35;
   overflow-wrap: anywhere;
 }
 
@@ -1634,21 +1635,21 @@ body.v3-screen-cockpit {
 .v3-screen-cockpit .cockpit-proof-strip {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 12px;
+  gap: 10px;
+  margin-top: 16px;
 }
 
 .v3-screen-cockpit .cockpit-proof-strip span {
   display: inline-flex;
   align-items: center;
-  min-height: 32px;
+  min-height: 38px;
   max-width: 100%;
-  padding: 6px 10px;
-  color: #dfe9f5;
-  border: 1px solid rgba(90, 215, 240, 0.28);
-  border-radius: 4px;
-  background: rgba(90, 215, 240, 0.08);
-  font-size: 0.88rem;
+  padding: 8px 12px;
+  color: #f8fbff;
+  border: 1px solid rgba(90, 215, 240, 0.38);
+  border-radius: 8px;
+  background: rgba(90, 215, 240, 0.12);
+  font-size: 0.96rem;
   font-weight: 800;
   line-height: 1.2;
   overflow-wrap: anywhere;
@@ -1657,9 +1658,9 @@ body.v3-screen-cockpit {
 .v3-screen-cockpit .cockpit-first-nav {
   display: grid;
   grid-template-columns: repeat(5, minmax(112px, 1fr));
-  gap: 10px;
+  gap: 12px;
   overflow: visible;
-  margin-top: 14px;
+  margin-top: 18px;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -1667,17 +1668,19 @@ body.v3-screen-cockpit {
 
 .v3-screen-cockpit .cockpit-first-nav a {
   display: grid;
-  gap: 5px;
-  min-height: 64px;
+  gap: 7px;
+  min-height: 82px;
   align-content: center;
-  padding: 11px 14px;
+  padding: 15px 16px;
   color: #f3f8ff;
   text-decoration: none;
-  border: 1px solid rgba(90, 215, 240, 0.24);
-  border-radius: 8px;
+  border: 1px solid rgba(90, 215, 240, 0.34);
+  border-radius: 10px;
   background:
-    linear-gradient(180deg, rgba(90, 215, 240, 0.08), rgba(7, 16, 28, 0.94));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    linear-gradient(180deg, rgba(90, 215, 240, 0.14), rgba(7, 16, 28, 0.94));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 10px 24px rgba(0, 0, 0, 0.16);
 }
 
 .v3-screen-cockpit .cockpit-first-nav a:first-child {
@@ -1702,33 +1705,41 @@ body.v3-screen-cockpit {
 }
 
 .v3-screen-cockpit .cockpit-first-nav span {
-  font-size: 1.06rem;
+  font-size: 1.24rem;
   font-weight: 950;
   line-height: 1.1;
 }
 
 .v3-screen-cockpit .cockpit-first-nav small {
   color: inherit;
-  opacity: 0.78;
-  font-size: 0.86rem;
+  opacity: 0.86;
+  font-size: 0.95rem;
   font-weight: 750;
-  line-height: 1.2;
+  line-height: 1.25;
 }
 
 .v3-screen-cockpit .cockpit-topline .cockpit-phase-rail-compact {
   display: none;
 }
 
+.v3-screen-cockpit .cockpit-topline .cockpit-instrument-cluster-proof,
+.v3-screen-cockpit .cockpit-topline .cockpit-instrument-cluster-brief,
+.v3-screen-cockpit .cockpit-topline .cockpit-phase-rail-proof,
+.v3-screen-cockpit .cockpit-topline .cockpit-data-state-strip-compact {
+  display: none;
+}
+
 .v3-screen-cockpit .cockpit-top-actions small,
 .v3-screen-cockpit .cockpit-primary-action small {
   flex: 1 1 240px;
-  color: #b8c7dc;
-  font-size: 0.96rem;
-  line-height: 1.35;
+  max-width: 760px;
+  color: #d4e0ee;
+  font-size: 1.04rem;
+  line-height: 1.4;
 }
 
 .v3-screen-cockpit .cockpit-main-action {
-  min-width: min(100%, 300px);
+  min-width: min(100%, 380px);
 }
 
 .v3-screen-cockpit .cockpit-dashboard-nav {
@@ -1902,10 +1913,12 @@ body.v3-screen-cockpit {
 
 .v3-screen-cockpit .cockpit-cycle-card {
   min-width: 0;
-  grid-template-columns: 1fr;
-  gap: 9px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
   align-self: stretch;
-  padding: 12px 14px;
+  padding: 11px 14px;
   border-color: rgba(90, 215, 240, 0.22);
   background:
     linear-gradient(180deg, rgba(10, 22, 36, 0.96) 0%, rgba(4, 10, 18, 0.96) 100%);
@@ -1922,20 +1935,22 @@ body.v3-screen-cockpit {
 .v3-screen-cockpit .cockpit-cycle-card > span:not(.status-pill):not(.cockpit-cycle-label),
 .v3-screen-cockpit .cockpit-cycle-card > small {
   color: #c4d1e1;
-  font-size: 0.9rem;
+  font-size: 0.92rem;
   line-height: 1.3;
 }
 
 .v3-screen-cockpit .cockpit-cycle-card > strong {
+  flex: 1 1 360px;
   color: #ffffff;
   font-size: 1rem;
   overflow-wrap: anywhere;
 }
 
 .v3-screen-cockpit .cockpit-cycle-actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
+  margin-left: auto;
   margin-top: 4px;
 }
 
@@ -1971,10 +1986,10 @@ body.v3-screen-cockpit {
 .v3-screen-cockpit .review-action-form .button,
 .v3-screen-cockpit .cockpit-decision-cell .button,
 .v3-screen-cockpit .cockpit-decision-cell button {
-  min-height: 52px;
-  padding: 0 22px;
-  border-radius: 4px;
-  font-size: 1rem;
+  min-height: 60px;
+  padding: 0 26px;
+  border-radius: 8px;
+  font-size: 1.08rem;
   font-weight: 900;
   letter-spacing: 0.02em;
   max-width: 100%;
@@ -2105,7 +2120,8 @@ body.v3-screen-cockpit {
     order: 50;
   }
 
-  .v3-screen-cockpit .cockpit-shell.vA .cockpit-topline .cockpit-top-actions {
+  .v3-screen-cockpit .cockpit-shell.vA .cockpit-topline .cockpit-top-actions,
+  .v3-screen-cockpit .cockpit-shell.vA .cockpit-topline .cockpit-primary-action {
     order: 60;
   }
 
@@ -2128,14 +2144,21 @@ body.v3-screen-cockpit {
   }
 
   .v3-screen-cockpit .cockpit-bluf {
-    font-size: 1.32rem;
-    line-height: 1.18;
+    font-size: 1.68rem;
+    line-height: 1.14;
   }
 
-  .v3-screen-cockpit .cockpit-topline .muted,
+  .v3-screen-cockpit .cockpit-topline .muted:not(.cockpit-operator-summary),
   .v3-screen-cockpit .cockpit-primary-action small,
   .v3-screen-cockpit .cockpit-top-actions small {
     display: none;
+  }
+
+  .v3-screen-cockpit .cockpit-topline .cockpit-operator-summary {
+    display: block;
+    color: #d4e0ee;
+    font-size: 0.98rem;
+    line-height: 1.42;
   }
 
   .v3-screen-cockpit .cockpit-primary-action,
@@ -2146,7 +2169,7 @@ body.v3-screen-cockpit {
 
   .v3-screen-cockpit .cockpit-primary-action .button,
   .v3-screen-cockpit .cockpit-top-actions .button {
-    min-height: 54px;
+    min-height: 58px;
     width: 100%;
     padding-right: 12px;
     padding-left: 12px;
@@ -2159,8 +2182,8 @@ body.v3-screen-cockpit {
 
   .v3-screen-cockpit .cockpit-proof-strip span {
     flex: 1 1 100%;
-    min-height: 30px;
-    font-size: 0.78rem;
+    min-height: 36px;
+    font-size: 0.88rem;
   }
 
   .v3-screen-cockpit .cockpit-first-nav {
@@ -2168,11 +2191,11 @@ body.v3-screen-cockpit {
   }
 
   .v3-screen-cockpit .cockpit-first-nav a {
-    min-height: 62px;
+    min-height: 76px;
   }
 
   .v3-screen-cockpit .cockpit-operator-step {
-    grid-template-columns: 36px minmax(0, 1fr);
+    grid-template-columns: 42px minmax(0, 1fr);
     min-height: 0;
     width: 100%;
   }
@@ -2182,7 +2205,15 @@ body.v3-screen-cockpit {
   }
 
   .v3-screen-cockpit .cockpit-cycle-actions {
-    grid-template-columns: 1fr;
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .v3-screen-cockpit .data-health-email-login-alert form,
+  .v3-screen-cockpit .data-health-email-login-alert .data-health-action-button {
+    flex: 1 1 100%;
+    width: 100%;
+    max-width: 100%;
   }
 
   .v3-screen-cockpit .cockpit-engine-strip {

@@ -50,6 +50,19 @@
         <span>Review: {{ data_state.review.label|default("not checked", true) if data_state is defined else "not checked" }}</span>
         <span>Proof: {{ data_state.proof_label|default("not checked", true) if data_state is defined else "not checked" }}</span>
       </div>
+      {% if scenario.primary_action and scenario.primary_action.url %}
+        {% if scenario.primary_action.method|default("post", true) == "get" %}
+          <div class="cockpit-primary-action" title="{{ scenario.primary_action.detail }}">
+            <a class="button button-primary" href="{{ scenario.primary_action.url }}">{{ scenario.primary_action.label|default("Open system status", true) }}</a>
+            <small>{{ scenario.primary_action.detail }}</small>
+          </div>
+        {% else %}
+          <form class="cockpit-primary-action" method="post" action="{{ scenario.primary_action.url }}" title="{{ scenario.primary_action.detail }}">
+            <button class="button button-primary" type="submit">{{ scenario.primary_action.label|default("Refresh required source", true) }}</button>
+            <small>{{ scenario.primary_action.detail }}</small>
+          </form>
+        {% endif %}
+      {% endif %}
       {% set first_gap = (data_state.top_gaps|default([], true))[0]|default({}, true) %}
       <section class="cockpit-instrument-cluster cockpit-instrument-cluster-proof" aria-label="Cockpit instruments">
         <article><span>Market</span><strong>{{ market.status_label }}</strong></article>
@@ -202,19 +215,6 @@
           <small>paper previews</small>
         </article>
       </section>
-      {% if scenario.primary_action and scenario.primary_action.url %}
-        {% if scenario.primary_action.method|default("post", true) == "get" %}
-          <div class="cockpit-primary-action" title="{{ scenario.primary_action.detail }}">
-            <a class="button button-primary" href="{{ scenario.primary_action.url }}">{{ scenario.primary_action.label|default("Open system status", true) }}</a>
-            <small>{{ scenario.primary_action.detail }}</small>
-          </div>
-        {% else %}
-          <form class="cockpit-primary-action" method="post" action="{{ scenario.primary_action.url }}" title="{{ scenario.primary_action.detail }}">
-            <button class="button button-primary" type="submit">{{ scenario.primary_action.label|default("Refresh required source", true) }}</button>
-            <small>{{ scenario.primary_action.detail }}</small>
-          </form>
-        {% endif %}
-      {% endif %}
       {% if scenario.runtime_setup_required %}
         <div class="cockpit-startup-checklist" aria-label="Startup checklist">
           <strong>Startup checklist</strong>
