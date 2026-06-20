@@ -1715,6 +1715,10 @@ body.v3-screen-cockpit {
   line-height: 1.2;
 }
 
+.v3-screen-cockpit .cockpit-topline .cockpit-phase-rail-compact {
+  display: none;
+}
+
 .v3-screen-cockpit .cockpit-top-actions small,
 .v3-screen-cockpit .cockpit-primary-action small {
   flex: 1 1 240px;
@@ -2074,6 +2078,55 @@ body.v3-screen-cockpit {
     padding-bottom: 10px;
     width: 100%;
     max-width: 100%;
+  }
+
+  .v3-screen-cockpit .cockpit-topline > div:first-child {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .v3-screen-cockpit .cockpit-topline > div:first-child > .eyebrow {
+    order: 10;
+  }
+
+  .v3-screen-cockpit .cockpit-topline .cockpit-bluf {
+    order: 20;
+  }
+
+  .v3-screen-cockpit .cockpit-topline .cockpit-operator-summary {
+    order: 30;
+  }
+
+  .v3-screen-cockpit .cockpit-topline .cockpit-proof-strip {
+    order: 40;
+  }
+
+  .v3-screen-cockpit .cockpit-shell.vA .cockpit-topline .cockpit-phase-rail-proof {
+    order: 50;
+  }
+
+  .v3-screen-cockpit .cockpit-shell.vA .cockpit-topline .cockpit-top-actions {
+    order: 60;
+  }
+
+  .v3-screen-cockpit .cockpit-shell.vA .cockpit-topline .cockpit-first-nav {
+    order: 70;
+    grid-template-columns: repeat(5, minmax(96px, 1fr));
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 2px;
+  }
+
+  .v3-screen-cockpit .cockpit-shell.vA .cockpit-topline .cockpit-operator-path {
+    order: 80;
+    grid-template-columns: repeat(3, minmax(220px, 1fr));
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 2px;
+  }
+
+  .v3-screen-cockpit .cockpit-shell.vA .cockpit-topline .cockpit-data-state-strip-compact {
+    order: 90;
   }
 
   .v3-screen-cockpit .cockpit-bluf {

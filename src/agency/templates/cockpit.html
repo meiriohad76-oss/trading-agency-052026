@@ -102,6 +102,28 @@
           <small>{{ primary_nav_action.detail }}</small>
         </div>
       {% endif %}
+      <nav class="cockpit-first-nav" aria-label="Primary dashboard navigation">
+        <a href="/command">
+          <span>Fix Data</span>
+          <small>Refresh lanes and workers</small>
+        </a>
+        <a href="/signals">
+          <span>Signals</span>
+          <small>Evidence and scoring</small>
+        </a>
+        <a href="/signals?lane=fundamentals#signal-rows-heading">
+          <span>Fundamentals</span>
+          <small>SEC, ownership, company facts</small>
+        </a>
+        <a href="/portfolio-monitor">
+          <span>Portfolio</span>
+          <small>Positions and exposure</small>
+        </a>
+        <a href="#email-agent">
+          <span>SA Login</span>
+          <small>Email evidence agent</small>
+        </a>
+      </nav>
       <div class="cockpit-operator-path" aria-label="What to do now">
         <article class="cockpit-operator-step cockpit-operator-step-now">
           <span>1</span>
@@ -152,28 +174,6 @@
           </div>
         </article>
       </div>
-      <nav class="cockpit-first-nav" aria-label="Primary dashboard navigation">
-        <a href="/command">
-          <span>Fix Data</span>
-          <small>Refresh lanes and workers</small>
-        </a>
-        <a href="/signals">
-          <span>Signals</span>
-          <small>Evidence and scoring</small>
-        </a>
-        <a href="/signals?lane=fundamentals#signal-rows-heading">
-          <span>Fundamentals</span>
-          <small>SEC, ownership, company facts</small>
-        </a>
-        <a href="/portfolio-monitor">
-          <span>Portfolio</span>
-          <small>Positions and exposure</small>
-        </a>
-        <a href="#email-agent">
-          <span>SA Login</span>
-          <small>Email evidence agent</small>
-        </a>
-      </nav>
       <section class="cockpit-phase-rail cockpit-phase-rail-compact" aria-label="Workflow phases" data-tour="phaserail">
         <button type="button" class="cockpit-phase-cell" data-cockpit-phase-target="candidates" data-phase-state="{{ phase_candidates.state|default('active', true) }}"><span class="cockpit-phase-index cockpit-mono">C</span><strong>Candidates</strong><small>{{ phase_candidates.label|default("Active", true) }}</small></button>
         <button type="button" class="cockpit-phase-cell" data-cockpit-phase-target="portfolio" data-phase-state="{{ phase_portfolio.state|default('pending', true) }}"><span class="cockpit-phase-index cockpit-mono">P</span><strong>Portfolio</strong><small>{{ phase_portfolio.label|default("Review next", true) }}</small></button>
