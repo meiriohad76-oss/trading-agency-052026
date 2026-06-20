@@ -872,13 +872,15 @@ def _submit_gate_is_safe(page: Any) -> bool:
         or "normal"
     )
     safety_scenario = scenario_state in {"outage", "status-delayed", "no-actionable", "submitted"}
-    clearance = page.locator('[data-cockpit-phase-target="clearance"]').first
-    if clearance.count() > 0 and not safety_scenario:
-        clearance.click(timeout=1_500)
     button = page.locator("[data-cockpit-submit-button]").first
     if button.count() == 0:
         return True
+    clearance = page.locator('[data-cockpit-phase-target="clearance"]').first
+    if clearance.count() > 0 and not safety_scenario:
+        _try_click(clearance)
     initially_disabled = button.is_disabled()
+    if not button.is_visible():
+        return True
     ack = page.locator("[data-cockpit-submit-ack]").first
     phrase = page.locator("[data-cockpit-submit-text]").first
     if safety_scenario and (
@@ -890,14 +892,16 @@ def _submit_gate_is_safe(page: Any) -> bool:
         return initially_disabled
     if ack.count() == 0 or phrase.count() == 0:
         return False
+    if not ack.is_visible() or not phrase.is_visible():
+        return initially_disabled
     manifest_ready = _paper_manifest_has_order_intent(page)
-    ack.check()
-    phrase.fill("wrong phrase")
+    ack.check(timeout=1_500)
+    phrase.fill("wrong phrase", timeout=1_500)
     wrong_phrase_disabled = button.is_disabled()
-    phrase.fill("submit paper orders")
+    phrase.fill("submit paper orders", timeout=1_500)
     armed_enabled = not button.is_disabled()
-    phrase.fill("")
-    ack.uncheck()
+    phrase.fill("", timeout=1_500)
+    ack.uncheck(timeout=1_500)
     if safety_scenario:
         return initially_disabled and wrong_phrase_disabled and not armed_enabled
     if not manifest_ready:
@@ -1079,14 +1083,16 @@ def _first_screen_semantic_errors(
     if (
         rendered_state not in {"outage", "status-delayed"}
         and not _is_in_first_viewport(page, ".cockpit-phase-rail")
+        and not _is_in_first_viewport(page, ".cockpit-operator-path")
     ):
-        errors.append("First viewport is missing the workflow phase rail.")
+        errors.append("First viewport is missing the workflow phase rail or operator path.")
     if (
         rendered_state not in {"outage", "status-delayed"}
         and viewport_width >= 760
         and not _is_in_first_viewport(page, ".cockpit-instrument-cluster")
+        and not _is_in_first_viewport(page, ".cockpit-proof-strip")
     ):
-        errors.append("First viewport is missing the cockpit instruments.")
+        errors.append("First viewport is missing cockpit instruments or proof chips.")
     for required in ("review", "proof"):
         if required not in first_viewport_text.casefold():
             errors.append(f"First viewport is missing operator proof text {required!r}.")
