@@ -24,6 +24,11 @@ def main() -> int:
     parser.add_argument("--start", type=_date, default=date(2019, 1, 1))
     parser.add_argument("--end", type=_date, default=date.today())
     parser.add_argument("--tickers", nargs="*", default=None)
+    parser.add_argument(
+        "--include-inactive-universe",
+        action="store_true",
+        help="Use every ticker in universe_membership.parquet instead of only active rows as of --end.",
+    )
     parser.add_argument("--sec-user-agent", default=None)
     parser.add_argument(
         "--universe-path",
@@ -43,7 +48,11 @@ def main() -> int:
     args = parser.parse_args()
     load_dotenv(ROOT / ".env")
 
-    tickers = args.tickers or universe_tickers(args.universe_path)
+    tickers = args.tickers or universe_tickers(
+        args.universe_path,
+        as_of=args.end,
+        active_only=not args.include_inactive_universe,
+    )
     config = SecClientConfig(user_agent=_user_agent(args.sec_user_agent))
 
     async def run() -> object:

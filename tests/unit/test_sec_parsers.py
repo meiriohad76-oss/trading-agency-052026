@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
+from pathlib import Path
 
-from sec.cik import cik_lookup_for_tickers, parse_company_tickers
+import pandas as pd
+from sec.cik import cik_lookup_for_tickers, parse_company_tickers, universe_tickers
 from sec.company_facts_parser import parse_company_facts
 from sec.form4 import parse_form4_xml
 from sec.form13f import parse_13f_xml
@@ -33,6 +35,25 @@ def test_ticker_to_cik_mapping_handles_share_class_tickers() -> None:
     assert matched["AAPL"].cik == AAPL_CIK
     assert matched["BRK-B"].cik == "0001067983"
     assert missing == ["GOOG"]
+
+
+def test_sec_universe_tickers_default_to_active_membership(tmp_path: Path) -> None:
+    universe_path = tmp_path / "universe_membership.parquet"
+    pd.DataFrame(
+        [
+            {"ticker": "AAPL", "start_date": "2020-01-01", "end_date": None},
+            {"ticker": "MSFT", "start_date": "2020-01-01", "end_date": None},
+            {"ticker": "OLD", "start_date": "2020-01-01", "end_date": "2025-01-01"},
+            {"ticker": "FUTR", "start_date": "2027-01-01", "end_date": None},
+        ]
+    ).to_parquet(universe_path, index=False)
+
+    assert universe_tickers(universe_path, as_of=date(2026, 6, 20)) == ["AAPL", "MSFT"]
+    assert universe_tickers(
+        universe_path,
+        as_of=date(2026, 6, 20),
+        active_only=False,
+    ) == ["AAPL", "FUTR", "MSFT", "OLD"]
 
 
 def test_company_facts_parser_extracts_metrics_and_free_cash_flow() -> None:
