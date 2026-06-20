@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
@@ -19,7 +20,7 @@ from agency.runtime.portfolio_news_agent_bridge import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-PYTHON = os.environ.get("AGENCY_PYTHON", str(REPO_ROOT / ".venv" / "Scripts" / "python"))
+PYTHON = os.environ.get("AGENCY_PYTHON", sys.executable)
 WORK_QUEUE_TICK_SECONDS = int(os.environ.get("AGENCY_WORK_QUEUE_TICK_SECONDS", "60"))
 WORK_QUEUE_MAX_COMMANDS = int(os.environ.get("AGENCY_WORK_QUEUE_MAX_COMMANDS", "3"))
 COMMAND_TIMEOUT_SECONDS = int(os.environ.get("AGENCY_SCHEDULER_COMMAND_TIMEOUT_SECONDS", "240"))
@@ -1265,9 +1266,21 @@ def _normalize_command(command: list[str]) -> list[str]:
     if not command:
         return command
     first = command[0].replace("/", "\\").lower()
+    normalized_args = [_normalize_repo_path_arg(item) for item in command[1:]]
     if first.endswith(("\\.venv\\scripts\\python", "\\.venv\\scripts\\python.exe")):
-        return [PYTHON, *command[1:]]
-    return command
+        return [PYTHON, *normalized_args]
+    return [command[0], *normalized_args]
+
+
+def _normalize_repo_path_arg(value: str) -> str:
+    if os.sep != "/" or "\\" not in value:
+        return value
+    normalized = value.replace("\\", "/")
+    if normalized.startswith(("./", "../", "/", "http://", "https://")):
+        return value
+    if normalized.startswith(("scripts/", "research/", "schemas/", "migrations/")):
+        return normalized
+    return value
 
 
 def _runtime_cycle_command(*, tickers: list[str] | None = None) -> list[str]:

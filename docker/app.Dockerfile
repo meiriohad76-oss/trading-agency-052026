@@ -9,6 +9,9 @@ WORKDIR /app
 
 COPY pyproject.toml README.md alembic.ini ./
 COPY migrations ./migrations
+COPY scripts ./scripts
+COPY research/config ./research/config
+COPY research/scripts ./research/scripts
 COPY research/src ./research/src
 COPY schemas ./schemas
 COPY src ./src

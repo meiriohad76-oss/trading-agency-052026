@@ -1018,13 +1018,19 @@ def _first_screen_semantic_errors(
             )
 
     dashboard_nav = _locator_text(page, ".cockpit-dashboard-nav")
-    for expected in ("Signals", "Fundamentals", "Portfolio", "Market", "Diagnostics"):
+    for expected in ("Signals", "Fundamentals", "Portfolio", "Market", "System Status"):
         if expected.casefold() not in dashboard_nav.casefold():
             errors.append(f"Cockpit dashboard navigation is missing {expected!r}.")
     first_nav = _locator_text(page, ".cockpit-first-nav")
     for expected in ("Fix Data", "Signals", "Fundamentals", "Portfolio", "SA Login"):
         if expected.casefold() not in first_nav.casefold():
             errors.append(f"First-screen dashboard navigation is missing {expected!r}.")
+    first_viewport_text = _first_viewport_text(page)
+    for forbidden in ("legacy", "diagnostic"):
+        if forbidden in first_viewport_text.casefold():
+            errors.append(
+                f"First viewport still exposes internal '{forbidden}' wording to the operator."
+            )
 
     data_state_text = _locator_text(page, ".cockpit-data-state-strip")
     for label_name, row in (("review", review), ("paper", paper)):
@@ -1045,13 +1051,26 @@ def _first_screen_semantic_errors(
     if review.get("ready") is True and "selection paused" in data_state_text.casefold():
         errors.append("Review-ready cockpit must not say selection is paused.")
 
-    first_viewport_text = _first_viewport_text(page)
     viewport_width = _viewport_width(page)
     if not _is_in_first_viewport(page, ".cockpit-proof-strip"):
         errors.append("First viewport is missing the proof strip.")
+    if not _is_in_first_viewport(page, ".cockpit-operator-path"):
+        errors.append("First viewport is missing the operator next-step path.")
+    if viewport_width >= 760 and not _is_in_first_viewport(page, ".cockpit-data-state-strip"):
+        errors.append("First viewport is missing the data-state strip.")
+    if viewport_width < 760:
+        compact_state = _locator_text(page, ".cockpit-operator-path")
+        for required_mobile in ("review", "paper", "fix"):
+            if required_mobile not in compact_state.casefold():
+                errors.append(
+                    f"Mobile first viewport is missing compact readiness text {required_mobile!r}."
+                )
     if not _is_in_first_viewport(page, ".cockpit-first-nav"):
         errors.append("First viewport is missing primary dashboard navigation.")
-    if not _is_in_first_viewport(page, ".cockpit-phase-rail"):
+    if (
+        rendered_state not in {"outage", "status-delayed"}
+        and not _is_in_first_viewport(page, ".cockpit-phase-rail")
+    ):
         errors.append("First viewport is missing the workflow phase rail.")
     if (
         rendered_state not in {"outage", "status-delayed"}
@@ -1255,6 +1274,8 @@ def _first_screen_readability_errors(page: Any) -> list[str]:
               }
 
               const actionSelectors = [
+                '.cockpit-first-nav a',
+                '.cockpit-operator-step',
                 '.cockpit-top-actions .button',
                 '.cockpit-primary-action .button',
                 '.cockpit-dashboard-nav a',

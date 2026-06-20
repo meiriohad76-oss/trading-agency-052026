@@ -441,6 +441,37 @@ def test_run_queue_command_uses_supplied_timeout(monkeypatch, tmp_path: Path) ->
     assert calls[0]["timeout"] == 900
 
 
+def test_normalize_command_uses_current_interpreter_for_default_windows_venv(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(scheduler_runner, "PYTHON", "/usr/local/bin/python")
+    monkeypatch.setattr(scheduler_runner.os, "sep", "/")
+
+    command = scheduler_runner._normalize_command(
+        [
+            "C:\\app\\.venv\\Scripts\\python.exe",
+            "scripts\\run_live_runtime_cycle.py",
+            "--config",
+            "research\\config\\live-refresh.local.json",
+        ]
+    )
+
+    assert command == [
+        "/usr/local/bin/python",
+        "scripts/run_live_runtime_cycle.py",
+        "--config",
+        "research/config/live-refresh.local.json",
+    ]
+
+
+def test_normalize_command_keeps_non_path_backslash_text() -> None:
+    command = scheduler_runner._normalize_command(
+        ["python", "--message", "operator\\typed\\text"]
+    )
+
+    assert command == ["python", "--message", "operator\\typed\\text"]
+
+
 def test_work_queue_tick_records_job_success_cadence_memory(monkeypatch) -> None:
     command_started = datetime(2026, 5, 17, 14, 0, tzinfo=UTC)
 

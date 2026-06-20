@@ -1579,8 +1579,8 @@ def _source_proof_unavailable_row(
             _first_text(data_load.get("runtime_coverage_label"), default="coverage not reported")
         ),
         "note": detail,
-        "next_action": "Open Diagnostics, refresh the unavailable source, then reload the cockpit.",
-        "refresh_action": {"label": "Open Diagnostics", "url": "/command"},
+        "next_action": "Open System Status, refresh the unavailable source, then reload the cockpit.",
+        "refresh_action": {"label": "Open System Status", "url": "/command"},
     }
 
 
@@ -1772,7 +1772,7 @@ def _gap_as_lane_row(gap: Mapping[str, object]) -> dict[str, object]:
         _first_text(gap.get("detail"), default="The source proof is not available.")
     )
     recommended_action = _data_state_text(
-        _first_text(gap.get("recommended_action"), default="Open Diagnostics, then refresh this source.")
+        _first_text(gap.get("recommended_action"), default="Open System Status, then refresh this source.")
     )
     refresh_action = dict(_mapping(gap.get("refresh_action")))
     state = "provider_unavailable" if status_class == "block" else "needs_refresh"
@@ -2097,7 +2097,7 @@ def _missing_data_proof_gap(data_load: Mapping[str, object]) -> dict[str, object
         "status_class": "block",
         "progress_label": "not reported",
         "detail": detail,
-        "recommended_action": "Open Diagnostics, then Refresh the source listed as unavailable.",
+        "recommended_action": "Open System Status, then Refresh the source listed as unavailable.",
         "blocks_execution": True,
         "refresh_action": {"url": "", "label": "", "detail": ""},
     }
@@ -2164,7 +2164,7 @@ def _blocker_recommended_action(lane_label: str, action: Mapping[str, object]) -
     label = _data_state_text(_first_text(action.get("label")))
     if label:
         return f"{label}, then reload the cockpit and confirm the proof timestamp changed."
-    return f"Open Diagnostics for {lane_label}, then run the listed refresh job."
+    return f"Open System Status for {lane_label}, then run the listed refresh job."
 
 
 def _data_state_gap_summary(top_gaps: Sequence[Mapping[str, object]]) -> str:
@@ -2456,7 +2456,7 @@ def _scenario_from_context(
             scenario["runtime_setup_required"] = True
             scenario["setup_steps"] = [
                 "Confirm the Pi runtime has the agency environment file and provider keys loaded.",
-                "Start the scheduler or run the required lane refresh from Diagnostics.",
+                "Start the scheduler or run the required lane refresh from System Status.",
                 "Reload this cockpit and verify Active universe shows 168 tickers and a current proof timestamp.",
             ]
         return scenario
@@ -2530,13 +2530,13 @@ def _scenario_from_status_delay(context: Mapping[str, object]) -> dict[str, obje
         "headline": "Cockpit status is still loading.",
         "detail": (
             "The first-screen status proof has not finished yet. This is not a no-candidate verdict; "
-            "wait a few seconds or open diagnostics before approving decisions."
+            "wait a few seconds or open System Status before approving decisions."
         ),
         "primary_action": {
-            "label": "Open Diagnostics",
+            "label": "Open System Status",
             "url": "/command",
             "method": "get",
-            "detail": "Open the diagnostics dashboard and check live data-lane progress while the cockpit cache warms.",
+            "detail": "Open System Status and check live data-lane progress while the cockpit cache warms.",
         },
         "retry_label": "Recheck after the cockpit cache warms.",
         "last_good_cycle_label": f"Current source proof: {proof_label}",
@@ -2553,10 +2553,10 @@ def _scenario_from_data_gap(
     action = dict(_mapping(primary.get("refresh_action")))
     if not _first_text(action.get("url")):
         action = {
-            "label": f"Open Diagnostics for {lane}",
+            "label": f"Open System Status for {lane}",
             "url": "/command",
             "method": "get",
-            "detail": f"Open the diagnostics dashboard and inspect the source state for {lane}.",
+            "detail": f"Open System Status and inspect the source state for {lane}.",
         }
     recommended = _data_state_text(
         _first_text(primary.get("recommended_action"), default="Refresh the source, then reload the cockpit.")
@@ -2829,10 +2829,10 @@ def _qa_scenario(state: str, context: Mapping[str, object]) -> dict[str, object]
             "retry_label": "Training retry countdown",
             "last_good_cycle_label": "Last good cycle proof: training scenario",
             "primary_action": {
-                "label": "Open Diagnostics",
+                "label": "Open System Status",
                 "url": "/command",
                 "method": "get",
-                "detail": "Open diagnostics and confirm the proof timestamp changed.",
+                "detail": "Open System Status and confirm the proof timestamp changed.",
             },
             "candidate_controls_enabled": False,
         }

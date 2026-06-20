@@ -21,6 +21,9 @@
   data-ux-reference="ux-upgrade-claude-design-01062026/Variation-A"
   data-ux-feature="rich-ticker-detail"
 >
+  {% set data_state = data_state|default({}, true) %}
+  {% set data_review = data_state.review|default({}, true) %}
+  {% set data_paper = data_state.paper|default({}, true) %}
   <header class="cockpit-topline" data-tour="topline">
     <div>
       <p class="eyebrow">Today's trading workflow</p>
@@ -39,6 +42,44 @@
         <span>Mode: {{ cycle.mode }}</span>
         <span>Review: {{ data_state.review.label|default("not checked", true) if data_state is defined else "not checked" }}</span>
         <span>Proof: {{ data_state.proof_label|default("not checked", true) if data_state is defined else "not checked" }}</span>
+      </div>
+      {% set first_gap = (data_state.top_gaps|default([], true))[0]|default({}, true) %}
+      <div class="cockpit-operator-path" aria-label="What to do now">
+        <article class="cockpit-operator-step cockpit-operator-step-now">
+          <span>1</span>
+          <div>
+            <strong>
+              {% if first_gap %}
+                Fix {{ first_gap.lane }}
+              {% elif data_review.label is defined %}
+                {{ data_review.label }}
+              {% else %}
+                Check data proof
+              {% endif %}
+            </strong>
+            <small>
+              {% if first_gap %}
+                {{ first_gap.status_label|default("Needs attention", true) }}. {{ first_gap.recommended_action|default("Refresh this lane, then confirm the proof timestamp changed.", true) }}
+              {% else %}
+                Use the current queue if review proof is ready; otherwise refresh the lane shown below.
+              {% endif %}
+            </small>
+          </div>
+        </article>
+        <article class="cockpit-operator-step">
+          <span>2</span>
+          <div>
+            <strong>Review stocks</strong>
+            <small>{{ funnel.reviewable|default(funnel.actionable|default(0, true), true) }} reviewable from {{ funnel.final|default(0, true) }} visible candidates.</small>
+          </div>
+        </article>
+        <article class="cockpit-operator-step">
+          <span>3</span>
+          <div>
+            <strong>Clear paper orders</strong>
+            <small>{{ data_paper.label|default("Paper gate not checked", true) }}. No live order is sent without explicit clearance.</small>
+          </div>
+        </article>
       </div>
       <nav class="cockpit-first-nav" aria-label="Primary dashboard navigation">
         <a href="/command">
@@ -78,7 +119,7 @@
       {% if scenario.primary_action and scenario.primary_action.url %}
         {% if scenario.primary_action.method|default("post", true) == "get" %}
           <div class="cockpit-primary-action" title="{{ scenario.primary_action.detail }}">
-            <a class="button button-primary" href="{{ scenario.primary_action.url }}">{{ scenario.primary_action.label|default("Open diagnostics", true) }}</a>
+            <a class="button button-primary" href="{{ scenario.primary_action.url }}">{{ scenario.primary_action.label|default("Open system status", true) }}</a>
             <small>{{ scenario.primary_action.detail }}</small>
           </div>
         {% else %}
@@ -117,15 +158,12 @@
         Cockpit data: {{ cockpit_freshness.age_label|default("not checked", true) }}
       </small>
       <div class="cockpit-cycle-actions">
-        <a class="button button-secondary" href="/command">Diagnostics</a>
+        <a class="button button-secondary" href="/command">System Status</a>
         <button type="button" class="button button-secondary" data-cockpit-preferences-open>Preferences</button>
       </div>
     </div>
   </header>
 
-  {% set data_state = data_state|default({}, true) %}
-  {% set data_review = data_state.review|default({}, true) %}
-  {% set data_paper = data_state.paper|default({}, true) %}
   <section class="cockpit-data-state-strip" aria-label="Session readiness" data-tour="datastate">
     <div class="cockpit-data-state-headline">
       <p class="eyebrow">Session Readiness</p>
@@ -232,7 +270,7 @@
       <small>Regime and coverage</small>
     </a>
     <a href="/command">
-      <span>Diagnostics</span>
+      <span>System Status</span>
       <small>Data sources and workers</small>
     </a>
   </nav>
@@ -396,7 +434,7 @@
             </form>
           {% endif %}
         {% else %}
-          <a class="button button-primary" href="/command">Open Diagnostics</a>
+          <a class="button button-primary" href="/command">Open System Status</a>
         {% endif %}
       {% else %}
         <button type="button" class="button button-secondary" data-cockpit-phase-target="portfolio">Advance to Portfolio</button>
@@ -613,7 +651,7 @@
                   </form>
                 {% endif %}
               {% endif %}
-              <a class="button button-secondary" href="/command">Open Diagnostics</a>
+              <a class="button button-secondary" href="/command">Open System Status</a>
             </div>
           {% else %}
             <h3>Nothing actionable today.</h3>
