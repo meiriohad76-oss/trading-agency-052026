@@ -1187,6 +1187,8 @@ def test_scheduler_exposes_massive_orchestrator_lane_status_and_command(
     assert orchestrator["due_now_count"] == 1
     lane = orchestrator["lanes"][0]
     assert lane["status"] == "DUE_NOW"
+    assert lane["status_label"] == "Refresh needed now"
+    assert "should refresh now" in lane["detail"]
     assert lane["health_status_class"] == "block"
     assert lane["health_status"] == "UNAVAILABLE"
     assert (
@@ -1197,7 +1199,10 @@ def test_scheduler_exposes_massive_orchestrator_lane_status_and_command(
     assert lane["batch_ticker_count"] == 1
     assert lane["command_ticker_count"] == 1
     assert lane["command"][-2:] == ["--ticker", "AAPL"]
-    assert orchestrator["derived_signal_lanes"][0]["status"] == "WAITING"
+    signal_lane = orchestrator["derived_signal_lanes"][0]
+    assert signal_lane["status"] == "WAITING"
+    assert signal_lane["status_label"] == "Waiting for scheduler window"
+    assert "Waiting for Massive data-source lane" in signal_lane["detail"]
 
 
 def test_scheduler_daily_bars_lane_command_is_lane_owned_and_scoped() -> None:

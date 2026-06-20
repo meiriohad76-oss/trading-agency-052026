@@ -1389,6 +1389,7 @@ def _massive_lane_row(
             "batch fallback is disabled so Massive pulls remain lane-owned."
         )
     eta = _massive_lane_eta_seconds(row, len(tickers), status)
+    status_label = _scheduler_lane_status_label(status)
     command = _massive_lane_command(
         row,
         tickers=command_tickers,
@@ -1420,6 +1421,7 @@ def _massive_lane_row(
         "max_requests_per_cycle": row.get("max_requests_per_cycle"),
         "storage_manifest": str(row.get("storage_manifest") or ""),
         "status": status,
+        "status_label": status_label,
         "status_class": _job_status_class(status),
         "batch_action": str(row.get("batch_action") or ""),
         "priority": _int_value(row.get("priority"), 0),
@@ -1452,6 +1454,16 @@ def _massive_lane_row(
         "manifest_issue_count": _int_value(manifest.get("issue_count"), 0),
         "command": command,
         "reason": reason,
+        "detail": _scheduler_lane_detail(
+            status=status,
+            label=str(row.get("label") or lane_id.replace("_", " ").title()),
+            reason=reason,
+            ticker_count=len(tickers),
+            fresh_ticker_count=len(fresh_tickers),
+            command_ticker_count=command_ticker_count,
+            eta_label=_eta_label(eta),
+            health=health,
+        ),
     }
 
 
@@ -1465,6 +1477,7 @@ def _massive_signal_requirement_row(
     ]
     gate = _raw_requirement_gate(required, {"lanes": list(raw_lanes)})
     status = gate["status"]
+    detail = gate["detail"] if required else str(row.get("reason") or gate["detail"])
     return {
         "job_id": f"massive-signal:{lane}",
         "kind": "massive_signal_requirement",
@@ -1473,11 +1486,13 @@ def _massive_signal_requirement_row(
         "label": str(row.get("label") or lane.replace("_", " ").title()),
         "requires_raw_lanes": required,
         "status": status,
+        "status_label": _scheduler_lane_status_label(status),
         "status_class": _job_status_class(status),
         "priority": 0,
         "eta_seconds": 0,
         "eta_label": "n/a",
-        "reason": gate["detail"] if required else str(row.get("reason") or gate["detail"]),
+        "reason": detail,
+        "detail": detail,
     }
 
 
@@ -3267,6 +3282,64 @@ def _job_status_class(status: str) -> str:
     if status == "DEFERRED":
         return "warn"
     return "block"
+
+
+def _scheduler_lane_status_label(status: str) -> str:
+    return {
+        "RUNNING": "Data is still loading",
+        "DUE_NOW": "Refresh needed now",
+        "WAITING": "Waiting for scheduler window",
+        "DEFERRED": "Deferred to trade-aware window",
+        "BLOCKED": "Provider or runner unavailable",
+        "SKIPPED": "Already usable for this workflow",
+        "READY": "Ready for review",
+        "READY_FROM_RAW": "Ready from raw data",
+        "DISABLED": "Not required for current workflow",
+        "NOT_REQUIRED": "Not required for current workflow",
+    }.get(status, status.replace("_", " ").title() if status else "Status not reported")
+
+
+def _scheduler_lane_detail(
+    *,
+    status: str,
+    label: str,
+    reason: str,
+    ticker_count: int,
+    fresh_ticker_count: int,
+    command_ticker_count: int,
+    eta_label: str,
+    health: Mapping[str, object],
+) -> str:
+    if status == "RUNNING":
+        action = (
+            f"{label} is running; {fresh_ticker_count}/{ticker_count} ticker(s) "
+            f"already have fresh proof. ETA {eta_label}."
+        )
+    elif status == "DUE_NOW":
+        action = (
+            f"{label} should refresh now for {command_ticker_count} ticker(s) under "
+            "the lane scheduler."
+        )
+    elif status == "DEFERRED":
+        action = f"{label} is deferred to its trade-aware window. ETA {eta_label}."
+    elif status in {"READY", "READY_FROM_RAW", "SKIPPED"}:
+        action = (
+            f"{label} is usable for the current workflow; {fresh_ticker_count}/{ticker_count} "
+            "ticker(s) have current lane proof."
+        )
+    elif status == "DISABLED":
+        action = f"{label} is not required for the current workflow."
+    elif status == "BLOCKED":
+        action = f"{label} cannot run until the provider, entitlement, or lane runner is fixed."
+    else:
+        action = f"{label} scheduler state is {status or 'not reported'}."
+    health_detail = str(health.get("detail") or "").strip()
+    parts = [action]
+    if reason:
+        parts.append(reason)
+    if health_detail:
+        parts.append(f"Source proof: {health_detail}")
+    return " ".join(parts).strip()
 
 
 def _status_class(state: str) -> str:

@@ -1436,6 +1436,90 @@ def test_execution_status_payload_uses_fast_runtime_artifact(
     assert payload["rows"][0]["next_step"]
 
 
+def test_execution_status_endpoint_prefers_renderable_live_context_over_artifact(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    async def fake_execution_preview_context() -> dict[str, object]:
+        return {
+            "summary": {
+                "preview_count": 1,
+                "ready_count": 0,
+                "blocked_count": 0,
+                "disabled_count": 1,
+                "submit_ready_count": 0,
+                "submit_gate_open": False,
+                "submit_gate_label": "Closed",
+                "headline": "One research-only preview is renderable.",
+                "detail": "Live route context is the source of truth.",
+            },
+            "preview_rows": [
+                {
+                    "cycle_id": "cycle-live",
+                    "ticker": "AAPL",
+                    "as_of": "2026-06-01T00:00:00+00:00",
+                    "preview_state": "DISABLED",
+                    "final_action": "WATCH",
+                    "side": "NONE",
+                    "risk_decision": "WARN",
+                    "submit_enabled": False,
+                    "order_approval_available": False,
+                    "submit_blocker": "No order - research only",
+                    "paper_promotion_status_label": "Research Only",
+                    "paper_promotion_reasons": ["No order - research only"],
+                    "paper_promotion_reason_count": 1,
+                    "order_intent_hash_label": "livehash",
+                    "order_value_label": "No paper order",
+                    "approval_label": "Research approved",
+                    "execution_state": "NONE",
+                    "execution_status_label": "Not submitted",
+                    "execution_status_class": "neutral",
+                    "execution_reason": "No broker action.",
+                    "execution_event_time": "",
+                    "execution_event_time_label": "not submitted",
+                    "client_order_id": "",
+                    "filled_qty": None,
+                    "filled_avg_price": None,
+                    "submission_confirmation_label": "No paper submission recorded",
+                    "next_step": "Keep in research review.",
+                }
+            ],
+            "execution_freshness_gate": {
+                "ready": False,
+                "status_label": "Full execution recheck required",
+                "status_class": "warn",
+                "detail": "Recheck before submit.",
+            },
+        }
+
+    monkeypatch.setattr(
+        dashboard_module,
+        "runtime_execution_preview_artifacts",
+        lambda **_kwargs: [
+            {
+                "cycle_id": "cycle-artifact",
+                "ticker": "PLTR",
+                "preview_state": "BLOCKED",
+                "side": "NONE",
+                "risk_decision": "BLOCK",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        dashboard_module,
+        "execution_preview_context",
+        fake_execution_preview_context,
+    )
+    dashboard_module._clear_execution_preview_status_cache()
+
+    response = TestClient(create_app()).get("/status/execution-preview")
+
+    assert response.status_code == HTTP_OK
+    payload = response.json()
+    assert payload["cycle_id"] == "cycle-live"
+    assert payload["rows"][0]["ticker"] == "AAPL"
+    assert payload["rows"][0]["paper_promotion_reasons"] == ["No order - research only"]
+
+
 def test_status_timeout_payload_cache_expires_quickly(monkeypatch: MonkeyPatch) -> None:
     cache: dict[str, object] = {"payload": None, "expires_at": 0.0, "builder_id": 0}
 

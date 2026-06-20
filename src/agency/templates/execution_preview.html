@@ -235,6 +235,10 @@
   {% endif %}
 
   {% if focused_execution and focused_execution.requested %}
+    {{ data_health_panel(data_health) }}
+  {% endif %}
+
+  {% if focused_execution and focused_execution.requested %}
   <section
     class="panel focused-execution-panel"
     aria-labelledby="focused-execution-heading"

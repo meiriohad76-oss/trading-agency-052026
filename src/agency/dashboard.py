@@ -1725,9 +1725,6 @@ def _clear_scheduler_work_queue_status_cache() -> None:
 
 
 async def _execution_preview_status_payload_cached() -> dict[str, object]:
-    artifact_payload = _execution_preview_status_payload_from_artifact()
-    if artifact_payload is not None:
-        return artifact_payload
     return await _status_payload_cached_singleflight(
         cache=_execution_preview_status_cache,
         lock=_execution_preview_status_cache_lock,

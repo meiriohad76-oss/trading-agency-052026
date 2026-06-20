@@ -78,6 +78,36 @@ def test_lane_states_use_lane_proof_timestamp_not_request_time() -> None:
     assert lane["checked_at"] != NOW.isoformat()
 
 
+def test_optional_lane_exposes_checked_proof_without_fake_timestamp() -> None:
+    states = build_lane_states(
+        data_refresh={
+            "massive_lanes": [
+                {
+                    "lane_id": "massive_premarket_trade_slices",
+                    "label": "Massive Pre-Market Trade Slices",
+                    "state": "disabled",
+                    "status_class": "neutral",
+                    "required_now": False,
+                    "blocks_execution": True,
+                    "progress_label": "not tracked",
+                    "detail": "Optional outside the 04:00-09:30 ET pre-market window.",
+                }
+            ]
+        },
+        dataset_rows=[],
+        lane_rows=[],
+        source_health_rows=[],
+        now=NOW,
+    )
+
+    lane = _lane(states, "massive_premarket_trade_slices")
+    assert lane["state"] == "disabled_optional"
+    assert lane["status_label"] == "Not required for current workflow"
+    assert lane["latest_as_of"] == "not required for current workflow"
+    assert lane["checked_at"] == NOW.isoformat()
+    assert "not recorded" not in str(lane["source_proof_label"]).lower()
+
+
 def test_lane_states_include_window_and_manifest_proof_for_raw_lanes() -> None:
     states = build_lane_states(
         data_refresh={

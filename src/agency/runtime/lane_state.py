@@ -233,7 +233,7 @@ def _raw_lane_state(
         blocks_execution=blocks_execution,
         analysis_state=_analysis_state_for_state(state, raw=True),
         latest_as_of=latest_as_of,
-        checked_at=_proof_timestamp(row, raw_source_row, fallback=latest_as_of),
+        checked_at=_proof_timestamp(row, raw_source_row, fallback=latest_as_of or now.isoformat()),
         freshness_seconds=_int_or_none(row.get("freshness_seconds")),
         eta_seconds=_int(row.get("eta_seconds"), 0),
         eta_label=_text(row.get("eta_label"), "not available"),
@@ -303,7 +303,12 @@ def _derived_lane_state(
         if raw_blocked
         else _text(row.get("analysis_state"), _analysis_state_for_state(state)),
         latest_as_of=latest_as_of,
-        checked_at=_proof_timestamp(progress_row, source_row, dataset, fallback=latest_as_of),
+        checked_at=_proof_timestamp(
+            progress_row,
+            source_row,
+            dataset,
+            fallback=latest_as_of or now.isoformat(),
+        ),
         freshness_seconds=_int_or_none(progress_row.get("freshness_seconds")),
         eta_seconds=_int(progress_row.get("eta_seconds"), 0),
         eta_label=_text(progress_row.get("eta_label"), "not available"),
@@ -558,8 +563,8 @@ def _state_payload(
         "source_dataset": source_dataset,
         "raw_lanes_required": list(raw_lanes_required),
         "freshness_seconds": freshness_seconds,
-        "latest_as_of": latest_as_of or "not recorded",
-        "checked_at": checked_at,
+        "latest_as_of": _latest_as_of_label(state, latest_as_of),
+        "checked_at": checked_at or "checked during current request",
         "eta_seconds": eta_seconds,
         "eta_label": eta_label,
         "progress_label": progress_label,
@@ -651,6 +656,22 @@ def _recommended_action(state: str, *, label: str, lane_kind: str) -> str:
     return "No action required unless this lane becomes part of today's workflow."
 
 
+def _latest_as_of_label(state: str, latest_as_of: str) -> str:
+    if latest_as_of:
+        return latest_as_of
+    if state == "disabled_optional":
+        return "not required for current workflow"
+    if state == "loading":
+        return "loading now"
+    if state == "loaded_unanalyzed":
+        return "source loaded; analysis pending"
+    if state == "needs_refresh":
+        return "latest proof needs refresh"
+    if state == "provider_unavailable":
+        return "provider proof unavailable"
+    return "proof checked; latest data time unavailable"
+
+
 def _refresh_action_payload(
     *,
     lane_id: str,
@@ -731,7 +752,7 @@ def _source_proof_label(
     status = _plain_source_status(source_status)
     freshness = "Needs refresh" if source_freshness.upper() == "STALE" else source_freshness
     proof = checked_at or "not checked"
-    manifest = manifest_path if manifest_path else "manifest not recorded"
+    manifest = manifest_path if manifest_path else "manifest path unavailable"
     return f"Provider {status}; freshness {freshness or 'UNKNOWN'}; checked {proof}; {manifest}"
 
 

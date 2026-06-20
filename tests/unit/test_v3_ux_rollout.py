@@ -112,6 +112,15 @@ def test_every_non_cockpit_dashboard_keeps_data_health_visible() -> None:
         assert "{{ data_health_panel(data_health) }}" in html, name
 
 
+def test_execution_preview_focused_path_keeps_data_health_before_selected_card() -> None:
+    html = _template("execution_preview.html")
+
+    focused_gate = "{% if focused_execution and focused_execution.requested %}"
+    focused_data_health = f"{focused_gate}\n    {{{{ data_health_panel(data_health) }}}}"
+    assert focused_data_health in html
+    assert html.index(focused_data_health) < html.index('class="panel focused-execution-panel"')
+
+
 def test_shared_base_renders_visible_v3_briefing_contract() -> None:
     html = BASE.read_text(encoding="utf-8")
 

@@ -27,7 +27,7 @@
           </a>
           <a class="nav-link {% if active_nav == 'command' %}active{% endif %}" href="/command">
             <span class="nav-icon status-icon status-icon-data" aria-hidden="true">S</span>
-            <span>System Status</span>
+            <span>Diagnostics: System Status</span>
           </a>
 
           <span class="nav-section">Research</span>
@@ -44,15 +44,15 @@
           <div class="workflow-nav" aria-label="Workflow: Candidates, Portfolio, Execute">
             <a class="nav-link {% if active_nav == 'final' %}active{% endif %}" href="/final-selection">
               <span class="nav-icon status-icon status-icon-pending" aria-hidden="true">R</span>
-              <span>Candidate Queue</span>
+              <span>Candidate Diagnostics</span>
             </a>
             <a class="nav-link {% if active_nav == 'portfolio' %}active{% endif %}" href="/portfolio-monitor">
               <span class="nav-icon status-icon status-icon-warn" aria-hidden="true">P</span>
-              <span>Portfolio</span>
+              <span>Portfolio Diagnostics</span>
             </a>
             <a class="nav-link {% if active_nav == 'execution' %}active{% endif %}" href="/execution-preview">
               <span class="nav-icon status-icon status-icon-pass" aria-hidden="true">O</span>
-              <span>Order Preview</span>
+              <span>Order Diagnostics</span>
             </a>
           </div>
 
@@ -72,7 +72,7 @@
           </a>
           <a class="nav-link nav-secondary {% if active_nav == 'audit' %}active{% endif %}" href="/audit">
             <span class="nav-icon" aria-hidden="true">A</span>
-            <span>Audit Trail</span>
+            <span>Audit Diagnostics</span>
           </a>
         </nav>
         {% set workflow = workflow_summary|default({}, true) %}
