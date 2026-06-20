@@ -123,7 +123,7 @@ def main() -> int:
     )
     args = parser.parse_args()
     _validate_lane_invocation(args)
-    tickers = args.tickers or _active_universe_tickers(args)
+    tickers = _normalize_tickers(args.tickers or _active_universe_tickers(args))
     if args.include_etfs:
         tickers = include_sector_etfs(tickers)
     config = MassiveGroupedDailyConfig.from_env(base_url=args.massive_base_url)
@@ -270,7 +270,7 @@ async def _fill_grouped_daily_missing_tickers(
     fetched_at: datetime,
     daily_downloader: Callable[[str, DateRange], Awaitable[pd.DataFrame]] | None = None,
 ) -> pd.DataFrame:
-    requested = sorted({str(ticker).upper() for ticker in tickers if str(ticker).strip()})
+    requested = _normalize_tickers(tickers)
     if not requested:
         return grouped_frame
     returned = (
@@ -301,7 +301,7 @@ def _daily_lane_coverage(
     *,
     requested_day: date,
 ) -> list[dict[str, object]]:
-    requested = sorted({str(ticker).upper() for ticker in tickers if str(ticker).strip()})
+    requested = _normalize_tickers(tickers)
     available_dates: dict[str, set[date]] = {ticker: set() for ticker in requested}
     if not frame.empty and {"ticker", "date"}.issubset(frame.columns):
         rows = frame[["ticker", "date"]].copy()
@@ -364,7 +364,7 @@ def _tickers_needing_history(
         raise ValueError("min-history-observations must be >= 1")
     start = _history_start(end, lookback_days)
     needed: list[str] = []
-    for ticker in sorted({str(item).upper() for item in tickers if str(item).strip()}):
+    for ticker in _normalize_tickers(tickers):
         count = _history_observation_count(price_root, ticker, start=start, end=end)
         if count < min_observations:
             needed.append(ticker)
@@ -407,6 +407,10 @@ def _history_observation_count(
 
 def _history_start(end: date, lookback_days: int) -> date:
     return end - timedelta(days=max(lookback_days, 1) - 1)
+
+
+def _normalize_tickers(tickers: Sequence[str]) -> list[str]:
+    return sorted({str(ticker).strip().upper() for ticker in tickers if str(ticker).strip()})
 
 
 def _date(value: str) -> date:

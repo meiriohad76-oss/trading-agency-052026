@@ -13,6 +13,7 @@ from prices.storage import DateRange, write_price_frame
 
 from research.scripts.pull_massive_grouped_daily import (
     _fill_grouped_daily_missing_tickers,
+    _normalize_tickers,
     _tickers_needing_history,
     _validate_lane_invocation,
 )
@@ -198,6 +199,10 @@ def test_grouped_daily_history_bootstrap_detects_shallow_price_history(tmp_path)
     )
 
     assert needed == ["AAPL", "NVDA"]
+
+
+def test_grouped_daily_normalizes_shell_ticker_whitespace() -> None:
+    assert _normalize_tickers([" aapl", "MSFT\r", "msft", "", "  "]) == ["AAPL", "MSFT"]
 
 
 def _row(
