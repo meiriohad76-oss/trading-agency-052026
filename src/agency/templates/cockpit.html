@@ -63,32 +63,6 @@
         <button type="button" class="cockpit-phase-cell" data-cockpit-phase-target="clearance" data-phase-state="{{ phase_clearance.state|default('pending', true) }}"><span class="cockpit-phase-index cockpit-mono">G</span><strong>Clearance</strong><small>{{ phase_clearance.label|default("Paper gate", true) }}</small></button>
         <button type="button" class="cockpit-phase-cell" data-cockpit-phase-target="cleared" data-phase-state="{{ phase_cleared.state|default('pending', true) }}"><span class="cockpit-phase-index cockpit-mono">OK</span><strong>Cleared</strong><small>{{ phase_cleared.label|default("After submit", true) }}</small></button>
       </section>
-      <section class="cockpit-data-state-strip cockpit-data-state-strip-compact" aria-label="Session readiness">
-        <div class="cockpit-data-state-headline">
-          <p class="eyebrow">Session readiness</p>
-          <h2>{{ data_review.label|default("Review status unavailable", true) }} / {{ data_paper.label|default("Paper execution status unavailable", true) }}</h2>
-          <p>{{ data_state.headline|default("Data-pipeline proof is not available for this cockpit request.", true) }}</p>
-        </div>
-        <div class="cockpit-data-state-gaps" aria-label="Paper readiness checks">
-          <strong>{% if review_is_ready and not paper_is_ready %}Before paper submit{% else %}Current action{% endif %}</strong>
-          {% for gap in data_state.top_gaps|default([], true) %}
-            <article class="cockpit-data-state-gap" title="{{ gap.detail }}">
-              <span class="status-pill status-pill-{{ gap.status_class|default('warn', true) }}">{{ gap.lane }}</span>
-              <strong>{{ gap.status_label|default("Needs attention", true) }}</strong>
-              <p>
-                {% if review_is_ready and not paper_is_ready %}
-                  Research review can continue. For paper submit, {{ gap.lane }} proof is not ready.
-                {% else %}
-                  {{ gap.lane }} proof is not ready.
-                {% endif %}
-                {{ gap.recommended_action|default("Use the available refresh action, then confirm the proof timestamp changed.", true) }}
-              </p>
-            </article>
-          {% else %}
-            <p>No required data or agent gaps are reported for the current workflow.</p>
-          {% endfor %}
-        </div>
-      </section>
       {% set primary_nav_action = scenario.primary_nav_action|default({}, true) %}
       {% if primary_nav_action and primary_nav_action.phase %}
         <div class="cockpit-top-actions" aria-label="Primary cockpit action">
@@ -102,28 +76,6 @@
           <small>{{ primary_nav_action.detail }}</small>
         </div>
       {% endif %}
-      <nav class="cockpit-first-nav" aria-label="Primary dashboard navigation">
-        <a href="/command">
-          <span>Fix Data</span>
-          <small>Refresh lanes and workers</small>
-        </a>
-        <a href="/signals">
-          <span>Signals</span>
-          <small>Evidence and scoring</small>
-        </a>
-        <a href="/signals?lane=fundamentals#signal-rows-heading">
-          <span>Fundamentals</span>
-          <small>SEC, ownership, company facts</small>
-        </a>
-        <a href="/portfolio-monitor">
-          <span>Portfolio</span>
-          <small>Positions and exposure</small>
-        </a>
-        <a href="#email-agent">
-          <span>SA Login</span>
-          <small>Email evidence agent</small>
-        </a>
-      </nav>
       <div class="cockpit-operator-path" aria-label="What to do now">
         <article class="cockpit-operator-step cockpit-operator-step-now">
           <span>1</span>
@@ -160,11 +112,68 @@
         <article class="cockpit-operator-step">
           <span>3</span>
           <div>
-            <strong>Clear paper orders</strong>
-            <small>{{ data_paper.label|default("Paper gate not checked", true) }}. Fix paper checks before submit; no live order is sent without explicit clearance.</small>
+            <strong>Fix paper checks</strong>
+            <small>
+              {{ data_paper.label|default("Paper gate not checked", true) }}.
+              {% if first_gap %}
+                {{ first_gap.recommended_action|default("Refresh the affected lane, then confirm the proof timestamp changed.", true) }}
+                {% if first_gap.refresh_action and first_gap.refresh_action.label %}{{ first_gap.refresh_action.label }}.{% endif %}
+              {% else %}
+                Fix paper checks before submit.
+              {% endif %}
+              No live order is sent without explicit clearance.
+            </small>
           </div>
         </article>
       </div>
+      <nav class="cockpit-first-nav" aria-label="Primary dashboard navigation">
+        <a href="/command">
+          <span>Fix Data</span>
+          <small>Refresh lanes and workers</small>
+        </a>
+        <a href="/signals">
+          <span>Signals</span>
+          <small>Evidence and scoring</small>
+        </a>
+        <a href="/signals?lane=fundamentals#signal-rows-heading">
+          <span>Fundamentals</span>
+          <small>SEC, ownership, company facts</small>
+        </a>
+        <a href="/portfolio-monitor">
+          <span>Portfolio</span>
+          <small>Positions and exposure</small>
+        </a>
+        <a href="#email-agent">
+          <span>SA Login</span>
+          <small>Email evidence agent</small>
+        </a>
+      </nav>
+      <section class="cockpit-data-state-strip cockpit-data-state-strip-compact" aria-label="Session readiness">
+        <div class="cockpit-data-state-headline">
+          <p class="eyebrow">Session readiness</p>
+          <h2>{{ data_review.label|default("Review status unavailable", true) }} / {{ data_paper.label|default("Paper execution status unavailable", true) }}</h2>
+          <p>{{ data_state.headline|default("Data-pipeline proof is not available for this cockpit request.", true) }}</p>
+        </div>
+        <div class="cockpit-data-state-gaps" aria-label="Paper readiness checks">
+          <strong>{% if review_is_ready and not paper_is_ready %}Before paper submit{% else %}Current action{% endif %}</strong>
+          {% for gap in data_state.top_gaps|default([], true) %}
+            <article class="cockpit-data-state-gap" title="{{ gap.detail }}">
+              <span class="status-pill status-pill-{{ gap.status_class|default('warn', true) }}">{{ gap.lane }}</span>
+              <strong>{{ gap.status_label|default("Needs attention", true) }}</strong>
+              <p>
+                {% if review_is_ready and not paper_is_ready %}
+                  Research review can continue. For paper submit, {{ gap.lane }} proof is not ready.
+                {% else %}
+                  {{ gap.lane }} proof is not ready.
+                {% endif %}
+                {{ gap.recommended_action|default("Use the available refresh action, then confirm the proof timestamp changed.", true) }}
+              </p>
+            </article>
+          {% else %}
+            <p>No required data or agent gaps are reported for the current workflow.</p>
+          {% endfor %}
+        </div>
+      </section>
       <section class="cockpit-phase-rail cockpit-phase-rail-compact" aria-label="Workflow phases" data-tour="phaserail">
         <button type="button" class="cockpit-phase-cell" data-cockpit-phase-target="candidates" data-phase-state="{{ phase_candidates.state|default('active', true) }}"><span class="cockpit-phase-index cockpit-mono">C</span><strong>Candidates</strong><small>{{ phase_candidates.label|default("Active", true) }}</small></button>
         <button type="button" class="cockpit-phase-cell" data-cockpit-phase-target="portfolio" data-phase-state="{{ phase_portfolio.state|default('pending', true) }}"><span class="cockpit-phase-index cockpit-mono">P</span><strong>Portfolio</strong><small>{{ phase_portfolio.label|default("Review next", true) }}</small></button>
