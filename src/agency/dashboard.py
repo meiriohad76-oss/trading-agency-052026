@@ -34,6 +34,8 @@ from agency.runtime.artifact_fallbacks import (
     DEFAULT_RUNTIME_ARTIFACT_ROOT,
     append_runtime_lifecycle_event_artifact,
     runtime_execution_preview_artifacts,
+    runtime_risk_decision_artifacts,
+    runtime_selection_report_artifacts,
 )
 from agency.runtime.lane_promotion import load_lane_promotion_status
 from agency.runtime.live_config_readiness import load_live_config_readiness
@@ -265,11 +267,17 @@ async def _bounded_dashboard_context(
         task = asyncio.create_task(_call_dashboard_context_builder(builder))
         _dashboard_route_context_inflight[key] = task
     try:
-        context = await asyncio.wait_for(task, timeout=timeout)
+        context = await asyncio.wait_for(asyncio.shield(task), timeout=timeout)
     except TimeoutError:
-        if _dashboard_route_context_inflight.get(key) is task:
-            _dashboard_route_context_inflight.pop(key, None)
-        task.cancel()
+        task.add_done_callback(
+            lambda completed, *, cache_key=key, cache_builder_id=builder_id: (
+                _store_bounded_dashboard_context_result(
+                    cache_key,
+                    completed,
+                    cache_builder_id,
+                )
+            )
+        )
         return fallback_builder()
     except Exception as exc:  # noqa: BLE001 - dashboards should render an operator state
         if _dashboard_route_context_inflight.get(key) is task:
@@ -354,10 +362,12 @@ def _route_delayed_data_health(page_label: str, route_label: str) -> dict[str, o
 
 
 def _command_delayed_context() -> dict[str, object]:
-    data_health = _route_delayed_data_health("Command diagnostics", "Command operating picture")
+    data_health = _route_delayed_data_health("Command center", "Command operating picture")
+    fallback_review_queue = _runtime_artifact_review_queue()
+    fallback_review_progress = paper_review_progress(fallback_review_queue)
     issue_summary = {
         "status_class": "warn",
-        "tooltip": "Command diagnostics are still checking live runtime proof.",
+        "tooltip": "Command is still checking live runtime proof.",
         "blocker_count": 0,
         "warning_count": 1,
     }
@@ -379,7 +389,7 @@ def _command_delayed_context() -> dict[str, object]:
         "status_label": "Checking",
         "mode_label": "Checking",
         "mode_summary": "Checking live operating state",
-        "mode_tooltip": "Command diagnostics are building live source proof.",
+        "mode_tooltip": "Command is building live source proof.",
         "coverage": readiness_coverage,
         "tradable_ready": False,
         "trading_gate_label": "Checking",
@@ -395,7 +405,7 @@ def _command_delayed_context() -> dict[str, object]:
             "status_label": "Command check still running",
             "status_class": "warn",
             "detail": (
-                "Command diagnostics missed the first-screen budget, so detailed "
+                "Command missed the first-screen budget, so detailed "
                 "runtime rows are hidden until live source proof finishes loading."
             ),
             "action": "Reload Command after the proof timestamp updates, or open Cockpit for the current first-screen workflow.",
@@ -462,7 +472,7 @@ def _command_delayed_context() -> dict[str, object]:
             "process_rows": [
                 {
                     "id": "process-command-context",
-                    "process": "Command diagnostics context",
+                    "process": "Command context",
                     "status_label": "Checking",
                     "status_class": "warn",
                     "progress_label": "live proof running",
@@ -475,7 +485,9 @@ def _command_delayed_context() -> dict[str, object]:
                 }
             ],
         },
-        "review_progress": {
+        "review_progress": fallback_review_progress
+        if fallback_review_queue
+        else {
             "pending_count": 0,
             "reviewed_label": "0",
             "approve_count": 0,
@@ -485,7 +497,7 @@ def _command_delayed_context() -> dict[str, object]:
             "status_label": "Checking",
             "detail": "Review queue is not displayed until source proof finishes loading.",
         },
-        "review_queue": [],
+        "review_queue": fallback_review_queue,
         "readiness": {"cycle_id": "checking"},
         "scheduler": {
             "status_class": "warn",
@@ -517,6 +529,30 @@ def _command_delayed_context() -> dict[str, object]:
             "updated_at": datetime.now(UTC).isoformat(),
         },
     }
+
+
+def _runtime_artifact_review_queue() -> list[dict[str, object]]:
+    reports = runtime_selection_report_artifacts(limit=FINAL_SELECTION_REPORT_LIMIT)
+    if not reports:
+        return []
+    cycle_id = str(reports[0].get("cycle_id") or "").strip()
+    if not cycle_id:
+        return []
+    cycle_reports = [
+        report for report in reports if str(report.get("cycle_id") or "") == cycle_id
+    ]
+    risk_decisions = runtime_risk_decision_artifacts(limit=FINAL_SELECTION_REPORT_LIMIT)
+    readiness = {
+        "cycle_id": cycle_id,
+        "ready": False,
+        "verdict": "checking_live_source_proof",
+    }
+    return paper_review_queue(
+        cycle_reports,
+        risk_decisions,
+        readiness,
+        review_events=[],
+    )
 
 
 def _final_selection_delayed_context(focus_ticker: str | None = None) -> dict[str, object]:
@@ -1472,15 +1508,7 @@ async def _final_selection_route_context_uncached(
         context = await final_selection_context()
         _store_final_selection_route_cache(context)
         return context
-    context = await _final_selection_route_base_context()
-    context["focused_ticker"] = focus_ticker
-    rows_value = context.get("final_rows")
-    final_rows = rows_value if isinstance(rows_value, list) else []
-    context["focused_final_selection"] = final_selection_focus_context(
-        final_rows,
-        focus_ticker,
-    )
-    return context
+    return await final_selection_context(focus_ticker=focus_ticker)
 
 
 async def _final_selection_route_base_context(
