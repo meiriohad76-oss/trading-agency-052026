@@ -12,7 +12,26 @@ from typing import cast
 import pandas as pd
 from dotenv import load_dotenv
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+
+def _resolve_repo_root(candidates: Sequence[Path] | None = None) -> Path:
+    env_root = os.environ.get("AGENCY_REPO_ROOT")
+    probe_roots = list(candidates or [])
+    if env_root:
+        probe_roots.append(Path(env_root))
+    probe_roots.extend([Path.cwd(), Path("/app"), Path(__file__).resolve().parents[3]])
+    for root in probe_roots:
+        try:
+            resolved = root.resolve()
+        except OSError:
+            resolved = root
+        if (resolved / "research" / "scripts").exists() and (resolved / "src").exists():
+            return resolved
+        if (resolved / "research" / "scripts").exists() and (resolved / "schemas").exists():
+            return resolved
+    return Path(__file__).resolve().parents[3]
+
+
+REPO_ROOT = _resolve_repo_root()
 RESEARCH_SRC = REPO_ROOT / "research" / "src"
 if str(RESEARCH_SRC) not in sys.path:
     sys.path.insert(0, str(RESEARCH_SRC))
@@ -575,7 +594,7 @@ def _dataset_requires_interactive_user_action(dataset: str, config_path: Path) -
     try:
         overrides = load_refresh_config(config_path, repo_root=REPO_ROOT)
     except OSError, ValueError, TypeError, json.JSONDecodeError:
-        return False
+        return True
     config_file = overrides.subscription_email_config
     if config_file is None:
         return True

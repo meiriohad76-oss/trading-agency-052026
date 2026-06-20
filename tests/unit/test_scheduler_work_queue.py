@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from agency.runtime.scheduler_work_queue import (
+    _resolve_repo_root,
     build_affected_ticker_mini_cycle_plan,
     build_off_hours_baseline_repair_plan,
     build_scheduler_work_queue,
@@ -3014,6 +3015,29 @@ def test_scheduler_treats_omitted_subscription_email_config_as_manual_only(
     assert job["command"] == []
 
 
+def test_scheduler_treats_unreadable_refresh_config_as_manual_email_only(
+    tmp_path: Path,
+) -> None:
+    live_config = tmp_path / "bad-live-refresh.local.json"
+    live_config.write_text("{not-json", encoding="utf-8")
+    tiers = build_ticker_tiers(active_universe=["AAPL"])
+    plan = _market_plan("regular_market", dataset="subscription_emails")
+
+    queue = build_scheduler_work_queue(
+        plan,
+        tiers=tiers,
+        data_load_status={"state": "ready", "datasets": []},
+        source_health=_fresh_sources(),
+        broker={"connected": True, "checked_at": NOW.isoformat()},
+        config_path=live_config,
+        now=NOW,
+    )
+
+    job = next(item for item in queue["jobs"] if item["job_id"] == "dataset:subscription_emails")
+    assert job["status"] == "WAITING"
+    assert job["command"] == []
+
+
 def test_scheduler_treats_string_subscription_email_login_flag_as_manual_only(
     tmp_path: Path,
 ) -> None:
@@ -3087,6 +3111,16 @@ def test_scheduler_can_run_non_interactive_subscription_email_refresh(
     assert job["status"] == "DUE_NOW"
     assert job["command"]
     assert queue["next_jobs"][0]["job_id"] == "dataset:subscription_emails"
+
+
+def test_scheduler_work_queue_repo_root_prefers_container_app_mount(tmp_path: Path) -> None:
+    installed_root = tmp_path / "usr" / "local" / "lib" / "python3.14" / "site-packages"
+    app_root = tmp_path / "app"
+    (installed_root / "research" / "scripts").mkdir(parents=True)
+    (app_root / "research" / "scripts").mkdir(parents=True)
+    (app_root / "schemas").mkdir()
+
+    assert _resolve_repo_root([installed_root, app_root]) == app_root.resolve()
 
 
 def _market_plan(
