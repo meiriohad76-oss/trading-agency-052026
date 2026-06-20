@@ -57,6 +57,12 @@
         <article><span>Cash</span><strong class="cockpit-mono">{{ "%.1f"|format(account.cash_available|default(0, true)) }}%</strong></article>
         <article><span>Ready</span><strong class="cockpit-mono">{{ account.ready_to_trade|default("0/0", true) }}</strong></article>
       </section>
+      <section class="cockpit-phase-rail cockpit-phase-rail-proof" aria-label="Workflow phases">
+        <button type="button" class="cockpit-phase-cell" data-cockpit-phase-target="candidates" data-phase-state="{{ phase_candidates.state|default('active', true) }}"><span class="cockpit-phase-index cockpit-mono">C</span><strong>Candidates</strong><small>{{ phase_candidates.label|default("Active", true) }}</small></button>
+        <button type="button" class="cockpit-phase-cell" data-cockpit-phase-target="portfolio" data-phase-state="{{ phase_portfolio.state|default('pending', true) }}"><span class="cockpit-phase-index cockpit-mono">P</span><strong>Portfolio</strong><small>{{ phase_portfolio.label|default("Review next", true) }}</small></button>
+        <button type="button" class="cockpit-phase-cell" data-cockpit-phase-target="clearance" data-phase-state="{{ phase_clearance.state|default('pending', true) }}"><span class="cockpit-phase-index cockpit-mono">G</span><strong>Clearance</strong><small>{{ phase_clearance.label|default("Paper gate", true) }}</small></button>
+        <button type="button" class="cockpit-phase-cell" data-cockpit-phase-target="cleared" data-phase-state="{{ phase_cleared.state|default('pending', true) }}"><span class="cockpit-phase-index cockpit-mono">OK</span><strong>Cleared</strong><small>{{ phase_cleared.label|default("After submit", true) }}</small></button>
+      </section>
       <section class="cockpit-data-state-strip cockpit-data-state-strip-compact" aria-label="Session readiness">
         <div class="cockpit-data-state-headline">
           <p class="eyebrow">Session readiness</p>

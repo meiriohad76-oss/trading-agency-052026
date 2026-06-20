@@ -6996,6 +6996,25 @@ table.signal-table {
   line-height: 1.05;
 }
 
+.cockpit-topline .cockpit-phase-rail-proof {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
+  margin: 7px 0;
+}
+
+.cockpit-topline .cockpit-phase-rail-proof .cockpit-phase-cell {
+  min-height: 46px;
+  padding: 6px 8px;
+}
+
+.cockpit-topline .cockpit-phase-rail-proof .cockpit-phase-cell strong {
+  font-size: 0.9rem;
+}
+
+.cockpit-topline .cockpit-phase-rail-proof .cockpit-phase-cell small {
+  display: none;
+}
+
 .cockpit-topline .cockpit-data-state-strip-compact {
   grid-template-columns: 1fr;
   gap: 5px;
@@ -7342,9 +7361,8 @@ table.signal-table {
   }
 
   .cockpit-topline .cockpit-data-state-strip-compact .cockpit-data-state-gaps {
-    grid-template-columns: repeat(3, minmax(220px, 1fr));
-    overflow-x: auto;
-    padding-bottom: 2px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    overflow-x: hidden;
   }
 
   .cockpit-topline .cockpit-data-state-strip-compact .cockpit-data-state-gaps > strong {
@@ -7358,6 +7376,11 @@ table.signal-table {
   .cockpit-phase-rail {
     grid-template-columns: repeat(4, minmax(130px, 1fr));
     overflow-x: auto;
+  }
+
+  .cockpit-topline .cockpit-phase-rail-proof {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    overflow-x: hidden;
   }
 
   .cockpit-phase-cell {
