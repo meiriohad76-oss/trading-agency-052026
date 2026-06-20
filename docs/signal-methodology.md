@@ -48,12 +48,15 @@ validation promotes their weights.
 - Absolute floors: at least 10,000 shares or 200,000 notional.
 - Relative test: block candidates are compared with the ticker's own median trade
   size and notional; relative blocks require at least 5x the ticker median.
-- Focus set: off-exchange prints are always focus candidates; exchange prints
-  require both the absolute floor and the relative test.
+- Focus set: explicit TRF/off-exchange prints are identified when Massive reports
+  exchange `4` with a `trf_id`; exchange prints require both the absolute floor
+  and the relative test.
 - Calculation: signed focus notional pressure multiplied by focus notional share
   and a log count participation term.
 - Interpretation: stock-relative blocks prevent naturally high-liquidity tickers
-  from dominating only because their ordinary prints are large.
+  from dominating only because their ordinary prints are large. TRF/off-exchange
+  is useful evidence of off-exchange reporting, not proof of a specific dark-pool
+  venue.
 
 ## Unusual Trade Activity
 

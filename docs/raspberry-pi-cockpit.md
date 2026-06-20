@@ -22,6 +22,8 @@ Use a local Chromium profile dedicated to the agency:
 chromium-browser \
   --kiosk http://127.0.0.1:8000/cockpit \
   --no-first-run \
+  --disable-pinch \
+  --overscroll-history-navigation=disabled \
   --disable-session-crashed-bubble \
   --disable-infobars \
   --user-data-dir=/home/pi/.config/trading-agency-cockpit
@@ -53,8 +55,11 @@ WantedBy=multi-user.target
 - Hide the cursor with `unclutter` after confirming touch input works.
 - Disable screen sleep with `xset s off`, `xset -dpms`, and the desktop power
   manager.
+- Keep `--disable-pinch` and `--overscroll-history-navigation=disabled` in the
+  Chromium command so accidental touch gestures do not move the operator away
+  from the cockpit.
 - Use the cockpit touch target CSS; primary controls are at least 44px high.
-- Tooltips are available on focus and tap, not only hover.
+- Tooltips are available on focus, tap, and long-press, not only hover.
 - Keep the device on local power and use a read-only dashboard account for
   remote tunnel access.
 

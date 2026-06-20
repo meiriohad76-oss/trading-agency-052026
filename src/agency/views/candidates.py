@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -12,6 +13,8 @@ from urllib.parse import urlencode, urlsplit
 import pandas as pd
 from news.consumption import load_news_consumption_entries
 
+from agency.paths import REPO_ROOT
+from agency.runtime.local_llm import DEFAULT_OUTPUT_ROOT as LOCAL_LLM_OUTPUT_ROOT
 from agency.runtime.signal_evidence import enrich_signal_rows_with_evidence
 from agency.services import build_leveraged_alternative_review
 from agency.views._shared import (
@@ -44,6 +47,7 @@ from agency.views._shared import (
     _label_text,
     _mapping_field,
     _matching_payload,
+    _operator_text,
     _pair_text,
     _plural,
     _row_text,
@@ -55,14 +59,24 @@ from agency.views._shared import (
     _string_list,
     _timestamp_sort_value,
     dashboard_data_health,
+    displayed_evidence_currentness,
     live_dashboard_data_load_status,
 )
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
 NEWS_CONSUMPTION_LEDGER_PATH = (
     REPO_ROOT / "research" / "data" / "state" / "news_rss_consumed.json"
 )
+LOCAL_LLM_INSIGHT_PATH = LOCAL_LLM_OUTPUT_ROOT / "local-llm-insights.json"
 CANDIDATE_AUDIT_LIGHT_STATUS_CACHE_SECONDS = 60.0
+CANDIDATE_EVIDENCE_DATASETS = (
+    "prices_daily",
+    "stock_trades",
+    "sec_company_facts",
+    "sec_form4",
+    "sec_13f",
+    "news_rss",
+    "subscription_emails",
+)
 _candidate_audit_light_status_cache: tuple[float, dict[str, object]] | None = None
 
 
@@ -75,23 +89,42 @@ async def candidate_detail_context(
     from agency.views.market_regime import broker_status_context
     normalized_ticker = ticker.upper()
     if include_rich_signal_evidence:
-        reports, timeline, risk_decisions, broker = await asyncio.gather(
+        reports, timeline, risk_decisions, broker, data_load_status = await asyncio.gather(
             _dashboard_selection_reports(ticker=normalized_ticker, limit=5),
             _dashboard_candidate_timeline(ticker=normalized_ticker, limit=25),
             _dashboard_risk_decisions(ticker=normalized_ticker, limit=5),
             broker_status_context(),
+            live_dashboard_data_load_status(),
         )
     else:
         reports = await _dashboard_selection_reports(ticker=normalized_ticker, limit=1)
         timeline = []
         risk_decisions = []
         broker = {"positions": [], "orders": [], "connected": False}
-    report_rows = candidate_detail_report_rows(
+        data_load_status = await _candidate_audit_light_data_load_status()
+    base_report_rows = candidate_detail_report_rows(
         reports,
         review_events=timeline,
-        include_rich_signal_evidence=include_rich_signal_evidence,
+        include_rich_signal_evidence=False,
     )
-    latest_report = report_rows[0] if report_rows else None
+    latest_base_report = base_report_rows[0] if base_report_rows else None
+    evidence_currentness = displayed_evidence_currentness(
+        data_load_status,
+        displayed_cycle_id=str(latest_base_report.get("cycle_id") if latest_base_report else ""),
+        datasets=CANDIDATE_EVIDENCE_DATASETS,
+    )
+    evidence_is_current = evidence_currentness.get("is_current") is True
+    report_rows = (
+        candidate_detail_report_rows(
+            reports,
+            review_events=timeline,
+            include_rich_signal_evidence=include_rich_signal_evidence,
+        )
+        if evidence_is_current
+        else base_report_rows
+    )
+    displayed_report_rows = report_rows if evidence_is_current else []
+    latest_report = displayed_report_rows[0] if displayed_report_rows else None
     latest_raw_report = _matching_payload(reports, latest_report)
     latest_risk_decision = _matching_payload(risk_decisions, latest_report)
     if include_rich_signal_evidence:
@@ -106,53 +139,227 @@ async def candidate_detail_context(
         email_evidence = _candidate_email_evidence_audit_placeholder(normalized_ticker)
         news_evidence = _candidate_news_evidence_audit_placeholder(normalized_ticker)
     review = candidate_review_summary(
-        report_rows,
+        displayed_report_rows,
         timeline,
         risk_decisions=risk_decisions,
         return_source=return_source,
     )
-    data_load_status = (
-        await live_dashboard_data_load_status()
-        if include_rich_signal_evidence
-        else await _candidate_audit_light_data_load_status()
-    )
-    return {
-        "ticker": normalized_ticker,
-        "candidate_return": _candidate_return_context(normalized_ticker, return_source),
-        "decision_brief": candidate_decision_brief(
+    if not evidence_is_current:
+        review = _not_current_candidate_review_summary(evidence_currentness)
+    current_position = _candidate_current_position(normalized_ticker, broker)
+    decision_brief = (
+        candidate_decision_brief(
             normalized_ticker,
             latest_report,
             email_evidence,
             review,
-            current_position=_candidate_current_position(normalized_ticker, broker),
-        ),
+            current_position=current_position,
+        )
+        if evidence_is_current
+        else _not_current_decision_brief(
+            normalized_ticker,
+            email_evidence,
+            evidence_currentness,
+            previous_report=latest_base_report,
+            current_position=current_position,
+        )
+    )
+    return {
+        "ticker": normalized_ticker,
+        "candidate_return": _candidate_return_context(normalized_ticker, return_source),
+        "decision_brief": decision_brief,
         "data_health": dashboard_data_health(
             f"{normalized_ticker} candidate brief",
             data_load_status=data_load_status,
-            datasets=(
-                "prices_daily",
-                "stock_trades",
-                "sec_company_facts",
-                "sec_form4",
-                "sec_13f",
-                "news_rss",
-                "subscription_emails",
-            ),
+            datasets=CANDIDATE_EVIDENCE_DATASETS,
             cycle_id=str(latest_report.get("cycle_id") if latest_report else ""),
         ),
+        "evidence_currentness": evidence_currentness,
         "email_evidence": email_evidence,
         "news_evidence": news_evidence,
+        "evidence_delta_since_review": evidence_delta_since_review(
+            latest_report,
+            email_evidence,
+            news_evidence,
+            review,
+        ),
+        "local_llm_insight": candidate_local_llm_insight(normalized_ticker),
         "leveraged_review": build_leveraged_alternative_review(
             latest_raw_report or latest_report,
             risk_decision=latest_risk_decision,
         ),
         "latest_report": latest_report,
-        "previous_reports": report_rows[1:],
-        "reports": report_rows,
+        "previous_reports": report_rows[1:] if evidence_is_current else report_rows,
+        "reports": displayed_report_rows,
         "review": review,
         "timeline": timeline_rows(timeline),
-        "summary": candidate_detail_summary(normalized_ticker, report_rows, timeline),
+        "summary": candidate_detail_summary(
+            normalized_ticker,
+            displayed_report_rows,
+            timeline,
+            evidence_currentness=evidence_currentness,
+            previous_report_count=len(report_rows),
+        ),
     }
+
+def candidate_local_llm_insight(
+    ticker: str,
+    *,
+    artifact_path: Path = LOCAL_LLM_INSIGHT_PATH,
+) -> dict[str, object]:
+    normalized_ticker = ticker.upper()
+    try:
+        artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return _empty_local_llm_insight(
+            normalized_ticker,
+            status="artifact_missing",
+            status_label="Local LLM insight not generated",
+            status_class="neutral",
+            detail=(
+                "Run the Raspberry Pi local LLM worker when you want a shadow-mode "
+                "explanation for this ticker."
+            ),
+        )
+    except (OSError, json.JSONDecodeError):
+        return _empty_local_llm_insight(
+            normalized_ticker,
+            status="artifact_unreadable",
+            status_label="Local LLM insight file unreadable",
+            status_class="warn",
+            detail="The local LLM artifact exists but could not be parsed safely.",
+        )
+    if not isinstance(artifact, Mapping):
+        return _empty_local_llm_insight(
+            normalized_ticker,
+            status="artifact_unreadable",
+            status_label="Local LLM insight file unreadable",
+            status_class="warn",
+            detail="The local LLM artifact did not contain the expected object payload.",
+        )
+
+    status = _clean_text(artifact.get("status")) or "unknown"
+    if status != "completed":
+        return _empty_local_llm_insight(
+            normalized_ticker,
+            status=status,
+            status_label=_clean_text(artifact.get("status_label")) or _label_text(status),
+            status_class=_clean_text(artifact.get("status_class")) or "warn",
+            detail=_clean_text(artifact.get("detail"))
+            or "The local LLM worker has not produced ticker-level insights yet.",
+            artifact=artifact,
+        )
+
+    insight = _local_llm_ticker_insight(artifact, normalized_ticker)
+    if insight is None:
+        return _empty_local_llm_insight(
+            normalized_ticker,
+            status="not_run_for_ticker",
+            status_label=f"Local LLM not run for {normalized_ticker}",
+            status_class="neutral",
+            detail=(
+                "The latest local LLM artifact is available, but this ticker was not "
+                "included in that shadow review."
+            ),
+            artifact=artifact,
+        )
+
+    insight_status = _clean_text(insight.get("status")) or "unknown"
+    summary = _clean_text(insight.get("summary")) or "No local LLM summary was returned."
+    return {
+        "available": insight_status == "completed",
+        "ticker": normalized_ticker,
+        "status": insight_status,
+        "status_label": _local_llm_status_label(insight_status),
+        "status_class": "pass" if insight_status == "completed" else "warn",
+        "detail": _clean_text(artifact.get("detail")) or "",
+        "model": _clean_text(insight.get("model")) or _clean_text(artifact.get("model")) or "not recorded",
+        "mode": _clean_text(insight.get("mode")) or _clean_text(artifact.get("mode")) or "shadow",
+        "generated_at": _clean_text(insight.get("generated_at"))
+        or _clean_text(artifact.get("generated_at"))
+        or "",
+        "generated_at_label": _format_timestamp_label(
+            insight.get("generated_at") or artifact.get("generated_at")
+        ),
+        "summary": summary,
+        "bullish_case": _local_llm_string_list(insight.get("bullish_case")),
+        "bearish_case": _local_llm_string_list(insight.get("bearish_case")),
+        "what_changed": _local_llm_string_list(insight.get("what_changed")),
+        "user_checks": _local_llm_string_list(insight.get("user_checks")),
+        "contradictions": _local_llm_string_list(insight.get("contradictions")),
+        "confidence_pct": round(max(0.0, min(1.0, _number(insight.get("confidence")))) * 100),
+        "can_affect_trade_gates": False,
+        "trade_gate_note": "Advisory only; it cannot approve or block trades.",
+    }
+
+def _empty_local_llm_insight(
+    ticker: str,
+    *,
+    status: str,
+    status_label: str,
+    status_class: str,
+    detail: str,
+    artifact: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    artifact = artifact or {}
+    return {
+        "available": False,
+        "ticker": ticker,
+        "status": status,
+        "status_label": status_label,
+        "status_class": status_class,
+        "detail": detail,
+        "model": _clean_text(artifact.get("model")) or "not recorded",
+        "mode": _clean_text(artifact.get("mode")) or "shadow",
+        "generated_at": _clean_text(artifact.get("generated_at")) or "",
+        "generated_at_label": _format_timestamp_label(artifact.get("generated_at")),
+        "summary": "",
+        "bullish_case": [],
+        "bearish_case": [],
+        "what_changed": [],
+        "user_checks": [],
+        "contradictions": [],
+        "confidence_pct": 0,
+        "can_affect_trade_gates": False,
+        "trade_gate_note": "Advisory only; it cannot approve or block trades.",
+    }
+
+def _local_llm_ticker_insight(
+    artifact: Mapping[str, object],
+    ticker: str,
+) -> Mapping[str, object] | None:
+    insights = artifact.get("insights")
+    if not isinstance(insights, list):
+        return None
+    for insight in insights:
+        if not isinstance(insight, Mapping):
+            continue
+        if str(insight.get("ticker") or "").strip().upper() == ticker:
+            return cast(Mapping[str, object], insight)
+    return None
+
+def _local_llm_string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    rows: list[str] = []
+    for item in value:
+        text = _clean_text(item)
+        if text:
+            rows.append(_clip_text(text, 240))
+    return rows
+
+def _local_llm_status_label(status: str) -> str:
+    if status == "completed":
+        return "Local LLM insight ready"
+    if status == "failed":
+        return "Local LLM insight failed"
+    return f"Local LLM insight {_label_text(status).lower()}"
+
+def _number(value: object) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
 
 async def _candidate_audit_light_data_load_status() -> dict[str, object]:
     global _candidate_audit_light_status_cache
@@ -261,7 +468,32 @@ def candidate_detail_summary(
     ticker: str,
     reports: Sequence[Mapping[str, object]],
     timeline: Sequence[Mapping[str, object]],
+    *,
+    evidence_currentness: Mapping[str, object] | None = None,
+    previous_report_count: int | None = None,
 ) -> dict[str, object]:
+    currentness = evidence_currentness or {"is_current": True, "display_mode": "current"}
+    if currentness.get("is_current") is not True:
+        status_label = _operator_text(
+            currentness.get("status_label"),
+            default="Current analysis is not ready",
+        )
+        reason = _operator_text(
+            currentness.get("reason"),
+            default="The agency is still checking the data needed for this candidate.",
+        )
+        return {
+            "ticker": ticker,
+            "report_count": previous_report_count if previous_report_count is not None else len(reports),
+            "event_count": len(timeline),
+            "latest_action": "Analysis in progress",
+            "headline": f"{ticker} current analysis is not ready.",
+            "detail": (
+                f"{status_label}: {reason} Previous report rows are kept only as "
+                "history until the current analysis finishes."
+            ),
+            "display_mode": str(currentness.get("display_mode") or "not_current"),
+        }
     latest_action = str(reports[0]["action"]) if reports else "None"
     latest = reports[0] if reports else None
     return {
@@ -271,6 +503,7 @@ def candidate_detail_summary(
         "latest_action": latest_action,
         "headline": _candidate_detail_headline(ticker, latest_action),
         "detail": _candidate_detail_text(ticker, latest),
+        "display_mode": "current",
     }
 
 def candidate_review_summary(
@@ -340,6 +573,41 @@ def candidate_review_summary(
             as_of=as_of,
             decision="REJECT",
             return_to=return_source,
+        ),
+    }
+
+
+def _not_current_candidate_review_summary(
+    evidence_currentness: Mapping[str, object],
+) -> dict[str, object]:
+    status_label = _operator_text(
+        evidence_currentness.get("status_label"),
+        default="Current analysis is not ready",
+    )
+    reason = _operator_text(
+        evidence_currentness.get("reason"),
+        default="The agency is still checking the data needed for this candidate.",
+    )
+    return {
+        "can_record": False,
+        "cycle_id": str(evidence_currentness.get("displayed_cycle_id") or "None"),
+        "as_of": "None",
+        "decision": status_label,
+        "status_class": _not_current_status_class(evidence_currentness),
+        "reason": reason,
+        "review_reason": "",
+        "notes": "",
+        "event_time": "None",
+        "event_time_label": "Time unknown",
+        "approve_action": "#",
+        "defer_action": "#",
+        "reject_action": "#",
+        "caution_acknowledgement_required": False,
+        "caution_acknowledgement_text": "",
+        "caution_recommendation": "",
+        "empty_message": (
+            f"{status_label}: approval is disabled until the current analysis finishes. "
+            "Previous report rows are visible only in Technical Details as history."
         ),
     }
 
@@ -719,7 +987,7 @@ def _direct_email_contribution(
     if caution and direction == "BEARISH":
         detail += f" It reinforces existing caution: {caution}"
     if gate_status == "BLOCK":
-        detail += " It does not override the active blocking gate."
+        detail += " It does not override the active must-fix policy check."
         tone = "block"
     return detail, tone
 
@@ -810,6 +1078,9 @@ def _candidate_email_event_rows(
         key_points = _object_strings(row.get("linked_content_key_points"))
         catalysts = _object_strings(row.get("linked_content_catalysts"))
         risks = _object_strings(row.get("linked_content_risk_flags"))
+        local_status = _clean_text(row.get("local_llm_article_status"))
+        local_direction = _clean_text(row.get("local_llm_article_direction"))
+        local_confidence = _float_or_none(row.get("local_llm_article_confidence"))
         decision_use = _email_dashboard_decision_use(
             ticker=ticker,
             title=title,
@@ -865,6 +1136,31 @@ def _candidate_email_event_rows(
                 "risks": risks,
                 "risk_text": _human_list([_email_taxonomy_label(item) for item in risks]),
                 "decision_use": _sentence_case(decision_use),
+                "local_llm_status": local_status or "",
+                "local_llm_status_label": _local_article_status_label(local_status),
+                "local_llm_status_class": _local_article_status_class(local_status),
+                "local_llm_direction": _label_text(local_direction)
+                if local_direction
+                else "Not run",
+                "local_llm_direction_class": _direction_class(local_direction or "NEUTRAL"),
+                "local_llm_confidence_pct": (
+                    round(local_confidence * 100) if local_confidence is not None else None
+                ),
+                "local_llm_thesis": _clip_text(
+                    _clean_text(row.get("local_llm_article_thesis")) or "",
+                    260,
+                ),
+                "local_llm_decision_use": _sentence_case(
+                    _clean_text(row.get("local_llm_article_decision_use")) or ""
+                ),
+                "local_llm_comparison": _clip_text(
+                    _clean_text(row.get("local_llm_article_comparison"))
+                    or _local_article_default_comparison(local_status),
+                    300,
+                ),
+                "local_llm_can_affect_trade_gates": bool(
+                    row.get("local_llm_article_can_affect_trade_gates") is True
+                ),
                 "signal_strength": _clean_text(row.get("linked_content_signal_strength")) or "",
                 "context_chars": _int_or_none(row.get("linked_content_context_chars")),
                 "summary": _mailbox_event_summary(
@@ -1127,7 +1423,7 @@ def _candidate_news_consumption_note(entry: Mapping[str, object]) -> str:
     used_at = _format_timestamp_label(entry.get("used_at"))
     return (
         f"Already used by cycle {cycle_id} at {used_at}; "
-        "the live news lane will not reuse this headline automatically."
+        "the live news process will not reuse this headline automatically."
     )
 
 
@@ -1576,6 +1872,34 @@ def _candidate_email_insight_cards(
                     "decision_use",
                     _email_default_decision_use(status, direction),
                 ),
+                "local_llm_status": _row_text(event, "local_llm_status", ""),
+                "local_llm_status_label": _row_text(
+                    event,
+                    "local_llm_status_label",
+                    "Local LLM Not Run",
+                ),
+                "local_llm_status_class": _row_text(
+                    event,
+                    "local_llm_status_class",
+                    "neutral",
+                ),
+                "local_llm_direction": _row_text(event, "local_llm_direction", "Not run"),
+                "local_llm_direction_class": _row_text(
+                    event,
+                    "local_llm_direction_class",
+                    "neutral",
+                ),
+                "local_llm_confidence_pct": event.get("local_llm_confidence_pct"),
+                "local_llm_thesis": _row_text(event, "local_llm_thesis", ""),
+                "local_llm_decision_use": _row_text(event, "local_llm_decision_use", ""),
+                "local_llm_comparison": _row_text(
+                    event,
+                    "local_llm_comparison",
+                    "Local LLM article read has not run.",
+                ),
+                "local_llm_can_affect_trade_gates": bool(
+                    event.get("local_llm_can_affect_trade_gates") is True
+                ),
             }
         )
     return cards
@@ -1669,7 +1993,7 @@ def _email_pipeline_summary(
     if analyzed_count:
         pending = _email_analysis_gap_sentence(status_counts)
         return _clip_text(
-            "Analyzed article rows feed the subscription thesis context lane in the "
+            "Analyzed article rows feed the subscription thesis context process in the "
             "next runtime cycle. They help explain candidates but do not satisfy "
             f"evidence breadth by themselves. {pending}",
             420,
@@ -1677,7 +2001,7 @@ def _email_pipeline_summary(
     if event_count:
         pending = _email_analysis_gap_sentence(status_counts)
         return _clip_text(
-            "Matched headlines are stored as paid-email evidence. The thesis lane waits "
+            "Matched headlines are stored as paid-email evidence. The thesis process waits "
             f"until an article body is analyzed. {pending}",
             420,
         )
@@ -1985,8 +2309,9 @@ def _email_interpretation_summary(
     status = _row_text(event, "linked_content_status", "not_requested")
     status_note = _email_status_note(status)
     return _clip_text(
-        f"{service} produced a {direction} {event_type}. The agency can count the "
-        f"alert as paid-subscription context, but {status_note}. Headline: {headline}",
+        f"{service} recorded {direction} paid-email context for {event_type}. "
+        f"Dashboard use: paid-subscription context only until corroborated; {status_note}. "
+        f"Headline: {headline}",
         280,
     )
 
@@ -2135,6 +2460,42 @@ def _int_or_none(value: object) -> int | None:
         return int(value)
     return None
 
+def _float_or_none(value: object) -> float | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if pd.isna(parsed):
+        return None
+    return max(0.0, min(1.0, parsed))
+
+def _local_article_status_label(status: str | None) -> str:
+    if status == "completed":
+        return "Local LLM Read"
+    if status == "failed":
+        return "Local LLM Failed"
+    if status == "not_configured":
+        return "Local LLM Not Configured"
+    if status == "disabled":
+        return "Local LLM Disabled"
+    return "Local LLM Not Run"
+
+def _local_article_status_class(status: str | None) -> str:
+    if status == "completed":
+        return "pass"
+    if status in {"failed", "not_configured"}:
+        return "warn"
+    return "neutral"
+
+def _local_article_default_comparison(status: str | None) -> str:
+    if status == "completed":
+        return "Local LLM completed a shadow article read."
+    if status:
+        return "Local LLM article read is unavailable; deterministic evidence is unchanged."
+    return "Local LLM article read has not run for this email/article row."
+
 def _email_headline(title: str | None) -> str:
     cleaned = _clean_text(title) or "No email headline recorded"
     if " - " in cleaned:
@@ -2165,6 +2526,7 @@ def candidate_decision_brief(
     all_signals = [*actionable, *context, *suppressed]
     direction_counts = _signal_direction_counts(all_signals)
     state_class = _candidate_state_class(action, gate_status)
+    decision_points = _decision_points(latest_report)
     return {
         "ticker": ticker,
         "action": action,
@@ -2185,7 +2547,8 @@ def candidate_decision_brief(
         "signal_balance": _signal_balance(direction_counts),
         "support_cards": _signal_driver_cards(actionable, "BULLISH", default_tone="pass"),
         "caution_cards": _signal_driver_cards(all_signals, "BEARISH", default_tone="block"),
-        "decision_points": _decision_points(latest_report),
+        "decision_points": decision_points,
+        "top_reason_brief": _top_reason_brief(decision_points),
         "signal_mix_note": _signal_mix_note(actionable, context, suppressed),
         "email_takeaway": str(email_evidence["meaning"]),
         "email_status_class": str(email_evidence["status_class"]),
@@ -2231,12 +2594,156 @@ def _empty_decision_brief(
                 "tone": str(email_evidence["status_class"]),
             },
         ],
+        "top_reason_brief": "No current evidence summary is available.",
         "signal_mix_note": "No current signal mix is available yet.",
         "email_takeaway": str(email_evidence["meaning"]),
         "email_status_class": str(email_evidence["status_class"]),
         "currently_holding": current_position is not None,
         "holding_label": _current_holding_label(current_position),
     }
+
+
+def _not_current_decision_brief(
+    ticker: str,
+    email_evidence: Mapping[str, object],
+    evidence_currentness: Mapping[str, object],
+    *,
+    previous_report: Mapping[str, object] | None,
+    current_position: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    status_label = _operator_text(
+        evidence_currentness.get("status_label"),
+        default="Current analysis is not ready",
+    )
+    reason = _operator_text(
+        evidence_currentness.get("reason"),
+        default="The agency is still checking the data needed for this candidate.",
+    )
+    previous_action = _clean_text((previous_report or {}).get("action")) or "previous report"
+    previous_cycle = _clean_text((previous_report or {}).get("cycle_id")) or "previous cycle"
+    return {
+        "ticker": ticker,
+        "action": "IN_PROGRESS",
+        "action_label": status_label,
+        "state_label": status_label,
+        "state_class": _not_current_status_class(evidence_currentness),
+        "headline": f"{ticker} is not ready for review yet.",
+        "detail": (
+            f"{reason} The last persisted report ({previous_action}, {previous_cycle}) "
+            "is intentionally not displayed as current evidence."
+        ),
+        "next_step": "Wait for this lane to finish, or use the matching lane Refresh control.",
+        "conviction_pct": 0,
+        "conviction_style": "--meter-value: 0%",
+        "gate_status": "WAIT",
+        "gate_class": "warn",
+        "generated_at": "None",
+        "source_count": 0,
+        "confirmed_signal_count": 0,
+        "signal_counts": _signal_count_cards([], [], []),
+        "signal_balance": _signal_balance(Counter()),
+        "support_cards": [],
+        "caution_cards": [
+            {
+                "label": status_label,
+                "detail": reason,
+                "meta": "Previous report rows are history only while analysis is running.",
+                "tone": _not_current_status_class(evidence_currentness),
+            }
+        ],
+        "decision_points": [
+            {
+                "label": status_label,
+                "detail": reason,
+                "tone": _not_current_status_class(evidence_currentness),
+            },
+            {
+                "label": "Previous report protected",
+                "detail": (
+                    "The agency found a persisted report, but it is not being treated as "
+                    "current while the required data lane is still loading or awaiting analysis."
+                ),
+                "tone": "neutral",
+            },
+        ],
+        "top_reason_brief": reason,
+        "signal_mix_note": (
+            "No current signal mix is displayed until the current lane state is ready."
+        ),
+        "email_takeaway": str(email_evidence["meaning"]),
+        "email_status_class": str(email_evidence["status_class"]),
+        "currently_holding": current_position is not None,
+        "holding_label": _current_holding_label(current_position),
+    }
+
+
+def _not_current_status_class(evidence_currentness: Mapping[str, object]) -> str:
+    display_mode = str(evidence_currentness.get("display_mode") or "").casefold()
+    if display_mode in {"work_in_progress", "cycle_mismatch"}:
+        return "warn"
+    return "block"
+
+
+def _top_reason_brief(decision_points: Sequence[Mapping[str, object]]) -> str:
+    if not decision_points:
+        return "No primary evidence reason was recorded."
+    first = decision_points[0]
+    return _clean_text(first.get("detail")) or _clean_text(first.get("label")) or (
+        "Primary evidence reason was not recorded."
+    )
+
+
+def evidence_delta_since_review(
+    latest_report: Mapping[str, object] | None,
+    email_evidence: Mapping[str, object],
+    news_evidence: Mapping[str, object],
+    review: Mapping[str, object],
+) -> dict[str, object]:
+    decision = str(review.get("decision") or "").strip().lower()
+    review_time = _timestamp_sort_value(review.get("event_time"))
+    if decision in {"", "pending"} or review_time <= 0:
+        return {"show": False, "label": "", "detail": ""}
+    latest_evidence_time = max(
+        _candidate_evidence_timestamp_values(latest_report, email_evidence, news_evidence),
+        default=0.0,
+    )
+    if latest_evidence_time <= review_time:
+        return {"show": False, "label": "", "detail": ""}
+    return {
+        "show": True,
+        "label": f"New evidence since {review.get('event_time_label') or 'last review'}",
+        "detail": "At least one signal, email, or news item is newer than the recorded review decision.",
+    }
+
+
+def _candidate_evidence_timestamp_values(
+    latest_report: Mapping[str, object] | None,
+    email_evidence: Mapping[str, object],
+    news_evidence: Mapping[str, object],
+) -> list[float]:
+    values: list[float] = []
+    if latest_report is not None:
+        values.extend(
+            _timestamp_sort_value(signal.get(key))
+            for signal in [
+                *_mapping_rows(latest_report, "actionable_signals"),
+                *_mapping_rows(latest_report, "context_signals"),
+                *_mapping_rows(latest_report, "suppressed_signals"),
+            ]
+            for key in ("timestamp_as_of", "timestamp", "as_of")
+        )
+    for payload in (email_evidence, news_evidence):
+        for value in payload.values():
+            if not isinstance(value, Sequence) or isinstance(value, str | bytes):
+                continue
+            for row in value:
+                if not isinstance(row, Mapping):
+                    continue
+                values.extend(
+                    _timestamp_sort_value(row.get(key))
+                    for key in ("timestamp", "event_time", "published_at", "as_of", "used_at")
+                )
+    return [value for value in values if value > 0]
 
 def _candidate_current_position(
     ticker: str,
@@ -2306,7 +2813,7 @@ def _candidate_action_label(action: str) -> str:
 
 def _candidate_brief_headline(ticker: str, action: str, gate_status: str) -> str:
     if gate_status == "BLOCK":
-        return f"{ticker} was blocked by policy gates."
+        return f"{ticker} was stopped by policy checks."
     headlines = {
         "WATCH": f"{ticker} is selected for human review, not automatic trading.",
         "NO_TRADE": f"{ticker} was rejected for now.",
@@ -2353,7 +2860,7 @@ def _candidate_next_step(
     review: Mapping[str, object],
 ) -> str:
     if gate_status == "BLOCK":
-        return "Do not approve. Fix the blocking gate or wait for stronger evidence."
+        return "Do not approve. Fix the must-fix policy check or wait for stronger evidence."
     if action == "WATCH":
         decision = str(review.get("decision", "Pending"))
         if decision == "Pending":
@@ -2444,7 +2951,7 @@ def _signal_driver_cards(
         ]
     cards: list[dict[str, object]] = [
         {
-            "label": str(signal["lane"]),
+            "label": _label_text(str(signal.get("display_name") or signal["lane"])),
             "detail": _signal_driver_detail(signal),
             "meta": _signal_driver_meta(signal),
             "tone": default_tone,
@@ -2551,7 +3058,7 @@ def _decision_points(latest_report: Mapping[str, object]) -> list[dict[str, obje
         points.append(
             {
                 "label": "Policy gates",
-                "detail": "No blocking policy gate is active for the latest report.",
+                "detail": "No must-fix policy check is active for the latest report.",
                 "tone": "pass",
             }
         )
@@ -2656,6 +3163,11 @@ def _optional_mapping_field(payload: Mapping[str, object], key: str) -> Mapping[
 
 def _candidate_return_context(ticker: str, return_source: str | None) -> dict[str, str]:
     normalized_ticker = ticker.upper()
+    if str(return_source or "").strip().lower() == "cockpit":
+        return {
+            "label": "Back to cockpit",
+            "href": f"/cockpit?ticker={normalized_ticker}#candidate-{normalized_ticker}",
+        }
     if str(return_source or "").strip().lower() == "execution-preview":
         query = urlencode({"ticker": normalized_ticker})
         return {
@@ -2683,6 +3195,9 @@ def _candidate_review_redirect_url(
     if str(return_to or "").strip().lower() == "execution-preview":
         query = urlencode({"ticker": normalized_ticker})
         return f"/execution-preview?{query}#focused-preview-{normalized_ticker}"
+    if str(return_to or "").strip().lower() == "cockpit":
+        query = urlencode({"ticker": normalized_ticker})
+        return f"/cockpit?{query}#candidate-{normalized_ticker}"
     return f"/candidates/{normalized_ticker}"
 
 def _review_action_url(
@@ -2698,7 +3213,7 @@ def _review_action_url(
     if caution_acknowledged:
         query_values["caution_acknowledged"] = "true"
     cleaned_return = str(return_to or "").strip().lower()
-    if cleaned_return in {"final-selection", "execution-preview"}:
+    if cleaned_return in {"final-selection", "execution-preview", "cockpit"}:
         query_values["return_to"] = cleaned_return
     query = urlencode(query_values)
     return f"/candidates/{ticker}/reviews?{query}"

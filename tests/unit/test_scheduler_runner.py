@@ -17,6 +17,32 @@ def test_pre_market_jobs_include_stock_trades_and_email() -> None:
     assert "sec_company_facts" not in names
 
 
+def test_commands_for_tick_includes_due_signal_lanes() -> None:
+    queue = {
+        "massive_orchestrator": {"lanes": []},
+        "jobs": [
+            {
+                "job_id": "signal:buy_sell_pressure",
+                "kind": "signal_lane",
+                "name": "buy_sell_pressure",
+                "status": "DUE_NOW",
+                "command": ["python", "scripts/run_live_runtime_cycle.py", "--signal", "buy_sell_pressure"],
+            },
+            {
+                "job_id": "dataset:sec_form4",
+                "kind": "dataset",
+                "name": "sec_form4",
+                "status": "WAITING",
+                "command": ["python", "research/scripts/run_data_refresh_batch.py"],
+            },
+        ],
+    }
+
+    commands = scheduler_runner._commands_for_tick(queue)
+
+    assert [row["job_id"] for row in commands] == ["signal:buy_sell_pressure"]
+
+
 def test_subscription_email_login_refresh_reprocesses_seen_batch_and_records_progress(
     tmp_path: Path,
     monkeypatch,
@@ -173,7 +199,12 @@ def test_work_queue_tick_prefers_massive_lanes_and_refreshes_runtime(monkeypatch
             ],
         }
 
-    def fake_run(command: list[str]) -> CompletedProcess[str]:
+    def fake_run(
+        command: list[str],
+        *,
+        timeout_seconds: int | None = None,
+    ) -> CompletedProcess[str]:
+        assert timeout_seconds is not None
         commands.append(command)
         return CompletedProcess(command, 0, stdout="ok", stderr="")
 
@@ -235,7 +266,11 @@ def test_manual_massive_lane_refresh_runs_only_requested_due_lane(monkeypatch) -
         recorded.append(dict(kwargs))
         return dict(kwargs)
 
-    def fake_run(command: list[str]) -> CompletedProcess[str]:
+    def fake_run(
+        command: list[str],
+        *,
+        timeout_seconds: int | None = None,
+    ) -> CompletedProcess[str]:
         commands.append(command)
         return CompletedProcess(command, 0, stdout="ok", stderr="")
 
@@ -280,7 +315,11 @@ def test_manual_massive_lane_refresh_refuses_policy_unavailable_lane(monkeypatch
         recorded.append(dict(kwargs))
         return dict(kwargs)
 
-    def fake_run(command: list[str]) -> CompletedProcess[str]:
+    def fake_run(
+        command: list[str],
+        *,
+        timeout_seconds: int | None = None,
+    ) -> CompletedProcess[str]:
         commands.append(command)
         return CompletedProcess(command, 0, stdout="should not run", stderr="")
 
@@ -355,7 +394,12 @@ def test_work_queue_tick_marks_timed_out_dataset_refresh_status_failed(
             ],
         }
 
-    def fake_run(command: list[str]) -> CompletedProcess[str]:
+    def fake_run(
+        command: list[str],
+        *,
+        timeout_seconds: int | None = None,
+    ) -> CompletedProcess[str]:
+        assert timeout_seconds is not None
         return CompletedProcess(
             command,
             124,
@@ -390,6 +434,80 @@ def test_work_queue_tick_marks_timed_out_dataset_refresh_status_failed(
     assert payload["in_progress"] is False
 
 
+def test_massive_lane_command_timeout_scales_with_eta(monkeypatch) -> None:
+    monkeypatch.setattr(scheduler_runner, "COMMAND_TIMEOUT_SECONDS", 240)
+    monkeypatch.setattr(scheduler_runner, "COMMAND_TIMEOUT_GRACE_SECONDS", 120)
+    monkeypatch.setattr(scheduler_runner, "MAX_COMMAND_TIMEOUT_SECONDS", 1800)
+
+    timeout = scheduler_runner._command_timeout_seconds(
+        {
+            "kind": "massive_lane",
+            "name": "massive_live_trade_slices",
+            "eta_seconds": 1560,
+            "ticker_count": 168,
+        }
+    )
+
+    assert timeout == 1680
+
+
+def test_run_queue_command_uses_supplied_timeout(monkeypatch, tmp_path: Path) -> None:
+    calls: list[dict[str, object]] = []
+
+    def fake_run(cmd, **kwargs):  # type: ignore[no-untyped-def]
+        calls.append({"cmd": list(cmd), **kwargs})
+        return CompletedProcess(cmd, 0, stdout="ok", stderr="")
+
+    monkeypatch.setattr(scheduler_runner, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(scheduler_runner.subprocess, "run", fake_run)
+
+    result = scheduler_runner._run_queue_command(["python", "pull.py"], timeout_seconds=900)
+
+    assert result.returncode == 0
+    assert calls[0]["timeout"] == 900
+
+
+def test_normalize_command_uses_current_interpreter_for_default_windows_venv(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(scheduler_runner, "PYTHON", "/usr/local/bin/python")
+    monkeypatch.setattr(scheduler_runner.os, "sep", "/")
+
+    command = scheduler_runner._normalize_command(
+        [
+            "C:\\app\\.venv\\Scripts\\python.exe",
+            "scripts\\run_live_runtime_cycle.py",
+            "--config",
+            "research\\config\\live-refresh.local.json",
+        ]
+    )
+
+    assert command == [
+        "/usr/local/bin/python",
+        "scripts/run_live_runtime_cycle.py",
+        "--config",
+        "research/config/live-refresh.local.json",
+    ]
+
+
+def test_normalize_command_keeps_non_path_backslash_text() -> None:
+    command = scheduler_runner._normalize_command(
+        ["python", "--message", "operator\\typed\\text"]
+    )
+
+    assert command == ["python", "--message", "operator\\typed\\text"]
+
+
+def test_resolve_repo_root_prefers_candidate_with_runtime_scripts(tmp_path: Path) -> None:
+    repo_root = tmp_path / "app"
+    (repo_root / "research" / "scripts").mkdir(parents=True)
+    (repo_root / "schemas").mkdir()
+    site_packages_root = tmp_path / "usr" / "local" / "lib" / "python3.14"
+    site_packages_root.mkdir(parents=True)
+
+    assert scheduler_runner._resolve_repo_root([site_packages_root, repo_root]) == repo_root
+
+
 def test_work_queue_tick_records_job_success_cadence_memory(monkeypatch) -> None:
     command_started = datetime(2026, 5, 17, 14, 0, tzinfo=UTC)
 
@@ -418,7 +536,7 @@ def test_work_queue_tick_records_job_success_cadence_memory(monkeypatch) -> None
     monkeypatch.setattr(
         scheduler_runner,
         "_run_queue_command",
-        lambda command: CompletedProcess(command, 0, stdout="ok", stderr=""),
+        lambda command, **_kwargs: CompletedProcess(command, 0, stdout="ok", stderr=""),
     )
     monkeypatch.setattr(scheduler_runner, "WORK_QUEUE_MAX_COMMANDS", 1)
     monkeypatch.setattr(scheduler_runner, "RUNTIME_CYCLE_AFTER_DATA_REFRESH", False)
@@ -431,7 +549,7 @@ def test_work_queue_tick_records_job_success_cadence_memory(monkeypatch) -> None
     assert status["last_tick_commands"][0]["exit_code"] == 0
 
 
-def test_work_queue_command_extractor_ignores_signal_jobs() -> None:
+def test_work_queue_command_extractor_includes_signal_jobs() -> None:
     queue = {
         "massive_orchestrator": {"lanes": []},
         "jobs": [
@@ -442,8 +560,10 @@ def test_work_queue_command_extractor_ignores_signal_jobs() -> None:
 
     commands = scheduler_runner._commands_for_tick(queue)
 
-    assert len(commands) == 1
-    assert commands[0]["command"] == ["python", "data.py"]
+    assert [row["command"] for row in commands] == [
+        ["python", "signal.py"],
+        ["python", "data.py"],
+    ]
 
 
 def test_work_queue_command_extractor_does_not_rerun_running_lanes() -> None:

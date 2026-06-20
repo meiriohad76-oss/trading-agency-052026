@@ -52,22 +52,23 @@ def test_shared_base_declares_v3_operating_shell() -> None:
     html = BASE.read_text(encoding="utf-8")
 
     assert 'data-ux-version="v3"' in html
-    assert 'data-ux-build="ux-v3-all-dashboards-20260523"' in html
+    assert 'data-ux-build="ux-v3-cockpit-readability-20260601"' in html
     assert "Trading Agency v3" in html
     assert "UX V3" in html
-    assert "Pre-Flight" in html
-    assert "V3 Cockpit" in html
-    assert "Ops status" in html
+    assert "Cockpit Readability" in html
+    assert "Today's Cockpit" in html
+    assert "System Health" in html
     assert "PAPER" in html
     assert "v3-phase-rail" in html
     assert "/static/v3-screens.css" in html
     assert "ux-v3-visible-20260523" not in html
     assert "ux-v3-all-screens-20260522" not in html
     assert "ux-v3-review-readable-2-20260522" not in html
-    assert "Candidates" in html
-    assert "Portfolio" in html
-    assert "Clearance" in html
-    assert "Cleared" in html
+    assert "Candidate Review" in html
+    assert "Portfolio Review" in html
+    assert "Order Clearance" in html
+    assert "Audit Trail" in html
+    assert "Runtime diagnostics" not in html
     assert "active_nav in ['audit', 'cleared']" in html
 
 
@@ -100,7 +101,7 @@ def test_all_primary_screens_have_bottom_line_page_titles() -> None:
             .strip()
         )
         assert title not in generic_titles, name
-        assert any(token in title.lower() for token in ("ready", "review", "shows", "tracks", "guards", "proves", "clears", "briefs")), name
+        assert any(token in title.lower() for token in ("ready", "review", "shows", "tracks", "guards", "proves", "clears", "briefs", "today")), name
 
 
 def test_every_non_cockpit_dashboard_keeps_data_health_visible() -> None:
@@ -110,6 +111,15 @@ def test_every_non_cockpit_dashboard_keeps_data_health_visible() -> None:
         html = _template(name)
         assert '{% from "_data_health.html" import data_health_panel %}' in html, name
         assert "{{ data_health_panel(data_health) }}" in html, name
+
+
+def test_execution_preview_focused_path_keeps_data_health_before_selected_card() -> None:
+    html = _template("execution_preview.html")
+
+    focused_gate = "{% if focused_execution and focused_execution.requested %}"
+    focused_data_health = f"{focused_gate}\n    {{{{ data_health_panel(data_health) }}}}"
+    assert focused_data_health in html
+    assert html.index(focused_data_health) < html.index('class="panel focused-execution-panel"')
 
 
 def test_shared_base_renders_visible_v3_briefing_contract() -> None:
@@ -122,7 +132,7 @@ def test_shared_base_renders_visible_v3_briefing_contract() -> None:
     assert "{% block workflow_phase %}" in html
     assert "{% block operator_focus %}" in html
     assert "{% block evidence_contract %}" in html
-    assert "BLUF" in html
+    assert "Bottom line" in html
     assert "Evidence" in html
     assert "Operator move" in html
 

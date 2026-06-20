@@ -6,7 +6,6 @@ import os
 import re
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import cast
 
 import pandas as pd
@@ -17,10 +16,10 @@ from agency.api.candidates import RuntimeCandidateTimelineUnavailable, runtime_c
 from agency.api.reports import RuntimeSelectionReportsUnavailable, runtime_selection_reports
 from agency.api.risk import RuntimeRiskDecisionsUnavailable, runtime_risk_decisions
 from agency.db import MissingDatabaseConfigurationError, get_session
+from agency.paths import REPO_ROOT
 from agency.runtime import list_candidate_lifecycle_events
 from agency.runtime.artifact_fallbacks import runtime_lifecycle_event_artifacts
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
 EMAIL_EVENTS_PATH = REPO_ROOT / "research" / "data" / "parquet" / "subscription_emails.parquet"
 NEWS_RSS_PATH = REPO_ROOT / "research" / "data" / "parquet" / "news_rss.parquet"
 PRICES_DAILY_ROOT = REPO_ROOT / "research" / "data" / "parquet" / "prices_daily"
@@ -84,7 +83,12 @@ DASHBOARD_HEALTH_QUERY_TIMEOUT_SECONDS = 5.0
 DASHBOARD_LIFECYCLE_QUERY_TIMEOUT_SECONDS = 1.0
 LIVE_PIT_CYCLE_PREFIX = "live-pit-"
 LIVE_READY_CYCLE_PREFIX = "live-ready-"
-LIVE_SELECTION_CYCLE_PREFIXES = (LIVE_PIT_CYCLE_PREFIX, LIVE_READY_CYCLE_PREFIX)
+AUTO_LANE_REFRESH_CYCLE_PREFIX = "auto-lane-refresh-"
+LIVE_SELECTION_CYCLE_PREFIXES = (
+    LIVE_PIT_CYCLE_PREFIX,
+    LIVE_READY_CYCLE_PREFIX,
+    AUTO_LANE_REFRESH_CYCLE_PREFIX,
+)
 MAX_FULL_CYCLE_LABEL_LENGTH = 28
 CYCLE_LABEL_SUFFIX_LENGTH = 25
 MIN_BRIEF_SOURCE_COUNT = 2
@@ -130,6 +134,121 @@ EMAIL_EVENT_LABELS = {
     "zacks_news": "news alert",
     "zacks_rank_change": "rank change",
     "zacks_rating_change": "rating change",
+}
+
+LANE_SCORE_SCALE: Mapping[str, tuple[str, str]] = {
+    "abnormal_volume": (
+        "Cross-sectional rank",
+        (
+            "Score is a signed rank versus the current ticker universe. Positive values mean "
+            "stronger bullish pressure than peers; negative values mean stronger bearish pressure."
+        ),
+    ),
+    "block_trade_pressure": (
+        "Cross-sectional rank",
+        (
+            "Score ranks inferred block/off-exchange pressure against the current universe. "
+            "It is not a dollar amount or conviction percentage."
+        ),
+    ),
+    "buy_sell_pressure": (
+        "Cross-sectional rank",
+        (
+            "Score ranks signed notional pressure against peers in the same cycle. The evidence "
+            "cards show the dollars and buy/sell split behind the rank."
+        ),
+    ),
+    "fundamentals": (
+        "Fundamental composite",
+        (
+            "Score blends quality, growth, valuation, balance-sheet, and forward metrics. Read it "
+            "with the SEC period and driver cards, not as a peer percentile."
+        ),
+    ),
+    "insider": (
+        "Universe z-score",
+        (
+            "Score measures how far net Form 4 buying or selling is from the universe average. "
+            "Large positive values mean unusually strong insider buying."
+        ),
+    ),
+    "institutional": (
+        "Lagged 13F context",
+        (
+            "Score is based on quarterly 13F position changes. 13F data is delayed up to 45 days, "
+            "so this evidence source is context only and cannot be current flow evidence."
+        ),
+    ),
+    "market_flow_trend": (
+        "Cross-sectional rank",
+        (
+            "Score ranks the latest change in signed trade pressure versus the current universe. "
+            "The cards show the actual pressure delta."
+        ),
+    ),
+    "news": (
+        "Headline z-score",
+        (
+            "Score compares confidence-weighted ticker-tagged headline cues across the universe. "
+            "It is headline taxonomy, not full article sentiment."
+        ),
+    ),
+    "options_anomaly": (
+        "Options anomaly rank",
+        (
+            "Score ranks option premium, volume, and open-interest anomaly pressure when a real "
+            "options provider is configured."
+        ),
+    ),
+    "options_flow": (
+        "Options flow rank",
+        (
+            "Score ranks call-versus-put option flow pressure when a real options provider is "
+            "configured."
+        ),
+    ),
+    "pre_market_unusual_activity": (
+        "Cross-sectional rank",
+        (
+            "Score ranks pre-market volume, notional, and pressure anomalies against the current "
+            "universe. The cards show the exact pre-market ratios."
+        ),
+    ),
+    "prepost": (
+        "Extended-hours context",
+        (
+            "Score summarizes pre/post-market activity from the persisted runtime row. Inspect the "
+            "source timestamp and summary before using it."
+        ),
+    ),
+    "sector_momentum": (
+        "Relative context",
+        (
+            "Score reflects sector or benchmark strength relative to recent market baselines. It "
+            "corroborates stock-specific evidence but should not stand alone."
+        ),
+    ),
+    "subscription_thesis": (
+        "Thesis-weighted score",
+        (
+            "Score weights paid-email/article thesis direction by recency, source quality, ticker "
+            "relevance, and extraction confidence."
+        ),
+    ),
+    "technical_analysis": (
+        "Technical composite",
+        (
+            "Score blends trend, momentum, volume, relative strength, pattern, pressure, and "
+            "volatility factors. It is not a peer percentile."
+        ),
+    ),
+    "unusual_trade_activity": (
+        "Cross-sectional rank",
+        (
+            "Score ranks trade-count, volume, and notional anomalies against peers. The evidence "
+            "cards show which metric was unusual."
+        ),
+    ),
 }
 
 
@@ -443,50 +562,173 @@ def _score_text(signal: Mapping[str, object]) -> str:
         bias = "neutral"
     return f"{score:+.2f} {bias}"
 
+def _score_scale_label(lane_key: str) -> str:
+    return LANE_SCORE_SCALE.get(
+        lane_key,
+        (
+            "Lane-specific score",
+            (
+                "Score meaning depends on the signal process that produced it. Use the "
+                "inspector evidence cards for the source units and calculation basis."
+            ),
+        ),
+    )[0]
+
+def _score_scale_tooltip(lane_key: str) -> str:
+    return LANE_SCORE_SCALE.get(
+        lane_key,
+        (
+            "Lane-specific score",
+            (
+                "Score meaning depends on the signal process that produced it. Use the "
+                "inspector evidence cards for the source units and calculation basis."
+            ),
+        ),
+    )[1]
+
 def _reason_summary(reason_code: str) -> str:
     summaries = {
-        "abnormal_volume_bullish": "Volume activity is constructive.",
-        "abnormal_volume_bearish": "Volume activity is negative.",
-        "activity_alerts_bullish": "Unusual activity alerts are constructive.",
-        "activity_alerts_bearish": "Unusual activity alerts are negative.",
+        "abnormal_volume_bullish": (
+            "Abnormal volume is bullish when the latest daily volume is far above its median "
+            "baseline and the stock price rises on the same trigger bar."
+        ),
+        "abnormal_volume_bearish": (
+            "Abnormal volume is bearish when the latest daily volume is far above its median "
+            "baseline and the stock price falls on the same trigger bar."
+        ),
+        "activity_alerts_bullish": (
+            "Activity alerts are bullish when trade count, notional, or volume is above "
+            "its ticker baseline and the signed pressure leans buyer-side."
+        ),
+        "activity_alerts_bearish": (
+            "Activity alerts are bearish when trade count, notional, or volume is above "
+            "its ticker baseline and the signed pressure leans seller-side."
+        ),
         "bearish_action_not_enabled": "Bearish actions are not enabled in this runtime.",
         "below_actionability_threshold": "Signal is below the actionability threshold.",
-        "block_trade_pressure_bullish": "Block-trade pressure is constructive.",
-        "block_trade_pressure_bearish": "Block-trade pressure is negative.",
-        "buy_sell_pressure_bullish": "Buy/sell pressure is constructive.",
-        "buy_sell_pressure_bearish": "Buy/sell pressure is negative.",
+        "block_trade_pressure_bullish": (
+            "Block-trade pressure is bullish when focused block/TRF/off-exchange prints have "
+            "buy-leaning signed notional and represent a meaningful share of analyzed notional."
+        ),
+        "block_trade_pressure_bearish": (
+            "Block-trade pressure is bearish when focused block/TRF/off-exchange prints have "
+            "sell-leaning signed notional and represent a meaningful share of analyzed notional."
+        ),
+        "buy_sell_pressure_bullish": (
+            "Buy/sell pressure is bullish when signed notional from delayed trade prints is "
+            "buy-leaning; total notional is all analyzed prints, not off-exchange-only."
+        ),
+        "buy_sell_pressure_bearish": (
+            "Buy/sell pressure is bearish when signed notional from delayed trade prints is "
+            "sell-leaning; total notional is all analyzed prints, not off-exchange-only."
+        ),
         "duplicate_signal_source": "Duplicate source was ignored.",
-        "fundamentals_bullish": "Fundamental metrics are constructive.",
-        "fundamentals_bearish": "Fundamental metrics are negative.",
-        "insider_bullish": "Insider activity is constructive.",
-        "insider_bearish": "Insider activity is negative.",
-        "institutional_bullish": "Institutional positioning is constructive.",
-        "institutional_bearish": "Institutional positioning is negative.",
+        "13f_data_delayed": (
+            "Institutional 13F filings have a mandatory delay of up to 45 days after "
+            "quarter-end. This signal is kept as ownership context because it does not "
+            "prove current institutional buying or selling."
+        ),
+        "fundamentals_bullish": (
+            "Fundamentals lane is net bullish after comparing margins, cash generation, "
+            "leverage, growth, and valuation versus the current universe."
+        ),
+        "fundamentals_bearish": (
+            "Fundamentals lane is net bearish after comparing margins, cash generation, "
+            "leverage, growth, and valuation versus the current universe; see Main drivers "
+            "for the exact metrics."
+        ),
+        "insider_bullish": (
+            "Insider lane is bullish when Form 4 purchases exceed Form 4 sales in "
+            "recent transaction value, producing positive net insider dollars."
+        ),
+        "insider_bearish": (
+            "Insider lane is bearish when Form 4 sales exceed Form 4 purchases in "
+            "recent transaction value, producing negative net insider dollars."
+        ),
+        "institutional_bullish": (
+            "Institutional lane is bullish when 13F holder share changes show net "
+            "accumulation versus the prior reported quarter."
+        ),
+        "institutional_bearish": (
+            "Institutional lane is bearish when 13F holder share changes show net "
+            "distribution versus the prior reported quarter."
+        ),
         "insufficient_confirmed_sources": "Needs more confirmed corroboration.",
         "insufficient_independent_sources": "Needs more independent source coverage.",
-        "market_flow_trend_bullish": "Market-flow trend is improving.",
-        "market_flow_trend_bearish": "Market-flow trend is deteriorating.",
-        "news_bullish": "News flow is constructive.",
-        "news_bearish": "News flow is negative.",
+        "market_flow_trend_bullish": (
+            "Market-flow trend is bullish when latest signed notional pressure improves "
+            "versus the recent median pressure baseline with enough participation."
+        ),
+        "market_flow_trend_bearish": (
+            "Market-flow trend is bearish when latest signed notional pressure deteriorates "
+            "versus the recent median pressure baseline with enough participation."
+        ),
+        "news_bullish": (
+            "News lane is bullish when confidence-weighted ticker-tagged headlines contain "
+            "more positive event cues than negative cues in the lookback window."
+        ),
+        "news_bearish": (
+            "News lane is bearish when confidence-weighted ticker-tagged headlines contain "
+            "more negative event cues than positive cues in the lookback window."
+        ),
         "not_actionable": "Useful context, but not actionable by itself.",
-        "options_anomaly_bullish": "Options anomaly activity is constructive.",
-        "options_anomaly_bearish": "Options anomaly activity is negative.",
-        "options_flow_bullish": "Options flow is constructive.",
-        "options_flow_bearish": "Options flow is negative.",
-        "prepost_bullish": "Pre/post-market activity is constructive.",
-        "prepost_bearish": "Pre/post-market activity is negative.",
-        "pre_market_unusual_activity_bullish": "Pre-market unusual activity is constructive.",
-        "pre_market_unusual_activity_bearish": "Pre-market unusual activity is negative.",
+        "options_anomaly_bullish": (
+            "Options anomaly is bullish when call-side volume, premium, or open-interest "
+            "change is unusually high versus the option baseline."
+        ),
+        "options_anomaly_bearish": (
+            "Options anomaly is bearish when put-side volume, premium, or open-interest "
+            "change is unusually high versus the option baseline."
+        ),
+        "options_flow_bullish": (
+            "Options flow is bullish when call-side premium or volume dominates put-side "
+            "activity in the available chain sample."
+        ),
+        "options_flow_bearish": (
+            "Options flow is bearish when put-side premium or volume dominates call-side "
+            "activity in the available chain sample."
+        ),
+        "prepost_bullish": (
+            "Pre/post-market activity is bullish when extended-hours volume or notional "
+            "is elevated and signed pressure leans buyer-side."
+        ),
+        "prepost_bearish": (
+            "Pre/post-market activity is bearish when extended-hours volume or notional "
+            "is elevated and signed pressure leans seller-side."
+        ),
+        "pre_market_unusual_activity_bullish": (
+            "Pre-market unusual activity is bullish when pre-market volume or notional "
+            "is above its ticker baseline and pre-market signed pressure leans buyer-side."
+        ),
+        "pre_market_unusual_activity_bearish": (
+            "Pre-market unusual activity is bearish when pre-market volume or notional "
+            "is above its ticker baseline and pre-market signed pressure leans seller-side."
+        ),
         "requires_confirmed_corroboration": "Inferred signal needs confirmed corroboration.",
-        "sector_momentum_bullish": "Sector momentum is constructive.",
-        "sector_momentum_bearish": "Sector momentum is negative.",
+        "sector_momentum_bullish": (
+            "Sector momentum is bullish when the stock's sector or benchmark group is "
+            "outperforming its recent return baseline."
+        ),
+        "sector_momentum_bearish": (
+            "Sector momentum is bearish when the stock's sector or benchmark group is "
+            "underperforming its recent return baseline."
+        ),
         "signal_strength_below_threshold": "Combined signal strength is below threshold.",
         "source_unavailable": "Source was unavailable.",
         "stale_evidence": "Evidence needs refresh, so it is context only.",
         "subscription_thesis_context_only": "Subscription article thesis is context only.",
-        "technical_analysis_bullish": "Technical setup is constructive.",
-        "technical_analysis_bearish": "Technical setup is negative.",
-        "technical_analysis_neutral": "Technical setup is mixed.",
+        "technical_analysis_bullish": (
+            "Technical analysis is bullish when trend, momentum, relative strength, "
+            "volume confirmation, and chart setup contribute a positive combined score."
+        ),
+        "technical_analysis_bearish": (
+            "Technical analysis is bearish when trend, momentum, relative strength, "
+            "volume confirmation, and chart setup contribute a negative combined score."
+        ),
+        "technical_analysis_neutral": (
+            "Technical analysis is mixed when trend, momentum, relative strength, "
+            "volume confirmation, and chart setup do not agree directionally."
+        ),
         "technical_pattern_bearish": "Named chart pattern is bearish.",
         "technical_pattern_bullish": "Named chart pattern is bullish.",
         "technical_pattern_confirmed": "Named chart pattern is confirmed.",
@@ -505,8 +747,14 @@ def _reason_summary(reason_code: str) -> str:
         "technical_setup_pullback_to_support": "Chart setup is pulling back to support.",
         "technical_setup_range_bound": "Chart setup is range-bound.",
         "technical_setup_trend_continuation": "Chart setup shows trend continuation.",
-        "unusual_trade_activity_bullish": "Unusual trade activity is constructive.",
-        "unusual_trade_activity_bearish": "Unusual trade activity is negative.",
+        "unusual_trade_activity_bullish": (
+            "Unusual trade activity is bullish when the latest trade count, notional, or "
+            "share volume is above its recent median baseline and signed notional is buy-leaning."
+        ),
+        "unusual_trade_activity_bearish": (
+            "Unusual trade activity is bearish when the latest trade count, notional, or "
+            "share volume is above its recent median baseline and signed notional is sell-leaning."
+        ),
         "zero_confidence": "Signal confidence is zero.",
     }
     return summaries.get(reason_code, f"{_label_text(reason_code)}.")
@@ -592,7 +840,120 @@ def _source_is_degraded(source: Mapping[str, object]) -> bool:
     )
 
 def _label_text(value: str) -> str:
-    return value.replace("_", " ").title()
+    cleaned = value.strip()
+    key = cleaned.casefold().replace("-", "_").replace(" ", "_")
+    labels = {
+        "abnormal_volume": "Abnormal Volume",
+        "activity_alert": "Activity Alert",
+        "analyst_action": "Analyst Action",
+        "backtest_feature_builder": "Backtest Feature Builder",
+        "block_trade_pressure": "Block Trade Pressure",
+        "buy_sell_pressure": "Buy/Sell Pressure",
+        "fundamentals": "Fundamentals",
+        "insider": "Insider Activity",
+        "institutional": "Institutional Flow",
+        "market_flow_trend": "Market Flow Trend",
+        "news": "News",
+        "pre_market_unusual_activity": "Pre-Market Unusual Activity",
+        "sector_momentum": "Sector Momentum",
+        "subscription_thesis": "Email/Article Thesis",
+        "technical_analysis": "Technical Analysis",
+        "unusual_trade_activity": "Unusual Trade Activity",
+    }
+    return labels.get(key, cleaned.replace("_", " ").title())
+
+
+def operator_status_label(raw_status: object) -> tuple[str, str]:
+    """Map internal status values to the four operator-facing display states."""
+    normalized = str(raw_status or "").strip().upper().replace("-", "_")
+    if normalized in {
+        "PASS",
+        "PASSED",
+        "READY",
+        "OPEN",
+        "ALLOW",
+        "APPROVE",
+        "APPROVED",
+        "SUCCESS",
+        "FILLED",
+    }:
+        return ("Ready", "ready")
+    if normalized in {
+        "WARN",
+        "WARNING",
+        "ATTENTION",
+        "DEGRADED",
+        "PARTIAL",
+        "PARTIAL_USABLE",
+        "WATCH",
+        "HOLD",
+    }:
+        return ("Attention", "attention")
+    if normalized in {
+        "BLOCK",
+        "BLOCKED",
+        "CLOSED",
+        "REJECT",
+        "REJECTED",
+        "FAILED",
+        "ERROR",
+        "UNAVAILABLE",
+        "MISSING",
+    }:
+        return ("Blocked", "blocked")
+    return ("Inactive", "inactive")
+
+
+def workflow_phase_summary(
+    *,
+    review_progress: Mapping[str, object] | None = None,
+    execution_summary: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    """Return the compact operator workflow state used by the app shell."""
+    review_progress = review_progress or {}
+    execution_summary = execution_summary or {}
+    pending = _coerce_int(review_progress.get("pending_count"))
+    reviewed = str(review_progress.get("reviewed_label") or "").strip()
+    orderable = _coerce_int(execution_summary.get("ready_count"))
+    submit_ready = _coerce_int(execution_summary.get("submit_ready_count"))
+    return {
+        "segments": [
+            {
+                "label": "Review",
+                "href": "/command#review-queue-heading",
+                "state": "active" if pending else "complete",
+                "detail": f"{pending} pending" if pending else reviewed or "Queue clear",
+            },
+            {
+                "label": "Risk",
+                "href": "/risk",
+                "state": "complete" if pending == 0 else "waiting",
+                "detail": "Checked" if pending == 0 else "After review",
+            },
+            {
+                "label": "Clear",
+                "href": "/execution-preview",
+                "state": "active" if orderable or submit_ready else "waiting",
+                "detail": f"{submit_ready or orderable} ready" if (orderable or submit_ready) else "No orders",
+            },
+        ],
+    }
+
+
+def _coerce_int(value: object) -> int:
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(float(value.strip()))
+        except ValueError:
+            return 0
+    return 0
+
 
 def _clip_text(value: str, max_chars: int) -> str:
     cleaned = " ".join(value.split())
@@ -928,7 +1289,7 @@ def dashboard_data_health(
             {"label": "As of", "value": _format_timestamp_or_text(status.get("as_of"))},
             {"label": "Decision status", "value": status_label},
             {
-                "label": "Blocking reason",
+                "label": "Main issue",
                 "value": primary_blocker,
                 "tooltip": primary_blocker_detail,
             },
@@ -968,6 +1329,204 @@ def dashboard_data_health(
             },
         ],
     }
+
+
+def displayed_evidence_currentness(
+    data_load_status: Mapping[str, object],
+    *,
+    displayed_cycle_id: str | None,
+    lanes: Sequence[str] = (),
+    datasets: Sequence[str] = (),
+) -> dict[str, object]:
+    """Return whether persisted report evidence may be presented as current."""
+
+    status_cycle_id = _clean_text(data_load_status.get("cycle_id")) or "None"
+    displayed = displayed_cycle_id or "None"
+    relevant_lanes = {str(lane) for lane in lanes if str(lane).strip()}
+    relevant_datasets = {str(dataset) for dataset in datasets if str(dataset).strip()}
+    lane_states = _optional_mapping_rows(
+        data_load_status.get("lane_state_rows") or data_load_status.get("lane_states")
+    )
+    relevant_state = _first_relevant_not_current_lane_state(
+        lane_states,
+        lanes=relevant_lanes,
+        datasets=relevant_datasets,
+    )
+    if relevant_state is not None:
+        state = str(relevant_state.get("state") or "").casefold()
+        if state == "loading":
+            return _displayed_evidence_status(
+                is_current=False,
+                display_mode="work_in_progress",
+                status_label="Data is being analyzed",
+                reason=(
+                    f"{relevant_state.get('label') or relevant_state.get('lane_id')} is still "
+                    f"loading ({relevant_state.get('progress_label') or 'progress not tracked'})."
+                ),
+                status_cycle_id=status_cycle_id,
+                displayed_cycle_id=displayed,
+                wip_lane_ids=_wip_lane_ids(
+                    lane_states,
+                    lanes=relevant_lanes,
+                    datasets=relevant_datasets,
+                ),
+            )
+        return _displayed_evidence_status(
+            is_current=False,
+            display_mode="not_current",
+            status_label=_operator_text(relevant_state.get("status_label"), default="Data not current"),
+            reason=str(
+                relevant_state.get("operator_message")
+                or relevant_state.get("recommended_action")
+                or "A required lane is not current enough for displayed evidence."
+            ),
+            status_cycle_id=status_cycle_id,
+            displayed_cycle_id=displayed,
+            wip_lane_ids=_wip_lane_ids(
+                lane_states,
+                lanes=relevant_lanes,
+                datasets=relevant_datasets,
+            ),
+        )
+    data_refresh = _mapping_object(data_load_status.get("data_refresh"))
+    if str(data_refresh.get("state") or "").casefold() == "running":
+        current_dataset = str(data_refresh.get("current_dataset") or "").strip()
+        if not current_dataset or current_dataset in relevant_lanes or current_dataset in relevant_datasets:
+            return _displayed_evidence_status(
+                is_current=False,
+                display_mode="work_in_progress",
+                status_label="Data is being analyzed",
+                reason=(
+                    f"{current_dataset or 'A data refresh'} is running; previous report rows "
+                    "are hidden until the current analysis finishes."
+                ),
+                status_cycle_id=status_cycle_id,
+                displayed_cycle_id=displayed,
+                wip_lane_ids=[current_dataset] if current_dataset else [],
+            )
+    if status_cycle_id not in {"", "None"} and displayed not in {"", "None"} and status_cycle_id != displayed:
+        return _displayed_evidence_status(
+            is_current=False,
+            display_mode="cycle_mismatch",
+            status_label="Report cycle is catching up",
+            reason=(
+                f"Displayed report cycle {displayed} does not match runtime status cycle "
+                f"{status_cycle_id}."
+            ),
+            status_cycle_id=status_cycle_id,
+            displayed_cycle_id=displayed,
+            wip_lane_ids=[],
+        )
+    return _displayed_evidence_status(
+        is_current=True,
+        display_mode="current",
+        status_label="Displayed evidence is current",
+        reason="Displayed report rows match the current lane state.",
+        status_cycle_id=status_cycle_id,
+        displayed_cycle_id=displayed,
+        wip_lane_ids=[],
+    )
+
+
+def _displayed_evidence_status(
+    *,
+    is_current: bool,
+    display_mode: str,
+    status_label: str,
+    reason: str,
+    status_cycle_id: str,
+    displayed_cycle_id: str,
+    wip_lane_ids: Sequence[str],
+) -> dict[str, object]:
+    return {
+        "is_current": is_current,
+        "display_mode": display_mode,
+        "status_label": status_label,
+        "reason": _operator_text(reason),
+        "status_cycle_id": status_cycle_id,
+        "displayed_cycle_id": displayed_cycle_id,
+        "wip_lane_ids": list(wip_lane_ids),
+    }
+
+
+def _first_relevant_not_current_lane_state(
+    rows: Sequence[Mapping[str, object]],
+    *,
+    lanes: set[str],
+    datasets: set[str],
+) -> Mapping[str, object] | None:
+    not_current_states = {
+        "loading",
+        "loaded_unanalyzed",
+        "needs_refresh",
+        "provider_unavailable",
+        "stale",
+        "expired",
+        "unverified",
+        "failed",
+        "blocked",
+    }
+    for row in rows:
+        if not _lane_state_matches(row, lanes=lanes, datasets=datasets):
+            continue
+        if _lane_state_is_nonblocking_derived_context(row):
+            continue
+        if _lane_state_is_review_caution(row):
+            continue
+        if str(row.get("state") or "").casefold() in not_current_states:
+            return row
+    return None
+
+
+def _lane_state_is_nonblocking_derived_context(row: Mapping[str, object]) -> bool:
+    if str(row.get("lane_kind") or "").casefold() != "derived_signal":
+        return False
+    return row.get("blocks_execution") is False and row.get("blocker") is not True
+
+
+def _lane_state_is_review_caution(row: Mapping[str, object]) -> bool:
+    if str(row.get("state") or "").casefold() != "needs_refresh":
+        return False
+    if str(row.get("lane_kind") or "").casefold() != "derived_signal":
+        return False
+    produced = row.get("produced_count")
+    if isinstance(produced, bool) or not isinstance(produced, int | float) or produced <= 0:
+        return False
+    message = str(row.get("operator_message") or row.get("detail") or "").casefold()
+    return "review" in message and ("execution" in message or "covered ticker" in message)
+
+
+def _wip_lane_ids(
+    rows: Sequence[Mapping[str, object]],
+    *,
+    lanes: set[str],
+    datasets: set[str],
+) -> list[str]:
+    return [
+        str(row.get("lane_id") or row.get("lane") or row.get("source_dataset") or "unknown")
+        for row in rows
+        if _lane_state_matches(row, lanes=lanes, datasets=datasets)
+        and str(row.get("state") or "").casefold() == "loading"
+    ]
+
+
+def _lane_state_matches(
+    row: Mapping[str, object],
+    *,
+    lanes: set[str],
+    datasets: set[str],
+) -> bool:
+    lane_id = str(row.get("lane_id") or row.get("lane") or "").strip()
+    source_dataset = str(row.get("source_dataset") or "").strip()
+    raw_lanes = {str(item) for item in _list_field(row, "raw_lanes_required")}
+    return (
+        (not lanes and not datasets)
+        or lane_id in lanes
+        or source_dataset in datasets
+        or bool(raw_lanes.intersection(lanes))
+        or bool(raw_lanes.intersection(datasets))
+    )
+
 
 def _load_dashboard_data_load_status() -> Mapping[str, object]:
     try:
@@ -1069,6 +1628,9 @@ def _operator_text(value: object, default: str = "") -> str:
     text = _humanize_seconds_in_text(str(value or default))
     if not text:
         return default
+    raw_word = "raw"
+    lane_word = "lane"
+    massive_word = "Massive"
     replacements = (
         (r"\bcheck[- ]stale\b", "health proof needs refresh"),
         (r"\bhealth check stale\b", "health proof needs refresh"),
@@ -1080,6 +1642,21 @@ def _operator_text(value: object, default: str = "") -> str:
         (r"\bstale data\b", "data that needs refresh"),
         (r"\bdata stale\b", "data needs refresh"),
         (r"\bstale\b", "needs refresh"),
+        (r"\bpaper[- ]promotion\b", "paper eligibility"),
+        (r"\bpromotion checks\b", "eligibility checks"),
+        (r"\bpromotion threshold\b", "eligibility threshold"),
+        (r"\bpromotion-blocking\b", "eligibility-stopping"),
+        (rf"\b{massive_word} {raw_word} {lane_word}\(s\)\b", "Massive data-source lane(s)"),
+        (rf"\b{massive_word} {raw_word} {lane_word}s\b", "Massive data-source lanes"),
+        (rf"\b{massive_word} {raw_word} {lane_word}\b", "Massive data-source lane"),
+        (rf"\b{raw_word} {lane_word}\(s\)\b", "data-source lane(s)"),
+        (rf"\b{raw_word} {lane_word}s\b", "data-source lanes"),
+        (rf"\b{raw_word} {lane_word}\b", "data-source lane"),
+        (r"\border hash\b", "order details"),
+        (r"\breport hash\b", "current report details"),
+        (r"\bmatching hash\b", "matching report details"),
+        (r"\bstale hash\b", "older report details"),
+        (r"\bhash[- ]bound\b", "tied to the current details"),
     )
     cleaned = text
     for pattern, replacement in replacements:
@@ -1157,7 +1734,7 @@ def _operator_issue_state(
     if any(token in status_label or token in detail_lc for token in unavailable_tokens):
         return "data_unavailable"
 
-    if kind == "Agent lane" and (
+    if kind == "Agent process" and (
         produced_count == 0
         or (expected_count > 0 and row_count == 0 and "produced" in detail_lc)
         or "no analysis rows" in status_label
@@ -1232,7 +1809,7 @@ def _operator_issue_reason(
     if issue_state == "health_proof_needs_refresh":
         return f"{name} needs a newer health-monitor check before execution."
     if issue_state == "health_proof_unavailable":
-        return f"{name} cannot currently prove dashboard data health."
+        return f"{name} cannot currently prove displayed-data health."
     return _row_blocking_reason(name, status_class, detail)
 
 def _operator_recommended_action(
@@ -1244,14 +1821,14 @@ def _operator_recommended_action(
 ) -> str:
     if issue_state == "data_unavailable":
         return (
-            f"Fix access for {name}, then refresh that source and reload this dashboard."
+            f"Fix access for {name}, then refresh that source and reload this page."
         )
     if issue_state == "waiting_for_analysis":
-        return f"Run the {name} lane, then re-run the affected candidate cycle."
+        return f"Run the {name} analysis, then re-run the affected candidate cycle."
     if issue_state == "refresh_recommended":
         return f"Refresh {name}, then re-run the affected candidate cycle."
     if issue_state in {"health_proof_needs_refresh", "health_proof_unavailable"}:
-        return "Refresh source-health monitoring, then reload this dashboard."
+        return "Refresh source-health monitoring, then reload this page."
     return _row_recommended_action(kind, name, status_class)
 
 def _dashboard_dataset_health_rows(
@@ -1313,23 +1890,23 @@ def _dashboard_lane_health_rows(
 ) -> list[dict[str, object]]:
     output: list[dict[str, object]] = []
     for row in rows:
-        name = str(row.get("label") or row.get("lane") or "Unknown lane")
+        name = str(row.get("label") or row.get("lane") or "Unknown process")
         detail = _humanize_seconds_in_text(
-            str(row.get("detail") or "No lane detail recorded.")
+            str(row.get("detail") or "No agent-process detail recorded.")
         )
         status_class = str(row.get("status_class") or "neutral")
         issue_state = _operator_issue_state(
             row,
-            kind="Agent lane",
+            kind="Agent process",
             status_class=status_class,
             detail=detail,
         )
         health_row: dict[str, object] = {
-            "kind": "Agent lane",
+            "kind": "Agent process",
             "name": name,
             "status_label": _operator_row_status_label(
                 row,
-                kind="Agent lane",
+                kind="Agent process",
                 issue_state=issue_state,
             ),
             "status_class": status_class,
@@ -1341,22 +1918,22 @@ def _dashboard_lane_health_rows(
                 or row.get("source_dataset")
                 or "runtime signal output"
             ),
-            "detail": _row_display_detail("Agent lane", name, status_class, _operator_text(detail)),
+            "detail": _row_display_detail("Agent process", name, status_class, _operator_text(detail)),
             "diagnostic_detail": _operator_text(detail),
             "blocking_reason": _operator_issue_reason(
                 issue_state,
                 name=name,
-                kind="Agent lane",
+                kind="Agent process",
                 status_class=status_class,
                 detail=detail,
             ),
             "recommended_action": _operator_recommended_action(
                 issue_state,
-                kind="Agent lane",
+                kind="Agent process",
                 name=name,
                 status_class=status_class,
             ),
-            "why_it_matters": _row_why_it_matters("Agent lane", name),
+            "why_it_matters": _row_why_it_matters("Agent process", name),
             "tooltip": _lane_health_tooltip(row),
             "issue_state": issue_state,
             "refresh_lane_id": _refresh_lane_id_for_row(row),
@@ -1376,7 +1953,7 @@ def _data_health_lane_state_rows(
         status_class = str(row.get("status_class") or "neutral")
         status_label = _operator_text(row.get("status_label"), default="Status not reported")
         progress_label = _operator_text(row.get("progress_label"), default="not tracked")
-        detail = _operator_text(row.get("detail"), default="No lane-state detail reported.")
+        detail = _operator_text(row.get("detail"), default="No data-source detail reported.")
         refresh_action = _data_health_lane_refresh_action(
             row,
             lane_id=lane_id,
@@ -1421,11 +1998,11 @@ def _data_health_lane_refresh_action(
     if explicit_url is not None:
         return {
             "enabled": True,
-            "label": explicit_label or "Refresh lane",
+            "label": explicit_label or "Refresh data source",
             "action": explicit_url,
             "method": "post",
             "detail": _clean_text(row.get("refresh_action_detail"))
-            or "Runs this data lane through the scheduler policy.",
+            or "Runs this data source refresh through the scheduler policy.",
             "disabled_reason": "",
         }
     massive_lane = _refresh_massive_lane_id_for_action(lane_id, source_dataset)
@@ -1433,10 +2010,10 @@ def _data_health_lane_refresh_action(
         if massive_lane in RUNNABLE_MASSIVE_LANES:
             return {
                 "enabled": True,
-                "label": REFRESHABLE_MASSIVE_LANES.get(massive_lane, "Refresh lane"),
+                "label": REFRESHABLE_MASSIVE_LANES.get(massive_lane, "Refresh data source"),
                 "action": f"/scheduler/massive-lanes/{massive_lane}/refresh",
                 "method": "post",
-                "detail": "Runs this data lane through the scheduler's trade-aware policy.",
+                "detail": "Runs this data source refresh through the scheduler's trade-aware policy.",
                 "disabled_reason": "",
             }
         return {
@@ -1444,10 +2021,10 @@ def _data_health_lane_refresh_action(
             "label": "Policy locked",
             "action": "",
             "method": "post",
-            "detail": "This lane is visible for health tracking but has no runnable refresh job.",
+            "detail": "This data source is visible for health tracking but has no runnable refresh job.",
             "disabled_reason": (
                 f"{REFRESHABLE_MASSIVE_LANES.get(massive_lane, massive_lane)} is "
-                "not exposed as a runnable scheduler lane in the current policy."
+                "not exposed as a runnable scheduler refresh in the current policy."
             ),
         }
     return {
@@ -1455,28 +2032,31 @@ def _data_health_lane_refresh_action(
         "label": "Open Refresh Queue",
         "action": "",
         "method": "get",
-        "detail": "Open Command to inspect scheduler policy for this lane.",
-        "disabled_reason": "No direct lane refresh action is attached to this health row.",
+        "detail": "Open Command to inspect scheduler policy for this data source.",
+        "disabled_reason": "No direct refresh action is attached to this health row.",
     }
 
 
 def _refresh_massive_lane_id_for_action(lane_id: str, source_dataset: str) -> str:
-    if lane_id in REFRESHABLE_MASSIVE_LANES:
+    if lane_id in RUNNABLE_MASSIVE_LANES:
         return lane_id
-    return REFRESHABLE_DATASET_TO_LANE.get(source_dataset) or REFRESHABLE_DATASET_TO_LANE.get(
+    mapped = REFRESHABLE_DATASET_TO_LANE.get(source_dataset) or REFRESHABLE_DATASET_TO_LANE.get(
         lane_id,
         "",
     )
+    if mapped:
+        return mapped
+    return lane_id if lane_id in REFRESHABLE_MASSIVE_LANES else ""
 
 
 def _lane_state_recommended_action(status_label: str, progress_label: str) -> str:
     text = f"{status_label} {progress_label}".casefold()
     if "still loading" in text or "running" in text:
-        return "Wait for this lane to finish or open the refresh queue for progress."
+        return "Wait for this data source to finish or open the refresh queue for progress."
     if "needs refresh" in text or "refresh" in text:
-        return "Refresh this lane, then rerun the affected agent cycle."
+        return "Refresh this data source, then rerun the affected agent cycle."
     if "unavailable" in text or "failed" in text or "missing" in text:
-        return "Fix the provider or manifest issue before trusting this lane."
+        return "Fix the provider or coverage issue before trusting this data source."
     if "not required" in text:
         return "No action required for the current workflow."
     return "Continue normal review."
@@ -1647,7 +2227,7 @@ def _data_health_action_buttons(
                 "action": f"/scheduler/massive-lanes/{refresh_lane_id}/refresh",
                 "method": "post",
                 "detail": (
-                    "Runs the trade-aware lane refresh, then updates runtime health proof."
+                    "Runs the trade-aware data refresh, then updates runtime health proof."
                 ),
             }
         )
@@ -1658,7 +2238,7 @@ def _data_health_action_buttons(
                 "action": "/scheduler/massive-lanes/massive_live_trade_slices/refresh",
                 "method": "post",
                 "detail": (
-                    "Runs the trade-aware Massive live trade slice refresh, then updates "
+                    "Runs the trade-aware live trade-slice refresh, then updates "
                     "runtime health proof."
                 ),
             }
@@ -1670,7 +2250,7 @@ def _data_health_action_buttons(
                 "action": "/scheduler/massive-lanes/massive_daily_bars/refresh",
                 "method": "post",
                 "detail": (
-                    "Runs the trade-aware Massive daily bar refresh, then updates "
+                    "Runs the trade-aware daily bar refresh, then updates "
                     "runtime health proof."
                 ),
             }
@@ -1691,7 +2271,7 @@ def _data_health_action_buttons(
                 "label": "Open Refresh Queue",
                 "href": "/#scheduler-heading",
                 "method": "get",
-                "detail": "Opens Command at the scheduler and lane refresh controls.",
+                "detail": "Opens Command at the scheduler and data-refresh controls.",
             }
         )
     return buttons
@@ -1798,37 +2378,37 @@ def _row_blocking_reason(name: str, status_class: str, detail: str) -> str:
     if status_class == "block":
         if cleaned:
             if lowered.startswith("blocked") or " is blocked because " in lowered:
-                return f"{cleaned[:1].upper()}{cleaned[1:]}"
-            return f"Blocked because {cleaned}"
-        return f"Blocked because {name} did not pass a freshness or coverage gate."
+                return _operator_text(f"{cleaned[:1].upper()}{cleaned[1:]}")
+            return f"Must-fix issue: {cleaned}"
+        return f"Must-fix issue: {name} did not pass a freshness or coverage gate."
     if status_class in {"warn", "warning"}:
         return cleaned if cleaned else f"{name} is usable but has a warning."
-    return "No blocking reason; this input passed the displayed-data checks."
+    return "No must-fix issue; this input passed the displayed-data checks."
 
 def _row_recommended_action(kind: str, name: str, status_class: str) -> str:
     if status_class == "block":
-        if kind == "Agent lane":
-            return f"Refresh the {name} lane, then re-run the affected candidate cycle."
+        if kind == "Agent process":
+            return f"Refresh {name}, then re-run the affected candidate cycle."
         if kind == "Dataset":
-            return f"Refresh the {name} data source, then reload this dashboard."
+            return f"Refresh the {name} data source, then reload this page."
         if kind == "Health monitor":
             return "Refresh source-health monitoring before treating any dashboard status as tradable."
-        return f"Refresh {name}, then reload this dashboard."
+        return f"Refresh {name}, then reload this page."
     if status_class in {"warn", "warning"}:
         return f"Review the caution for {name}; refresh it before paper execution if it affects the trade."
     if status_class == "pass":
         return "No action required for this input."
-    return f"Verify {name} before using this dashboard for execution."
+    return f"Verify {name} before using this page for execution."
 
 def _row_why_it_matters(kind: str, name: str) -> str:
-    if kind == "Agent lane":
+    if kind == "Agent process":
         return (
             f"{name} can change the evidence, conviction, and actionability shown "
             "to the reviewer."
         )
     if kind == "Dataset":
         return (
-            f"{name} feeds one or more signal lanes. Missing coverage can make "
+            f"{name} feeds one or more signal processes. Missing coverage can make "
             "scores, gates, or explanations incomplete."
         )
     if kind == "Health monitor":
@@ -1888,11 +2468,11 @@ def _data_health_status_label(status_class: str, health_state: str = "") -> str:
     if health_state == "refresh_recommended":
         return "Refresh recommended"
     if health_state == "data_blocked":
-        return "Blocked"
+        return "Needs Attention"
     return {
         "pass": "Verified Current",
         "warn": "Usable With Gaps",
-        "block": "Blocked",
+        "block": "Needs Attention",
         "neutral": "Displayed Data Unverified",
     }.get(status_class, "Displayed Data Unverified")
 
@@ -1916,7 +2496,7 @@ def _data_health_headline(
     if health_state == "refresh_recommended":
         return f"{page_label} has analyzed data that needs refresh before acting."
     if health_state == "data_blocked":
-        return f"{page_label} has blocked data; refresh before acting."
+        return f"{page_label} has data that is not usable yet; refresh before acting."
     if status_class == "pass":
         return f"{page_label} is using verified-current, usable data."
     if status_class == "warn":
@@ -1930,7 +2510,7 @@ def _data_health_detail(
     recommended_action: str,
     primary_blocker_detail: str,
 ) -> str:
-    if primary_blocker_detail and primary_blocker_detail != "No blocker detected.":
+    if primary_blocker_detail and primary_blocker_detail != "No must-fix issue detected.":
         return f"{meaning} {recommended_action} Reason: {primary_blocker_detail}"
     return f"{meaning} {recommended_action}"
 
@@ -1969,7 +2549,7 @@ def _data_health_primary_blocker_label(
     health_state: str,
 ) -> str:
     if primary_issue is None:
-        return "No blocker detected."
+        return "No must-fix issue detected."
     name = str(primary_issue.get("name") or "Displayed data")
     status = str(primary_issue.get("status_label") or primary_issue.get("status_class") or "").strip()
     if health_state == "health_proof_needs_refresh":
@@ -1984,7 +2564,7 @@ def _data_health_primary_blocker_detail(
     primary_issue: Mapping[str, object] | None,
 ) -> str:
     if primary_issue is None:
-        return "No blocker detected."
+        return "No must-fix issue detected."
     return str(
         primary_issue.get("blocking_reason")
         or primary_issue.get("detail")
@@ -2000,27 +2580,27 @@ def _data_health_meaning(
     issue_name = str(primary_issue.get("name") or "one required input") if primary_issue else "all required inputs"
     if health_state == "data_unavailable":
         return (
-            f"This dashboard is not execution-ready because {issue_name} has a "
+            f"This diagnostic page is not execution-ready because {issue_name} has a "
             "problem reaching or loading its data."
         )
     if health_state == "waiting_for_analysis":
         return (
-            f"This dashboard is not execution-ready because {issue_name} has source "
+            f"This diagnostic page is not execution-ready because {issue_name} has source "
             "data, but its agent has not produced analysis rows yet."
         )
     if health_state == "refresh_recommended":
         return (
-            f"This dashboard has analyzed data for {issue_name}, but the result is "
+            f"This diagnostic page has analyzed data for {issue_name}, but the result is "
             "not current enough for the policy window."
         )
     if health_state == "data_blocked":
         return (
-            f"This dashboard is not execution-ready because {issue_name} is blocked. "
-            "Use it for review context only until the blocker is cleared."
+            f"This diagnostic page is not execution-ready because {issue_name} has a must-fix issue. "
+            "Use it for review context only until the issue is cleared."
         )
     if health_state == "health_proof_needs_refresh":
         return (
-            "The displayed data may be usable for review, but the dashboard needs "
+            "The displayed data may be usable for review, but this page needs "
             "a newer health-monitor proof before execution."
         )
     if health_state == "health_proof_unavailable":
@@ -2029,8 +2609,8 @@ def _data_health_meaning(
             "source-health monitoring is unavailable."
         )
     if status_label == "Verified Current":
-        return "This dashboard is using data that passed the displayed-data checks."
-    return f"This dashboard is in {status_label} state for the visible data inputs."
+        return "This page is using data that passed the displayed-data checks."
+    return f"This page is in {status_label} state for the visible data inputs."
 
 def _data_health_recommended_action(
     primary_issue: Mapping[str, object] | None,
@@ -2041,15 +2621,15 @@ def _data_health_recommended_action(
         if row_action:
             return _operator_text(row_action)
     if health_state == "data_unavailable":
-        return "Fix the data access problem, refresh that source, then reload this dashboard."
+        return "Fix the data access problem, refresh that source, then reload this page."
     if health_state == "waiting_for_analysis":
-        return "Run the relevant agent lane, then re-run the affected candidate cycle."
+        return "Run the relevant agent process, then re-run the affected candidate cycle."
     if health_state == "refresh_recommended":
-        return "Refresh the relevant data lane, then re-run the affected candidate cycle."
+        return "Refresh the relevant data source, then re-run the affected candidate cycle."
     if health_state == "data_blocked":
-        return "Refresh the relevant data lane, then reload the dashboard before acting."
+        return "Refresh the relevant data source, then reload the page before acting."
     if health_state in {"health_proof_needs_refresh", "health_proof_unavailable"}:
-        return "Refresh source-health monitoring, then reload this dashboard."
+        return "Refresh source-health monitoring, then reload this page."
     return "No immediate action required; continue normal review."
 
 
@@ -2117,7 +2697,7 @@ def _data_health_tooltip(
     )
     return (
         f"{state_label}: data freshness is the source data timestamp; health proof is "
-        f"the dashboard monitor check. Latest health check: {checked}. "
+        f"the displayed-data health check. Latest health check: {checked}. "
         f"Allowed monitor age: {max_age_label}."
     )
 

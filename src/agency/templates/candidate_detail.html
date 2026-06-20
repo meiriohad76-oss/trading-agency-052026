@@ -1,12 +1,13 @@
 {% extends "base.html" %}
 {% from "_data_health.html" import data_health_panel %}
+{% from "_evidence_legend.html" import evidence_legend, conviction_help %}
 
 {% set active_nav = "final" %}
 {% set v3_screen = "candidate" %}
 
-{% block title %}{{ ticker }} Brief | Trading Agency v3{% endblock %}
+{% block title %}{{ ticker }} - Agent recommends {{ decision_brief.action_label }} | Trading Agency v3{% endblock %}
 {% block eyebrow %}Candidate Brief{% endblock %}
-{% block page_title %}{{ ticker }} is ready for evidence review{% endblock %}
+{% block page_title %}Review {{ ticker }}: Agent recommends {{ decision_brief.action_label }}{% endblock %}
 {% block topbar_meta %}{{ decision_brief.state_label }} &middot; {{ summary.report_count }} reports{% endblock %}
 {% block workflow_phase %}Candidate deep dive{% endblock %}
 {% block operator_focus %}Read the claim, hard evidence, risk context, and LLM alignment before approving this ticker.{% endblock %}
@@ -17,9 +18,26 @@
     <a class="text-link" href="{{ candidate_return.href }}">{{ candidate_return.label }}</a>
   </p>
 
+  {% if evidence_currentness and not evidence_currentness.is_current %}
+  <section class="panel action-summary-panel" aria-label="Current analysis status">
+    <div class="section-heading">
+      <div>
+        <h2>{{ evidence_currentness.status_label }}</h2>
+        <p class="section-subtitle">{{ evidence_currentness.reason }}</p>
+      </div>
+      <span class="tag tag-{{ decision_brief.state_class }}">{{ summary.display_mode | replace("_", " ") | title }}</span>
+    </div>
+    <p class="panel-note">
+      Previous report rows are not used as current evidence while a required data lane is loading,
+      waiting for analysis, or needs a targeted refresh.
+    </p>
+  </section>
+  {% endif %}
+
   {% if review.can_record %}
   <div class="sticky-review-bar" role="navigation" aria-label="Quick review actions">
-    <span class="metric-label">{{ ticker }} &middot; Review: {{ review.decision }}</span>
+    <span class="metric-label">{{ ticker }} &middot; {{ decision_brief.action_label }} &middot; {{ decision_brief.conviction_pct }}%</span>
+    <span class="sticky-review-reason">{{ decision_brief.top_reason_brief }}</span>
     {% if review.decision != "Pending" %}
     <span class="tag tag-{{ review.status_class }}">{{ review.reason }}{% if review.event_time_label != "Time unknown" %} &middot; {{ review.event_time_label }}{% endif %}</span>
     {% else %}
@@ -50,6 +68,9 @@
       <div class="brief-title-row">
         <h2>{{ ticker }}</h2>
         <span class="action-chip action-chip-{{ decision_brief.state_class }}">{{ decision_brief.action_label }}</span>
+        {% if evidence_delta_since_review.show %}
+        <span class="tag tag-warn" title="{{ evidence_delta_since_review.detail }}">{{ evidence_delta_since_review.label }}</span>
+        {% endif %}
       </div>
       <p class="brief-headline">{{ decision_brief.headline }}</p>
       <p class="brief-detail">{{ decision_brief.detail }}</p>
@@ -64,7 +85,7 @@
 
     <aside class="brief-score" aria-label="Decision score">
       <div class="conviction-meter" style="{{ decision_brief.conviction_style }}">
-        <span>Conviction</span>
+        <span data-tooltip="conviction-help" aria-label="Conviction combines signal direction, confidence, source quality, data freshness, and policy gates.">Conviction {{ conviction_help() }}</span>
         <strong>{{ decision_brief.conviction_pct }}%</strong>
       </div>
       <div class="brief-score-meta">
@@ -180,6 +201,92 @@
   </section>
   {% endif %}
 
+  {% if latest_report and local_llm_insight %}
+  <section class="panel llm-summary-panel local-llm-shadow-panel" aria-labelledby="local-llm-heading">
+    <div class="section-heading">
+      <div>
+        <h2 id="local-llm-heading">Local Pi LLM Shadow Insight</h2>
+        <p class="section-subtitle">{{ local_llm_insight.trade_gate_note }}</p>
+      </div>
+      <span class="tag tag-{{ local_llm_insight.status_class }}">{{ local_llm_insight.status_label }}</span>
+    </div>
+    <p class="panel-note">This Raspberry Pi Open WebUI review is advisory evidence only. It cannot approve or block trades, promote candidates, override risk, or submit orders.</p>
+
+    <div class="decision-grid llm-summary-grid">
+      <div>
+        <span class="metric-label">Mode</span>
+        <strong>{{ local_llm_insight.mode }}</strong>
+      </div>
+      <div>
+        <span class="metric-label">Model</span>
+        <strong>{{ local_llm_insight.model }}</strong>
+      </div>
+      <div>
+        <span class="metric-label">Generated</span>
+        <strong>{{ local_llm_insight.generated_at_label }}</strong>
+      </div>
+      <div>
+        <span class="metric-label">Confidence</span>
+        <strong>{{ local_llm_insight.confidence_pct }}%</strong>
+      </div>
+    </div>
+
+    {% if local_llm_insight.available %}
+    <article class="llm-rationale-card">
+      <span class="metric-label">Shadow summary</span>
+      <p>{{ local_llm_insight.summary }}</p>
+    </article>
+    <div class="local-llm-evidence-grid">
+      <article class="llm-rationale-card">
+        <span class="metric-label">Bullish case</span>
+        <ul>
+          {% for item in local_llm_insight.bullish_case %}
+          <li>{{ item }}</li>
+          {% else %}
+          <li>No bullish case returned.</li>
+          {% endfor %}
+        </ul>
+      </article>
+      <article class="llm-rationale-card">
+        <span class="metric-label">Bearish case</span>
+        <ul>
+          {% for item in local_llm_insight.bearish_case %}
+          <li>{{ item }}</li>
+          {% else %}
+          <li>No bearish case returned.</li>
+          {% endfor %}
+        </ul>
+      </article>
+      <article class="llm-rationale-card">
+        <span class="metric-label">Contradictions</span>
+        <ul>
+          {% for item in local_llm_insight.contradictions %}
+          <li>{{ item }}</li>
+          {% else %}
+          <li>No contradiction returned.</li>
+          {% endfor %}
+        </ul>
+      </article>
+      <article class="llm-rationale-card">
+        <span class="metric-label">User checks</span>
+        <ul>
+          {% for item in local_llm_insight.user_checks %}
+          <li>{{ item }}</li>
+          {% else %}
+          <li>No user check returned.</li>
+          {% endfor %}
+        </ul>
+      </article>
+    </div>
+    {% else %}
+    <article class="llm-rationale-card">
+      <span class="metric-label">Shadow status</span>
+      <p>{{ local_llm_insight.detail }}</p>
+    </article>
+    {% endif %}
+  </section>
+  {% endif %}
+
   <section class="driver-layout" aria-label="Signal drivers">
     <section class="panel driver-panel driver-panel-pass" aria-labelledby="support-heading">
       <div class="section-heading">
@@ -222,8 +329,9 @@
         <h2 id="signal-evidence-heading">Primary Signal Evidence</h2>
         <p class="section-subtitle">Decision-driving signals are separated from advisory and score-excluded context so contradictions are visible without overstating them.</p>
       </div>
-      <a class="text-link" href="/signals">Open signal dashboard</a>
+      <a class="text-link" href="/signals">Open signal diagnostics</a>
     </div>
+    {{ evidence_legend(compact=true) }}
     {% if latest_report %}
     <details class="details-panel shared-disclosure">
       <summary>Supporting detail: signal evidence, advisory context, and excluded signals</summary>
@@ -238,11 +346,11 @@
           <div class="signal-mini-row signal-mini-row-{{ signal.direction_class }}">
             <span class="tag tag-{{ signal.direction_class }}">{{ signal.direction }}</span>
             <div>
-              <strong>{{ signal.lane }}</strong>
+              <strong>{{ signal.display_name }}</strong>
               <p>{{ signal.trigger_headline or signal.summary }}</p>
               <p class="microcopy">
                 {{ signal.score }} &middot; {{ signal.confidence_pct }}% confidence &middot;
-                {{ signal.source }} &middot; {{ signal.timestamp_label }}
+                {{ signal.source }} &middot; Data as of {{ signal.timestamp_label }}
               </p>
               {% if signal.trigger_detail %}
               <details class="compact-details">
@@ -278,11 +386,11 @@
           <div class="signal-mini-row signal-mini-row-{{ signal.direction_class }}">
             <span class="tag tag-{{ signal.direction_class }}">{{ signal.direction }}</span>
             <div>
-              <strong>{{ signal.lane }}</strong>
+              <strong>{{ signal.display_name }}</strong>
               <p>{{ signal.trigger_headline or signal.summary }}</p>
               <p class="microcopy">
                 Advisory only: {{ signal.reason_text }} {{ signal.score }} &middot;
-                {{ signal.confidence_pct }}% confidence &middot; {{ signal.source }}
+                {{ signal.confidence_pct }}% confidence &middot; {{ signal.source }} &middot; Data as of {{ signal.timestamp_label }}
               </p>
               {% if signal.trigger_detail %}
               <details class="compact-details">
@@ -318,11 +426,11 @@
           <div class="signal-mini-row signal-mini-row-{{ signal.direction_class }}">
             <span class="tag tag-{{ signal.direction_class }}">{{ signal.direction }}</span>
             <div>
-              <strong>{{ signal.lane }}</strong>
+              <strong>{{ signal.display_name }}</strong>
               <p>{{ signal.trigger_headline or signal.summary }}</p>
               <p class="microcopy">
                 Excluded from score: {{ signal.reason_text }} {{ signal.score }} &middot;
-                {{ signal.confidence_pct }}% confidence &middot; {{ signal.source }}
+                {{ signal.confidence_pct }}% confidence &middot; {{ signal.source }} &middot; Data as of {{ signal.timestamp_label }}
               </p>
               {% if signal.trigger_detail %}
               <details class="compact-details">
@@ -350,7 +458,13 @@
     </div>
     </details>
     {% else %}
-    <p class="empty-block">Signal evidence appears after the next runtime cycle persists a selection report.</p>
+    <p class="empty-block">
+      {% if evidence_currentness and not evidence_currentness.is_current %}
+      Signal evidence is hidden because {{ evidence_currentness.reason }}
+      {% else %}
+      Signal evidence appears after the next runtime cycle persists a selection report.
+      {% endif %}
+    </p>
     {% endif %}
   </section>
 
@@ -382,10 +496,10 @@
       </form>
     </span>
     {% if review.decision == "Approve" %}
-    <p class="card-next-step">Approved - execution preview updated. Open Execution Preview to inspect any paper-order intent.</p>
+    <p class="card-next-step">Approved - execution preview updated. Open Execution Preview to inspect any paper-order details.</p>
     {% endif %}
     {% else %}
-    <p class="empty-block">No selection report available for review</p>
+    <p class="empty-block">{{ review.empty_message or "No selection report available for review" }}</p>
     {% endif %}
   </section>
 
@@ -671,6 +785,19 @@
             </div>
           </div>
           <p class="article-use">{{ card.decision_use }}</p>
+          {% if card.local_llm_status %}
+          <div class="article-judgement article-judgement-{{ card.local_llm_status_class }}">
+            <span>{{ card.local_llm_status_label }}{% if card.local_llm_confidence_pct is not none %} / {{ card.local_llm_confidence_pct }}%{% endif %}</span>
+            <strong>{{ card.local_llm_comparison }}</strong>
+          </div>
+          {% if card.local_llm_thesis %}
+          <p class="article-thesis">Local Pi LLM: {{ card.local_llm_thesis }}</p>
+          {% endif %}
+          {% if card.local_llm_decision_use %}
+          <p class="article-use">{{ card.local_llm_decision_use }}</p>
+          {% endif %}
+          <p class="microcopy">Shadow-only local read. It cannot approve, block, promote, or submit a trade.</p>
+          {% endif %}
         </article>
         {% else %}
         <p class="empty-block">No subscription article evidence currently matches {{ ticker }}</p>
@@ -761,7 +888,13 @@
         </div>
       </article>
       {% else %}
-      <p class="empty-block">No selection reports yet</p>
+      <p class="empty-block">
+        {% if evidence_currentness and not evidence_currentness.is_current %}
+        Current report details are hidden until analysis is ready. Open previous reports below for history only.
+        {% else %}
+        No selection reports yet
+        {% endif %}
+      </p>
       {% endif %}
     </details>
 

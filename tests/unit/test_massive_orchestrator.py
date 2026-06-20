@@ -36,7 +36,9 @@ def test_raw_lane_registry_is_complete_unique_and_referenced() -> None:
     assert set(lane_ids) == RAW_LANE_IDS
     assert len(lane_ids) == len(set(lane_ids))
     assert len(manifests) == len(set(manifests))
-    assert all(manifest.startswith("research/data/manifests/massive_lanes/") for manifest in manifests)
+    assert all(
+        manifest.startswith("research/data/manifests/massive_lanes/") for manifest in manifests
+    )
     declared = set(lane_ids)
     for signal_lane, required_lanes in DERIVED_SIGNAL_REQUIREMENTS.items():
         assert required_lanes, signal_lane
@@ -83,9 +85,7 @@ def test_premarket_orchestrator_splits_raw_and_derived_massive_lanes(
     assert _lane(plan, "massive_backtest_trade_tape")["batch_action"] == "disabled"
     assert _lane(plan, "massive_block_trade_feed")["creates_massive_request"] is False
     assert plan["execution_blocking_lane_count"] == 2
-    assert _signal(plan, "buy_sell_pressure")["requires_raw_lanes"] == [
-        "massive_live_trade_slices"
-    ]
+    assert _signal(plan, "buy_sell_pressure")["requires_raw_lanes"] == ["massive_live_trade_slices"]
     assert _signal(plan, "block_trade_pressure")["requires_raw_lanes"] == [
         "massive_block_trade_feed",
         "massive_live_trade_slices",
@@ -116,7 +116,11 @@ def test_regular_market_does_not_duplicate_live_trade_endpoint_for_derived_signa
     ]
 
     assert api_trade_lanes == ["massive_live_trade_slices"]
+    assert _lane(plan, "massive_live_trade_slices")["ticker_tier"] == "T0/T1/T2"
+    assert _lane(plan, "massive_live_trade_slices")["max_tickers_per_batch"] is None
     assert _lane(plan, "massive_block_trade_feed")["batch_action"] == "derive_from_raw"
+    assert _lane(plan, "massive_block_trade_feed")["ticker_tier"] == "T0/T1/T2"
+    assert _lane(plan, "massive_block_trade_feed")["max_tickers_per_batch"] is None
     assert _lane(plan, "massive_block_trade_feed")["request_budget_label"].startswith("0 Massive")
     assert _lane(plan, "massive_premarket_trade_slices")["batch_action"] == "disabled"
 
@@ -155,8 +159,8 @@ def test_orchestrator_repairs_live_slices_in_closed_market_when_required(
     assert _lane(plan, "massive_premarket_trade_slices")["batch_action"] == "defer"
     assert "04:00 ET" in _lane(plan, "massive_premarket_trade_slices")["reason"]
     assert _lane(plan, "massive_block_trade_feed")["batch_action"] == "derive_from_raw"
-    assert _lane(plan, "massive_live_trade_slices")["max_tickers_per_batch"] == 50
-    assert _lane(plan, "massive_premarket_trade_slices")["max_tickers_per_batch"] == 50
+    assert _lane(plan, "massive_live_trade_slices")["max_tickers_per_batch"] is None
+    assert _lane(plan, "massive_premarket_trade_slices")["max_tickers_per_batch"] is None
     assert plan["execution_blocking_lane_count"] == 2
 
 
@@ -197,6 +201,43 @@ def test_live_trade_lane_ignores_stale_config_window_when_market_is_closed(
     assert live_lane["start"] == "2026-05-22"
     assert live_lane["end"] == "2026-05-22"
     assert live_lane["window_label"] == "2026-05-22"
+
+
+def test_daily_bars_target_latest_completed_session_during_regular_market(
+    tmp_path: Path,
+) -> None:
+    config = RefreshBatchConfig(
+        repo_root=tmp_path,
+        output_root=tmp_path / "results",
+        start=date(2026, 5, 1),
+        end=date(2026, 5, 29),
+        datasets=("prices_daily",),
+        tickers=("AAPL", "MSFT"),
+        market_data_provider="massive",
+        massive_credentials_present=True,
+    )
+
+    plan = build_massive_orchestration_plan(
+        config,
+        session=classify_market_session(datetime(2026, 5, 29, 12, 0, tzinfo=EASTERN)),
+        extraction_decisions=(
+            ExtractionDecision(
+                "prices_daily",
+                "incremental",
+                "config end points at the in-progress market day",
+                tickers=("AAPL", "MSFT"),
+                start=date(2026, 5, 29),
+                end=date(2026, 5, 29),
+            ),
+        ),
+        runtime_lanes=("technical_analysis", "abnormal_volume"),
+    )
+
+    daily_lane = _lane(plan, "massive_daily_bars")
+    assert daily_lane["batch_action"] == "defer"
+    assert daily_lane["start"] == "2026-05-28"
+    assert daily_lane["end"] == "2026-05-28"
+    assert daily_lane["max_tickers_per_batch"] is None
 
 
 def test_live_trade_lanes_target_active_universe_not_full_depth_gap_subset(
@@ -251,6 +292,8 @@ def test_live_trade_lanes_target_active_universe_not_full_depth_gap_subset(
         "MSFT",
         "NVDA",
     ]
+    assert _lane(plan, "massive_live_trade_slices")["max_tickers_per_batch"] is None
+    assert _lane(plan, "massive_premarket_trade_slices")["max_tickers_per_batch"] is None
     assert _lane(plan, "massive_backtest_trade_tape")["tickers"] == ["MSFT"]
 
 
@@ -437,9 +480,7 @@ def test_lane_manifest_writer_preserves_newer_operational_window(tmp_path: Path)
         row_count=10,
         source_manifest="stock_trades.json",
         status="complete",
-        coverage=[
-            {"ticker": "AAPL", "trade_date": "2026-05-15", "coverage_status": "complete"}
-        ],
+        coverage=[{"ticker": "AAPL", "trade_date": "2026-05-15", "coverage_status": "complete"}],
         coverage_pct=100,
     )
 
@@ -453,6 +494,55 @@ def test_lane_manifest_writer_preserves_newer_operational_window(tmp_path: Path)
     superseded = json.loads(superseded_paths[0].read_text(encoding="utf-8"))
     assert superseded["window"] == {"start": "2026-05-15", "end": "2026-05-15"}
     assert superseded["preserved_window"] == {"start": "2026-05-22", "end": "2026-05-22"}
+
+
+def test_daily_bar_manifest_can_replace_bad_current_day_partial_with_completed_session(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "massive_lanes" / "massive_daily_bars.json"
+    write_lane_manifest(
+        path,
+        lane_id="massive_daily_bars",
+        dataset="prices_daily",
+        raw_source_dataset="prices_daily",
+        fetched_at=datetime(2026, 5, 29, 14, 0, tzinfo=UTC),
+        requested_start=date(2026, 5, 29),
+        requested_end=date(2026, 5, 29),
+        tickers=("AAPL", "MSFT"),
+        row_count=1,
+        source_manifest="prices_daily.json",
+        status="partial",
+        coverage=[
+            {"ticker": "AAPL", "coverage_status": "complete", "complete": True},
+            {"ticker": "MSFT", "coverage_status": "missing", "complete": False},
+        ],
+        coverage_pct=50,
+    )
+
+    repaired = write_lane_manifest(
+        path,
+        lane_id="massive_daily_bars",
+        dataset="prices_daily",
+        raw_source_dataset="prices_daily",
+        fetched_at=datetime(2026, 5, 29, 14, 5, tzinfo=UTC),
+        requested_start=date(2026, 5, 28),
+        requested_end=date(2026, 5, 28),
+        tickers=("AAPL", "MSFT"),
+        row_count=2,
+        source_manifest="prices_daily.json",
+        status="complete",
+        coverage=[
+            {"ticker": "AAPL", "coverage_status": "complete", "complete": True},
+            {"ticker": "MSFT", "coverage_status": "complete", "complete": True},
+        ],
+        coverage_pct=100,
+    )
+
+    persisted = read_lane_manifest(path)
+    assert repaired["window"] == {"start": "2026-05-28", "end": "2026-05-28"}
+    assert persisted["window"] == {"start": "2026-05-28", "end": "2026-05-28"}
+    assert persisted["status"] == "complete"
+    assert persisted["ticker_count"] == 2
 
 
 def _config(

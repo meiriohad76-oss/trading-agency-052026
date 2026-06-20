@@ -6,10 +6,10 @@
       <h2 id="cockpit-panel-universe-heading">Universe and Source Coverage</h2>
       <p class="muted">Use this panel to see which production sources support the current cockpit data.</p>
       <div class="cockpit-panel-stat-grid" aria-label="Universe summary">
-        <article><span>Universe</span><strong class="cockpit-mono">{{ funnel.universe }}</strong></article>
-        <article><span>Ready</span><strong class="cockpit-mono">{{ funnel.universe_ready }}</strong></article>
-        <article><span>Blocked</span><strong class="cockpit-mono">{{ universe_blocked|length }}</strong></article>
-        <article><span>Refreshed</span><strong class="cockpit-mono">{{ cycle.as_of }}</strong></article>
+        <article><span>Active universe</span><strong class="cockpit-mono">{{ data_state.active_universe_count|default(funnel.universe, true) }}</strong></article>
+        <article><span>Reviewable candidates</span><strong class="cockpit-mono">{{ funnel.reviewable|default(funnel.universe_ready, true) }}</strong></article>
+        <article><span>Source issues</span><strong class="cockpit-mono">{{ data_state.top_gaps|length }}</strong></article>
+        <article><span>Proof checked</span><strong class="cockpit-mono">{{ data_state.proof_label|default(cycle.as_of, true) }}</strong></article>
       </div>
       <section class="cockpit-lane-board" aria-label="Lane State Board">
         <div class="cockpit-lane-board-heading">
@@ -25,11 +25,9 @@
           </div>
         </div>
         <div class="cockpit-lane-row cockpit-lane-head" role="row">
-          <strong role="columnheader">Lane</strong>
-          <strong role="columnheader">State</strong>
+          <strong role="columnheader">Data pipeline</strong>
+          <strong role="columnheader">State / impact</strong>
           <strong role="columnheader">Progress</strong>
-          <strong role="columnheader">Required now?</strong>
-          <strong role="columnheader">Blocks paper?</strong>
           <strong role="columnheader">Latest proof/as-of</strong>
           <strong role="columnheader">Gap / next action</strong>
         </div>
@@ -37,21 +35,21 @@
           <article class="cockpit-lane-row cockpit-lane-row-{{ lane.status_class }}" role="row" title="{{ lane.tooltip }}">
             <span role="cell">
               <strong>{{ lane.name }}</strong>
-              <small>{{ lane.lane_kind_label }} / requires {{ lane.requirement_label }}</small>
+              <small>{{ lane.lane_kind_label }} / needs {{ lane.requirement_label }}</small>
             </span>
             <span role="cell">
               <span class="status-pill status-pill-{{ lane.status_class }}">{{ lane.status_label }}</span>
+              <small>{{ lane.required_label }} / Paper impact: {{ lane.blocks_paper_label }}</small>
             </span>
             <span role="cell">
               <strong>{{ lane.progress_label }}</strong>
+              <small>ETA {{ lane.eta_label }}</small>
               {% if lane.progress_percent is not none %}
                 <span class="cockpit-lane-progress" aria-label="{{ lane.progress_percent }} percent complete">
                   <span style="width: {{ lane.progress_percent }}%"></span>
                 </span>
               {% endif %}
             </span>
-            <span role="cell">{{ lane.required_label }}</span>
-            <span role="cell">{{ lane.blocks_paper_label }}</span>
             <span role="cell">
               {{ lane.latest_as_of_label }}
               <small>Checked {{ lane.checked_at_label }}</small>
@@ -67,7 +65,7 @@
             </span>
           </article>
         {% else %}
-          <p class="empty-state">No lane-state rows are available for this cycle.</p>
+          <p class="empty-state">No data-source state rows are available for this cycle.</p>
         {% endfor %}
       </section>
       <div class="cockpit-panel-two-col">
@@ -105,15 +103,15 @@
           </div>
         </section>
         <aside>
-          <h3>Blocked tickers</h3>
+          <h3>Tickers needing attention</h3>
           <div class="cockpit-panel-list">
             {% for ticker in universe_blocked %}
               <article>
                 <strong>{{ ticker.ticker|default(ticker.symbol|default("Ticker", true), true) }}</strong>
-                <p>{{ ticker.reason|default(ticker.detail|default("Blocked by the active universe policy.", true), true) }}</p>
+                <p>{{ ticker.reason|default(ticker.detail|default("Stopped by the active universe policy.", true), true) }}</p>
               </article>
             {% else %}
-              <p class="empty-state">No blocked tickers were reported for this cycle.</p>
+              <p class="empty-state">No tickers needing attention were reported for this cycle.</p>
             {% endfor %}
           </div>
           <article class="cockpit-integrity-card">
@@ -144,7 +142,7 @@
         </article>
         <article>
           <h3>Breadth rule</h3>
-          <p>A recommendation is strongest when price, flow, risk, and narrative lanes agree inside their freshness policy.</p>
+          <p>A recommendation is strongest when price, flow, risk, and narrative evidence agree inside their freshness policy.</p>
         </article>
       </div>
       <h3>Signal log</h3>
@@ -154,9 +152,18 @@
             <strong>{{ signal.name }}</strong>
             <span class="status-pill status-pill-{% if signal.state == 'ready' %}pass{% elif signal.state == 'partial' %}warn{% else %}block{% endif %}">{{ signal.status }}</span>
             <p>{{ signal.detail }}</p>
+            {% if signal.hard_value %}
+              <small>Key value: <span class="cockpit-mono">{{ signal.hard_value }}</span></small>
+            {% endif %}
+            <small>
+              {{ signal.kind|default("signal evidence", true) }}
+              {% if signal.source %} / source {{ signal.source }}{% endif %}
+              {% if signal.proof %} / proof {{ signal.proof }}{% endif %}
+              {% if signal.meta %} / {{ signal.meta }}{% endif %}
+            </small>
           </article>
         {% else %}
-          <p class="empty-state">No signal lane rows are available for this cycle.</p>
+          <p class="empty-state">No candidate signal evidence or signal-process health rows are available for this cycle.</p>
         {% endfor %}
       </div>
     </article>
@@ -171,21 +178,44 @@
       {% if audit_traces is not mapping %}
         {% set audit_traces = {} %}
       {% endif %}
-      <p class="muted">Cycle {{ audit_lifecycle.cycle_id|default("not recorded") }}. Evidence hash values are shown when the runtime persisted them.</p>
+      <p class="muted">Cycle {{ audit_lifecycle.cycle_id|default("not recorded") }}. Evidence proof fingerprints are shown when the runtime persisted them.</p>
       <div class="cockpit-panel-list cockpit-audit-timeline">
         {% for ticker, events in audit_traces.items() %}
-          <article>
-            <strong>{{ ticker }}</strong>
+          <article class="cockpit-audit-card">
+            <header class="cockpit-audit-card-head">
+              <strong>{{ ticker }}</strong>
+              <span>{{ events|length }} audit item{{ "" if events|length == 1 else "s" }}</span>
+            </header>
             {% for event in events %}
-              <p>{{ event.message }}</p>
-              <small>Status {{ event.status }}{% if event.evidence_hash %} / evidence pack hash {{ event.evidence_hash }}{% endif %}</small>
+              <section class="cockpit-audit-event">
+                <div>
+                  <strong>{{ event.title|default("Audit event", true) }}</strong>
+                  <span class="status-pill status-pill-{% if event.status in ['approved', 'action', 'evidence', 'llm'] %}pass{% elif event.status in ['risk', 'blocked'] %}warn{% else %}neutral{% endif %}">{{ event.status|default("recorded", true) }}</span>
+                </div>
+                <p>{{ event.message|default("Audit event recorded without a message.", true) }}</p>
+                {% if event.detail %}
+                  <small>{{ event.detail }}</small>
+                {% endif %}
+                <footer>
+                  {% if event.evidence_hash %}
+                    <span>Evidence proof fingerprint <span class="cockpit-mono">{{ event.evidence_hash }}</span></span>
+                  {% else %}
+                    <span>Evidence proof fingerprint not recorded for this item.</span>
+                  {% endif %}
+                  {% if event.detail_url %}
+                    <a class="text-link" href="{{ event.detail_url }}">Open ticker details</a>
+                  {% endif %}
+                </footer>
+              </section>
+            {% else %}
+              <p class="empty-state">No audit events are attached for {{ ticker }}.</p>
             {% endfor %}
           </article>
         {% else %}
           <p class="empty-state">No audit trace is available for this cycle.</p>
         {% endfor %}
       </div>
-      <p class="panel-note">All state transitions are deterministic given the same input pack, policy version, and evidence pack hash.</p>
+      <p class="panel-note">All state transitions are deterministic given the same input pack, policy version, and evidence proof fingerprint.</p>
     </article>
   </section>
 
@@ -299,16 +329,25 @@
           <strong data-ticker-review>--</strong>
         </article>
       </div>
+      <p class="panel-note" data-ticker-data-health-detail>Data proof appears after a ticker is selected.</p>
       <h3>Next step</h3>
       <p data-ticker-next-step>Open a ticker row to see the recommended next operator action.</p>
-      <h3>LLM rationale</h3>
+      <h3>LLM recommendation</h3>
       <p data-ticker-llm-rationale>Open a ticker row to see the LLM rationale or the not-run reason.</p>
+      <form class="ticker-llm-action" method="post" action="#" data-ticker-llm-action hidden>
+        <input type="hidden" name="cycle_id" data-ticker-llm-cycle-id>
+        <input type="hidden" name="as_of" data-ticker-llm-as-of>
+        <button class="button button-secondary" type="submit">Run LLM review for this stock</button>
+        <p class="microcopy" data-ticker-llm-action-note></p>
+      </form>
       <h3>What supports it</h3>
       <div class="cockpit-panel-list cockpit-ticker-support" data-ticker-support></div>
       <h3>What could be wrong</h3>
       <div class="cockpit-panel-list cockpit-ticker-caution" data-ticker-caution></div>
       <h3>Primary signal evidence</h3>
       <div class="cockpit-panel-list cockpit-ticker-signals" data-ticker-signals></div>
+      <h3>News and email context</h3>
+      <div class="cockpit-panel-list cockpit-ticker-context" data-ticker-context></div>
       <h3>Evidence pack</h3>
       <ul data-ticker-evidence></ul>
       <h3>Gates</h3>

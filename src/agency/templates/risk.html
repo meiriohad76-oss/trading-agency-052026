@@ -18,7 +18,7 @@
     <div class="next-action-copy">
       <p class="eyebrow">Risk scan</p>
       <h2>{{ summary.headline }}</h2>
-      <p>{{ summary.detail }} Review WARN rows on the candidate page. BLOCK rows cannot create paper orders until a later cycle changes the action or clears the blocking gate.</p>
+      <p>{{ summary.detail }} Review WARN rows on the candidate page. Policy-stopped rows cannot create paper orders until a later cycle changes the action or clears the must-fix check.</p>
     </div>
     <div class="next-action-buttons">
       <a class="primary-action" href="/execution-preview">Open execution preview</a>
@@ -175,13 +175,13 @@
   <section class="panel" aria-labelledby="blocked-heading">
     <div class="section-heading">
       <div>
-        <h2 id="blocked-heading">Blocked by policy</h2>
+        <h2 id="blocked-heading">Stopped by policy</h2>
         <p class="section-subtitle">Collapsed by default so the review queue stays focused.</p>
       </div>
       <span class="tag tag-block">{{ block_rows | length }} BLOCK</span>
     </div>
     <details class="details-panel shared-disclosure">
-      <summary>Show blocked rows and reasons</summary>
+      <summary>Show policy-stopped rows and reasons</summary>
       <div class="risk-review-list">
         {% for row in block_rows %}
         <article class="risk-review-card risk-review-card-block">
@@ -196,7 +196,7 @@
           <p class="card-next-step">{{ row.decision_action }}</p>
         </article>
         {% else %}
-        <p class="empty-block">No blocked rows in this cycle.</p>
+        <p class="empty-block">No policy-stopped rows in this cycle.</p>
         {% endfor %}
       </div>
     </details>

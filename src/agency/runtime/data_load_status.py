@@ -9,14 +9,18 @@ from typing import cast
 from zoneinfo import ZoneInfo
 
 import pandas as pd
+from fundamentals.forward_state import (
+    FORWARD_SOURCE_NAME,
+    forward_fundamentals_source_health,
+)
 from news.consumption import load_news_consumption_entries
 
+from agency.paths import REPO_ROOT
 from agency.runtime.data_refresh_progress import load_data_refresh_progress
 from agency.runtime.lane_state import build_lane_states
 from agency.runtime.live_config_readiness import load_live_config_readiness
 from agency.runtime.portfolio_news_agent_bridge import load_portfolio_news_agent_status
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_CONFIG_PATH = REPO_ROOT / "research" / "config" / "live-refresh.local.json"
 DEFAULT_UNIVERSE_PATH = REPO_ROOT / "research" / "data" / "parquet" / "universe_membership.parquet"
 DEFAULT_MANIFEST_ROOT = REPO_ROOT / "research" / "data" / "manifests"
@@ -48,6 +52,9 @@ DEFAULT_SUBSCRIPTION_EMAIL_PROGRESS_PATH = (
     / "results"
     / "latest-subscription-emails"
     / "subscription-email-progress.json"
+)
+DEFAULT_FORWARD_FUNDAMENTALS_STATE_ROOT = (
+    REPO_ROOT / "research" / "data" / "state" / "fundamentals"
 )
 
 CORE_DATASETS = ("prices_daily", "stock_trades")
@@ -128,7 +135,7 @@ LANE_DATASET = {
 SOURCE_BLOCKING_STATUSES = {"UNAVAILABLE", "STALE", "RATE_LIMITED"}
 SOURCE_WARNING_STATUSES = {"DEGRADED", "AGING", "UNKNOWN"}
 CRITICAL_SOURCE_NAMES = {"daily-market-bars", "massive-stock-trades"}
-TRACKED_SOURCE_NAMES = set(DATASET_SOURCE.values())
+TRACKED_SOURCE_NAMES = set(DATASET_SOURCE.values()) | {FORWARD_SOURCE_NAME}
 TRADE_PULL_BLOCKING_STATES = {"failed", "blocked", "stale", "unverified"}
 MASSIVE_DAILY_BARS_LANE_ID = "massive_daily_bars"
 MASSIVE_LIVE_TRADE_LANE_ID = "massive_live_trade_slices"
@@ -150,6 +157,7 @@ SOURCE_HEALTH_MAX_AGE_BY_SOURCE = {
     "sec-13f": 30 * 24 * 60 * 60,
     "rss-news": SOURCE_HEALTH_MAX_AGE_SECONDS,
     "subscription-email-thesis": SOURCE_HEALTH_MAX_AGE_SECONDS,
+    FORWARD_SOURCE_NAME: 7 * 24 * 60 * 60,
 }
 EASTERN = ZoneInfo("America/New_York")
 WEEKEND_START = 5
@@ -187,7 +195,9 @@ def load_data_load_status(
     if not active_tickers:
         active_tickers = _configured_tickers(config)
     expected = len(active_tickers)
-    data_refresh = load_data_refresh_progress()
+    data_refresh = load_data_refresh_progress(
+        massive_lane_manifest_root=manifest_dir / "massive_lanes",
+    )
     live_config = load_live_config_readiness(config_file if config_file.is_file() else None)
     runtime_summary = _read_json_object(runtime_file)
     current = now or datetime.now(UTC)
@@ -197,21 +207,14 @@ def load_data_load_status(
     subscription_email_progress = _read_json_object(DEFAULT_SUBSCRIPTION_EMAIL_PROGRESS_PATH)
     if source_health_rows is None:
         source_health = _read_json_list(source_file)
-        source_origin = (
-            source_health_origin
-            or (
-                "latest runtime source-health artifact"
-                if source_file.is_file()
-                else "missing source-health artifact"
-            )
+        source_origin = source_health_origin or (
+            "latest runtime source-health artifact"
+            if source_file.is_file()
+            else "missing source-health artifact"
         )
         source_file_for_monitor: Path | None = source_file
     else:
-        source_health = [
-            row
-            for row in source_health_rows
-            if isinstance(row, Mapping)
-        ]
+        source_health = [row for row in source_health_rows if isinstance(row, Mapping)]
         source_origin = source_health_origin or "live runtime source-health reader"
         source_file_for_monitor = None
     market_session = _current_market_session(current)
@@ -231,9 +234,18 @@ def load_data_load_status(
         daily_as_of=as_of,
         now=current,
     )
+    monitored_source_health_base = _monitored_source_health(source_health)
+    source_health = [
+        *source_health,
+        forward_fundamentals_source_health(
+            active_tickers,
+            state_root=DEFAULT_FORWARD_FUNDAMENTALS_STATE_ROOT,
+            now=current,
+        ),
+    ]
     monitored_source_health = _monitored_source_health(source_health)
     health_monitor = _health_monitor_summary(
-        monitored_source_health,
+        monitored_source_health_base,
         origin=source_origin,
         now=current,
         source_file=source_file_for_monitor,
@@ -262,15 +274,26 @@ def load_data_load_status(
         market_session=market_session,
         now=current,
     )
+    lane_state_source_health = [
+        *monitored_source_health,
+        *_lane_specific_source_health(
+            data_refresh=data_refresh,
+            manifest_root=manifest_dir,
+            market_session=market_session,
+            now=current,
+        ),
+    ]
     lane_states = build_lane_states(
         data_refresh=data_refresh,
         dataset_rows=dataset_rows,
         lane_rows=lane_rows,
-        source_health_rows=monitored_source_health,
+        source_health_rows=lane_state_source_health,
         now=current,
     )
+    lane_states = _apply_session_lane_state_requirements(lane_states, market_session)
     market_flow = _market_flow_summary(dataset_rows, lane_rows, expected)
     blockers = _blockers(dataset_rows, lane_rows, expected)
+    blockers = _suppress_loading_lane_blockers(blockers, lane_states)
     if not config_as_of_verified:
         blockers.append(
             _issue(
@@ -283,7 +306,10 @@ def load_data_load_status(
             )
         )
     blockers.extend(_data_refresh_blockers(data_refresh, market_flow=market_flow))
+    blockers = _suppress_loading_lane_blockers(blockers, lane_states)
+    blockers.extend(_lane_state_execution_blockers(lane_states, existing_blockers=blockers))
     warnings = _warnings(dataset_rows, lane_rows, runtime_summary)
+    warnings.extend(_lane_loading_warnings(lane_states))
     warnings.extend(_data_refresh_warnings(data_refresh, market_flow=market_flow))
     data_refresh_state = _effective_data_refresh_state(data_refresh, market_flow=market_flow)
     warnings.extend(_support_refresh_warnings(data_refresh, effective_state=data_refresh_state))
@@ -314,8 +340,16 @@ def load_data_load_status(
         "state": state,
         "status_label": _status_label(state),
         "status_class": _status_class(state),
-        "headline": _headline(state),
-        "detail": _detail(state, blockers, warnings),
+        "headline": _headline(
+            state,
+            review_operational_ready=review_operational_ready,
+        ),
+        "detail": _detail(
+            state,
+            blockers,
+            warnings,
+            review_operational_ready=review_operational_ready,
+        ),
         "as_of": (
             as_of.isoformat()
             if config_as_of_verified
@@ -385,9 +419,7 @@ def _dataset_rows(
         *(dataset for dataset in CONTEXT_DATASETS if not configured or dataset in configured),
     ]
     health_by_source = {
-        str(row.get("source")): row
-        for row in source_health
-        if isinstance(row.get("source"), str)
+        str(row.get("source")): row for row in source_health if isinstance(row.get("source"), str)
     }
     rows: list[dict[str, object]] = []
     for dataset in datasets:
@@ -516,15 +548,15 @@ def _dataset_rows(
                     news_consumption_ledger_path=news_consumption_ledger_path,
                     current_source_ids=news_resolved_source_ids,
                 ),
-                "max_as_of": str(manifest.get("max_timestamp_as_of") or "not loaded"),
+                "max_as_of": str(
+                    manifest_for_status.get("max_timestamp_as_of") or "not loaded"
+                ),
                 "issue_count": len(issues),
                 "source_status": str(health.get("status") or "UNKNOWN"),
                 "source_freshness": str(health.get("freshness") or "UNKNOWN"),
                 "source_checked_at": str(health.get("checked_at") or "not checked"),
                 "source_last_success_at": str(health.get("last_success_at") or "not recorded"),
-                "massive_lane_id": str(massive_lane.get("lane_id") or "")
-                if massive_lane
-                else "",
+                "massive_lane_id": str(massive_lane.get("lane_id") or "") if massive_lane else "",
                 "massive_lane_status": str(massive_lane.get("status") or "")
                 if massive_lane
                 else "",
@@ -675,7 +707,8 @@ def _blockers(
     blockers.extend(
         _issue("agent_lane", str(row["lane"]), str(row["detail"]))
         for row in lane_rows
-        if row.get("group") == "critical" and row.get("status") == "blocked"
+        if row.get("group") == "critical"
+        and row.get("status") == "blocked"
         and row.get("required_now") is not False
     )
     evidence_rows = [
@@ -688,10 +721,94 @@ def _blockers(
         and evidence_rows
         and all(_int_value(row.get("produced_count")) == 0 for row in evidence_rows)
     ):
-        blockers.append(
-            _issue("runtime_cycle", "signals", "No critical agent lane produced rows.")
-        )
+        blockers.append(_issue("runtime_cycle", "signals", "No critical agent lane produced rows."))
     return blockers
+
+
+def _suppress_loading_lane_blockers(
+    blockers: Sequence[Mapping[str, object]],
+    lane_states: Sequence[Mapping[str, object]],
+) -> list[dict[str, object]]:
+    loading_lane_ids = {
+        str(row.get("lane_id") or "")
+        for row in lane_states
+        if str(row.get("state") or "") == "loading"
+    }
+    if not loading_lane_ids:
+        return [dict(row) for row in blockers]
+    return [
+        dict(row)
+        for row in blockers
+        if not (
+            str(row.get("kind") or "") == "agent_lane"
+            and str(row.get("item") or "") in loading_lane_ids
+        )
+        and not (
+            str(row.get("kind") or "") in {"dataset", "data_refresh"}
+            and str(row.get("item") or "") == "stock_trades"
+            and MASSIVE_LIVE_TRADE_LANE_ID in loading_lane_ids
+        )
+    ]
+
+
+def _lane_state_execution_blockers(
+    lane_states: Sequence[Mapping[str, object]],
+    *,
+    existing_blockers: Sequence[Mapping[str, object]],
+) -> list[dict[str, object]]:
+    existing = {
+        (str(row.get("kind") or ""), str(row.get("item") or ""))
+        for row in existing_blockers
+    }
+    blockers: list[dict[str, object]] = []
+    for row in lane_states:
+        state = str(row.get("state") or "")
+        lane_id = str(row.get("lane_id") or "lane_state")
+        if state == "loading":
+            continue
+        if state == "provider_unavailable" and str(row.get("reason_code") or "").lower() in {
+            "manifest_missing",
+            "missing_manifest",
+        }:
+            continue
+        if row.get("required_now") is False or row.get("blocker") is not True:
+            continue
+        if state == "needs_refresh":
+            if str(row.get("original_status_class") or "") != "block":
+                continue
+            if str(row.get("source_freshness") or "").upper() in {"FRESH", "PARTIAL"}:
+                continue
+        key = ("lane_state", lane_id)
+        if key in existing:
+            continue
+        reason = str(
+            row.get("operator_message")
+            or row.get("recommended_action")
+            or "Required lane is not ready for paper execution."
+        )
+        issue = _issue("lane_state", lane_id, reason)
+        issue["status_class"] = str(row.get("status_class") or "warn")
+        blockers.append(issue)
+    return blockers
+
+
+def _lane_loading_warnings(
+    lane_states: Sequence[Mapping[str, object]],
+) -> list[dict[str, object]]:
+    return [
+        _issue(
+            "lane_loading",
+            str(row.get("lane_id") or "lane"),
+            str(
+                row.get("operator_message")
+                or row.get("recommended_action")
+                or "Data is still loading for this lane."
+            ),
+        )
+        for row in lane_states
+        if str(row.get("state") or "") == "loading"
+        and row.get("required_now") is not False
+    ]
 
 
 def _warnings(
@@ -721,9 +838,7 @@ def _data_refresh_blockers(
 ) -> list[dict[str, object]]:
     state = str(data_refresh.get("state") or "").lower()
     affected = _affected_refresh_datasets(data_refresh)
-    blocking_affected = [
-        dataset for dataset in affected if _refresh_dataset_blocks(dataset)
-    ]
+    blocking_affected = [dataset for dataset in affected if _refresh_dataset_blocks(dataset)]
     if state in TRADE_PULL_BLOCKING_STATES and blocking_affected:
         detail = str(
             data_refresh.get("detail")
@@ -753,11 +868,15 @@ def _data_refresh_blockers(
         return [_issue("data_refresh", "stock_trades", detail)]
     if state == "unverified" and market_flow_usable > 0 and market_flow_signals > 0:
         return []
-    if state == "stale" and max(
-        _int_value(trade_pull.get("pipeline_ready_count")),
-        _int_value(trade_pull.get("pipeline_usable_count")),
-        market_flow_usable,
-    ) > 0:
+    if (
+        state == "stale"
+        and max(
+            _int_value(trade_pull.get("pipeline_ready_count")),
+            _int_value(trade_pull.get("pipeline_usable_count")),
+            market_flow_usable,
+        )
+        > 0
+    ):
         detail = str(
             trade_pull.get("detail")
             or (
@@ -881,8 +1000,7 @@ def _market_flow_summary(
     rows = [
         row
         for row in lane_rows
-        if str(row.get("lane")) in MARKET_FLOW_LANES
-        and row.get("required_now") is not False
+        if str(row.get("lane")) in MARKET_FLOW_LANES and row.get("required_now") is not False
     ]
     stock_trades = next(
         (row for row in dataset_rows if str(row.get("dataset")) == "stock_trades"),
@@ -1207,7 +1325,7 @@ def _news_resolved_source_ids(
         return None
     try:
         frame = pd.read_parquet(path)
-    except (FileNotFoundError, OSError, ValueError):
+    except FileNotFoundError, OSError, ValueError:
         return None
     if "source_id" not in frame.columns:
         return None
@@ -1259,15 +1377,21 @@ def _dataset_status(
     status = "ready"
     if source_state == "blocked":
         status = "blocked" if dataset in CORE_DATASETS else "warning"
-    elif group == "core" and _manifest_stale_for_as_of(manifest, as_of) or group == "core" and dataset != "stock_trades" and coverage < 1.0:
+    elif (
+        group == "core"
+        and _manifest_stale_for_as_of(manifest, as_of)
+        or group == "core"
+        and dataset != "stock_trades"
+        and coverage < 1.0
+    ):
         status = "blocked"
     elif source_state == "warning" or dataset == "stock_trades" and 0.0 < effective_coverage < 1.0:
         status = "warning"
-    elif group == "core" and (
-        effective_coverage if dataset == "stock_trades" else coverage
-    ) < 1.0:
+    elif group == "core" and (effective_coverage if dataset == "stock_trades" else coverage) < 1.0:
         status = "blocked"
-    elif dataset == "stock_trades" and partial_ticker_count > 0 or support_warning or context_warning:
+    elif (
+        dataset == "stock_trades" and partial_ticker_count > 0 or support_warning or context_warning
+    ):
         status = "warning"
     return status
 
@@ -1287,15 +1411,15 @@ def _lane_status(
         elif dataset_status == "warning" or coverage < 1.0:
             status = "warning"
         return status
-    if group == "critical" and dataset_status == "blocked":
-        status = "blocked"
-    elif dataset_status in {"blocked", "warning"} and group != "critical":
+    if group == "critical":
+        if dataset_status == "blocked" or count <= 0:
+            status = "blocked"
+        elif dataset_status == "warning" or coverage < 1.0:
+            status = "warning"
+        return status
+    if dataset_status in {"blocked", "warning"} and group != "critical":
         status = "warning"
-    elif lane in TOP_DOWN_CONTEXT_LANES:
-        status = "ready"
-    elif group == "critical":
-        status = "ready" if coverage >= 1.0 else "blocked"
-    elif lane in SPARSE_SUPPORT_LANES:
+    elif lane in TOP_DOWN_CONTEXT_LANES or lane in SPARSE_SUPPORT_LANES:
         status = "ready"
     elif group == "support":
         status = "ready" if coverage >= MIN_SUPPORT_LANE_COVERAGE else "warning"
@@ -1405,6 +1529,13 @@ def _session_aware_lane_readiness(
 
 def _state(data_refresh_state: str, blockers: Sequence[object], warnings: Sequence[object]) -> str:
     if blockers:
+        if all(
+            isinstance(row, Mapping)
+            and str(row.get("kind") or "") == "lane_state"
+            and str(row.get("status_class") or "") in {"warn", "warning"}
+            for row in blockers
+        ):
+            return "attention"
         return "blocked"
     if data_refresh_state in {"stale", "blocked", "failed", "planned", "unavailable"}:
         return "blocked"
@@ -1486,8 +1617,7 @@ def _dataset_detail(
     source_state = _source_issue_status(health, now=now)
     if source_state != "ready":
         return (
-            f"{DATASET_LABELS[dataset]} source needs attention: "
-            f"{_source_detail(health, now=now)}"
+            f"{DATASET_LABELS[dataset]} source needs attention: {_source_detail(health, now=now)}"
         )
     if dataset == "news_rss":
         return _news_resolution_detail(
@@ -1497,7 +1627,9 @@ def _dataset_detail(
         )
     if group == "core":
         percent = round(coverage * PERCENT_SCALE)
-        usable_percent = round((coverage if usable_coverage is None else usable_coverage) * PERCENT_SCALE)
+        usable_percent = round(
+            (coverage if usable_coverage is None else usable_coverage) * PERCENT_SCALE
+        )
         freshness = str(health.get("freshness") or "UNKNOWN")
         if _manifest_stale_for_as_of(manifest, as_of):
             latest = str(manifest.get("max_timestamp_as_of") or "not loaded")
@@ -1684,13 +1816,12 @@ def _subscription_email_status(
         attempted,
         succeeded + failed + skipped + login_required + unavailable,
     )
-    if state in {"waiting_for_login_confirmation", "article_login_challenge"} and login_required == 0:
+    if (
+        state in {"waiting_for_login_confirmation", "article_login_challenge"}
+        and login_required == 0
+    ):
         login_required = links_found
-    updated_at = str(
-        progress.get("updated_at")
-        or summary.get("fetched_at")
-        or ""
-    )
+    updated_at = str(progress.get("updated_at") or summary.get("fetched_at") or "")
     status_label, status_class, detail, next_action = _subscription_email_status_text(
         state=state,
         verdict=verdict,
@@ -1726,7 +1857,8 @@ def _subscription_email_status(
         or login_required > 0
     )
     return {
-        "state": state or ("needs_article_login" if verdict == "needs_article_login" else "unknown"),
+        "state": state
+        or ("needs_article_login" if verdict == "needs_article_login" else "unknown"),
         "status_label": status_label,
         "status_class": status_class,
         "processed_email_count": processed,
@@ -1753,9 +1885,7 @@ def _subscription_email_status(
             else ""
         ),
         "continue_button_label": (
-            "I logged in - open and analyze articles"
-            if can_continue_after_login
-            else ""
+            "I logged in - open and analyze articles" if can_continue_after_login else ""
         ),
     }
 
@@ -1823,7 +1953,9 @@ def _subscription_email_status_text(
             "Wait for article analysis to finish, then reload the dashboard.",
         )
     if state == "complete" or attempted or succeeded:
-        status_class = "pass" if failed == 0 and login_required == 0 and unavailable == 0 else "warn"
+        status_class = (
+            "pass" if failed == 0 and login_required == 0 and unavailable == 0 else "warn"
+        )
         total = links_found or max(attempted, succeeded + failed + skipped)
         label = (
             f"Analyzed {succeeded}/{total} article links"
@@ -1873,7 +2005,9 @@ def _subscription_email_progress_label(
     login_required: int,
     unavailable: int,
 ) -> tuple[str, int]:
-    total = links_found or max(attempted, succeeded + failed + skipped + login_required + unavailable)
+    total = links_found or max(
+        attempted, succeeded + failed + skipped + login_required + unavailable
+    )
     if state == "login_acknowledgement_required":
         return "Login acknowledged; Chrome agent access not connected", 0
     if state == "waiting_for_login_confirmation":
@@ -1952,6 +2086,21 @@ def _lane_detail(
                 f"tickers only; {source_dataset} still needs repair before full "
                 "universe trading."
             )
+        if lane in TOP_DOWN_CONTEXT_LANES:
+            return (
+                f"{lane.replace('_', ' ')} used currently available {source_dataset} "
+                "for market and sector context. Review the displayed market regime "
+                f"with that coverage; refresh or repair {source_dataset} before "
+                "full-universe paper execution."
+            )
+        if group == "critical" and count > 0:
+            expected_label = str(expected) if expected is not None else "configured"
+            return (
+                f"{lane.replace('_', ' ')} produced {count}/{expected_label} row(s) "
+                f"from currently available {source_dataset}. Covered tickers can "
+                "be reviewed now; refresh or repair the source before full-universe "
+                "paper execution."
+            )
         return (
             f"{lane.replace('_', ' ')} has a warning because {source_dataset} "
             f"freshness is {source_freshness}."
@@ -1976,7 +2125,13 @@ def _lane_detail(
     return f"{lane.replace('_', ' ')} produced {count} row(s)."
 
 
-def _headline(state: str) -> str:
+def _headline(
+    state: str,
+    *,
+    review_operational_ready: bool = False,
+) -> str:
+    if state == "attention" and not review_operational_ready:
+        return "Data is still loading; review is not ready yet."
     return {
         "ready": "All configured data and agent lanes are loaded.",
         "attention": "Agency is review-operational; some data lanes need attention.",
@@ -1989,10 +2144,19 @@ def _detail(
     state: str,
     blockers: Sequence[Mapping[str, object]],
     warnings: Sequence[Mapping[str, object]],
+    *,
+    review_operational_ready: bool = False,
 ) -> str:
     if state == "ready":
         return "The latest runtime cycle has complete core coverage and usable context."
     if state == "attention" and warnings:
+        if not review_operational_ready:
+            loading = next(
+                (row for row in warnings if str(row.get("kind") or "") == "lane_loading"),
+                None,
+            )
+            if loading is not None:
+                return str(loading["reason"])
         return str(warnings[0]["reason"])
     if state == "blocked" and blockers:
         return str(blockers[0]["reason"])
@@ -2073,10 +2237,13 @@ def _health_monitor_summary(
     )
     stale_rows = _stale_health_monitor_rows(source_health, now=now)
     origin_lower = normalized_origin.lower()
-    live = "live" in origin_lower and "artifact" not in origin_lower and "unavailable" not in origin_lower
+    live = (
+        "live" in origin_lower
+        and "artifact" not in origin_lower
+        and "unavailable" not in origin_lower
+    )
     unavailable_monitor = any(
-        str(row.get("source") or "") == "source-health-monitor"
-        for row in source_health
+        str(row.get("source") or "") == "source-health-monitor" for row in source_health
     )
     if not source_health:
         status = "missing"
@@ -2107,21 +2274,17 @@ def _health_monitor_summary(
         reliable = False
     elif stale_rows:
         critical_stale_rows = [
-            row
-            for row in stale_rows
-            if str(row.get("source") or "") in CRITICAL_SOURCE_NAMES
+            row for row in stale_rows if str(row.get("source") or "") in CRITICAL_SOURCE_NAMES
         ]
         row = critical_stale_rows[0] if critical_stale_rows else stale_rows[0]
         source = str(row.get("source") or "unknown source")
         checked_at = _parse_datetime(row.get("checked_at"))
         row_age = (
-            int((_ensure_utc(now) - checked_at).total_seconds())
-            if checked_at is not None
-            else None
+            int((_ensure_utc(now) - checked_at).total_seconds()) if checked_at is not None else None
         )
         row_sla = _source_max_age_seconds(row)
         critical_stale = bool(critical_stale_rows)
-        status = "stale" if critical_stale else "context_stale"
+        status = "needs_refresh" if critical_stale else "context_needs_refresh"
         status_class = "block" if critical_stale else "warn"
         label = "Health Monitor Needs Refresh" if critical_stale else "Context Health Needs Refresh"
         detail = (
@@ -2158,8 +2321,12 @@ def _health_monitor_summary(
         "reliable": reliable,
         "row_count": len(source_health),
         "missing_checked_count": missing_checked_count,
-        "latest_checked_at": latest_checked.isoformat() if latest_checked is not None else "not checked",
-        "oldest_checked_at": oldest_checked.isoformat() if oldest_checked is not None else "not checked",
+        "latest_checked_at": latest_checked.isoformat()
+        if latest_checked is not None
+        else "not checked",
+        "oldest_checked_at": oldest_checked.isoformat()
+        if oldest_checked is not None
+        else "not checked",
         "max_age_seconds": max_age_seconds,
         "artifact_updated_at": artifact_updated_at,
         "detail": detail,
@@ -2282,12 +2449,8 @@ def _freshness_rows(
                     for ticker in _list_field(row, "missing_active_tickers")
                     if str(ticker).strip()
                 ],
-                "active_usable_ticker_count": _int_value(
-                    row.get("active_usable_ticker_count")
-                ),
-                "active_expected_ticker_count": _int_value(
-                    row.get("active_expected_ticker_count")
-                ),
+                "active_usable_ticker_count": _int_value(row.get("active_usable_ticker_count")),
+                "active_expected_ticker_count": _int_value(row.get("active_expected_ticker_count")),
                 "active_coverage_pct": _int_value(row.get("active_coverage_pct")),
                 "detail": _source_detail(row, now=now),
             }
@@ -2425,9 +2588,7 @@ def _source_age_is_market_closed_current(
 
 def _source_summary_headline(rows: Sequence[Mapping[str, object]]) -> str:
     critical_blockers = [
-        row
-        for row in rows
-        if row.get("critical") is True and row.get("status_class") == "block"
+        row for row in rows if row.get("critical") is True and row.get("status_class") == "block"
     ]
     if critical_blockers:
         row = critical_blockers[0]
@@ -2454,7 +2615,7 @@ def _manifest_stale_for_as_of(manifest: Mapping[str, object], as_of: date) -> bo
         return True
     try:
         observed = pd.to_datetime(value, utc=True).date()
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return True
     return observed < as_of
 
@@ -2556,6 +2717,41 @@ def _lane_expected_count(
     return None
 
 
+def _apply_session_lane_state_requirements(
+    lane_states: Sequence[Mapping[str, object]],
+    market_session: object | None,
+) -> list[dict[str, object]]:
+    if _premarket_lane_required_now(market_session):
+        return [dict(row) for row in lane_states]
+    adjusted: list[dict[str, object]] = []
+    for row in lane_states:
+        output = dict(row)
+        if str(output.get("lane_id") or "") == MASSIVE_PREMARKET_TRADE_LANE_ID:
+            output.update(
+                {
+                    "state": "disabled_optional",
+                    "status_label": "Not required for current workflow",
+                    "status_class": "neutral",
+                    "operator_message": (
+                        "Massive Pre-Market Trade Slices is optional outside the "
+                        "04:00-09:30 ET pre-market window."
+                    ),
+                    "recommended_action": (
+                        "No action required unless this lane becomes part of today's workflow."
+                    ),
+                    "analysis_state": "not_required",
+                    "required_now": False,
+                    "blocks_execution": False,
+                    "effective_blocks_execution": False,
+                    "blocker": False,
+                    "ready_for_review": False,
+                    "ready_for_paper_execution": False,
+                }
+            )
+        adjusted.append(output)
+    return adjusted
+
+
 def _coverage(count: int, expected: int | None) -> float:
     if expected is None or expected == 0:
         return 1.0
@@ -2592,7 +2788,7 @@ def _active_universe_tickers(as_of: date, path: Path) -> set[str]:
         return set()
     try:
         frame = pd.read_parquet(path, columns=["ticker", "start_date", "end_date"])
-    except (OSError, ValueError, KeyError):
+    except OSError, ValueError, KeyError:
         return set()
     if frame.empty:
         return set()
@@ -2637,34 +2833,43 @@ def _source_health_with_massive_lanes(
             now=now,
             note=f"source-health overridden by latest {dataset} manifest",
         )
-    market_session = _current_market_session(now)
-    if _premarket_lane_required_now(market_session):
-        trade_lane_id = MASSIVE_PREMARKET_TRADE_LANE_ID
-        live_snapshot = _stock_trade_raw_lane_snapshot(
-            trade_lane_id,
-            label="Massive Pre-Market Trade Slices",
-            data_refresh=data_refresh,
-            manifest_root=manifest_root,
-            as_of=_market_session_date(market_session),
-            now=now,
-            missing_is_snapshot=True,
-        )
-    else:
-        trade_lane_id = MASSIVE_LIVE_TRADE_LANE_ID
-        live_snapshot = _stock_trade_live_lane_snapshot(
-            data_refresh,
-            manifest_root=manifest_root,
-            parquet_root=parquet_root,
-            active_tickers=active_tickers,
-            as_of=as_of,
-            now=now,
-        )
+    trade_lane_id = MASSIVE_LIVE_TRADE_LANE_ID
+    live_snapshot = _stock_trade_live_lane_snapshot(
+        data_refresh,
+        manifest_root=manifest_root,
+        parquet_root=parquet_root,
+        active_tickers=active_tickers,
+        as_of=as_of,
+        now=now,
+    )
     return _merge_lane_source_health(
         source_rows,
         _stock_trade_lane_source_health(live_snapshot, now=now),
         now=now,
         note=f"source-health overridden by {trade_lane_id} lane manifest",
     )
+
+
+def _lane_specific_source_health(
+    *,
+    data_refresh: Mapping[str, object],
+    manifest_root: Path,
+    market_session: object | None,
+    now: datetime,
+) -> list[Mapping[str, object]]:
+    if not _premarket_lane_required_now(market_session):
+        return []
+    premarket_snapshot = _stock_trade_raw_lane_snapshot(
+        MASSIVE_PREMARKET_TRADE_LANE_ID,
+        label="Massive Pre-Market Trade Slices",
+        data_refresh=data_refresh,
+        manifest_root=manifest_root,
+        as_of=_market_session_date(market_session),
+        now=now,
+        missing_is_snapshot=True,
+    )
+    premarket_health = _stock_trade_lane_source_health(premarket_snapshot, now=now)
+    return [premarket_health] if premarket_health else []
 
 
 def _merge_lane_source_health(
@@ -2706,9 +2911,7 @@ def _daily_bar_lane_snapshot(
     active_tickers: set[str] | None = None,
 ) -> Mapping[str, object]:
     lane_id = MASSIVE_DAILY_BARS_LANE_ID
-    manifest = _read_json_object(
-        manifest_root / "massive_lanes" / f"{lane_id}.json"
-    )
+    manifest = _read_json_object(manifest_root / "massive_lanes" / f"{lane_id}.json")
     if not manifest:
         if (manifest_root / "massive_lanes").exists():
             return _missing_lane_snapshot(lane_id, label="Massive Daily Bars")
@@ -2721,11 +2924,7 @@ def _daily_bar_lane_snapshot(
             as_of=as_of,
         )
     tickers = sorted(
-        {
-            str(ticker).upper()
-            for ticker in _list_field(manifest, "tickers")
-            if str(ticker).strip()
-        }
+        {str(ticker).upper() for ticker in _list_field(manifest, "tickers") if str(ticker).strip()}
     )
     coverage = [
         row
@@ -2737,8 +2936,7 @@ def _daily_bar_lane_snapshot(
             str(row.get("ticker")).upper()
             for row in coverage
             if row.get("complete") is True
-            or str(row.get("coverage_status") or row.get("status") or "").lower()
-            == "complete"
+            or str(row.get("coverage_status") or row.get("status") or "").lower() == "complete"
         }
     )
     if not coverage and tickers and str(manifest.get("status") or "").lower() == "complete":
@@ -2793,9 +2991,7 @@ def _stock_trade_live_lane_snapshot(
     now: datetime,
 ) -> Mapping[str, object]:
     lane_id = MASSIVE_LIVE_TRADE_LANE_ID
-    manifest = _read_json_object(
-        manifest_root / "massive_lanes" / f"{lane_id}.json"
-    )
+    manifest = _read_json_object(manifest_root / "massive_lanes" / f"{lane_id}.json")
     if not manifest:
         if not (manifest_root / "massive_lanes").exists():
             return {}
@@ -2828,11 +3024,7 @@ def _stock_trade_live_lane_snapshot(
     if str(progress.get("lane_id") or "") != MASSIVE_LIVE_TRADE_LANE_ID:
         progress = {}
     tickers = sorted(
-        {
-            str(ticker).upper()
-            for ticker in _list_field(manifest, "tickers")
-            if str(ticker).strip()
-        }
+        {str(ticker).upper() for ticker in _list_field(manifest, "tickers") if str(ticker).strip()}
     )
     coverage = [
         row
@@ -2858,10 +3050,10 @@ def _stock_trade_live_lane_snapshot(
         {
             str(row.get("ticker")).upper()
             for row in coverage
-            if str(row.get("coverage_status") or row.get("status") or "").lower()
-            == "failed"
+            if str(row.get("coverage_status") or row.get("status") or "").lower() == "failed"
         }
     )
+    provider_error_detail = _stock_trade_provider_error_detail(coverage)
     partial_source = sorted(
         {
             str(row.get("ticker")).upper()
@@ -2886,6 +3078,7 @@ def _stock_trade_live_lane_snapshot(
         "failed_tickers": failed,
         "partial_tickers": partial,
         "partial_source_tickers": partial_source,
+        "provider_error_detail": provider_error_detail,
         "issues": _list_field(manifest, "issues"),
         "row_count": _int_value(manifest.get("row_count")),
     }
@@ -2943,9 +3136,8 @@ def _stock_trade_coverage_metadata_lane_snapshot(
             continue
         missing_tickers.append(ticker)
     parquet_counts = _stock_trade_parquet_row_counts(root, missing_tickers, as_of=as_of)
-    parquet_checked_at = (
-        _parse_datetime(stock_manifest.get("fetched_at"))
-        or _parse_datetime(stock_manifest.get("max_timestamp_as_of"))
+    parquet_checked_at = _parse_datetime(stock_manifest.get("fetched_at")) or _parse_datetime(
+        stock_manifest.get("max_timestamp_as_of")
     )
     for ticker in missing_tickers:
         row_count = parquet_counts.get(ticker, 0)
@@ -2994,8 +3186,7 @@ def _stock_trade_coverage_metadata_lane_snapshot(
         {
             str(row.get("ticker")).upper()
             for row in coverage_rows
-            if str(row.get("coverage_status") or row.get("status") or "").lower()
-            == "failed"
+            if str(row.get("coverage_status") or row.get("status") or "").lower() == "failed"
         }
     )
     partial_tickers = sorted(
@@ -3109,11 +3300,7 @@ def _stock_trade_raw_lane_snapshot(
         {},
     )
     tickers = sorted(
-        {
-            str(ticker).upper()
-            for ticker in _list_field(manifest, "tickers")
-            if str(ticker).strip()
-        }
+        {str(ticker).upper() for ticker in _list_field(manifest, "tickers") if str(ticker).strip()}
     )
     coverage = [
         row
@@ -3139,10 +3326,10 @@ def _stock_trade_raw_lane_snapshot(
         {
             str(row.get("ticker")).upper()
             for row in coverage
-            if str(row.get("coverage_status") or row.get("status") or "").lower()
-            == "failed"
+            if str(row.get("coverage_status") or row.get("status") or "").lower() == "failed"
         }
     )
+    provider_error_detail = _stock_trade_provider_error_detail(coverage)
     partial_source = sorted(
         {
             str(row.get("ticker")).upper()
@@ -3167,6 +3354,7 @@ def _stock_trade_raw_lane_snapshot(
         "failed_tickers": failed,
         "partial_tickers": partial,
         "partial_source_tickers": partial_source,
+        "provider_error_detail": provider_error_detail,
         "issues": _list_field(manifest, "issues"),
         "row_count": _int_value(manifest.get("row_count")),
     }
@@ -3301,10 +3489,15 @@ def _daily_bar_lane_source_health(
     active_coverage_detail = ""
     if missing_active_tickers and status == "HEALTHY":
         status = "DEGRADED"
+        provider_unavailable_detail = _daily_bar_provider_unavailable_detail(
+            daily_bar_lane,
+            missing_active_tickers=missing_active_tickers,
+        )
         active_coverage_detail = (
             f" Active-universe coverage is {active_usable}/{active_expected} "
             f"active ticker(s) ({active_coverage_pct}%); missing "
             f"{_ticker_list_preview(missing_active_tickers)}."
+            f"{provider_unavailable_detail}"
         )
     checked = checked_at.isoformat()
     return {
@@ -3327,6 +3520,29 @@ def _daily_bar_lane_source_health(
     }
 
 
+def _daily_bar_provider_unavailable_detail(
+    daily_bar_lane: Mapping[str, object],
+    *,
+    missing_active_tickers: Sequence[str],
+) -> str:
+    missing = {ticker.upper() for ticker in missing_active_tickers if ticker.strip()}
+    unavailable = sorted(
+        {
+            str(issue.get("ticker") or "").upper()
+            for issue in _sequence_mappings(daily_bar_lane.get("issues"))
+            if str(issue.get("reason") or "").lower() == "no_daily_bar_available"
+            and str(issue.get("ticker") or "").upper() in missing
+        }
+    )
+    if not unavailable:
+        return ""
+    return (
+        " The provider returned no daily bar for "
+        f"{_ticker_list_preview(unavailable)}; retry is not currently useful "
+        "until the provider publishes or corrects that completed-session bar."
+    )
+
+
 def _stock_trade_lane_source_health(
     live_trade_lane: Mapping[str, object],
     *,
@@ -3339,6 +3555,7 @@ def _stock_trade_lane_source_health(
     if lane_status in {"missing_manifest", "out_of_window"}:
         return {
             "source": "massive-stock-trades",
+            "lane_id": lane_id,
             "status": "UNAVAILABLE" if lane_status == "missing_manifest" else "STALE",
             "freshness": "UNAVAILABLE" if lane_status == "missing_manifest" else "STALE",
             "checked_at": "not checked",
@@ -3351,6 +3568,7 @@ def _stock_trade_lane_source_health(
     if checked_at is None:
         return {
             "source": "massive-stock-trades",
+            "lane_id": lane_id,
             "status": "STALE",
             "freshness": "UNKNOWN",
             "checked_at": "not checked",
@@ -3363,6 +3581,7 @@ def _stock_trade_lane_source_health(
     failed_ticker_count = len(_list_field(live_trade_lane, "failed_tickers"))
     usable_ticker_count = len(_list_field(live_trade_lane, "usable_tickers"))
     ticker_count = len(_list_field(live_trade_lane, "tickers"))
+    provider_error_detail = str(live_trade_lane.get("provider_error_detail") or "")
     closed_market_current = _closed_market_live_trade_lane_current(checked_at, now)
     latest_slice_ready = (
         ticker_count > 0
@@ -3371,7 +3590,10 @@ def _stock_trade_lane_source_health(
         and failed_ticker_count == 0
         and weak_proof_count == 0
     )
-    if age_seconds > MASSIVE_LIVE_TRADE_SLA_SECONDS and not closed_market_current:
+    if provider_error_detail:
+        freshness = "UNAVAILABLE"
+        status = "UNAVAILABLE"
+    elif age_seconds > MASSIVE_LIVE_TRADE_SLA_SECONDS and not closed_market_current:
         freshness = "STALE"
         status = "STALE"
     elif weak_proof_count:
@@ -3390,6 +3612,7 @@ def _stock_trade_lane_source_health(
     proof_detail = str(live_trade_lane.get("proof_detail") or "")
     return {
         "source": "massive-stock-trades",
+        "lane_id": lane_id,
         "status": status,
         "freshness": freshness,
         "checked_at": checked,
@@ -3419,9 +3642,46 @@ def _stock_trade_lane_source_health(
                 if closed_market_current
                 else ""
             )
+            + (f" {provider_error_detail}" if provider_error_detail else "")
             + (f" {proof_detail}" if proof_detail else "")
         ),
     }
+
+
+def _stock_trade_provider_error_detail(
+    coverage: Sequence[Mapping[str, object]],
+) -> str:
+    denied: list[str] = []
+    code_label = "access denied"
+    for row in coverage:
+        reason = str(
+            row.get("reason")
+            or row.get("error")
+            or row.get("detail")
+            or ""
+        )
+        reason_lc = reason.lower()
+        if not (
+            "403" in reason_lc
+            or "forbidden" in reason_lc
+            or "401" in reason_lc
+            or "unauthorized" in reason_lc
+        ):
+            continue
+        ticker = str(row.get("ticker") or "").upper()
+        if ticker:
+            denied.append(ticker)
+        if "403" in reason_lc or "forbidden" in reason_lc:
+            code_label = "403 Forbidden"
+        elif "401" in reason_lc or "unauthorized" in reason_lc:
+            code_label = "401 Unauthorized"
+    if not denied:
+        return ""
+    return (
+        f"Provider returned {code_label} for "
+        f"{_ticker_list_preview(sorted(set(denied)))}; check the Massive/Polygon API "
+        "key, account plan, and trade endpoint entitlement before retrying this lane."
+    )
 
 
 def _context_manifest_source_health(
@@ -3470,8 +3730,7 @@ def _context_manifest_source_health(
             f"manifest checked {age_seconds}s ago",
         ],
         "detail": (
-            f"{dataset} manifest is {status} / {freshness}; "
-            f"manifest checked {age_seconds}s ago."
+            f"{dataset} manifest is {status} / {freshness}; manifest checked {age_seconds}s ago."
         ),
     }
 
@@ -3513,8 +3772,7 @@ def _stock_trade_live_coverage_row_usable(row: Mapping[str, object]) -> bool:
     if status == "partial_usable":
         return True
     if status == "complete" and (
-        row.get("resume_cursor") not in {None, ""}
-        or row.get("stop_reason") not in {None, ""}
+        row.get("resume_cursor") not in {None, ""} or row.get("stop_reason") not in {None, ""}
     ):
         return False
     rows = max(
@@ -3813,10 +4071,7 @@ def _stock_trade_partial_count(
     return sum(
         1
         for ticker in tickers
-        if str(
-            coverage.get(_coverage_key(ticker, as_of), {}).get("coverage_status")
-        )
-        == "partial"
+        if str(coverage.get(_coverage_key(ticker, as_of), {}).get("coverage_status")) == "partial"
     )
 
 
@@ -3824,7 +4079,7 @@ def _load_stock_trade_coverage_metadata(root: Path) -> Mapping[str, Mapping[str,
     path = root / "_coverage.json"
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except OSError, json.JSONDecodeError:
         return {}
     if not isinstance(payload, Mapping):
         return {}
@@ -3912,7 +4167,11 @@ def _latest_completed_market_date(now: datetime) -> date:
         eastern = _as_eastern(now)
         if eastern.time().hour < 16:
             return _previous_weekday(eastern.date())
-        return eastern.date() if eastern.date().weekday() < WEEKEND_START else _previous_weekday(eastern.date())
+        return (
+            eastern.date()
+            if eastern.date().weekday() < WEEKEND_START
+            else _previous_weekday(eastern.date())
+        )
     session = classify_market_session(now)
     if not session.is_trading_day:
         return previous_trading_day(session.market_date)
@@ -3953,7 +4212,7 @@ def _ensure_utc(value: datetime) -> datetime:
 def _read_json_object(path: Path) -> Mapping[str, object]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except OSError, json.JSONDecodeError:
         return {}
     return cast(Mapping[str, object], payload) if isinstance(payload, Mapping) else {}
 
@@ -3961,7 +4220,7 @@ def _read_json_object(path: Path) -> Mapping[str, object]:
 def _read_json_list(path: Path) -> list[Mapping[str, object]]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except OSError, json.JSONDecodeError:
         return []
     if not isinstance(payload, list):
         return []

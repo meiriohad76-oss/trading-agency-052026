@@ -1,20 +1,25 @@
 from __future__ import annotations
 
+import csv
 import json
 import os
 import sqlite3
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 from urllib.request import urlopen
 
 import pandas as pd
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+from agency.paths import REPO_ROOT
+
 DEFAULT_AGENT_ROOT = REPO_ROOT.parent / "email news agent"
 DEFAULT_CONFIG_NAME = "config.yaml"
 DEFAULT_RUN_CONFIG_NAME = "data/agency_config.yaml"
+DEFAULT_AGENCY_UNIVERSE_CONFIG_NAME = "data/agency_active_universe.csv"
+DEFAULT_AGENCY_UNIVERSE_STATUS_NAME = "data/agency_active_universe_status.json"
 DEFAULT_ENV_NAME = ".env"
 DEFAULT_PARQUET_PATH = REPO_ROOT / "research" / "data" / "parquet" / "subscription_emails.parquet"
 DEFAULT_MANIFEST_PATH = REPO_ROOT / "research" / "data" / "manifests" / "subscription_emails.json"
@@ -54,17 +59,61 @@ def portfolio_news_agent_run_config_path(root: Path | None = None) -> Path:
     return _resolve_agent_path(root, value)
 
 
-def ensure_portfolio_news_agent_agency_config(*, root: Path | None = None) -> Path:
+def ensure_portfolio_news_agent_agency_config(
+    *,
+    root: Path | None = None,
+    repo_root: Path | None = None,
+    as_of: date | None = None,
+) -> Path:
     root = root or portfolio_news_agent_root()
     source_path = portfolio_news_agent_config_path(root)
     run_config_path = portfolio_news_agent_run_config_path(root)
     if not source_path.exists():
         return source_path
+    universe_export = export_agency_active_universe_for_portfolio_news_agent(
+        root=root,
+        repo_root=repo_root or REPO_ROOT,
+        as_of=as_of,
+    )
+    portfolio_file = _agent_config_path_text(root, Path(str(universe_export["path"])))
     source_text = source_path.read_text(encoding="utf-8-sig")
-    run_config_text = _with_agency_runtime_overrides(source_text)
+    run_config_text = _with_agency_runtime_overrides(
+        source_text,
+        portfolio_file=portfolio_file,
+    )
     run_config_path.parent.mkdir(parents=True, exist_ok=True)
     run_config_path.write_text(run_config_text, encoding="utf-8")
     return run_config_path
+
+
+def export_agency_active_universe_for_portfolio_news_agent(
+    *,
+    root: Path | None = None,
+    repo_root: Path | None = None,
+    as_of: date | None = None,
+    output_path: Path | None = None,
+) -> dict[str, object]:
+    root = root or portfolio_news_agent_root()
+    repo_root = repo_root or REPO_ROOT
+    as_of = as_of or date.today()
+    output_path = output_path or _resolve_agent_path(root, DEFAULT_AGENCY_UNIVERSE_CONFIG_NAME)
+    status_path = _resolve_agent_path(root, DEFAULT_AGENCY_UNIVERSE_STATUS_NAME)
+    rows, issues = _agency_active_universe_portfolio_rows(repo_root, as_of=as_of)
+    _write_universe_portfolio_csv(output_path, rows)
+    payload = {
+        "schema_version": "0.1.0",
+        "source": "trading_agency_active_universe",
+        "source_path": str(_universe_membership_path(repo_root)),
+        "path": str(output_path),
+        "as_of": as_of.isoformat(),
+        "active_universe_count": len(rows),
+        "sample_tickers": [str(row["symbol"]) for row in rows[:10]],
+        "issues": issues,
+        "generated_at": _utc_now_dt().isoformat(),
+    }
+    status_path.parent.mkdir(parents=True, exist_ok=True)
+    status_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return payload
 
 
 def portfolio_news_agent_env_path(root: Path | None = None) -> Path:
@@ -128,6 +177,8 @@ def load_portfolio_news_agent_config(
 def export_portfolio_news_agent_events(
     *,
     root: Path | None = None,
+    repo_root: Path | None = None,
+    as_of: date | None = None,
     parquet_path: Path = DEFAULT_PARQUET_PATH,
     manifest_path: Path = DEFAULT_MANIFEST_PATH,
     summary_root: Path = DEFAULT_SUMMARY_ROOT,
@@ -139,8 +190,20 @@ def export_portfolio_news_agent_events(
             "event_rows": 0,
             "detail": "Portfolio News Agent DB is not available.",
         }
+    repo_root = repo_root or REPO_ROOT
+    as_of = as_of or date.today()
+    active_tickers, universe_issues = _agency_active_universe_tickers(repo_root, as_of=as_of)
     previous_source_ids = _existing_source_ids(parquet_path)
-    rows = _portfolio_news_event_rows(config.database_path)
+    raw_rows = _portfolio_news_event_rows(config.database_path)
+    filtered_rows = [
+        row for row in raw_rows if str(row.get("ticker") or "").strip().upper() in active_tickers
+    ]
+    rows = _dedupe_event_rows(filtered_rows)
+    ignored_out_of_universe = len(raw_rows) - len(filtered_rows)
+    removed_existing_out_of_universe = _remove_out_of_universe_subscription_email_rows(
+        parquet_path,
+        active_tickers,
+    )
     affected_rows = [
         row for row in rows if str(row.get("source_id") or "") not in previous_source_ids
     ]
@@ -153,13 +216,22 @@ def export_portfolio_news_agent_events(
         manifest_path=manifest_path,
         parquet_path=parquet_path,
         fetched_at=_utc_now_dt(),
-        issues=[] if rows else [{"severity": "info", "message": "No article summaries exported."}],
+        issues=_portfolio_news_manifest_issues(
+            rows=rows,
+            universe_issues=universe_issues,
+            ignored_out_of_universe=ignored_out_of_universe,
+            removed_existing_out_of_universe=removed_existing_out_of_universe,
+        ),
     )
     summary = _portfolio_news_export_summary(
         config,
         rows,
         affected_tickers=affected_tickers,
         affected_event_rows=len(affected_rows),
+        active_universe_count=len(active_tickers),
+        ignored_out_of_universe_event_rows=ignored_out_of_universe,
+        removed_existing_out_of_universe_event_rows=removed_existing_out_of_universe,
+        universe_issues=universe_issues,
     )
     summary_root.mkdir(parents=True, exist_ok=True)
     (summary_root / "subscription-email-ingest.json").write_text(
@@ -171,6 +243,9 @@ def export_portfolio_news_agent_events(
         "event_rows": len(rows),
         "affected_event_rows": len(affected_rows),
         "affected_tickers": affected_tickers,
+        "active_universe_count": len(active_tickers),
+        "ignored_out_of_universe_event_rows": ignored_out_of_universe,
+        "removed_existing_out_of_universe_event_rows": removed_existing_out_of_universe,
         "parquet_path": str(parquet_path),
         "manifest_path": str(manifest_path),
     }
@@ -597,12 +672,43 @@ def _event_row(row: Mapping[str, object]) -> dict[str, object]:
     }
 
 
+def _dedupe_event_rows(rows: Sequence[Mapping[str, object]]) -> list[dict[str, object]]:
+    deduped: dict[str, dict[str, object]] = {}
+    for row in rows:
+        normalized = dict(row)
+        deduped[_event_dedupe_key(normalized)] = normalized
+    return list(deduped.values())
+
+
+def _event_dedupe_key(row: Mapping[str, object]) -> str:
+    ticker = str(row.get("ticker") or "").strip().upper()
+    source_url = _normalize_url_for_key(str(row.get("source_url") or ""))
+    if ticker and source_url and source_url.startswith(("http://", "https://")):
+        return f"url:{ticker}:{source_url}"
+    return f"source:{row.get('source_id')}"
+
+
+def _normalize_url_for_key(url: str) -> str:
+    if not url:
+        return ""
+    parts = urlsplit(url)
+    if not parts.scheme or not parts.netloc:
+        return url
+    host = parts.netloc.lower()
+    path = parts.path.rstrip("/") or "/"
+    return urlunsplit((parts.scheme.lower(), host, path, "", ""))
+
+
 def _portfolio_news_export_summary(
     config: PortfolioNewsAgentConfig,
     rows: Sequence[Mapping[str, object]],
     *,
     affected_tickers: Sequence[str] = (),
     affected_event_rows: int = 0,
+    active_universe_count: int = 0,
+    ignored_out_of_universe_event_rows: int = 0,
+    removed_existing_out_of_universe_event_rows: int = 0,
+    universe_issues: Sequence[Mapping[str, object]] = (),
 ) -> dict[str, object]:
     return {
         "config_path": str(config.config_path),
@@ -614,6 +720,12 @@ def _portfolio_news_export_summary(
         "event_rows": len(rows),
         "affected_event_rows": affected_event_rows,
         "affected_tickers": list(affected_tickers),
+        "active_universe_count": active_universe_count,
+        "ignored_out_of_universe_event_rows": ignored_out_of_universe_event_rows,
+        "removed_existing_out_of_universe_event_rows": (
+            removed_existing_out_of_universe_event_rows
+        ),
+        "universe_issues": [dict(issue) for issue in universe_issues],
         "linked_content": {
             "attempted": len(rows),
             "succeeded": len(rows),
@@ -649,6 +761,168 @@ def _write_subscription_email_manifest(
     from subscription_email.storage import write_manifest
 
     write_manifest(manifest_path, parquet_path, fetched_at=fetched_at, issues=issues)
+
+
+def _portfolio_news_manifest_issues(
+    *,
+    rows: Sequence[Mapping[str, object]],
+    universe_issues: Sequence[Mapping[str, object]],
+    ignored_out_of_universe: int,
+    removed_existing_out_of_universe: int,
+) -> list[dict[str, object]]:
+    issues = [dict(issue) for issue in universe_issues]
+    if ignored_out_of_universe:
+        issues.append(
+            {
+                "severity": "info",
+                "message": (
+                    f"Ignored {ignored_out_of_universe} Portfolio News Agent summary row(s) "
+                    "because their symbols are outside the agency active universe."
+                ),
+            }
+        )
+    if removed_existing_out_of_universe:
+        issues.append(
+            {
+                "severity": "info",
+                "message": (
+                    f"Removed {removed_existing_out_of_universe} old subscription-email "
+                    "evidence row(s) because their symbols are outside the agency active universe."
+                ),
+            }
+        )
+    if not rows:
+        issues.append({"severity": "info", "message": "No article summaries exported."})
+    return issues
+
+
+def _remove_out_of_universe_subscription_email_rows(
+    parquet_path: Path,
+    active_tickers: set[str],
+) -> int:
+    if not parquet_path.exists():
+        return 0
+    try:
+        frame = pd.read_parquet(parquet_path)
+    except Exception:
+        return 0
+    if frame.empty or "ticker" not in frame.columns:
+        return 0
+    tickers = _string_column(frame, "ticker").str.upper()
+    remove_mask = (tickers != "") & ~tickers.isin(active_tickers)
+    removed = int(remove_mask.sum())
+    if not removed:
+        return 0
+    frame.loc[~remove_mask].to_parquet(
+        parquet_path,
+        engine="pyarrow",
+        compression="snappy",
+        index=False,
+    )
+    return removed
+
+
+def _string_column(frame: pd.DataFrame, column: str) -> pd.Series:
+    if column not in frame.columns:
+        return pd.Series([""] * len(frame), index=frame.index, dtype="string")
+    return frame[column].fillna("").astype(str).str.strip()
+
+
+def _agency_active_universe_tickers(
+    repo_root: Path,
+    *,
+    as_of: date,
+) -> tuple[set[str], list[dict[str, object]]]:
+    rows, issues = _agency_active_universe_portfolio_rows(repo_root, as_of=as_of)
+    tickers = {
+        str(row.get("symbol") or "").strip().upper()
+        for row in rows
+        if str(row.get("symbol") or "").strip()
+    }
+    return tickers, issues
+
+
+def _agency_active_universe_portfolio_rows(
+    repo_root: Path,
+    *,
+    as_of: date,
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    path = _universe_membership_path(repo_root)
+    if not path.is_file():
+        return [], [{"severity": "error", "message": f"Missing active-universe file: {path}"}]
+    try:
+        frame = pd.read_parquet(path)
+    except Exception as exc:
+        return [], [{"severity": "error", "message": f"Could not read active-universe file: {exc}"}]
+    if "ticker" not in frame.columns or "start_date" not in frame.columns:
+        return [], [{"severity": "error", "message": "Active-universe file needs ticker and start_date columns."}]
+
+    as_of_ts = pd.Timestamp(as_of, tz="UTC")
+    start_dates = _series_timestamps(frame["start_date"])
+    end_dates = _series_timestamps(frame["end_date"]) if "end_date" in frame.columns else None
+    mask = start_dates.notna() & (start_dates <= as_of_ts)
+    if end_dates is not None:
+        mask &= end_dates.isna() | (end_dates > as_of_ts)
+    if "timestamp_as_of" in frame.columns:
+        knowledge_dates = _series_timestamps(frame["timestamp_as_of"])
+        mask &= knowledge_dates.isna() | (knowledge_dates <= as_of_ts)
+
+    active = frame.loc[mask].copy()
+    if active.empty:
+        return [], [{"severity": "error", "message": f"No active-universe tickers matched {as_of.isoformat()}."}]
+
+    active["__symbol"] = active["ticker"].map(lambda value: str(value).strip().upper())
+    active = active[active["__symbol"] != ""]
+    output: list[dict[str, object]] = []
+    for symbol, group in active.groupby("__symbol", sort=True):
+        memberships = _joined_text(group.get("index_name", []))
+        output.append(
+            {
+                "symbol": symbol,
+                "name": symbol,
+                "asset_type": "equity",
+                "sector": "",
+                "industry": memberships,
+                "priority": 1,
+            }
+        )
+    issues: list[dict[str, object]] = []
+    if not output:
+        issues.append({"severity": "error", "message": "Active-universe file had no valid ticker symbols."})
+    return output, issues
+
+
+def _write_universe_portfolio_csv(path: Path, rows: Sequence[Mapping[str, object]]) -> None:
+    fieldnames = ("symbol", "name", "asset_type", "sector", "industry", "priority")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({field: row.get(field, "") for field in fieldnames})
+
+
+def _series_timestamps(series: pd.Series) -> pd.Series:
+    return pd.to_datetime(series, errors="coerce", utc=True)
+
+
+def _joined_text(values: object) -> str:
+    try:
+        iterator = iter(values)  # type: ignore[arg-type]
+    except TypeError:
+        return ""
+    items = sorted(
+        {
+            str(value).strip()
+            for value in iterator
+            if str(value).strip() and str(value).lower() != "nan"
+        }
+    )
+    return "; ".join(items)
+
+
+def _universe_membership_path(repo_root: Path) -> Path:
+    return repo_root / "research" / "data" / "parquet" / "universe_membership.parquet"
 
 
 def _existing_source_ids(parquet_path: Path) -> set[str]:
@@ -761,16 +1035,25 @@ def _read_simple_yaml(path: Path) -> dict[str, object]:
     return payload
 
 
-def _with_agency_runtime_overrides(source_text: str) -> str:
+def _with_agency_runtime_overrides(source_text: str, *, portfolio_file: str | None = None) -> str:
     lines = source_text.splitlines()
     output: list[str] = []
+    replaced_portfolio_file = False
     replaced_telegram = False
     for line in lines:
-        if _top_level_key(line) == "telegram_enabled":
+        key = _top_level_key(line)
+        if key == "portfolio_file" and portfolio_file:
+            output.append(f'portfolio_file: "{_yaml_scalar(portfolio_file)}"')
+            replaced_portfolio_file = True
+        elif key == "telegram_enabled":
             output.append("telegram_enabled: false")
             replaced_telegram = True
         else:
             output.append(line)
+    if portfolio_file and not replaced_portfolio_file:
+        if output and output[-1].strip():
+            output.append("")
+        output.append(f'portfolio_file: "{_yaml_scalar(portfolio_file)}"')
     if not replaced_telegram:
         if output and output[-1].strip():
             output.append("")
@@ -792,6 +1075,14 @@ def _resolve_agent_path(root: Path, value: str) -> Path:
     return path if path.is_absolute() else root / path
 
 
+def _agent_config_path_text(root: Path, path: Path) -> str:
+    try:
+        text = str(path.resolve().relative_to(root.resolve()))
+    except ValueError:
+        text = str(path)
+    return text.replace("\\", "/")
+
+
 def _optional_path(root: Path, value: object) -> Path | None:
     text = _optional_text(value)
     if not text:
@@ -810,6 +1101,10 @@ def _strip_quotes(value: str) -> str:
     if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
         return value[1:-1]
     return value
+
+
+def _yaml_scalar(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"')
 
 
 def _is_cdp_endpoint_available(cdp_url: str) -> bool:
@@ -928,7 +1223,27 @@ def _key_points(row: Mapping[str, object]) -> list[str]:
     theme = _first_text(row.get("theme"))
     if theme:
         output.append(f"Theme: {theme}")
+    for item in _json_string_items(row.get("forward_data_json")):
+        output.append(item)
+    for item in _json_string_items(row.get("price_targets_json")):
+        output.append(f"Price target: {item}")
     return output
+
+
+def _json_string_items(value: object) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if not isinstance(value, str) or not value.strip():
+        return []
+    try:
+        parsed = json.loads(value)
+    except (TypeError, ValueError):
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [str(item).strip() for item in parsed if str(item).strip()]
 
 
 def _signal_strength(confidence: float) -> str:

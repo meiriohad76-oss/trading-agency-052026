@@ -109,6 +109,38 @@ def test_subscription_thesis_score_weights_newer_reversal_more_heavily() -> None
     assert scores["AAPL"] < 0.0
 
 
+def test_subscription_thesis_weights_source_depth_and_relevance_over_recency() -> None:
+    loader = _FakeSubscriptionEmailLoader(
+        [
+            _event(
+                "ASML",
+                "BULLISH",
+                "Linked content thesis: direct bullish lithography thesis.",
+                title="Seeking Alpha Email: ASML: direct thesis",
+                timestamp_as_of="2026-05-07T12:00:00+00:00",
+                linked_content_depth="full_article",
+                linked_content_relevance="direct",
+                confidence=0.8,
+            ),
+            _event(
+                "ASML",
+                "BEARISH",
+                "Linked content thesis: weak secondary mention.",
+                title="Seeking Alpha Email: NVDA: sector roundup",
+                timestamp_as_of="2026-05-08T12:00:00+00:00",
+                source_quality="headline_only",
+                linked_content_relevance="secondary",
+                confidence=0.8,
+            ),
+        ]
+    )
+
+    context = subscription_thesis_contexts(AS_OF, {"ASML"}, loader)[0]
+
+    assert context.score > 0.20
+    assert "direct headline focus on ASML" in context.summary
+
+
 def test_subscription_thesis_summary_leads_with_newest_analyzed_article() -> None:
     loader = _FakeSubscriptionEmailLoader(
         [
@@ -198,8 +230,12 @@ def _event(
     title: str = "Seeking Alpha Email: AAPL article",
     timestamp_as_of: str = "2026-05-08T12:00:00+00:00",
     linked_content_status: str = "article_analyzed",
+    source_quality: str | None = None,
+    linked_content_relevance: str | None = None,
+    linked_content_depth: str | None = None,
+    confidence: float = 1.0,
 ) -> dict[str, object]:
-    return {
+    event: dict[str, object] = {
         "ticker": ticker,
         "service": "seeking_alpha",
         "event_type": "sa_analyst_article",
@@ -208,5 +244,12 @@ def _event(
         "linked_content_status": linked_content_status,
         "linked_content_summary": summary,
         "timestamp_as_of": timestamp_as_of,
-        "confidence": 1.0,
+        "confidence": confidence,
     }
+    if source_quality is not None:
+        event["source_quality"] = source_quality
+    if linked_content_relevance is not None:
+        event["linked_content_relevance"] = linked_content_relevance
+    if linked_content_depth is not None:
+        event["linked_content_depth"] = linked_content_depth
+    return event

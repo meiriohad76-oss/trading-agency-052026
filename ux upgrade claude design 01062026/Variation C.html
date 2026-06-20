@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Trading Agency · C · Mission Control</title>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<link rel="stylesheet" href="cockpit/cockpit.css">
+
+<style>
+  html, body { margin: 0; padding: 0; background: #000; overflow: hidden; height: 100%; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; color: #e8ecf2; }
+
+  #stage {
+    position: fixed; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: #000;
+  }
+  #artboard-wrap {
+    width: 1440px;
+    transform-origin: center center;
+    will-change: transform;
+  }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="artboard-wrap">
+    <div id="canvas-root"></div>
+  </div>
+</div>
+
+<script src="cockpit/data.js"></script>
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+<script type="text/babel" src="cockpit/shell.jsx"></script>
+<script type="text/babel" src="cockpit/panels.jsx"></script>
+<script type="text/babel" src="cockpit/variation-c-mission.jsx"></script>
+
+<script type="text/babel" data-presets="env,react">
+  const { useTweaks, TweaksPanel, TweakSection, TweakRadio, TweakSelect } = window;
+  const { VariationC } = window;
+
+  const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+    "colorPreset": "amber",
+    "theme": "dark",
+    "density": "full",
+    "scenario": "normal"
+  }/*EDITMODE-END*/;
+
+  const COLOR_PRESETS = {
+    amber: {
+      vC: { '--pri': '#ffb845', '--pri-d': '#b87a18', '--acc': '#ffb845' },
+    },
+    duotone: {
+      vC: { '--pri': '#ff8b3d', '--pri-d': '#b95a16', '--acc': '#4dd0e1' },
+    },
+    saturated: {
+      vC: { '--pri': '#ff6a00', '--pri-d': '#cc4200', '--acc': '#00e0ff', '--pos': '#00ff9d', '--neg': '#ff3a4e' },
+    },
+  };
+
+  const THEME_PRESETS = {
+    dark: {
+      vC: { '--bg': '#03060a', '--panel': '#080c12', '--panel-2': '#0c1118', '--bd': '#141c28', '--bd-2': '#212c3d' },
+    },
+    accent: {
+      vC: { '--bg': '#07090d', '--panel': '#0d1219', '--panel-2': '#121821', '--bd': '#1b2434', '--bd-2': '#2b3a52' },
+    },
+    light: {
+      vC: {
+        '--bg': '#f5f0e3', '--panel': '#fbf7ec', '--panel-2': '#f0ead9',
+        '--bd': '#d6cdba', '--bd-2': '#b8ad94',
+        '--tx': '#1c1810', '--tx-2': '#4a4231', '--tx-3': '#7a704d',
+      },
+    },
+  };
+
+  function tweaksToCss(t) {
+    const cp = COLOR_PRESETS[t.colorPreset] || COLOR_PRESETS.amber;
+    const tp = THEME_PRESETS[t.theme] || THEME_PRESETS.dark;
+    const c = { ...tp.vC, ...cp.vC };
+    const toStr = (obj) => Object.entries(obj).map(([k, v]) => `${k}:${v};`).join('');
+    return `.vC{${toStr(c)}}`;
+  }
+
+  function useFitScale(targetW = 1440, targetH = 1000) {
+    React.useEffect(() => {
+      const wrap = document.getElementById('artboard-wrap');
+      if (!wrap) return;
+      const fit = () => {
+        const sx = window.innerWidth / targetW;
+        const sy = window.innerHeight / targetH;
+        const s = Math.min(sx, sy);
+        wrap.style.transform = `scale(${s})`;
+      };
+      fit();
+      window.addEventListener('resize', fit);
+      return () => window.removeEventListener('resize', fit);
+    }, []);
+  }
+
+  function App() {
+    const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
+    useFitScale(1440, 1000);
+    const css = tweaksToCss(t);
+    return (
+      <>
+        <style>{css}</style>
+        <VariationC density={t.density} scenario={t.scenario} />
+        <TweaksPanel title="Tweaks · Mission Control">
+          <TweakSection label="Color" />
+          <TweakRadio label="Preset" value={t.colorPreset}
+            options={['amber', 'duotone', 'saturated']}
+            onChange={(v) => setTweak('colorPreset', v)} />
+          <TweakSection label="Theme" />
+          <TweakRadio label="Backdrop" value={t.theme}
+            options={['dark', 'accent', 'light']}
+            onChange={(v) => setTweak('theme', v)} />
+          <TweakSection label="Density" />
+          <TweakRadio label="Mode" value={t.density}
+            options={['full', 'calm']}
+            onChange={(v) => setTweak('density', v)} />
+          <TweakSection label="Scenario" />
+          <TweakSelect label="State" value={t.scenario}
+            options={['normal', 'no-actionable', 'outage', 'submitted']}
+            onChange={(v) => setTweak('scenario', v)} />
+        </TweaksPanel>
+      </>
+    );
+  }
+
+  ReactDOM.createRoot(document.getElementById('canvas-root')).render(<App />);
+</script>
+</body>
+</html>

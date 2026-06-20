@@ -55,14 +55,27 @@ def _factor_row(ticker: str, payload: dict[str, object]) -> dict[str, object] | 
         return None
     total_shares = positive_float(payload.get("total_shares_held")) or 0.0
     holder_count = positive_float(payload.get("holder_count")) or 0.0
-    change_ratio = quarterly_change / total_shares if total_shares > 0.0 else 0.0
+    current_basis_ratio = float_or_none(payload.get("net_change_current_share_ratio"))
+    change_ratio = (
+        current_basis_ratio
+        if current_basis_ratio is not None
+        else quarterly_change / total_shares
+        if total_shares > 0.0
+        else 0.0
+    )
     return {
         "ticker": ticker,
         "quarter_end_date": payload.get("quarter_end_date"),
         "holder_count": holder_count,
         "total_shares_held": total_shares,
+        "previous_shares_held": float_or_none(payload.get("previous_shares_held")),
         "total_change_from_prev_quarter": quarterly_change,
         "change_ratio": change_ratio,
+        "net_change_current_share_ratio": current_basis_ratio,
+        "net_change_prior_share_ratio": float_or_none(payload.get("net_change_prior_share_ratio")),
+        "total_value_usd_thousands": float_or_none(payload.get("total_value_usd_thousands")),
+        "implied_value_per_share": float_or_none(payload.get("implied_value_per_share")),
+        "holder_changes": payload.get("holder_changes") or [],
     }
 
 
@@ -73,8 +86,14 @@ def _empty_frame() -> pd.DataFrame:
             "quarter_end_date",
             "holder_count",
             "total_shares_held",
+            "previous_shares_held",
             "total_change_from_prev_quarter",
             "change_ratio",
+            "net_change_current_share_ratio",
+            "net_change_prior_share_ratio",
+            "total_value_usd_thousands",
+            "implied_value_per_share",
+            "holder_changes",
             "total_change_from_prev_quarter_z",
             "change_ratio_z",
             "institutional_score",

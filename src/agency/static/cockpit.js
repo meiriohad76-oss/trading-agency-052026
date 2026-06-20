@@ -11,11 +11,15 @@
   const cycleId = shell.getAttribute("data-cockpit-cycle") || "current";
   const storageKey = `cockpit:v3:${cycleId}:staging`;
   const preferenceStorageKey = "cockpit:v3:preferences";
+  let storageAvailable = true;
+  let memoryState = {};
+  let memoryPreferences = { ...DEFAULT_PREFERENCES };
   const state = loadState();
   const preferences = loadPreferences();
   let submitGateInvalidated = false;
   state.decisions = state.decisions || {};
   state.exits = state.exits || {};
+  state.selectedTicker = normalizeTicker(state.selectedTicker);
 
   applyPreferences(preferences);
   restorePreferenceControls(preferences);
@@ -68,12 +72,15 @@
   document.querySelectorAll("[data-cockpit-decision]").forEach((button) => {
     button.addEventListener("click", (event) => {
       event.stopPropagation();
-      const ticker = button.getAttribute("data-cockpit-ticker") || "";
+      const ticker = normalizeTicker(button.getAttribute("data-cockpit-ticker"));
       const decision = button.getAttribute("data-cockpit-decision") || "";
       if (!ticker || !decision) {
         return;
       }
+      state.selectedTicker = ticker;
+      markFocusedTicker(state.selectedTicker);
       if (isServerDecisionButton(button)) {
+        saveState();
         markServerDecisionPending(button, decision);
         return;
       }
@@ -92,17 +99,41 @@
       if (!ticker || !decision) {
         return;
       }
-      state.exits[ticker] = decision;
+      state.exits[normalizeTicker(ticker)] = decision;
       saveState();
       markSelected(button.parentElement, decision);
+      updatePortfolioDecisions();
+      updateLocalExitManifest();
     });
   });
 
   document.querySelectorAll("[data-cockpit-phase-target]").forEach((button) => {
     button.addEventListener("click", () => {
-      const phase = button.getAttribute("data-cockpit-phase-target") || "candidates";
-      showPhase(phase);
+      const phase = scenarioSafePhase(button.getAttribute("data-cockpit-phase-target") || "candidates");
+      const focusTicker = focusTickerFrom(button);
+      if (focusTicker) {
+        state.selectedTicker = focusTicker;
+      }
+      showPhase(phase, focusTicker || state.selectedTicker);
+      if (button.getAttribute("data-cockpit-scroll") === "true") {
+        const section = document.querySelector(`[data-cockpit-phase="${escapeSelector(phase)}"]`);
+        if (section && typeof section.scrollIntoView === "function") {
+          section.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      }
       state.phase = phase;
+      saveState();
+    });
+  });
+
+  document.querySelectorAll("[data-cockpit-focus-ticker]:not([data-cockpit-phase-target])").forEach((element) => {
+    element.addEventListener("click", () => {
+      const focusTicker = focusTickerFrom(element);
+      if (!focusTicker) {
+        return;
+      }
+      state.selectedTicker = focusTicker;
+      markFocusedTicker(focusTicker);
       saveState();
     });
   });
@@ -145,8 +176,35 @@
     const phrase = form.querySelector("[data-cockpit-submit-text]");
     const button = form.querySelector("[data-cockpit-submit-button]");
     const stateOutput = form.querySelector("[data-cockpit-submit-state]");
+    const feedback = form.querySelector("[data-cockpit-submit-feedback]");
+    const manifestHasOrderIntent = () =>
+      Array.from(form.querySelectorAll("[data-cockpit-manifest-row]")).some((row) => {
+        if (row.classList.contains("cockpit-manifest-exit")) return false;
+        return ["cycle_id", "ticker", "as_of", "order_intent_hash"].every((name) => {
+          const input = row.querySelector(`[name="${name}"]`);
+          return input && String(input.value || "").trim().length > 0;
+        });
+      });
     const updateSubmitGate = () => {
-      button.disabled = submitGateInvalidated || !(ack.checked && phrase.value.trim() === SUBMIT_PHRASE);
+      const phraseMatches = phrase.value.trim() === SUBMIT_PHRASE;
+      const acknowledged = ack.checked;
+      const manifestReady = manifestHasOrderIntent();
+      button.disabled = submitGateInvalidated || !manifestReady || !(acknowledged && phraseMatches);
+      if (feedback) {
+        if (submitGateInvalidated) {
+          feedback.textContent = "Submit gate reset after the last attempt. Review the manifest again.";
+        } else if (!manifestReady) {
+          feedback.textContent = "No paper order manifest is attached for this cycle. Refresh execution preview before submitting.";
+        } else if (!acknowledged && !phraseMatches) {
+          feedback.textContent = "Type the exact phrase and acknowledge paper-only submit.";
+        } else if (!acknowledged) {
+          feedback.textContent = "Phrase matches. Acknowledge paper-only submit to continue.";
+        } else if (!phraseMatches) {
+          feedback.textContent = "Type the exact phrase: submit paper orders.";
+        } else {
+          feedback.textContent = "Phrase matches. Paper submit button is unlocked.";
+        }
+      }
     };
     ack.addEventListener("change", updateSubmitGate);
     phrase.addEventListener("input", updateSubmitGate);
@@ -221,6 +279,14 @@
   setupPolicyPanel();
   discardLegacyServerDecisionMarkers();
 
+  const scenarioState = shell.getAttribute("data-cockpit-scenario") || "normal";
+  const defaultPhase = scenarioState === "submitted" ? "cleared" : "candidates";
+  const safetyScenario = scenarioState === "outage" || scenarioState === "status-delayed" || scenarioState === "no-actionable";
+  const hasPrimaryWorkflowAction = Boolean(document.querySelector(".cockpit-top-actions [data-cockpit-phase-target]"));
+  if (safetyScenario) {
+    submitGateInvalidated = true;
+  }
+
   if (Object.keys(state.decisions).length || Object.keys(state.exits).length) {
     const pendingRestore = {
       decisions: { ...state.decisions },
@@ -230,38 +296,33 @@
     state.decisions = {};
     state.exits = {};
     state.phase = "candidates";
-    saveState();
     showRestoreNotice(
       () => {
         state.decisions = pendingRestore.decisions;
         state.exits = pendingRestore.exits;
-        state.phase = pendingRestore.phase;
+        state.phase = scenarioSafePhase(pendingRestore.phase);
         saveState();
         restoreMarks();
         updateCapacity();
-        showPhase(state.phase || "candidates");
+        showPhase(state.phase || "candidates", state.selectedTicker);
       },
       () => {
         saveState();
       }
     );
   }
-  const scenarioState = shell.getAttribute("data-cockpit-scenario") || "normal";
-  const defaultPhase = scenarioState === "submitted" ? "cleared" : "candidates";
-  const forcedScenarioPhase = scenarioState === "submitted" ? "cleared" : (
-    scenarioState === "outage" || scenarioState === "no-actionable" ? "candidates" : ""
-  );
-  showPhase(forcedScenarioPhase || state.phase || defaultPhase);
+  state.phase = safetyScenario || hasPrimaryWorkflowAction
+    ? defaultPhase
+    : scenarioSafePhase(state.phase || defaultPhase);
+  showPhase(state.phase, state.selectedTicker);
   restoreMarks();
   updateCapacity();
+  updatePortfolioDecisions();
+  updateLocalExitManifest();
   shell.dataset.cockpitReady = "true";
 
   function loadState() {
-    try {
-      return JSON.parse(localStorage.getItem(storageKey) || "{}");
-    } catch (_error) {
-      return {};
-    }
+    return readStorageObject(storageKey, memoryState);
   }
 
   function saveState() {
@@ -269,25 +330,64 @@
       phase: state.phase || "candidates",
       decisions: state.decisions || {},
       exits: state.exits || {},
+      selectedTicker: normalizeTicker(state.selectedTicker),
     };
-    localStorage.setItem(storageKey, JSON.stringify(payload));
+    memoryState = { ...payload };
+    writeStorageObject(storageKey, payload);
   }
 
   function loadPreferences() {
-    try {
-      return { ...DEFAULT_PREFERENCES, ...JSON.parse(localStorage.getItem(preferenceStorageKey) || "{}") };
-    } catch (_error) {
-      return { ...DEFAULT_PREFERENCES };
-    }
+    return sanitizePreferences(readStorageObject(preferenceStorageKey, memoryPreferences));
   }
 
   function savePreferences(nextPreferences) {
-    const payload = {
-      colorPreset: nextPreferences.colorPreset || DEFAULT_PREFERENCES.colorPreset,
-      theme: nextPreferences.theme || DEFAULT_PREFERENCES.theme,
-      density: nextPreferences.density || DEFAULT_PREFERENCES.density,
+    const payload = sanitizePreferences(nextPreferences);
+    memoryPreferences = { ...payload };
+    writeStorageObject(preferenceStorageKey, payload);
+  }
+
+  function readStorageObject(key, fallback) {
+    if (!storageAvailable) {
+      return { ...fallback };
+    }
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) {
+        return { ...fallback };
+      }
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : { ...fallback };
+    } catch (_error) {
+      storageAvailable = false;
+      shell.setAttribute("data-cockpit-storage", "unavailable");
+      return { ...fallback };
+    }
+  }
+
+  function writeStorageObject(key, payload) {
+    if (!storageAvailable) {
+      shell.setAttribute("data-cockpit-storage", "unavailable");
+      return;
+    }
+    try {
+      localStorage.setItem(key, JSON.stringify(payload));
+    } catch (_error) {
+      storageAvailable = false;
+      shell.setAttribute("data-cockpit-storage", "unavailable");
+    }
+  }
+
+  function sanitizePreferences(nextPreferences) {
+    const safe = nextPreferences && typeof nextPreferences === "object" ? nextPreferences : {};
+    return {
+      colorPreset: oneOf(safe.colorPreset, ["amber", "duotone", "saturated"], DEFAULT_PREFERENCES.colorPreset),
+      theme: oneOf(safe.theme, ["dark", "accent", "light"], DEFAULT_PREFERENCES.theme),
+      density: oneOf(safe.density, ["full", "calm"], DEFAULT_PREFERENCES.density),
     };
-    localStorage.setItem(preferenceStorageKey, JSON.stringify(payload));
+  }
+
+  function oneOf(value, allowed, fallback) {
+    return allowed.includes(value) ? value : fallback;
   }
 
   function applyPreferences(nextPreferences) {
@@ -304,10 +404,32 @@
 
   function setupTouchTooltips() {
     document.querySelectorAll(".info-tip[title]").forEach((tip) => {
+      let longPressTimer = 0;
+      const clearLongPress = () => {
+        if (longPressTimer) {
+          window.clearTimeout(longPressTimer);
+          longPressTimer = 0;
+        }
+      };
+      const openTip = () => {
+        closeTouchTooltips();
+        tip.setAttribute("data-tooltip-open", "true");
+      };
       if (tip.tabIndex < 0) {
         tip.tabIndex = 0;
       }
       tip.setAttribute("role", "button");
+      tip.addEventListener("pointerdown", (event) => {
+        if (event.pointerType === "mouse") {
+          return;
+        }
+        clearLongPress();
+        longPressTimer = window.setTimeout(openTip, 320);
+      });
+      tip.addEventListener("pointermove", clearLongPress);
+      tip.addEventListener("pointerup", clearLongPress);
+      tip.addEventListener("pointercancel", clearLongPress);
+      tip.addEventListener("pointerleave", clearLongPress);
       tip.addEventListener("click", (event) => {
         event.stopPropagation();
         const isOpen = tip.getAttribute("data-tooltip-open") === "true";
@@ -349,6 +471,10 @@
         });
       });
     });
+  }
+
+  function scenarioSafePhase(phase) {
+    return phase || defaultPhase;
   }
 
   function showRestoreNotice(onRestore, onDiscard) {
@@ -462,26 +588,185 @@
     state.decisions = state.decisions || {};
     let staged = 0;
     document.querySelectorAll("[data-cockpit-candidate]").forEach((row) => {
-      const ticker = row.getAttribute("data-cockpit-ticker") || "";
+      const ticker = normalizeTicker(row.getAttribute("data-cockpit-ticker"));
       if (state.decisions[ticker] === "approve") {
         staged += Number(row.getAttribute("data-cockpit-notional") || "0");
       }
     });
     document.querySelectorAll("[data-capacity-gross-post]").forEach((target) => {
       target.setAttribute("data-staged-notional", String(staged));
+      const baseGross = Number(target.getAttribute("data-base-gross") || "0");
+      const equity = Number(target.getAttribute("data-equity") || "0");
+      const stagedPct = equity > 0 ? staged / equity * 100 : 0;
+      target.textContent = `${(baseGross + stagedPct).toFixed(1)}%`;
+    });
+    document.querySelectorAll("[data-capacity-cash]").forEach((target) => {
+      const baseCash = Number(target.getAttribute("data-base-cash") || "0");
+      const equity = Number(target.getAttribute("data-equity") || "0");
+      const stagedPct = equity > 0 ? staged / equity * 100 : 0;
+      target.textContent = `${Math.max(0, baseCash - stagedPct).toFixed(1)}%`;
+    });
+    document.querySelectorAll("[data-capacity-impact]").forEach((target) => {
+      target.textContent = staged > 0
+        ? `Staged candidate orders add ${formatMoney(staged)} before server revalidation.`
+        : "No staged candidate orders in this cockpit session.";
     });
   }
 
-  function showPhase(phase) {
+  function updatePortfolioDecisions() {
+    state.exits = state.exits || {};
+    const rows = Array.from(document.querySelectorAll("[data-cockpit-position]"));
+    let keep = 0;
+    let close = 0;
+    rows.forEach((row) => {
+      const ticker = normalizeTicker(row.getAttribute("data-cockpit-ticker"));
+      const decision = state.exits[ticker] || "";
+      row.toggleAttribute("data-position-decision-recorded", Boolean(decision));
+      row.setAttribute("data-position-decision", decision);
+      const output = row.querySelector("[data-position-decision-state]");
+      if (decision === "keep") {
+        keep += 1;
+        if (output) output.textContent = `${ticker} marked Keep for this cockpit session.`;
+      } else if (decision === "close") {
+        close += 1;
+        if (output) output.textContent = `${ticker} staged for close review in the clearance manifest.`;
+      } else if (output) {
+        output.textContent = "Decision not recorded in this cockpit session.";
+      }
+    });
+    document.querySelectorAll("[data-portfolio-decision-summary]").forEach((target) => {
+      if (!rows.length) {
+        target.textContent = "No open paper positions need review; continue to clearance when candidate review is complete.";
+      } else {
+        target.textContent = `${keep + close}/${rows.length} position decision(s) recorded: ${keep} keep, ${close} close.`;
+      }
+    });
+  }
+
+  function updateLocalExitManifest() {
+    const target = document.querySelector(".cockpit-manifest-list");
+    if (!target) {
+      return;
+    }
+    target.querySelectorAll("[data-local-exit-row]").forEach((row) => row.remove());
+    const emptyState = target.querySelector(".empty-state");
+    let added = 0;
+    document.querySelectorAll("[data-cockpit-position]").forEach((row) => {
+      const ticker = normalizeTicker(row.getAttribute("data-cockpit-ticker"));
+      if (!ticker || state.exits[ticker] !== "close") {
+        return;
+      }
+      if (target.querySelector(`.cockpit-manifest-exit[data-cockpit-ticker="${escapeSelector(ticker)}"]:not([data-local-exit-row])`)) {
+        return;
+      }
+      const article = document.createElement("article");
+      article.className = "cockpit-manifest-row cockpit-manifest-exit";
+      article.setAttribute("data-local-exit-row", "true");
+      article.setAttribute("data-cockpit-manifest-row", "true");
+      article.setAttribute("data-cockpit-ticker", ticker);
+      const main = document.createElement("div");
+      main.className = "cockpit-manifest-main";
+      const kind = document.createElement("span");
+      kind.className = "status-pill status-pill-warn";
+      kind.textContent = "exit review";
+      const symbol = document.createElement("strong");
+      symbol.textContent = ticker;
+      const reason = document.createElement("span");
+      reason.textContent = "Operator marked Close in portfolio review; server must revalidate before any paper order.";
+      main.append(kind, symbol, reason);
+      const proof = document.createElement("dl");
+      proof.className = "cockpit-manifest-proof";
+      proof.append(
+        manifestProofItem("Action", "SELL"),
+        manifestProofItem("Value", formatMoney(Number(row.getAttribute("data-position-notional") || "0")), true),
+        manifestProofItem("Submit status", "Review only; no broker submit field is attached.")
+      );
+      article.append(main, proof);
+      target.prepend(article);
+      added += 1;
+    });
+    if (emptyState) {
+      emptyState.hidden = added > 0;
+    }
+  }
+
+  function manifestProofItem(label, value, mono = false) {
+    const wrapper = document.createElement("div");
+    const term = document.createElement("dt");
+    term.textContent = label;
+    const detail = document.createElement("dd");
+    detail.textContent = value;
+    if (mono) {
+      detail.className = "cockpit-mono";
+    }
+    wrapper.append(term, detail);
+    return wrapper;
+  }
+
+  function formatMoney(value) {
+    return `$${Math.round(Number(value || 0)).toLocaleString("en-US")}`;
+  }
+
+  function normalizeTicker(ticker) {
+    return String(ticker || "").trim().toUpperCase();
+  }
+
+  function focusTickerFrom(element) {
+    const explicit = normalizeTicker(element.getAttribute("data-cockpit-focus-ticker"));
+    if (explicit) {
+      return explicit;
+    }
+    const row = element.closest("[data-cockpit-ticker]");
+    return row ? normalizeTicker(row.getAttribute("data-cockpit-ticker")) : "";
+  }
+
+  function escapeSelector(value) {
+    if (window.CSS && typeof window.CSS.escape === "function") {
+      return window.CSS.escape(value);
+    }
+    return String(value || "").replace(/(["\\])/g, "\\$1");
+  }
+
+  function markFocusedTicker(ticker) {
+    const normalized = normalizeTicker(ticker);
+    if (normalized) {
+      shell.setAttribute("data-cockpit-selected-ticker", normalized);
+    } else {
+      shell.removeAttribute("data-cockpit-selected-ticker");
+    }
+    document.querySelectorAll("[data-cockpit-ticker]").forEach((element) => {
+      const matches = normalizeTicker(element.getAttribute("data-cockpit-ticker")) === normalized;
+      element.toggleAttribute("data-cockpit-flow-focus", Boolean(normalized && matches));
+    });
+  }
+
+  function focusTickerInPhase(phase, ticker) {
+    const normalized = normalizeTicker(ticker);
+    if (!normalized) {
+      return;
+    }
+    const section = document.querySelector(`[data-cockpit-phase="${escapeSelector(phase)}"]`);
+    const row = section?.querySelector(`[data-cockpit-ticker="${escapeSelector(normalized)}"]`);
+    if (row && typeof row.scrollIntoView === "function") {
+      row.scrollIntoView({ block: "nearest" });
+    }
+  }
+
+  function showPhase(phase, focusTicker = "") {
     document.querySelectorAll("[data-cockpit-phase]").forEach((section) => {
       section.toggleAttribute("hidden", section.getAttribute("data-cockpit-phase") !== phase);
     });
     document.querySelectorAll("[data-cockpit-phase-target]").forEach((button) => {
       button.classList.toggle("active", button.getAttribute("data-cockpit-phase-target") === phase);
     });
+    const selectedTicker = normalizeTicker(focusTicker || state.selectedTicker);
+    markFocusedTicker(selectedTicker);
+    focusTickerInPhase(phase, selectedTicker);
   }
 
   let activeTrigger = null;
+  let activeTickerDetailController = null;
+  let tickerDetailRequestId = 0;
 
   function openPanel(name, trigger) {
     const panel = document.querySelector(`#cockpit-panel-${name}`);
@@ -498,6 +783,7 @@
   }
 
   function closePanel() {
+    abortTickerDetailRequest();
     document.querySelectorAll(".cockpit-panel").forEach((panel) => {
       panel.hidden = true;
     });
@@ -507,25 +793,51 @@
     activeTrigger = null;
   }
 
+  function abortTickerDetailRequest() {
+    if (activeTickerDetailController) {
+      tickerDetailRequestId += 1;
+      activeTickerDetailController.abort();
+      activeTickerDetailController = null;
+    }
+  }
+
   async function loadTickerPanelDetails(candidate) {
     const ticker = candidate.ticker || "";
     if (!ticker) {
       return;
     }
+    abortTickerDetailRequest();
+    const requestId = tickerDetailRequestId + 1;
+    tickerDetailRequestId = requestId;
+    const controller = new AbortController();
+    activeTickerDetailController = controller;
+    const timer = window.setTimeout(() => controller.abort(), 10_000);
     try {
       const response = await fetch(`/api/cockpit/ticker/${encodeURIComponent(ticker)}`, {
         headers: { Accept: "application/json" },
+        signal: controller.signal,
       });
       if (!response.ok) {
         throw new Error(`detail API returned HTTP ${response.status}`);
       }
       const payload = await response.json();
+      if (requestId !== tickerDetailRequestId) {
+        return;
+      }
       populateTickerPanel({ ...candidate, ...payload }, { loading: false });
     } catch (error) {
+      if (requestId !== tickerDetailRequestId) {
+        return;
+      }
       populateTickerPanel({
         ...candidate,
         detail_load_error: `Could not load full candidate brief: ${error}`,
       }, { loading: false });
+    } finally {
+      window.clearTimeout(timer);
+      if (activeTickerDetailController === controller) {
+        activeTickerDetailController = null;
+      }
     }
   }
 
@@ -541,44 +853,63 @@
     const conviction = panel.querySelector("[data-ticker-conviction]");
     const status = panel.querySelector("[data-ticker-status]");
     const dataHealth = panel.querySelector("[data-ticker-data-health]");
+    const dataHealthDetail = panel.querySelector("[data-ticker-data-health-detail]");
     const sources = panel.querySelector("[data-ticker-sources]");
     const review = panel.querySelector("[data-ticker-review]");
     const nextStep = panel.querySelector("[data-ticker-next-step]");
     const llm = panel.querySelector("[data-ticker-llm-rationale]");
+    const llmAction = panel.querySelector("[data-ticker-llm-action]");
+    const llmCycleId = panel.querySelector("[data-ticker-llm-cycle-id]");
+    const llmAsOf = panel.querySelector("[data-ticker-llm-as-of]");
+    const llmActionNote = panel.querySelector("[data-ticker-llm-action-note]");
     const gates = panel.querySelector("[data-ticker-gates]");
     const evidence = panel.querySelector("[data-ticker-evidence]");
     const support = panel.querySelector("[data-ticker-support]");
     const caution = panel.querySelector("[data-ticker-caution]");
     const signals = panel.querySelector("[data-ticker-signals]");
+    const context = panel.querySelector("[data-ticker-context]");
     const detailLink = panel.querySelector("[data-ticker-detail-link]");
     const richLlm = candidate.llm || {};
     const health = candidate.data_health || {};
     const reviewState = candidate.review || {};
     if (title) title.textContent = `${candidate.ticker || "Ticker"} Detail`;
     if (summary) summary.textContent = candidate.summary || `${candidate.name || ""} ${candidate.sector || ""}`.trim();
-    if (headline) headline.textContent = candidate.headline || "Candidate brief is loading.";
+    if (headline) headline.textContent = candidate.headline || `${candidate.ticker || "Ticker"} candidate detail is loading.`;
     if (order) order.textContent = candidate.order_preview || "No paper order yet";
     if (conviction) conviction.textContent = candidate.conviction_pct ? `${candidate.conviction_pct}%` : candidate.score_display || "--";
     if (status) status.textContent = candidate.status_label || "--";
     if (dataHealth) dataHealth.textContent = health.status_label || (options.loading ? "Loading..." : "--");
+    if (dataHealthDetail) dataHealthDetail.textContent = dataHealthDetailText(candidate, health, options.loading);
     if (sources) {
       const sourceCount = candidate.source_count || 0;
       const confirmedCount = candidate.confirmed_signal_count || 0;
-      sources.textContent = sourceCount || confirmedCount ? `${sourceCount} sources / ${confirmedCount} confirmed` : "--";
+      const asOf = candidate.as_of || candidate.generated_at || health.last_verified_label || "";
+      sources.textContent = sourceCount || confirmedCount ? `${sourceCount} sources / ${confirmedCount} confirmed${asOf ? ` / ${asOf}` : ""}` : "--";
     }
     if (review) review.textContent = reviewState.decision || candidate.human_review_decision || "Pending";
     if (nextStep) nextStep.textContent = candidate.next_step || health.recommended_action || "Review the full candidate brief before acting.";
     if (llm) {
       const llmStatus = richLlm.status_label || candidate.llm_label || "LLM not run";
-      const llmAction = richLlm.action ? ` ${richLlm.action}.` : "";
+      const llmActionText = richLlm.action ? ` ${richLlm.action}.` : "";
       const llmConfidence = richLlm.confidence_pct ? ` Confidence ${richLlm.confidence_pct}%.` : "";
       const rationale = richLlm.rationale || candidate.llm_rationale || candidate.llm_label || "LLM not run for this ticker";
-      llm.textContent = `${llmStatus}.${llmAction}${llmConfidence} ${rationale}`.trim();
+      const detail = richLlm.status_detail ? ` ${richLlm.status_detail}` : "";
+      llm.textContent = `${llmStatus}.${llmActionText}${llmConfidence}${detail} ${rationale}`.trim();
     }
+    configureManualLlmAction({
+      form: llmAction,
+      cycleInput: llmCycleId,
+      asOfInput: llmAsOf,
+      note: llmActionNote,
+      candidate,
+      llm: richLlm,
+      loading: options.loading,
+    });
     if (gates) gates.textContent = candidate.risk_line || "No gate detail available.";
-    renderCards(support, candidate.support_cards || [], "No constructive driver is active in the loaded brief.");
-    renderCards(caution, candidate.caution_cards || [], "No caution driver is active in the loaded brief.");
-    renderSignals(signals, candidate.signals || [], options.loading);
+    renderCards(support, candidate.support_cards || [], emptyPanelText(candidate, "support"));
+    renderCards(caution, candidate.caution_cards || [], emptyPanelText(candidate, "caution"));
+    renderSignals(signals, candidate.signals || [], options.loading, candidate);
+    renderCards(context, candidate.context_cards || [], emptyPanelText(candidate, "news and email context"));
     if (detailLink) {
       detailLink.href = candidate.detail_url || (candidate.ticker ? `/candidates/${candidate.ticker}` : "#");
     }
@@ -589,11 +920,64 @@
         li.textContent = candidate.detail_load_error;
         evidence.appendChild(li);
       }
-      (candidate.decision_points || candidate.evidence || []).forEach((item) => {
+      const evidenceRows = [
+        ...(candidate.context_cards || []),
+        ...(candidate.decision_points || []),
+        ...(candidate.evidence || []),
+      ];
+      if (!evidenceRows.length && !candidate.detail_load_error) {
+        const li = document.createElement("li");
+        li.textContent = emptyPanelText(candidate, "compact evidence");
+        evidence.appendChild(li);
+      }
+      evidenceRows.forEach((item) => {
         const li = document.createElement("li");
         li.textContent = `${item.label || item.tier || "evidence"}: ${item.detail || item.text || ""}`;
         evidence.appendChild(li);
       });
+    }
+  }
+
+  function dataHealthDetailText(candidate, health, loading) {
+    if (loading) {
+      return `${candidate.ticker || "Ticker"} detail is loading from the current cockpit API.`;
+    }
+    return [
+      health.headline,
+      health.primary_blocker ? `${health.primary_blocker}: ${health.primary_blocker_detail || "review data proof"}` : "",
+      health.recommended_action,
+      health.last_verified_label ? `Last verified ${health.last_verified_label}.` : candidate.as_of ? `Report as-of ${candidate.as_of}.` : "",
+    ].filter(Boolean).join(" ");
+  }
+
+  function emptyPanelText(candidate, section) {
+    const ticker = candidate.ticker || "This ticker";
+    const proof = candidate.as_of || candidate.generated_at || candidate.data_health?.last_verified_label || "timestamp not recorded";
+    return `${ticker} has no ${section} rows in the compact cockpit drawer for ${proof}. Open the full candidate brief for the complete audit trail.`;
+  }
+
+  function configureManualLlmAction({ form, cycleInput, asOfInput, note, candidate, llm, loading }) {
+    if (!form) {
+      return;
+    }
+    const status = `${llm.status_label || candidate.llm_label || ""} ${llm.rationale || candidate.llm_rationale || ""}`.toLowerCase();
+    const canRun = !loading
+      && llm.manual_review_available === true
+      && Boolean(llm.manual_review_action)
+      && (status.includes("not run") || status.includes("not produced") || status.includes("disabled") || status.includes("not enabled"));
+    form.hidden = !canRun;
+    if (!canRun) {
+      return;
+    }
+    form.action = llm.manual_review_action;
+    if (cycleInput) {
+      cycleInput.value = candidate.cycle_id || "";
+    }
+    if (asOfInput) {
+      asOfInput.value = candidate.as_of || "";
+    }
+    if (note) {
+      note.textContent = llm.manual_review_detail || "Run a manual LLM review for this exact report timestamp.";
     }
   }
 
@@ -621,7 +1005,7 @@
     });
   }
 
-  function renderSignals(target, signals, loading) {
+  function renderSignals(target, signals, loading, candidate) {
     if (!target) {
       return;
     }
@@ -634,7 +1018,7 @@
     }
     if (!signals.length) {
       const item = document.createElement("article");
-      item.textContent = "No primary signal evidence was returned for this ticker.";
+      item.textContent = emptyPanelText(candidate, "primary signal evidence");
       target.appendChild(item);
       return;
     }
@@ -644,9 +1028,14 @@
       const summary = document.createElement("p");
       const hardEvidence = document.createElement("p");
       const meta = document.createElement("small");
-      title.textContent = `${signal.lane || "Signal"} / ${signal.direction || "NEUTRAL"}`;
-      summary.textContent = signal.summary || "Signal summary unavailable.";
-      hardEvidence.textContent = signal.hard_evidence ? `Hard evidence: ${signal.hard_evidence}` : signal.detail || "";
+      const signalName = signal.display_name || signal.label || "Signal process";
+      title.textContent = `${signalName} / ${signal.direction || "NEUTRAL"}`;
+      summary.textContent = signal.summary || signal.hard_evidence || signal.detail || `${signalName} row has no attached summary.`;
+      hardEvidence.textContent = signal.hard_evidence
+        ? `Hard evidence: ${signal.hard_evidence}`
+        : signal.detail
+          ? `Detail: ${signal.detail}`
+          : "Hard evidence values were not attached to this signal row.";
       meta.textContent = [
         signal.actionability,
         signal.freshness,

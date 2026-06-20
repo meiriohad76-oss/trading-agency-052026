@@ -24,14 +24,15 @@ DEFAULT_TRADE_ROOT = ROOT / "research" / "data" / "parquet" / "stock_trades"
 DEFAULT_OUTPUT_ROOT = ROOT / "research" / "data" / "parquet" / "massive_block_trade_feed"
 DEFAULT_SOURCE_LANE_MANIFEST = manifest_path_for_lane(ROOT, "massive_live_trade_slices")
 DEFAULT_PROGRESS_PATH = (
-    ROOT
-    / "research"
-    / "results"
-    / "latest-data-refresh"
-    / "massive_block_trade_feed-progress.json"
+    ROOT / "research" / "results" / "latest-data-refresh" / "massive_block_trade_feed-progress.json"
 )
 BLOCK_TRADE_LANE_ID = "massive_block_trade_feed"
 SOURCE_LIVE_SLICE_LANE_ID = "massive_live_trade_slices"
+TRF_VENUES = {
+    "201": "FINRA/NYSE TRF",
+    "202": "FINRA/NASDAQ TRF Carteret",
+    "203": "FINRA/NASDAQ TRF Chicago",
+}
 
 
 def main() -> int:
@@ -79,7 +80,11 @@ def main() -> int:
     fetched_at = datetime.now(UTC)
     issues = [*_coverage_issues(coverage), *read_issues]
     status = _coverage_status(coverage, issues)
-    manifest_path = _resolve(args.lane_manifest_path) if args.lane_manifest_path else manifest_path_for_lane(ROOT, args.lane_id)
+    manifest_path = (
+        _resolve(args.lane_manifest_path)
+        if args.lane_manifest_path
+        else manifest_path_for_lane(ROOT, args.lane_id)
+    )
     write_lane_manifest(
         manifest_path,
         lane_id=args.lane_id,
@@ -147,15 +152,15 @@ def _source_manifest_problem(
     dataset = str(source_manifest.get("raw_source_dataset") or source_manifest.get("dataset") or "")
     if dataset != "stock_trades":
         return (
-            "block-trade derivation requires stock_trades source data; "
-            f"got {dataset or 'unknown'}."
+            f"block-trade derivation requires stock_trades source data; got {dataset or 'unknown'}."
         )
     window = source_manifest.get("window")
     if not isinstance(window, Mapping):
         return "source live-trade lane manifest has no recorded window."
-    if str(window.get("start") or "") != args.start.isoformat() or str(
-        window.get("end") or ""
-    ) != args.end.isoformat():
+    if (
+        str(window.get("start") or "") != args.start.isoformat()
+        or str(window.get("end") or "") != args.end.isoformat()
+    ):
         return (
             "source live-trade lane manifest window does not match the requested "
             f"derivation window {args.start.isoformat()} to {args.end.isoformat()}."
@@ -196,9 +201,7 @@ def _coverage_from_source(
     for ticker in tickers:
         source_row = by_ticker.get(ticker.upper())
         status = str(
-            (source_row or {}).get("coverage_status")
-            or (source_row or {}).get("status")
-            or ""
+            (source_row or {}).get("coverage_status") or (source_row or {}).get("status") or ""
         ).lower()
         source_complete = bool(source_row) and _source_coverage_complete(source_row)
         usable = bool(source_row) and _source_coverage_usable(source_row)
@@ -208,7 +211,9 @@ def _coverage_from_source(
         result.append(
             {
                 "ticker": ticker.upper(),
-                "trade_date": start.isoformat() if start == end else f"{start.isoformat()}..{end.isoformat()}",
+                "trade_date": start.isoformat()
+                if start == end
+                else f"{start.isoformat()}..{end.isoformat()}",
                 "coverage_status": coverage_status,
                 "complete": source_complete,
                 "usable_for_live_pipeline": usable,
@@ -227,9 +232,7 @@ def _coverage_from_source(
 def _source_coverage_usable(source_row: Mapping[str, object] | None) -> bool:
     if not source_row:
         return False
-    status = str(
-        source_row.get("coverage_status") or source_row.get("status") or ""
-    ).lower()
+    status = str(source_row.get("coverage_status") or source_row.get("status") or "").lower()
     if _source_coverage_complete(source_row) or status in {"ready", "usable", "partial_usable"}:
         return True
     if status != "partial":
@@ -245,9 +248,7 @@ def _source_coverage_usable(source_row: Mapping[str, object] | None) -> bool:
 def _source_coverage_complete(source_row: Mapping[str, object] | None) -> bool:
     if not source_row:
         return False
-    status = str(
-        source_row.get("coverage_status") or source_row.get("status") or ""
-    ).lower()
+    status = str(source_row.get("coverage_status") or source_row.get("status") or "").lower()
     if not (source_row.get("complete") is True or status == "complete"):
         return False
     return source_row.get("row_count_verified") is not False
@@ -277,8 +278,7 @@ def _read_trade_frame(
                         if start == end
                         else f"{start.isoformat()}..{end.isoformat()}",
                         "reason": (
-                            "local stock-trade parquet could not be read: "
-                            f"{type(exc).__name__}"
+                            f"local stock-trade parquet could not be read: {type(exc).__name__}"
                         ),
                     }
                 )
@@ -296,9 +296,7 @@ def _read_trade_frame(
                 continue
             frame = frame.copy()
             frame["ticker"] = frame["ticker"].astype(str).str.upper()
-            frame["trade_date"] = pd.to_datetime(
-                frame["trade_date"], errors="coerce"
-            ).dt.date
+            frame["trade_date"] = pd.to_datetime(frame["trade_date"], errors="coerce").dt.date
             selected = {ticker.upper() for ticker in tickers}
             frame = frame[
                 frame["ticker"].isin(selected)
@@ -317,8 +315,14 @@ def _focus_trade_frame(frame: pd.DataFrame) -> pd.DataFrame:
     if frame.empty:
         return frame.copy()
     output = frame.copy()
+    if "notional" not in output.columns:
+        output["notional"] = _numeric_series(output, "price") * _numeric_series(output, "size")
+    trf = _trf_off_exchange_series(output)
+    output["is_trf_off_exchange"] = trf
+    output["trf_venue"] = _trf_venue_series(output, trf)
     block = _bool_series(output, "is_block_trade")
-    off_exchange = _bool_series(output, "is_off_exchange")
+    off_exchange = _bool_series(output, "is_off_exchange") | trf
+    output["is_off_exchange"] = off_exchange
     return output[block | off_exchange].copy().reset_index(drop=True)
 
 
@@ -340,7 +344,7 @@ def _write_focus_frame(root: Path, frame: pd.DataFrame) -> int:
         if path.is_file():
             try:
                 existing = pd.read_parquet(path)
-            except (ArrowInvalid, OSError, ValueError):
+            except ArrowInvalid, OSError, ValueError:
                 existing = pd.DataFrame()
             previous_count = len(existing)
             if not existing.empty:
@@ -353,7 +357,11 @@ def _write_focus_frame(root: Path, frame: pd.DataFrame) -> int:
         if dedupe_columns:
             merged = merged.drop_duplicates(subset=dedupe_columns, keep="last")
         merged = merged.sort_values(
-            [column for column in ("ticker", "trade_ts", "sequence_number") if column in merged.columns]
+            [
+                column
+                for column in ("ticker", "trade_ts", "sequence_number")
+                if column in merged.columns
+            ]
         ).reset_index(drop=True)
         merged.to_parquet(path, engine="pyarrow", compression="snappy", index=False)
         written += max(0, len(merged) - previous_count)
@@ -366,7 +374,11 @@ def _write_blocked_manifest(
     *,
     reason: str,
 ) -> None:
-    manifest_path = _resolve(args.lane_manifest_path) if args.lane_manifest_path else manifest_path_for_lane(ROOT, args.lane_id)
+    manifest_path = (
+        _resolve(args.lane_manifest_path)
+        if args.lane_manifest_path
+        else manifest_path_for_lane(ROOT, args.lane_id)
+    )
     write_lane_manifest(
         manifest_path,
         lane_id=args.lane_id,
@@ -432,6 +444,35 @@ def _bool_series(frame: pd.DataFrame, column: str) -> pd.Series:
     if column not in frame.columns:
         return pd.Series([False for _ in range(len(frame))], index=frame.index)
     return frame[column].map(_bool_value).fillna(False).astype(bool)
+
+
+def _numeric_series(frame: pd.DataFrame, column: str) -> pd.Series:
+    if column not in frame.columns:
+        return pd.Series([0.0 for _ in range(len(frame))], index=frame.index)
+    return pd.to_numeric(frame[column], errors="coerce").fillna(0.0)
+
+
+def _text_series(frame: pd.DataFrame, column: str) -> pd.Series:
+    if column not in frame.columns:
+        return pd.Series(["" for _ in range(len(frame))], index=frame.index)
+    return frame[column].fillna("").astype(str).str.strip()
+
+
+def _trf_off_exchange_series(frame: pd.DataFrame) -> pd.Series:
+    existing = _bool_series(frame, "is_trf_off_exchange")
+    exchange = _text_series(frame, "exchange").str.replace(r"\.0$", "", regex=True)
+    trf_id = _text_series(frame, "trf_id")
+    return (existing | (exchange.eq("4") & trf_id.ne(""))).fillna(False).astype(bool)
+
+
+def _trf_venue_series(frame: pd.DataFrame, trf: pd.Series) -> pd.Series:
+    if "trf_venue" in frame.columns:
+        existing = _text_series(frame, "trf_venue")
+    else:
+        existing = pd.Series(["" for _ in range(len(frame))], index=frame.index)
+    trf_id = _text_series(frame, "trf_id").str.replace(r"\.0$", "", regex=True)
+    mapped = trf_id.map(lambda value: TRF_VENUES.get(value, f"FINRA TRF {value}" if value else ""))
+    return existing.where(existing.ne(""), mapped).where(trf, "")
 
 
 def _bool_value(value: object) -> bool:

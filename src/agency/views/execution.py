@@ -67,6 +67,7 @@ RECORDED_ORDER_STATES = {
     "REJECTED",
     "EXPIRED",
 }
+EXECUTION_STATUS_AUDIT_QUERY_TIMEOUT_SECONDS = 2.0
 
 
 async def execution_preview_context(
@@ -113,12 +114,12 @@ async def execution_preview_context(
         risk_decisions=[],
         lane_states=_mapping_list_field_or_empty(data_load_status, "lane_states"),
     )
-    review_states = _human_review_index(
-        await human_review_events_for_reports(reports, readiness)
+    review_events, operator_advance_events = await asyncio.gather(
+        human_review_events_for_reports(reports, readiness),
+        operator_manual_advance_events_for_reports(reports, readiness),
     )
-    operator_advance_states = _human_review_index(
-        await operator_manual_advance_events_for_reports(reports, readiness)
-    )
+    review_states = _human_review_index(review_events)
+    operator_advance_states = _human_review_index(operator_advance_events)
     promotion_config = PaperTradePromotionConfig.from_env()
     promotion_evaluations = paper_trade_promotion_evaluations(
         reports,
@@ -146,10 +147,9 @@ async def execution_preview_context(
         pending_opening_order_exposure_pct=_pending_opening_order_exposure_pct(broker),
         validate_contracts=validate_contracts,
     )
-    research_approval_keys = await execution_approval_keys(
-        reports=reports,
-        data_sources=data_sources,
-        risk_decisions=[result.risk_decision for result in risk_results],
+    research_approval_keys = _research_approval_keys_from_review_states(
+        reports,
+        review_states,
     )
     preview_results = build_execution_previews(
         [result.risk_decision for result in risk_results],
@@ -182,13 +182,13 @@ async def execution_preview_context(
         freshness_gate=freshness_gate,
         scheduler_status=scheduler_gate,
     )
-    order_approval_keys = await order_approval_keys_for_reports(
-        reports=promoted_reports,
-        data_sources=data_sources,
-        previews=[result.preview for result in preview_results],
-    )
-    execution_states = await execution_states_for_previews(
-        [result.preview for result in preview_results]
+    order_approval_keys, execution_states = await asyncio.gather(
+        order_approval_keys_for_reports(
+            reports=promoted_reports,
+            data_sources=data_sources,
+            previews=[result.preview for result in preview_results],
+        ),
+        execution_states_for_previews([result.preview for result in preview_results]),
     )
     preview_rows = execution_preview_rows(
         [result.preview for result in preview_results],
@@ -243,7 +243,7 @@ async def execution_preview_context(
                     "name": "Freshness and scheduler tradability",
                     "status_label": str(execution_gate.get("status_label") or "Unknown"),
                     "status_class": str(execution_gate.get("status_class") or "neutral"),
-                    "coverage_label": f"{execution_gate.get('blocker_count', 0)} blocker(s)",
+                    "coverage_label": f"{execution_gate.get('blocker_count', 0)} must-fix issue(s)",
                     "freshness_label": "required immediately before submit",
                     "last_update": str(broker.get("checked_at") or "not checked"),
                     "detail": str(execution_gate.get("detail") or "No execution gate detail available."),
@@ -253,13 +253,17 @@ async def execution_preview_context(
         "preview_rows": preview_rows,
         "focused_execution": focused_execution,
         "orderable_rows": [row for row in preview_rows if row["preview_state"] == "READY"],
-        "review_only_rows": [row for row in preview_rows if row["preview_state"] == "DISABLED"],
+        "review_only_rows": [
+            row for row in preview_rows if _execution_preview_is_context_only(row)
+        ],
         "approved_review_only_rows": [
             row
             for row in preview_rows
-            if row["preview_state"] == "DISABLED" and row["human_approved"] is True
+            if _execution_preview_is_context_only(row) and row["human_approved"] is True
         ],
-        "blocked_rows": [row for row in preview_rows if row["preview_state"] == "BLOCKED"],
+        "blocked_rows": [
+            row for row in preview_rows if _execution_preview_is_operator_blocker(row)
+        ],
         "leveraged_alternatives": leveraged_alternative_panel(leveraged_reviews),
         "summary": execution_preview_summary(
             preview_rows,
@@ -332,7 +336,7 @@ def _focused_execution_status_label(row: Mapping[str, object]) -> str:
     if row.get("submit_enabled") is True:
         return "Ready for paper submit"
     if row.get("order_approval_available") is True and row.get("order_approved") is not True:
-        return "Order intent needs approval"
+        return "Order details need approval"
     if row.get("operator_manual_advance_available") is True:
         return "Manual advance available"
     if row.get("human_approved") is True:
@@ -359,7 +363,7 @@ def _focused_execution_headline(row: Mapping[str, object]) -> str:
     if row.get("submit_enabled") is True:
         return f"{ticker} is ready for paper submission."
     if row.get("order_approval_available") is True and row.get("order_approved") is not True:
-        return f"{ticker} has a paper order intent waiting for approval."
+        return f"{ticker} has paper order details waiting for approval."
     if row.get("operator_manual_advance_available") is True:
         primary_blocker = str(row.get("paper_promotion_primary_blocker") or "").strip()
         return (
@@ -377,12 +381,12 @@ def _focused_execution_detail(row: Mapping[str, object]) -> str:
     ticker = str(row.get("ticker") or "This ticker")
     if row.get("submit_enabled") is True:
         return (
-            f"{ticker} passed the current paper-trading gates. Review the order hash, "
+            f"{ticker} passed the current paper-trading gates. Review the order details, "
             "then type the confirmation phrase from the selected card."
         )
     if row.get("order_approval_available") is True and row.get("order_approved") is not True:
         return (
-            f"{ticker} has a sized paper intent. Approve the exact order intent first; "
+            f"{ticker} has a sized paper order. Approve the exact order details first; "
             "the submit button appears only if the broker and data gates still pass."
         )
     primary_blocker = str(row.get("paper_promotion_primary_blocker") or "").strip()
@@ -409,9 +413,9 @@ def _focused_execution_next_step(row: Mapping[str, object]) -> str:
     if row.get("submit_enabled") is True:
         return "Final step: arm the paper submit gate on the selected card."
     if row.get("order_approval_available") is True and row.get("order_approved") is not True:
-        return "Next step: approve the order intent on the selected card."
+        return "Next step: approve the order details on the selected card."
     if row.get("operator_manual_advance_available") is True:
-        return "Next step: either wait for stronger evidence, refresh the relevant lanes, or use manual advance with caution."
+        return "Next step: either wait for stronger evidence, refresh the relevant data sources, or use manual advance with caution."
     if row.get("research_approval_available") is True:
         return "Next step: approve research on the selected card."
     return str(row.get("next_step") or "No next action is available in this cycle.")
@@ -504,6 +508,25 @@ async def execution_approval_keys(
     return approved
 
 
+def _research_approval_keys_from_review_states(
+    reports: Sequence[Mapping[str, object]],
+    review_states: Mapping[tuple[str, str, str], Mapping[str, object]],
+) -> set[tuple[str, str, str]]:
+    approved: set[tuple[str, str, str]] = set()
+    for report in reports:
+        key = _runtime_payload_key(report)
+        event = review_states.get(key)
+        if event is None:
+            continue
+        payload = _mapping_field(event, "payload")
+        if str(payload.get("review_decision", "")).upper() != "APPROVE":
+            continue
+        if str(payload.get("selection_report_hash") or "") != selection_report_hash(report):
+            continue
+        approved.add(key)
+    return approved
+
+
 async def execution_states_for_previews(
     previews: Sequence[Mapping[str, object]],
 ) -> dict[tuple[str, str, str, str], Mapping[str, object]]:
@@ -513,7 +536,10 @@ async def execution_states_for_previews(
     if not cycle_id:
         return {}
     try:
-        states = await runtime_execution_states(cycle_id=cycle_id, limit=500)
+        states = await asyncio.wait_for(
+            runtime_execution_states(cycle_id=cycle_id, limit=500),
+            timeout=EXECUTION_STATUS_AUDIT_QUERY_TIMEOUT_SECONDS,
+        )
     except Exception:  # noqa: BLE001
         return {}
     return _execution_state_index(states)
@@ -670,7 +696,7 @@ async def order_approval_events_for_reports(
         reports,
         readiness,
         event_type="ORDER_APPROVAL",
-        limit_per_ticker=100,
+        limit_per_ticker=5,
     )
 
 
@@ -682,7 +708,7 @@ async def operator_manual_advance_events_for_reports(
         reports,
         readiness,
         event_type="OPERATOR_MANUAL_ADVANCE",
-        limit_per_ticker=100,
+        limit_per_ticker=5,
     )
 
 def _remove_research_only_promoted_order_approvals(
@@ -808,8 +834,8 @@ def execution_preview_summary(
     )
     normalized_policy = policy or PortfolioPolicy()
     ready_count = sum(1 for row in rows if row["preview_state"] == "READY")
-    blocked_count = sum(1 for row in rows if row["preview_state"] == "BLOCKED")
-    disabled_count = sum(1 for row in rows if row["preview_state"] == "DISABLED")
+    blocked_count = sum(1 for row in rows if _execution_preview_is_operator_blocker(row))
+    disabled_count = sum(1 for row in rows if _execution_preview_is_context_only(row))
     submit_ready_count = sum(1 for row in rows if row["submit_enabled"] is True)
     broker_connected = bool(broker is not None and broker.get("connected") is True)
     broker_mode = str(broker.get("mode", "paper")) if broker is not None else "paper"
@@ -879,7 +905,8 @@ def execution_preview_summary(
         "no_order_explanation": (
             "A paper transaction can be approved only when a row is READY, has side "
             "BUY/SELL/SHORT/COVER, has an order value or quantity, passes risk, and "
-            "has human approval. WATCH, HOLD, and NO_TRADE rows cannot be submitted."
+            "has human approval. WATCH, HOLD, and NO_TRADE rows are review-only or "
+            "context-only rows and cannot be submitted."
         ),
     }
 
@@ -984,6 +1011,7 @@ def _execution_preview_row(
     order_intent_hash = str(preview["order_intent_hash"])
     llm_action = str(preview.get("llm_action") or "LLM review unavailable - rules-only")
     deterministic_score_label = _execution_deterministic_score_label(preview)
+    final_action = _execution_final_action_label(preview, raw_reason)
     review_decision = str(human_review["decision"])
     display_preview_state = (
         execution_state_name
@@ -1003,7 +1031,10 @@ def _execution_preview_row(
         "order_intent_version": str(preview["order_intent_version"]),
         "order_intent_hash": order_intent_hash,
         "order_intent_hash_label": order_intent_hash[:12],
+        "order_integrity_label": "Order details verified against current intent",
+        "order_integrity_status_class": "pass",
         "preview_state": display_preview_state,
+        "final_action": final_action,
         "state_class": _preview_state_class(display_preview_state),
         "side": str(preview["side"]),
         "risk_decision": str(preview["risk_decision"]),
@@ -1115,7 +1146,7 @@ def _execution_preview_row(
         "paper_promotion_detail": _promotion_text(
             promotion_evaluation,
             "detail",
-            "Paper promotion was not evaluated for this row.",
+            "Eligibility was not evaluated for this row.",
         ),
         "paper_promotion_reasons": _promotion_reasons(promotion_evaluation),
         "paper_promotion_blockers": _promotion_reasons(promotion_evaluation),
@@ -1154,6 +1185,13 @@ def _execution_preview_row(
             review_decision=review_decision,
             promotion_evaluation=promotion_evaluation,
         ),
+        "pipeline_chain": _execution_pipeline_chain(
+            preview,
+            human_review,
+            promotion_evaluation,
+            execution_summary,
+            submit_blocker=submit_blocker,
+        ),
     }
 
 def _execution_deterministic_score_label(preview: Mapping[str, object]) -> str:
@@ -1183,6 +1221,28 @@ def _execution_final_action_label(
     if token in {"WATCH", "HOLD", "NO_TRADE"}:
         return token
     return ""
+
+
+def _execution_preview_is_context_only(row: Mapping[str, object]) -> bool:
+    final_action = str(row.get("final_action") or "").upper()
+    if not final_action:
+        preview = row.get("preview")
+        if isinstance(preview, Mapping):
+            final_action = str(preview.get("final_action") or "").upper()
+            if not final_action and "side" in preview:
+                final_action = _execution_final_action_label(preview)
+    return (
+        row.get("submit_enabled") is not True
+        and final_action in {"NO_TRADE", "WATCH", "HOLD"}
+    )
+
+
+def _execution_preview_is_operator_blocker(row: Mapping[str, object]) -> bool:
+    return (
+        str(row.get("preview_state") or "").upper() == "BLOCKED"
+        and not _execution_preview_is_context_only(row)
+    )
+
 
 def _order_approval_key(event: Mapping[str, object]) -> tuple[str, str, str, str]:
     payload = event.get("payload", {})
@@ -1255,7 +1315,7 @@ def _execution_workflow_guidance(
             "approval and waits for a later cycle to upgrade to a trade action."
         )
     if blocked_count > 0:
-        return "No transaction is available; all previews are blocked before sizing."
+        return "No transaction is available; all previews are stopped before sizing."
     return "Execution previews will appear after final selection and risk run."
 
 
@@ -1450,7 +1510,7 @@ def _not_ready_submit_blocker(preview: Mapping[str, object]) -> str:
     if side == "NONE" and raw_reason.startswith(("WATCH", "HOLD")):
         return "review-only action"
     if str(preview["risk_decision"]) == "BLOCK":
-        return "risk blocked"
+        return "risk stopped"
     return "preview is not ready"
 
 def _submit_label(
@@ -1476,7 +1536,7 @@ def _submit_label(
         "order approval required": "Approve order",
         "preview is not ready": "Blocked",
         "review-only action": "Review only",
-        "risk blocked": "Risk blocked",
+        "risk stopped": "Risk stopped",
     }
     return labels.get(blocker, "Closed")
 
@@ -1528,7 +1588,7 @@ def _execution_size_label(preview: Mapping[str, object]) -> str:
             return "No sizing for no-trade"
         return "No order sizing"
     if str(preview["preview_state"]) == "BLOCKED":
-        return "blocked by risk"
+        return "stopped by risk"
     if side in {"SELL", "COVER"} and isinstance(preview["quantity"], int | float):
         return f"close {float(preview['quantity']):.4f} shares"
     if side in {"BUY", "SHORT"} and isinstance(preview["notional"], int | float):
@@ -1555,7 +1615,7 @@ def _execution_order_intent(
         return "Eligible paper BUY after research approval"
     if raw_reason.startswith(("WATCH", "HOLD")) and promotion_evaluation is not None:
         if human_approved:
-            return "Research approved: blocked by promotion checks"
+            return "Research approved: must-fix eligibility checks remain"
         if review_decision in {"Defer", "Reject"}:
             return f"{action} review {review_decision.lower()}: not orderable"
         return f"{action} review pending: not orderable yet"
@@ -1591,20 +1651,20 @@ def _execution_reason_text(
             reason = _promotion_primary_reason(promotion_evaluation)
             if not human_approved:
                 if reason:
-                    return f"Review is pending. {detail} Blocked check: {reason}."
+                    return f"Review is pending. {detail} Pending check: {reason}."
                 return f"Review is pending. {detail}"
             if "Caution:" in raw_reason:
                 if reason:
-                    return f"{detail} Blocker: {reason}. {raw_reason}"
+                    return f"{detail} Main issue: {reason}. {raw_reason}"
                 return f"{detail} {raw_reason}"
             if reason:
-                return f"{detail} Blocker: {reason}."
+                return f"{detail} Main issue: {reason}."
             return detail
         if "Caution:" in raw_reason:
             return raw_reason
         return _execution_order_intent(preview, raw_reason)
     if str(preview["preview_state"]) == "BLOCKED":
-        return f"Risk blocked this paper order: {raw_reason}."
+        return f"Risk stopped this paper order: {raw_reason}."
     return _operator_text(raw_reason)
 
 def _execution_approval_label(
@@ -1687,7 +1747,7 @@ def _execution_next_step(
             "next_step",
             (
                 "Approve the current research report; the portfolio manager will "
-                "recalculate risk and create a paper BUY order-intent preview if "
+                "recalculate risk and create a paper BUY order-details preview if "
                 "state remains fresh."
             ),
         )
@@ -1696,7 +1756,7 @@ def _execution_next_step(
         if reasons:
             return (
                 "Open the candidate page and record approve, defer, or reject. This "
-                "row remains research-only until the blocked checks clear: "
+                "row remains research-only until the must-fix checks clear: "
                 f"{'; '.join(reason.rstrip('.') for reason in reasons)}."
             )
         return (
@@ -1705,18 +1765,18 @@ def _execution_next_step(
         )
     if order_approved and blocker == "broker submit gate closed":
         return (
-            "Order intent is approved and hash-bound, but broker submission is still "
+            "The current order details are approved, but broker submission is still "
             "closed by local policy or broker state."
         )
     steps = {
         "ready": "Paper submit is available. Review the order value, then submit intentionally.",
         "order approval required": (
-            "Approve this exact order intent here. If size, policy, account, or evidence "
+            "Approve these exact order details here. If size, policy, account, or evidence "
             "changes, approval must be recorded again."
         ),
         "current human approval required": (
             "The latest human review is not an approval for this exact research report. "
-            "Re-open the candidate, approve the current thesis, then approve the order intent."
+            "Re-open the candidate, approve the current thesis, then approve the order details."
         ),
         "missing order size": (
             "Connect broker account data or position data so the preview can size the order."
@@ -1728,7 +1788,7 @@ def _execution_next_step(
             "Open the candidate page and record approve, defer, or reject. A WATCH/HOLD "
             "row is research-only and does not create an order."
         ),
-        "risk blocked": (
+        "risk stopped": (
             "No button can override this. Inspect the risk gates; then refresh data or "
             "wait for a later cycle with stronger evidence."
         ),
@@ -1791,8 +1851,12 @@ def _promotion_status_label_for_card(
 ) -> str:
     label = _promotion_text(promotion_evaluation, "status_label", "Not evaluated")
     state = _promotion_text(promotion_evaluation, "state", "")
+    if state in {"promoted", "eligible"}:
+        return "Eligible for paper trade"
+    if state == "awaiting_research_approval":
+        return "Awaiting research approval"
     if state == "not_eligible" and _promotion_reasons(promotion_evaluation):
-        return "Blocked checks"
+        return "Not eligible"
     return label
 
 
@@ -1835,10 +1899,10 @@ def _operator_manual_advance_detail(
         and promotion_evaluation.get("manual_advance_available") is True
     ):
         reasons = _promotion_reasons(promotion_evaluation)
-        blocker = reasons[0] if reasons else "paper-promotion checks blocked this row"
+        blocker = reasons[0] if reasons else "paper eligibility checks stopped this row"
         return (
             "A human operator can advance this paper workflow with caution. "
-            f"Current blocker: {blocker}"
+            f"Current issue: {blocker}"
         )
     return ""
 
@@ -1880,6 +1944,8 @@ def _promotion_check_rows(
         if not isinstance(check, Mapping):
             continue
         status = str(check.get("status") or "UNKNOWN").upper()
+        operator_advanced = check.get("operator_advanced") is True
+        display_status = "CAUTION" if operator_advanced else status
         observed = _operator_text(_clean_text(check.get("observed"), default="not reported"))
         required = _operator_text(
             _clean_text(check.get("required"), default="policy requirement")
@@ -1887,9 +1953,10 @@ def _promotion_check_rows(
         rows.append(
             {
                 "name": _clean_text(check.get("name"), default="promotion_check"),
-                "label": _clean_text(check.get("label"), default="Promotion check"),
-                "status": status,
-                "status_class": _promotion_check_status_class(status),
+                "label": _clean_text(check.get("label"), default="Eligibility check"),
+                "status": display_status,
+                "raw_status": status,
+                "status_class": "warn" if operator_advanced else _promotion_check_status_class(status),
                 "detail": _operator_text(
                     _clean_text(check.get("detail"), default="No detail reported.")
                 ),
@@ -1910,15 +1977,99 @@ def _promotion_check_summary(
     rows = _promotion_check_rows(promotion_evaluation)
     if not rows:
         return "Not evaluated"
-    passed = sum(1 for row in rows if row["status"] == "PASS")
-    blocked = sum(1 for row in rows if row["status"] == "BLOCK")
-    warnings = sum(1 for row in rows if row["status"] == "WARN")
+    passed = sum(1 for row in rows if row.get("raw_status", row["status"]) == "PASS")
+    blocked = sum(1 for row in rows if row.get("raw_status", row["status"]) == "BLOCK")
+    warnings = sum(
+        1 for row in rows if row["status"] == "WARN" or row["status"] == "CAUTION"
+    )
     parts = [f"{passed} passed"]
     if blocked:
-        parts.append(f"{blocked} blocked")
+        parts.append(f"{blocked} need attention")
     if warnings:
         parts.append(f"{warnings} warning")
     return ", ".join(parts)
+
+
+def _execution_pipeline_chain(
+    preview: Mapping[str, object],
+    human_review: Mapping[str, object],
+    promotion_evaluation: Mapping[str, object] | None,
+    execution_summary: Mapping[str, object],
+    *,
+    submit_blocker: str,
+) -> list[dict[str, str]]:
+    llm_action = _clean_text(preview.get("llm_action"), default="")
+    final_action = _clean_text(
+        preview.get("final_action"),
+        default=_execution_final_action_label(preview) or "Unknown",
+    )
+    final_conviction = _float_field(preview, "final_conviction")
+    confidence_label = (
+        f"{final_conviction * 100:.0f}%"
+        if 0.0 <= final_conviction <= 1.0
+        else f"{final_conviction:.0f}%"
+        if final_conviction > 1.0
+        else "not reported"
+    )
+    side = _clean_text(preview.get("side"), default="NONE")
+    risk_decision = _clean_text(preview.get("risk_decision"), default="Unknown")
+    return [
+        {
+            "label": "Evidence pack",
+            "status": "Ready",
+            "status_class": "pass",
+            "detail": f"Cycle {preview.get('cycle_id')} for {preview.get('ticker')}.",
+        },
+        {
+            "label": "Deterministic rules",
+            "status": final_action,
+            "status_class": _preview_state_class(str(preview.get("preview_state") or "")),
+            "detail": (
+                f"Rules score is carried forward as final conviction confidence {confidence_label}; "
+                f"order side is {side}."
+            ),
+        },
+        {
+            "label": "LLM review",
+            "status": "Rules only" if not llm_action else "Reviewed",
+            "status_class": "warn" if not llm_action else "pass",
+            "detail": llm_action or "No LLM review was attached to this preview.",
+        },
+        {
+            "label": "Final selection",
+            "status": final_action,
+            "status_class": _preview_state_class(str(preview.get("preview_state") or "")),
+            "detail": (
+                f"Final selection chose {final_action}; current preview state is "
+                f"{preview.get('preview_state', 'unknown')}."
+            ),
+        },
+        {
+            "label": "Risk decision",
+            "status": risk_decision,
+            "status_class": _preview_state_class(str(preview.get("preview_state") or "")),
+            "detail": _operator_text(preview.get("reason") or "Risk generated the preview."),
+        },
+        {
+            "label": "Research approval",
+            "status": str(human_review.get("decision") or "Pending"),
+            "status_class": str(human_review.get("status_class") or "neutral"),
+            "detail": str(human_review.get("reason") or "Human review state is shown on this card."),
+        },
+        {
+            "label": "Paper eligibility",
+            "status": _promotion_status_label_for_card(promotion_evaluation),
+            "status_class": _promotion_text(promotion_evaluation, "status_class", "neutral"),
+            "detail": _promotion_primary_reason(promotion_evaluation)
+            or "Eligibility checks decide whether this can become a paper order.",
+        },
+        {
+            "label": "Paper submit",
+            "status": str(execution_summary.get("status_label") or "Not submitted"),
+            "status_class": str(execution_summary.get("status_class") or "neutral"),
+            "detail": submit_blocker or str(execution_summary.get("reason") or "Awaiting order approval."),
+        },
+    ]
 
 
 def _promotion_check_status_class(status: str) -> str:

@@ -3,11 +3,18 @@ FROM python:3.14-slim
 ENV PIP_NO_CACHE_DIR=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app/research/src
+ENV AGENCY_REPO_ROOT=/app
 
 WORKDIR /app
 
 COPY pyproject.toml README.md alembic.ini ./
 COPY migrations ./migrations
+COPY scripts ./scripts
+COPY research/config ./research/config
+COPY research/scripts ./research/scripts
+COPY research/src ./research/src
+COPY schemas ./schemas
 COPY src ./src
 
 RUN python -m pip install --upgrade pip \

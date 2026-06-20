@@ -99,6 +99,79 @@ def test_fundamentals_use_latest_filing_before_as_of(tmp_path: Path) -> None:
     assert result.provenance.source_id == "fy22"
 
 
+def test_fundamentals_reject_quarterly_revenue_without_matching_income_period(
+    tmp_path: Path,
+) -> None:
+    frame = pl.DataFrame(
+        [
+            _fundamental_row("MIX", "revenue", 100.0, date(2025, 3, 31), "Q1", "10-Q"),
+            _fundamental_row("MIX", "net_income", 120.0, date(2024, 12, 31), "FY", "10-K"),
+        ]
+    )
+    loader = loader_with(tmp_path, {DatasetName.SEC_COMPANY_FACTS: frame})
+
+    with pytest.raises(DataNotAvailableAt, match="no consistent fiscal period"):
+        loader.fundamentals("MIX", date(2025, 5, 1))
+
+
+def test_fundamentals_history_returns_last_periods_oldest_first(tmp_path: Path) -> None:
+    frame = pl.DataFrame(
+        [
+            _fundamental_row("AAPL", "revenue", 90.0, date(2024, 3, 31), "Q1", "10-Q"),
+            _fundamental_row("AAPL", "net_income", 18.0, date(2024, 3, 31), "Q1", "10-Q"),
+            _fundamental_row("AAPL", "free_cash_flow", 15.0, date(2024, 3, 31), "Q1", "10-Q"),
+            _fundamental_row("AAPL", "revenue", 100.0, date(2024, 6, 30), "Q2", "10-Q"),
+            _fundamental_row("AAPL", "net_income", 20.0, date(2024, 6, 30), "Q2", "10-Q"),
+            _fundamental_row("AAPL", "free_cash_flow", 17.0, date(2024, 6, 30), "Q2", "10-Q"),
+            _fundamental_row("AAPL", "revenue", 110.0, date(2024, 9, 30), "Q3", "10-Q"),
+            _fundamental_row("AAPL", "revenue", 112.0, date(2024, 9, 30), "Q3", "10-Q/A"),
+            _fundamental_row("AAPL", "net_income", 22.0, date(2024, 9, 30), "Q3", "10-Q"),
+            _fundamental_row("AAPL", "free_cash_flow", 19.0, date(2024, 9, 30), "Q3", "10-Q"),
+        ]
+    )
+    loader = loader_with(tmp_path, {DatasetName.SEC_COMPANY_FACTS: frame})
+
+    history = loader.fundamentals_history("aapl", date(2024, 11, 15), n_periods=2)
+
+    assert _calendar_dates(history["period_end"].drop_duplicates().to_list()) == [
+        date(2024, 6, 30),
+        date(2024, 9, 30),
+    ]
+    q3_revenue = history[
+        (history["metric"] == "revenue")
+        & (history["period_end"].dt.date == date(2024, 9, 30))
+    ].iloc[0]
+    assert q3_revenue["value"] == 112.0
+    assert q3_revenue["form"] == "10-Q/A"
+
+
+def test_fundamentals_history_respects_as_of_cutoff(tmp_path: Path) -> None:
+    frame = pl.DataFrame(
+        [
+            _fundamental_row("AAPL", "revenue", 100.0, date(2024, 6, 30), "Q2", "10-Q"),
+            _fundamental_row("AAPL", "net_income", 20.0, date(2024, 6, 30), "Q2", "10-Q"),
+            _fundamental_row("AAPL", "free_cash_flow", 17.0, date(2024, 6, 30), "Q2", "10-Q"),
+            _fundamental_row(
+                "AAPL",
+                "revenue",
+                110.0,
+                date(2024, 9, 30),
+                "Q3",
+                "10-Q",
+                timestamp_as_of=date(2024, 12, 1),
+            ),
+        ]
+    )
+    loader = loader_with(tmp_path, {DatasetName.SEC_COMPANY_FACTS: frame})
+
+    history = loader.fundamentals_history("aapl", date(2024, 11, 15), n_periods=8)
+
+    assert _calendar_dates(history["period_end"].drop_duplicates().to_list()) == [
+        date(2024, 6, 30)
+    ]
+    assert set(history["metric"]) == {"free_cash_flow", "net_income", "revenue"}
+
+
 def test_insider_transactions_use_filing_date_lookback(tmp_path: Path) -> None:
     frame = pl.DataFrame(
         [
@@ -123,18 +196,22 @@ def test_institutional_holdings_use_latest_available_filing(tmp_path: Path) -> N
                 date(2022, 11, 14),
                 "q3-a",
                 filer_cik="1",
+                filer_name="Alpha Capital",
                 quarter_end_date=date(2022, 9, 30),
                 shares_held=Q3_SHARES_A,
                 change_from_prev_quarter=20,
+                value_usd_thousands=12_000.0,
             ),
             filing_row(
                 "AAPL",
                 date(2022, 11, 15),
                 "q3-b",
                 filer_cik="2",
+                filer_name="Beta Partners",
                 quarter_end_date=date(2022, 9, 30),
                 shares_held=Q3_MARKET_VALUE,
                 change_from_prev_quarter=30,
+                value_usd_thousands=26_000.0,
             ),
             filing_row(
                 "AAPL",
@@ -144,6 +221,7 @@ def test_institutional_holdings_use_latest_available_filing(tmp_path: Path) -> N
                 quarter_end_date=date(2022, 12, 31),
                 shares_held=999,
                 change_from_prev_quarter=999,
+                value_usd_thousands=999_000.0,
             ),
         ]
     )
@@ -154,6 +232,34 @@ def test_institutional_holdings_use_latest_available_filing(tmp_path: Path) -> N
     assert result.value["holder_count"] == Q3_HOLDER_COUNT
     assert result.value["total_shares_held"] == Q3_SHARES_A + Q3_MARKET_VALUE
     assert result.value["total_change_from_prev_quarter"] == Q3_TOTAL_CHANGE
+    assert result.value["previous_shares_held"] == pytest.approx(270.0)
+    assert result.value["net_change_current_share_ratio"] == pytest.approx(50.0 / 320.0)
+    assert result.value["net_change_prior_share_ratio"] == pytest.approx(50.0 / 270.0)
+    assert result.value["total_value_usd_thousands"] == pytest.approx(38_000.0)
+    assert result.value["implied_value_per_share"] == pytest.approx(118_750.0)
+    holder_changes = result.value["holder_changes"]
+    assert holder_changes == [
+        {
+            "holder_cik": "2",
+            "holder_name": "Beta Partners",
+            "current_shares": Q3_MARKET_VALUE,
+            "previous_shares": 170.0,
+            "change_from_prev_quarter": 30,
+            "value_usd_thousands": 26_000.0,
+            "implied_value_per_share": 130_000.0,
+            "source_id": "q3-b",
+        },
+        {
+            "holder_cik": "1",
+            "holder_name": "Alpha Capital",
+            "current_shares": Q3_SHARES_A,
+            "previous_shares": 100.0,
+            "change_from_prev_quarter": 20,
+            "value_usd_thousands": 12_000.0,
+            "implied_value_per_share": 100_000.0,
+            "source_id": "q3-a",
+        },
+    ]
     assert result.provenance.source_id == "q3-b"
 
 
@@ -348,6 +454,73 @@ def test_stock_trade_activity_frames_can_allow_partial_live_slice(tmp_path: Path
 
     assert total.get_column("ticker").to_list() == ["AAPL"]
     assert daily.get_column("date").to_list() == [date(2026, 5, 6)]
+
+
+def test_stock_trade_activity_frames_tolerate_optional_columns_missing_across_partitions(
+    tmp_path: Path,
+) -> None:
+    parquet_root = tmp_path / "parquet"
+    manifest_root = tmp_path / "manifests"
+    trade_root = parquet_root / "stock_trades"
+    aapl_path = trade_root / "ticker=AAPL" / "year=2026" / "trades.parquet"
+    msft_path = trade_root / "ticker=MSFT" / "year=2026" / "trades.parquet"
+    aapl_path.parent.mkdir(parents=True)
+    msft_path.parent.mkdir(parents=True)
+    manifest_root.mkdir()
+    pl.DataFrame(
+        [
+            {
+                **stock_trade("AAPL", date(2026, 5, 6), date(2026, 5, 6), "a1"),
+                "is_trf_off_exchange": True,
+                "trf_id": "T1",
+                "exchange": "4",
+            },
+        ]
+    ).write_parquet(aapl_path)
+    pl.DataFrame(
+        [
+            stock_trade("MSFT", date(2026, 5, 6), date(2026, 5, 6), "m1"),
+        ]
+    ).write_parquet(msft_path)
+    (trade_root / "_coverage.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "0.1.0",
+                "ticker_days": {
+                    "AAPL|2026-05-06": {
+                        "ticker": "AAPL",
+                        "trade_date": "2026-05-06",
+                        "coverage_status": "partial",
+                        "downloaded_row_count": 1,
+                        "pages_downloaded": 1,
+                        "order": "desc",
+                    },
+                    "MSFT|2026-05-06": {
+                        "ticker": "MSFT",
+                        "trade_date": "2026-05-06",
+                        "coverage_status": "partial",
+                        "downloaded_row_count": 1,
+                        "pages_downloaded": 1,
+                        "order": "desc",
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    write_manifest(manifest_root, DatasetName.STOCK_TRADES, "stock_trades", row_count=2)
+    loader = PITLoader(parquet_root=parquet_root, manifest_root=manifest_root, today=lambda: TODAY)
+
+    total, _daily = loader.stock_trade_activity_frames(
+        ["AAPL", "MSFT"],
+        date(2026, 5, 6),
+        lookback_days=1,
+        allow_partial_coverage=True,
+    )
+
+    assert total.get_column("ticker").to_list() == ["AAPL", "MSFT"]
+    trf_counts = dict(zip(total["ticker"].to_list(), total["trf_off_exchange_count"].to_list(), strict=True))
+    assert trf_counts == {"AAPL": 1, "MSFT": 0}
 
 
 def test_stock_trade_activity_frames_for_trade_window_uses_separate_knowledge_cutoff(
@@ -799,6 +972,46 @@ def stock_trade(
         "sequence_number": 1,
         **provenance(SourceTier.CONFIRMED_TRADE_PRINT, timestamp_as_of, source_id=source_id),
     }
+
+
+def _fundamental_row(
+    ticker: str,
+    metric: str,
+    value: float,
+    period_end: date,
+    fiscal_period: str,
+    form: str,
+    *,
+    timestamp_as_of: date = date(2024, 10, 31),
+    unit: str = "USD",
+) -> dict[str, object]:
+    return {
+        "ticker": ticker,
+        "metric": metric,
+        "value": value,
+        "unit": unit,
+        "period_end": period_end,
+        "fiscal_period": fiscal_period,
+        "form": form,
+        "filing_date": timestamp_as_of,
+        **provenance(
+            SourceTier.OFFICIAL_FILING,
+            timestamp_as_of,
+            source_id=f"{ticker}-{metric}-{period_end.isoformat()}-{form}",
+        ),
+    }
+
+
+def _calendar_dates(values: list[object]) -> list[date]:
+    output: list[date] = []
+    for value in values:
+        if isinstance(value, datetime):
+            output.append(value.date())
+        elif isinstance(value, date):
+            output.append(value)
+        else:
+            output.append(date.fromisoformat(str(value)[:10]))
+    return output
 
 
 def _stock_trade_rows(

@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_data_health.html" import data_health_panel %}
+{% from "_evidence_legend.html" import conviction_help %}
 
 {% set active_nav = "command" %}
 {% set v3_screen = "command" %}
@@ -9,34 +10,11 @@
 {% block page_title %}Command shows the current operating picture{% endblock %}
 {% block topbar_meta %}{{ summary.source_count }} sources &middot; {{ summary.candidate_count }} candidates{% endblock %}
 {% block workflow_phase %}Operating picture{% endblock %}
-{% block operator_focus %}Start with the next-action card and the top review queue before scanning lower diagnostics.{% endblock %}
-{% block evidence_contract %}Health, lane progress, source proof, ETA, and review queue state come from current runtime artifacts.{% endblock %}
+{% block operator_focus %}Start with the next-action card and the top review queue before scanning lower system checks.{% endblock %}
+{% block evidence_contract %}Health, data-progress proof, source proof, ETA, and review queue state come from current runtime artifacts.{% endblock %}
 
 {% block content %}
-  <section class="next-action {{ summary.hero_class }}" aria-label="Recommended next action">
-    <div class="next-action-step" aria-hidden="true">01</div>
-    <div class="next-action-copy">
-      <p class="eyebrow">Next action &middot; review</p>
-      <h2>{{ summary.headline }}</h2>
-      <p>{{ summary.detail }}</p>
-      {% if review_queue %}
-      <p class="next-action-sub">
-        Top queue item: {{ review_queue[0].ticker }} at {{ review_queue[0].conviction_pct }}%
-        conviction, {{ review_queue[0].risk_decision }} risk.
-      </p>
-      {% else %}
-      <p class="next-action-sub">No candidate is waiting for human review in the latest cycle.</p>
-      {% endif %}
-    </div>
-    <div class="next-action-buttons">
-      {% if review_queue %}
-      <a class="primary-action" href="#review-queue-heading">Review {{ review_progress.pending_count }} candidates</a>
-      {% endif %}
-      <a class="secondary-action" href="#review-queue-heading">Open queue</a>
-    </div>
-  </section>
-
-  {% if data_health.email_login_alert %}
+  {% if email_alert_active and data_health.email_login_alert %}
   <section class="data-health-email-login-alert command-email-login-alert" aria-label="Email evidence login required">
     <div>
       <span class="metric-label">Email evidence</span>
@@ -51,13 +29,58 @@
   </section>
   {% endif %}
 
+  {% if route_context_status %}
+  <section class="next-action hero-watch" aria-label="Command status">
+    <div class="next-action-step" aria-hidden="true">Now</div>
+    <div class="next-action-copy">
+      <p class="eyebrow">Command status</p>
+      <h2>{{ route_context_status.status_label }}</h2>
+      <p>{{ route_context_status.detail }}</p>
+      <p class="next-action-sub">{{ route_context_status.action }}</p>
+    </div>
+    <div class="next-action-buttons">
+      <a class="primary-action" href="/cockpit">Open cockpit</a>
+      <a class="secondary-action" href="/command">Recheck Command</a>
+    </div>
+  </section>
+
+  {{ data_health_panel(data_health) }}
+  {% else %}
+  <section class="command-act-zone" aria-label="Today's operator workflow">
+    <section class="operator-checklist-card {{ summary.hero_class }}" aria-label="Today's operator checklist">
+      <div class="operator-checklist-header">
+        <div>
+          <p class="eyebrow">Today&apos;s workflow</p>
+          <h2>{{ summary.headline }}</h2>
+          <p>{{ summary.detail }}</p>
+          <span class="data-freshness">{{ command_freshness_label }}</span>
+        </div>
+        <div class="operator-checklist-actions">
+          {% if review_queue %}
+          <a class="primary-action" href="#review-queue-heading">Review {{ review_progress.pending_count }} candidates</a>
+          {% endif %}
+          <a class="secondary-action" href="/execution-preview">Open execution preview</a>
+        </div>
+      </div>
+      <div class="operator-checklist-grid">
+        {% for item in operator_checklist.item_rows %}
+        <a class="operator-checklist-item operator-state-{{ item.state }}" href="{{ item.href }}">
+          <span class="metric-label">{{ item.label }}</span>
+          <strong>{{ item.value }}</strong>
+          <span>{{ item.detail }}</span>
+        </a>
+        {% endfor %}
+      </div>
+    </section>
+
   {% set email_status = data_load_status.subscription_email_status|default({}, true) %}
+  {% if email_progress_active %}
   <section class="panel subscription-pipeline" data-email-article-progress aria-label="Email article analysis progress">
     <div class="section-heading">
       <div>
         <p class="eyebrow">Email/article progress</p>
-        <h2 data-email-status-label>{{ email_status.status_label|default("No email article run recorded", true) }}</h2>
-        <p class="section-subtitle" data-email-detail>{{ email_status.detail|default("No current subscription email article-analysis progress file was found.", true) }}</p>
+        <h2 data-email-status-label>{{ email_status.status_label|default("Email evidence activity", true) }}</h2>
+        <p class="section-subtitle" data-email-detail>{{ email_status.detail|default("Email/article analyzer is reporting current activity.", true) }}</p>
       </div>
       <span class="tag tag-{{ email_status.status_class|default('neutral', true) }}" data-email-progress-label>{{ email_status.progress_label|default("No article links selected", true) }}</span>
     </div>
@@ -127,132 +150,28 @@
       </form>
     </div>
   </section>
-
-  <section class="operator-briefing" aria-label="Operator briefing">
-    <div class="operator-briefing-header">
-      <div>
-        <p class="eyebrow">What to do now</p>
-        {% if review_queue %}
-        <h2>Review the top candidate queue first</h2>
-        <p>
-          Start with {{ review_queue[0].ticker }}:
-          {{ review_queue[0].conviction_pct }}% conviction,
-          {{ review_queue[0].risk_decision }} risk,
-          {{ review_queue[0].source_count }} source(s).
-        </p>
-        {% else %}
-        <h2>No candidate review is waiting</h2>
-        <p>{{ full_live_readiness.next_action_rows[0] if full_live_readiness.next_action_rows else summary.detail }}</p>
-        {% endif %}
-      </div>
-      <div class="operator-briefing-actions">
-        <a class="primary-action" href="#review-queue-heading">Open Review Queue</a>
-        <a class="secondary-action" href="/execution-preview">Execution Preview</a>
-      </div>
-    </div>
-
-    <div class="operator-briefing-grid" aria-label="First viewport agency state">
-      <div class="operator-briefing-cell operator-briefing-cell-{{ full_live_readiness.status_class }}">
-        <span class="metric-label">Overall status</span>
-        <strong>{{ full_live_readiness.status_label }}</strong>
-        <p>{{ full_live_readiness.mode_summary }}</p>
-      </div>
-      <div class="operator-briefing-cell operator-briefing-cell-{{ 'pass' if full_live_readiness.tradable_ready else 'warn' }}">
-        <span class="metric-label">Trade eligibility</span>
-        <strong>{{ full_live_readiness.trading_gate_label }}</strong>
-        <p>{{ "Paper trading may proceed after review and order approval." if full_live_readiness.tradable_ready else "Candidate review can continue; paper submission still needs the listed gate to clear." }}</p>
-      </div>
-      <div class="operator-briefing-cell operator-briefing-cell-{{ status_overview.issue_summary.status_class }}">
-        <span class="metric-label">Blockers and warnings</span>
-        <strong>{{ status_overview.issue_summary.blocker_count }} blockers / {{ status_overview.issue_summary.warning_count }} warnings</strong>
-        <p>{{ status_overview.issue_summary.refresh_label }}</p>
-      </div>
-      <div class="operator-briefing-cell operator-briefing-cell-{{ full_live_readiness.command_map.loading.status_class }}">
-        <span class="metric-label">ETA and progress</span>
-        <strong>{{ full_live_readiness.active_refresh.eta_label }}</strong>
-        <p>{{ full_live_readiness.command_map.loading.detail }}</p>
-      </div>
-    </div>
-
-    <div class="operator-queue-preview" aria-label="Top review queue items">
-      <div class="section-heading compact-heading">
-        <h3>Top Review Items</h3>
-        <span class="tag tag-{{ review_progress.status_class }}">{{ review_progress.status_label }}</span>
-      </div>
-      <div class="operator-queue-list">
-        {% for item in review_queue[:3] %}
-        <a class="operator-queue-item operator-queue-item-{{ item.review_class }}" href="{{ item.candidate_href }}">
-          <strong>{{ item.ticker }}</strong>
-          <span>{{ item.action }} &middot; {{ item.conviction_pct }}% &middot; {{ item.risk_decision }} risk</span>
-          <em>{{ item.reason }}</em>
-        </a>
-        {% else %}
-        <p class="empty-block">No reviewable paper candidates for the latest cycle.</p>
-        {% endfor %}
-      </div>
-    </div>
-  </section>
-
-  <section class="llm-status-banner panel-lite" aria-label="LLM status">
-    <span class="status-icon status-icon-warn" aria-hidden="true"></span>
-    <strong>LLM review unavailable?</strong>
-    <span>Rows explicitly show rules-only mode when the reviewer is disabled, so blank LLM evidence is never silent.</span>
-  </section>
-
-  <section class="action-ribbon" aria-label="Quick jumps">
-    {% for action in actions %}
-    <a class="action-link" href="{{ action.href }}">
-      <span>{{ action.label }}</span>
-      <span aria-hidden="true">&rsaquo;</span>
-    </a>
-    {% endfor %}
-  </section>
+  {% endif %}
 
   <section class="kpi-grid" aria-label="Current metrics">
-    <article class="kpi kpi-warn">
-      <span class="metric-label">Portfolio exposure</span>
-      <strong>{{ policy_summary.max_gross_exposure_label }}</strong>
-      <p>Check Portfolio before approving more entries</p>
-    </article>
     <article class="kpi kpi-urgent">
       <span class="metric-label">Needs Review</span>
       <strong>{{ review_progress.pending_count }}</strong>
       <p>{{ review_progress.reviewed_label }} reviewed</p>
     </article>
-    <article class="kpi">
-      <span class="metric-label">Candidates</span>
-      <strong>{{ summary.candidate_count }}</strong>
-      <p>{{ summary.actionable_candidate_count }} actionable</p>
-    </article>
     <article class="kpi" title="{{ full_live_readiness.mode_tooltip }}">
-      <span class="metric-label">Agency Mode <span class="info-tip" title="{{ full_live_readiness.mode_tooltip }}" aria-label="Agency mode help">?</span></span>
+      <span class="metric-label">System Status <span class="info-tip" title="{{ full_live_readiness.mode_tooltip }}" aria-label="System status help">?</span></span>
       <strong>{{ full_live_readiness.mode_summary }}</strong>
       <p>{{ full_live_readiness.coverage.market_flow_status_label }} &middot; {{ full_live_readiness.coverage.expected_ticker_count }} tickers</p>
     </article>
-    <article class="kpi kpi-{{ status_overview.issue_summary.status_class }}">
-      <span class="metric-label">Hard Blockers <span class="info-tip" title="{{ status_overview.issue_summary.tooltip }}" aria-label="Hard blockers help">?</span></span>
-      <strong>{{ status_overview.issue_summary.blocker_count }}</strong>
-      <p>{{ "Execution open" if full_live_readiness.tradable_ready else "Execution gated" }} &middot; {{ status_overview.issue_summary.warning_count }} warnings &middot; {{ status_overview.issue_summary.refresh_label }}</p>
-    </article>
-    <article class="kpi" title="{{ provider_readiness.connections_tooltip }}">
-      <span class="metric-label">Provider Connections <span class="info-tip" title="{{ provider_readiness.connections_tooltip }}" aria-label="Provider connections help">?</span></span>
-      <strong>{{ provider_readiness.active_ready_label }}</strong>
-      <p>{{ provider_readiness.configured_label }} &middot; {{ provider_readiness.planned_optional_label }}</p>
-    </article>
     <article class="kpi" title="{{ data_load_status.source_health_kpi.tooltip }}">
-      <span class="metric-label">Source Health <span class="info-tip" title="{{ data_load_status.source_health_kpi.tooltip }}" aria-label="Source health help">?</span></span>
+      <span class="metric-label">Data Coverage <span class="info-tip" title="{{ data_load_status.source_health_kpi.tooltip }}" aria-label="Data coverage help">?</span></span>
       <strong>{{ data_load_status.source_health_kpi.label }}</strong>
       <p>{{ data_load_status.source_health_kpi.detail }}</p>
     </article>
-    <article class="kpi kpi-{{ full_live_readiness.command_map.loading.status_class }}" title="{{ full_live_readiness.command_map.loading.tooltip }}">
-      <span class="metric-label">Lane Refresh <span class="info-tip" title="{{ full_live_readiness.command_map.loading.tooltip }}" aria-label="Lane refresh help">?</span></span>
-      <strong>{{ full_live_readiness.command_map.loading.value }}</strong>
-      <p>{{ full_live_readiness.command_map.loading.detail }}</p>
-    </article>
-    <article class="kpi">
-      <span class="metric-label">Contracts</span>
-      <strong>{{ summary.contract_count }}</strong>
-      <p>schema checks loaded</p>
+    <article class="kpi kpi-{{ status_overview.issue_summary.status_class }}">
+      <span class="metric-label">Trade Gate <span class="info-tip" title="{{ status_overview.issue_summary.tooltip }}" aria-label="Trade gate help">?</span></span>
+      <strong>{{ "Open" if full_live_readiness.tradable_ready else "Needs attention" }}</strong>
+      <p>{{ status_overview.issue_summary.blocker_count }} must-fix issue(s) &middot; {{ status_overview.issue_summary.warning_count }} warning(s)</p>
     </article>
   </section>
 
@@ -312,7 +231,7 @@
             <strong>{{ item.action }}</strong>
           </div>
           <div>
-            <span class="metric-label">Conviction</span>
+            <span class="metric-label">Conviction {{ conviction_help() }}</span>
             <strong>{{ item.conviction_pct }}%</strong>
           </div>
           <div>
@@ -370,10 +289,16 @@
     </div>
   </section>
 
+  </section>
+
+  <section class="command-diagnose-zone" id="system-diagnostics" aria-label="System health checks">
+    <details class="advanced-detail">
+      <summary>System health details</summary>
+
   <section class="panel system-overview-panel" aria-labelledby="system-status-heading">
     <div class="section-heading">
       <div>
-        <h2 id="system-status-heading">System diagnostics</h2>
+        <h2 id="system-status-heading">System health details</h2>
         <p class="section-subtitle">Live runtime, broker, data, review, and tradability gates for the latest cycle.</p>
       </div>
       <span class="tag tag-{{ full_live_readiness.status_class }}">{{ full_live_readiness.status_label }}</span>
@@ -461,7 +386,7 @@
         <div>
           <span class="metric-label">ETA</span>
           <strong>{{ overview_trade_pull.eta_label }}</strong>
-          <span>trade-slice lane</span>
+          <span>trade-slice feed</span>
         </div>
         <div>
           <span class="metric-label">Freshness</span>
@@ -479,7 +404,7 @@
     </article>
   </section>
 
-  {{ data_health_panel(data_health, show_email_login_alert=false) }}
+  {{ data_health_panel(data_health) }}
 
   <section class="panel system-status-panel" aria-labelledby="operational-detail-heading">
     <div class="section-heading">
@@ -500,7 +425,7 @@
       <div class="ops-check-row">
         <span class="tag tag-{{ scheduler.status_class }}">{{ scheduler.status_label }}</span>
         <strong>Agents</strong>
-          <span>{{ full_live_readiness.coverage.critical_agent_ready_label }} &middot; {{ scheduler.refresh_workload.running_count }} running &middot; {{ scheduler.refresh_workload.live_critical_due_count }} live-critical due</span>
+          <span>{{ full_live_readiness.coverage.critical_agent_ready_label }} &middot; {{ scheduler.refresh_workload.running_count }} running &middot; {{ scheduler.refresh_workload.live_critical_due_count }} urgent refresh due</span>
       </div>
       <div class="ops-check-row">
         <span class="tag tag-{{ provider_readiness.status_class }}">{{ provider_readiness.status_label }}</span>
@@ -545,7 +470,7 @@
             <strong data-full-live-verdict title="{{ full_live_readiness.mode_tooltip }}">{{ full_live_readiness.mode_summary }}</strong>
           </div>
           <div>
-            <span class="metric-label">Scope <span class="info-tip" title="Full Universe means all active-universe lanes are ready. Review Operational means candidate review can continue with known warnings. Loading means an active refresh is still running. Blocked means at least one required data, provider, or config gate is closed." aria-label="Agency readiness scope help">?</span></span>
+            <span class="metric-label">Scope <span class="info-tip" title="Full Universe means all active-universe data and agents are ready. Review Operational means candidate review can continue with known warnings. Loading means an active refresh is still running. Needs Attention means at least one required data, provider, or config gate is closed." aria-label="Agency readiness scope help">?</span></span>
             <strong data-full-live-scope>{{ full_live_readiness.readiness_scope_label }}</strong>
           </div>
           <div>
@@ -627,7 +552,7 @@
         </div>
 
         <details class="data-load-issues">
-          <summary>Inspect full-live blockers, warnings, and refresh jobs</summary>
+          <summary>Inspect full-live issues, warnings, and refresh jobs</summary>
           <div class="split-panel data-load-split">
             <div>
               <h3>Issues</h3>
@@ -639,7 +564,7 @@
                   <span>{{ issue.reason }}</span>
                 </div>
                 {% else %}
-                <p class="empty-block">No full-live blockers or warnings.</p>
+                <p class="empty-block">No full-live issues or warnings.</p>
                 {% endfor %}
               </div>
             </div>
@@ -730,7 +655,7 @@
           <span>As of <strong data-load-asof>{{ data_load_status.as_of_label }}</strong></span>
           <span>Status checked <strong data-load-checked>{{ data_load_status.status_checked_at_label }}</strong></span>
           <span title="{{ data_load_status.source_health_kpi.tooltip }}">Health monitor <strong data-load-health-monitor>{{ data_load_status.health_monitor.status_label|default("not verified") }}</strong></span>
-          <span><strong data-load-blockers>{{ data_load_status.blocker_count }}</strong> blockers</span>
+          <span><strong data-load-blockers>{{ data_load_status.blocker_count }}</strong> must-fix</span>
           <span><strong data-load-warnings>{{ data_load_status.warning_count }}</strong> warnings</span>
           <span>Refresh ETA <strong data-load-eta>{{ data_load_status.progress.eta_label }}</strong></span>
         </div>
@@ -748,7 +673,7 @@
             <span class="metric-label">Datasets</span>
             <strong data-load-dataset-ready>{{ data_load_status.dataset_summary.ready_label }}</strong>
             <p>
-              <span data-load-dataset-blocked>{{ data_load_status.dataset_summary.blocked_count }}</span> blocked,
+              <span data-load-dataset-blocked>{{ data_load_status.dataset_summary.blocked_count }}</span> not usable,
               <span data-load-dataset-warning>{{ data_load_status.dataset_summary.warning_count }}</span> warning.
             </p>
           </article>
@@ -756,14 +681,14 @@
             <span class="metric-label">Signal Worker Readiness</span>
             <strong data-load-agent-ready>{{ data_load_status.agent_summary.critical_ready_label }}</strong>
             <p>
-              <span data-load-agent-blocked>{{ data_load_status.agent_summary.blocked_count }}</span> blocked,
+              <span data-load-agent-blocked>{{ data_load_status.agent_summary.blocked_count }}</span> not usable,
               <span data-load-agent-warning>{{ data_load_status.agent_summary.warning_count }}</span> warning.
             </p>
           </article>
         </div>
 
         <details class="data-load-details">
-          <summary>Inspect dataset, freshness, and agent-lane coverage</summary>
+          <summary>Inspect dataset, freshness, and agent coverage</summary>
           <div class="split-panel data-load-split">
             <div>
               <h3>Datasets</h3>
@@ -808,12 +733,12 @@
             </div>
 
             <div>
-              <h3>Lane State Registry</h3>
+              <h3>Data Pipeline State Registry</h3>
               <div class="table-wrap data-load-table">
                 <table>
                   <thead>
                     <tr>
-                      <th>Lane</th>
+                      <th>Data pipeline</th>
                       <th>Status</th>
                       <th>Proof</th>
                       <th>Action</th>
@@ -822,7 +747,7 @@
                   <tbody data-load-lane-body>
                     {% for row in data_load_status.lane_state_rows %}
                     <tr>
-                      <td data-label="Lane">
+                      <td data-label="Data pipeline">
                         <strong>{{ row.name }}</strong>
                         <span>{{ row.lane_kind_label }} &middot; {{ row.requirement_label }}</span>
                       </td>
@@ -833,15 +758,23 @@
                         </div>
                         <span>{{ row.progress_label }}</span>
                         <span>ETA {{ row.eta_label }} &middot; as of {{ row.latest_as_of_label }} &middot; checked {{ row.checked_at_label }}</span>
+                        <span title="{{ row.manifest_path_label }}">{{ row.source_proof_label }}</span>
                       </td>
                       <td data-label="Action">
                         <span>{{ row.operator_message }}</span>
                         <span>{{ row.recommended_action }}</span>
+                        {% if row.refresh_action.enabled %}
+                        <form class="inline-actions" method="post" action="{{ row.refresh_action.action }}" title="{{ row.refresh_action.detail }}">
+                          <button class="mini-button" type="submit">{{ row.refresh_action.label }}</button>
+                        </form>
+                        {% elif row.refresh_action.disabled_reason %}
+                        <small title="{{ row.refresh_action.detail }}">{{ row.refresh_action.disabled_reason }}</small>
+                        {% endif %}
                       </td>
                     </tr>
                     {% else %}
                     <tr>
-                      <td class="empty-row" colspan="4">No lane-state registry rows are available.</td>
+                      <td class="empty-row" colspan="4">No data-source state rows are available.</td>
                     </tr>
                     {% endfor %}
                   </tbody>
@@ -901,7 +834,7 @@
               <span>{{ issue.reason }}</span>
             </div>
             {% else %}
-            <p class="empty-block">No data-load blockers or warnings in the latest cycle.</p>
+            <p class="empty-block">No data-load issues or warnings in the latest cycle.</p>
             {% endfor %}
           </div>
         </details>
@@ -924,8 +857,8 @@
         </div>
 
         <div class="readiness-grid">
-          <div title="Market Phase tells which exchange window controls refresh priorities and lane cadence.">
-            <span class="metric-label">Market Phase <span class="info-tip" title="Market Phase tells which exchange window controls refresh priorities and lane cadence." aria-label="Market phase help">?</span></span>
+          <div title="Market Phase tells which exchange window controls refresh priorities and cadence.">
+            <span class="metric-label">Market Phase <span class="info-tip" title="Market Phase tells which exchange window controls refresh priorities and cadence." aria-label="Market phase help">?</span></span>
             <strong data-scheduler-phase>{{ scheduler.market_phase | replace("_", " ") | title }}</strong>
           </div>
           <div title="{{ scheduler.automation_status.tooltip }}">
@@ -933,45 +866,50 @@
             <strong data-scheduler-automation>{{ scheduler.automation_status.status_label }}</strong>
           </div>
           <div title="{{ scheduler.trading_freshness_gate.tooltip }}">
-            <span class="metric-label">Trading Freshness Gate <span class="info-tip" title="{{ scheduler.trading_freshness_gate.tooltip }}" aria-label="Trading freshness gate help">?</span></span>
+            <span class="metric-label">Data Currency Check <span class="info-tip" title="{{ scheduler.trading_freshness_gate.tooltip }}" aria-label="Data currency check help">?</span></span>
             <strong data-scheduler-gate>{{ scheduler.trading_freshness_gate.status_label }}</strong>
           </div>
           <div title="{{ scheduler.refresh_workload.tooltip }}">
-            <span class="metric-label">Live-Critical Due <span class="info-tip" title="{{ scheduler.refresh_workload.tooltip }}" aria-label="Live-critical due help">?</span></span>
+            <span class="metric-label">Urgent refresh due <span class="info-tip" title="{{ scheduler.refresh_workload.tooltip }}" aria-label="Urgent refresh help">?</span></span>
             <strong data-scheduler-due>{{ scheduler.refresh_workload.live_critical_due_count }}</strong>
           </div>
-          <div title="Support Due counts jobs that improve context, research, or non-blocking evidence. These do not automatically block review.">
-            <span class="metric-label">Support Due <span class="info-tip" title="Support Due counts jobs that improve context, research, or non-blocking evidence. These do not automatically block review." aria-label="Support due help">?</span></span>
+          <div title="Context refresh pending counts jobs that improve context, research, or advisory evidence. These do not automatically stop review.">
+            <span class="metric-label">Context refresh pending <span class="info-tip" title="Context refresh pending counts jobs that improve context, research, or advisory evidence. These do not automatically stop review." aria-label="Context refresh pending help">?</span></span>
             <strong data-scheduler-support-due>{{ scheduler.refresh_workload.support_due_count }}</strong>
           </div>
-          <div title="Repair Due counts off-hours baseline or historical coverage jobs. Repair improves completeness but should not be confused with live-trading readiness.">
-            <span class="metric-label">Repair Due <span class="info-tip" title="Repair Due counts off-hours baseline or historical coverage jobs. Repair improves completeness but should not be confused with live-trading readiness." aria-label="Repair due help">?</span></span>
+          <div title="Backfill pending counts off-hours baseline or historical coverage jobs. Backfill improves completeness but should not be confused with live-trading readiness.">
+            <span class="metric-label">Backfill pending <span class="info-tip" title="Backfill pending counts off-hours baseline or historical coverage jobs. Backfill improves completeness but should not be confused with live-trading readiness." aria-label="Backfill pending help">?</span></span>
             <strong data-scheduler-repair-due>{{ scheduler.refresh_workload.repair_due_count }}</strong>
           </div>
-          <div title="Running Jobs counts active scheduler, lane, and repair jobs currently in progress.">
-            <span class="metric-label">Running Jobs <span class="info-tip" title="Running Jobs counts active scheduler, lane, and repair jobs currently in progress." aria-label="Running jobs help">?</span></span>
+          <div title="Running Jobs counts active scheduler, data, and repair jobs currently in progress.">
+            <span class="metric-label">Running Jobs <span class="info-tip" title="Running Jobs counts active scheduler, data, and repair jobs currently in progress." aria-label="Running jobs help">?</span></span>
             <strong data-scheduler-running>{{ scheduler.refresh_workload.running_count }}</strong>
           </div>
-          <div title="Massive Lanes shows raw Massive lane work owned by the lane orchestrator, separate from generic batch jobs.">
-            <span class="metric-label">Massive Lanes <span class="info-tip" title="Massive Lanes shows raw Massive lane work owned by the lane orchestrator, separate from generic batch jobs." aria-label="Massive lanes help">?</span></span>
-            <strong data-massive-lanes>{{ scheduler.massive_orchestrator.due_now_count }} due / {{ scheduler.massive_orchestrator.blocked_count }} blocked</strong>
+          <div title="Dataset coverage shows large market-data refresh work owned by the coverage coordinator, separate from generic batch jobs.">
+            <span class="metric-label">Dataset coverage <span class="info-tip" title="Dataset coverage shows large market-data refresh work owned by the coverage coordinator, separate from generic batch jobs." aria-label="Dataset coverage help">?</span></span>
+            <strong data-massive-lanes>{{ scheduler.massive_orchestrator.due_now_count }} due / {{ scheduler.massive_orchestrator.blocked_count }} need attention</strong>
           </div>
         </div>
 
         <p class="panel-note" data-scheduler-detail>
           {{ scheduler.trading_freshness_gate.detail }} Automation: {{ scheduler.automation_status.detail }} Workload: {{ scheduler.refresh_workload.detail }}
         </p>
+        {% set scheduler_candidate_impact = scheduler.scheduler_candidate_impact|default({}, true) %}
+        <div class="scheduler-candidate-impact tag tag-{{ scheduler_candidate_impact.status_class|default('neutral', true) }}" data-scheduler-candidate-impact>
+          <strong>Candidate impact</strong>
+          <span>{{ scheduler_candidate_impact.detail|default("No candidate-specific scheduler impact is proven right now.", true) }}</span>
+        </div>
 
         {% set massive = scheduler.massive_orchestrator %}
         <article
           class="massive-orchestrator-card"
           data-massive-orchestrator
           data-massive-status="{{ massive.state }}"
-          aria-label="Massive multi-lane data orchestrator"
+          aria-label="Market data coverage coordinator"
         >
           <div class="trade-pull-head">
             <div>
-              <span class="metric-label">Massive Data Lanes</span>
+              <span class="metric-label">Dataset coverage</span>
               <h3 data-massive-headline>{{ massive.status_label }}</h3>
             </div>
             <span class="tag tag-{{ massive.status_class }}" data-massive-status-label>
@@ -979,21 +917,21 @@
             </span>
           </div>
           <p class="panel-note" data-massive-detail>{{ massive.detail }}</p>
-          <div class="readiness-grid massive-lane-summary" aria-label="Massive data lane impact summary">
+          <div class="readiness-grid massive-lane-summary" aria-label="Market data pipeline impact summary">
             <div title="{{ massive.lane_summary.execution_ready_tooltip }}">
-              <span class="metric-label">Execution-Critical Ready <span class="info-tip" title="{{ massive.lane_summary.execution_ready_tooltip }}" aria-label="Execution-critical ready help">?</span></span>
+              <span class="metric-label">Paper-ready data loaded <span class="info-tip" title="{{ massive.lane_summary.execution_ready_tooltip }}" aria-label="Paper-ready data loaded help">?</span></span>
               <strong data-massive-critical-ready>{{ massive.lane_summary.execution_ready_count }}</strong>
             </div>
             <div title="{{ massive.lane_summary.execution_needs_refresh_tooltip }}">
-              <span class="metric-label">Execution-Critical Needs Refresh <span class="info-tip" title="{{ massive.lane_summary.execution_needs_refresh_tooltip }}" aria-label="Execution-critical needs refresh help">?</span></span>
+              <span class="metric-label">Needs refresh before paper <span class="info-tip" title="{{ massive.lane_summary.execution_needs_refresh_tooltip }}" aria-label="Needs refresh before paper help">?</span></span>
               <strong data-massive-critical-refresh>{{ massive.lane_summary.execution_needs_refresh_count }}</strong>
             </div>
             <div title="{{ massive.lane_summary.support_due_tooltip }}">
-              <span class="metric-label">Support / Context Due <span class="info-tip" title="{{ massive.lane_summary.support_due_tooltip }}" aria-label="Support context due help">?</span></span>
+              <span class="metric-label">Context refresh due <span class="info-tip" title="{{ massive.lane_summary.support_due_tooltip }}" aria-label="Context refresh due help">?</span></span>
               <strong data-massive-support-due>{{ massive.lane_summary.support_due_count }}</strong>
             </div>
             <div title="{{ massive.lane_summary.research_disabled_tooltip }}">
-              <span class="metric-label">Research / Disabled / Not Entitled <span class="info-tip" title="{{ massive.lane_summary.research_disabled_tooltip }}" aria-label="Research disabled not entitled help">?</span></span>
+              <span class="metric-label">Research / optional / entitlement <span class="info-tip" title="{{ massive.lane_summary.research_disabled_tooltip }}" aria-label="Research optional entitlement help">?</span></span>
               <strong data-massive-research-disabled>{{ massive.lane_summary.research_disabled_count }}</strong>
             </div>
           </div>
@@ -1001,7 +939,7 @@
             <table>
               <thead>
                 <tr>
-                  <th>Lane</th>
+                  <th>Data pipeline</th>
                   <th>Status</th>
                   <th>Execution Impact</th>
                   <th>Coverage</th>
@@ -1014,7 +952,7 @@
               <tbody data-massive-lane-body>
                 {% for lane in scheduler.massive_lane_rows %}
                 <tr title="{{ lane.status_tooltip }}">
-                  <td data-label="Lane">
+                  <td data-label="Data pipeline">
                     <strong>{{ lane.label }}</strong>
                     <span>{{ lane.raw_source_dataset | replace("_", " ") }} &middot; {{ lane.acquisition_mode }} &middot; {{ lane.bucket_label }}</span>
                   </td>
@@ -1035,14 +973,14 @@
                       <br><span class="muted-line">{{ lane.batch_ticker_count }} in next safe batch</span>
                     {% endif %}
                     <br><span class="muted-line">{{ lane.progress_detail_label }}</span>
-                    <br><span class="muted-line">Tier {{ lane.ticker_tier }}; manifest {{ lane.manifest_status }} / {{ lane.manifest_coverage_pct }}%</span>
+                    <br><span class="muted-line">Priority group {{ lane.ticker_tier }}; coverage record {{ lane.manifest_status }} / {{ lane.manifest_coverage_pct }}%</span>
                   </td>
                   <td data-label="Cadence / Budget" title="{{ lane.budget_tooltip }}">{{ lane.cadence_minutes or "window" }} &middot; ETA {{ lane.eta_label }}<br>{{ lane.request_budget_label }}</td>
                   <td data-label="Next Action" title="{{ lane.action_tooltip }}"><strong>{{ lane.action_label }}</strong></td>
                   <td data-label="Refresh" title="{{ lane.refresh_tooltip }}">
                     {% if lane.refresh_enabled %}
                       <form class="inline-actions" method="post" action="{{ lane.refresh_action_url }}">
-                        <button class="mini-button" type="submit" aria-label="Refresh {{ lane.label }} data lane">{{ lane.refresh_button_label }}</button>
+                        <button class="mini-button" type="submit" aria-label="Refresh {{ lane.label }} data pipeline">{{ lane.refresh_button_label }}</button>
                       </form>
                       <span class="muted-line">{{ lane.refresh_scope_label }}</span>
                     {% else %}
@@ -1054,7 +992,7 @@
                 </tr>
                 {% else %}
                 <tr>
-                  <td class="empty-row" colspan="8">No Massive lanes are configured in the current scheduler plan.</td>
+                  <td class="empty-row" colspan="8">No market-data pipelines are configured in the current scheduler plan.</td>
                 </tr>
                 {% endfor %}
               </tbody>
@@ -1065,7 +1003,7 @@
               <thead>
                 <tr>
                   <th>Derived signal</th>
-                  <th>Raw lane requirement</th>
+                  <th>Source data requirement</th>
                   <th>Status</th>
                   <th>Impact</th>
                   <th>Meaning</th>
@@ -1075,14 +1013,14 @@
                 {% for signal in scheduler.massive_signal_rows %}
                 <tr title="{{ signal.tooltip }}">
                   <td data-label="Derived signal"><strong>{{ signal.label }}</strong></td>
-                  <td data-label="Raw lane requirement">{{ signal.requires_raw_lanes | join(", ") }}</td>
+                  <td data-label="Source data requirement">{{ signal.requires_raw_lanes | join(", ") }}</td>
                   <td data-label="Status"><span class="tag tag-{{ signal.status_class }}">{{ signal.status }}</span></td>
                   <td data-label="Impact"><strong>{{ signal.impact_label }}</strong><br>{{ signal.requirement_summary }}</td>
                   <td data-label="Meaning">{{ signal.impact_detail }} {{ signal.reason }}</td>
                 </tr>
                 {% else %}
                 <tr>
-                  <td class="empty-row" colspan="5">No Massive-backed derived signal requirements are active in this plan.</td>
+                  <td class="empty-row" colspan="5">No market-data-backed derived signal requirements are active in this plan.</td>
                 </tr>
                 {% endfor %}
               </tbody>
@@ -1168,7 +1106,7 @@
               </div>
             </div>
             <div>
-              <h3>Execution Freshness Gate</h3>
+              <h3>Data currency check</h3>
               <div class="ops-check-list">
                 {% for check in scheduler.freshness_checks %}
                 <div class="ops-check-row">
@@ -1200,7 +1138,7 @@
             <strong>{{ operational_readiness.mode }}</strong>
           </div>
           <div>
-            <span class="metric-label">Blockers</span>
+            <span class="metric-label">Must-Fix Issues</span>
             <strong>{{ operational_readiness.blocker_count }}</strong>
           </div>
           <div>
@@ -1245,7 +1183,7 @@
         data-loading-state="{{ data_refresh.display_state }}"
       >
         <div class="section-heading">
-          <h2 id="data-refresh-heading">Lane Refresh</h2>
+          <h2 id="data-refresh-heading">Data refresh</h2>
           <span class="tag tag-{{ data_refresh.display_status_class }}" data-progress-status>
             {{ data_refresh.display_status_label }}
           </span>
@@ -1305,7 +1243,7 @@
           class="trade-pull-card"
           data-trade-pull
           data-trade-state="{{ trade_pull.state }}"
-          aria-label="Massive live trade-slice coverage"
+          aria-label="Current trade-data coverage"
           title="{{ trade_pull.tooltip }}"
         >
           <div class="trade-pull-head">
@@ -1323,7 +1261,7 @@
             aria-valuemin="0"
             aria-valuemax="100"
             aria-valuenow="{{ trade_pull.percent_complete }}"
-            aria-label="Massive trade pull progress"
+            aria-label="Current trade-data pull progress"
             data-trade-track
           >
             <div class="progress-fill" style="{{ trade_pull.progress_style }}" data-trade-fill></div>
@@ -1363,23 +1301,23 @@
         </article>
 
         <details class="data-load-details">
-          <summary>Inspect Massive lane progress</summary>
+          <summary>Inspect market-data pipeline progress</summary>
           <div class="table-wrap massive-lane-table">
             <table>
               <thead>
                 <tr>
-                  <th>Lane</th>
-                  <th>Status <span class="info-tip" title="Status translates the raw lane manifest into operator language such as Verified Current, Usable With Gaps, or Disabled / Entitlement Not Verified." aria-label="Massive lane status help">?</span></th>
-                  <th>Progress <span class="info-tip" title="Progress is based on the lane manifest and latest lane progress file." aria-label="Massive lane progress help">?</span></th>
-                  <th>Rows <span class="info-tip" title="Rows is the latest persisted row count for this lane." aria-label="Massive lane rows help">?</span></th>
-                  <th>Updated <span class="info-tip" title="Updated is the latest manifest or active progress timestamp for this lane." aria-label="Massive lane updated help">?</span></th>
+                  <th>Data pipeline</th>
+                  <th>Status <span class="info-tip" title="Status translates the data coverage record into operator language such as Verified Current, Usable With Gaps, or Disabled / Entitlement Not Verified." aria-label="Data pipeline status help">?</span></th>
+                  <th>Progress <span class="info-tip" title="Progress is based on the coverage record and latest pipeline progress file." aria-label="Data pipeline progress help">?</span></th>
+                  <th>Rows <span class="info-tip" title="Rows is the latest persisted row count for this data pipeline." aria-label="Data pipeline rows help">?</span></th>
+                  <th>Updated <span class="info-tip" title="Updated is the latest coverage record or active progress timestamp for this data pipeline." aria-label="Data pipeline updated help">?</span></th>
                   <th>Meaning</th>
                 </tr>
               </thead>
               <tbody data-refresh-massive-lane-body>
                 {% for lane in data_refresh.massive_lanes %}
                 <tr>
-                  <td data-label="Lane"><strong>{{ lane.label }}</strong><span>{{ lane.window_label }}</span></td>
+                  <td data-label="Data pipeline"><strong>{{ lane.label }}</strong><span>{{ lane.window_label }}</span></td>
                   <td data-label="Status"><span class="tag tag-{{ lane.display_status_class }}" title="{{ lane.tooltip }}">{{ lane.display_status_label }}</span></td>
                   <td data-label="Progress" title="{{ lane.progress_tooltip }}">{{ lane.progress_label }} &middot; {{ lane.percent_complete }}%</td>
                   <td data-label="Rows" title="{{ lane.rows_tooltip }}">{{ lane.row_count_label }}</td>
@@ -1388,7 +1326,7 @@
                 </tr>
                 {% else %}
                 <tr>
-                  <td class="empty-row" colspan="6">No Massive lane progress rows are available yet.</td>
+                  <td class="empty-row" colspan="6">No market-data pipeline progress rows are available yet.</td>
                 </tr>
                 {% endfor %}
               </tbody>
@@ -1426,7 +1364,7 @@
             <strong>{{ live_config.ticker_count }}</strong>
           </div>
           <div>
-            <span class="metric-label">Blockers <span class="info-tip" title="{{ live_config.blockers_tooltip }}" aria-label="Live config blockers help">?</span></span>
+            <span class="metric-label">Must-Fix Issues <span class="info-tip" title="{{ live_config.blockers_tooltip }}" aria-label="Live config issues help">?</span></span>
             <strong>{{ live_config.blocker_count }}</strong>
           </div>
         </div>
@@ -1536,7 +1474,7 @@
         </div>
         <div class="readiness-grid">
           <div>
-            <span class="metric-label">Cycle <span class="info-tip" title="Latest persisted runtime cycle used for review queue, risk decisions, and blocker checks." aria-label="Latest cycle help">?</span></span>
+            <span class="metric-label">Cycle <span class="info-tip" title="Latest persisted runtime cycle used for review queue, risk decisions, and must-fix checks." aria-label="Latest cycle help">?</span></span>
             <strong>{{ readiness.cycle_id or "None" }}</strong>
           </div>
           <div>
@@ -1544,11 +1482,11 @@
             <strong>{{ readiness.reviewable_candidate_count }}</strong>
           </div>
           <div>
-            <span class="metric-label">Open Risk <span class="info-tip" title="Risk rows that are not fully blocked and can still be reviewed downstream." aria-label="Open risk help">?</span></span>
+            <span class="metric-label">Open Risk <span class="info-tip" title="Risk rows that are not fully stopped and can still be reviewed downstream." aria-label="Open risk help">?</span></span>
             <strong>{{ readiness.open_risk_decision_count }}</strong>
           </div>
           <div>
-            <span class="metric-label">Blockers <span class="info-tip" title="Cycle-level blockers from source-health proof, missing selection reports, missing risk decisions, or all-risk-blocked cycles." aria-label="Latest cycle blockers help">?</span></span>
+            <span class="metric-label">Must-Fix Issues <span class="info-tip" title="Cycle-level must-fix issues from source-health proof, missing selection reports, missing risk decisions, or all-risk-stopped cycles." aria-label="Latest cycle issues help">?</span></span>
             <strong>{{ readiness.blockers | length }}</strong>
           </div>
         </div>
@@ -1557,7 +1495,7 @@
           <table>
             <thead>
               <tr>
-                <th>Blocker</th>
+                <th>Issue</th>
                 <th>Item</th>
                 <th>Reason</th>
               </tr>
@@ -1565,13 +1503,13 @@
             <tbody>
               {% for blocker in readiness.blocker_rows %}
               <tr>
-                <td data-label="Blocker"><span class="tag tag-{{ blocker.status_class }}">{{ blocker.kind }}</span></td>
+                <td data-label="Issue"><span class="tag tag-{{ blocker.status_class }}">{{ blocker.kind }}</span></td>
                 <td data-label="Item">{{ blocker.item }}</td>
                 <td data-label="Reason">{{ blocker.reason }}</td>
               </tr>
               {% else %}
               <tr>
-                <td class="empty-row" colspan="3">No readiness blockers</td>
+                <td class="empty-row" colspan="3">No must-fix readiness issues</td>
               </tr>
               {% endfor %}
             </tbody>
@@ -1603,7 +1541,7 @@
           <tr>
             <td data-label="Ticker"><a class="text-link" href="/candidates/{{ candidate.ticker }}">{{ candidate.ticker }}</a></td>
             <td data-label="Action"><span class="tag tag-neutral">{{ candidate.action }}</span></td>
-            <td data-label="Conviction">{{ candidate.conviction_pct }}%</td>
+            <td data-label="Conviction">Conviction {{ conviction_help() }} {{ candidate.conviction_pct }}%</td>
             <td data-label="Gate"><span class="tag tag-{{ candidate.gate_status | lower }}">{{ candidate.gate_status }}</span></td>
             <td data-label="Risk Flags">{{ candidate.risk_flag_count }}</td>
             <td data-label="As Of">{{ candidate.as_of_label }}</td>
@@ -1636,7 +1574,7 @@
           <tr>
             <td data-label="Source">{{ source.source }}</td>
             {% if "demo" in source_name or "mock" in source_name or "fake" in source_name or "fixture" in source_name or "manual-smoke" in source_name %}
-            <td data-label="Status"><span class="tag tag-block">TEST DATA BLOCKED</span></td>
+            <td data-label="Status"><span class="tag tag-block">TEST DATA REJECTED</span></td>
             <td data-label="Freshness">Not allowed in live dashboards</td>
             <td data-label="Reliability">0%</td>
             {% else %}
@@ -1665,4 +1603,7 @@
       {% endfor %}
     </div>
   </section>
+    </details>
+  </section>
+  {% endif %}
 {% endblock %}

@@ -76,6 +76,7 @@ def build_runtime_cycle(
     paper_trade_review_states: Mapping[tuple[str, str, str], Mapping[str, object]] | None = None,
     paper_trade_broker_ready: bool = False,
     paper_trade_promotion_config: PaperTradePromotionConfig | None = None,
+    market_regime_snapshot: Mapping[str, object] | None = None,
 ) -> RuntimeCycleResult:
     """Run the local paper cycle over validated signal-result payloads."""
     normalized_sources = [_validated_source(source) for source in source_health]
@@ -105,6 +106,7 @@ def build_runtime_cycle(
         paper_trade_review_states=paper_trade_review_states,
         paper_trade_broker_ready=paper_trade_broker_ready,
         paper_trade_promotion_config=paper_trade_promotion_config,
+        market_regime_snapshot=market_regime_snapshot,
     )
 
 
@@ -127,6 +129,7 @@ def build_runtime_cycle_from_evidence_packs(
     paper_trade_review_states: Mapping[tuple[str, str, str], Mapping[str, object]] | None = None,
     paper_trade_broker_ready: bool = False,
     paper_trade_promotion_config: PaperTradePromotionConfig | None = None,
+    market_regime_snapshot: Mapping[str, object] | None = None,
 ) -> RuntimeCycleResult:
     """Run the paper cycle over prebuilt evidence packs and optional LLM reviews."""
     normalized_sources = [_validated_source(source) for source in source_health]
@@ -160,6 +163,7 @@ def build_runtime_cycle_from_evidence_packs(
         risk_source_health,
         generated_at=generated_at,
         policy=policy,
+        market_regime_snapshot=market_regime_snapshot,
         current_gross_exposure_pct=current_gross_exposure_pct,
         pending_opening_order_exposure_pct=pending_opening_order_exposure_pct,
     )

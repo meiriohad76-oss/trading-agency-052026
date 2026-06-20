@@ -10,8 +10,9 @@ from contextlib import suppress
 from copy import deepcopy
 from time import monotonic
 from typing import cast
+from urllib.parse import urlencode
 
-from agency.api.health import runtime_data_source_status
+from agency.api.health import runtime_data_source_status, runtime_status_data_proof_version
 from agency.runtime.cockpit_monitor import (
     monitor_events_from_scheduler,
     monitor_status_from_scheduler,
@@ -23,6 +24,9 @@ from agency.views._shared import (
     REFRESHABLE_MASSIVE_LANES,
     RUNNABLE_MASSIVE_LANES,
     _dashboard_selection_reports,
+    _format_timestamp_or_text,
+    _label_text,
+    _plural,
     dashboard_data_health,
     live_runtime_source_health_rows,
 )
@@ -31,13 +35,14 @@ from agency.views.market_regime import broker_status_context
 
 TRADE_ACTIONS = {"BUY", "SELL", "SHORT", "COVER"}
 MAX_COCKPIT_CANDIDATES = 25
-QA_SCENARIOS = {"normal", "no-actionable", "outage", "submitted"}
-DEFAULT_SECTOR_LABEL = "Reference lane not loaded"
+QA_SCENARIOS = {"normal", "no-actionable", "outage", "status-delayed", "submitted"}
+DEFAULT_SECTOR_LABEL = "Reference data not loaded"
 DEFAULT_OPTIONAL_CONTEXT_TIMEOUT_SECONDS = 1.0
 DEFAULT_REQUIRED_CONTEXT_TIMEOUT_SECONDS = 8.0
-DEFAULT_SOURCE_LOAD_TIMEOUT_SECONDS = 1.5
+DEFAULT_SOURCE_LOAD_TIMEOUT_SECONDS = 6.0
 DEFAULT_TICKER_DETAIL_TIMEOUT_SECONDS = 1.5
-COCKPIT_CONTEXT_CACHE_SECONDS = 2.0
+DEFAULT_ROUTE_CONTEXT_TIMEOUT_SECONDS = 4.0
+COCKPIT_CONTEXT_CACHE_SECONDS = 30.0
 COCKPIT_CONTEXT_MAX_STALE_SECONDS = 120.0
 COCKPIT_CONTEXT_WARM_TIMEOUT_SECONDS = 45.0
 COCKPIT_DATA_HEALTH_DATASETS = (
@@ -51,7 +56,7 @@ COCKPIT_DATA_HEALTH_DATASETS = (
 )
 
 ContextBuilder = Callable[[], Awaitable[dict[str, object]]]
-CockpitContextCacheKey = tuple[str | None, bool | None]
+CockpitContextCacheKey = tuple[str | None, bool | None, int]
 _cockpit_context_cache: dict[CockpitContextCacheKey, tuple[float, dict[str, object]]] = {}
 _cockpit_context_inflight: dict[CockpitContextCacheKey, asyncio.Task[dict[str, object]]] = {}
 
@@ -76,21 +81,32 @@ async def cached_cockpit_context(
 ) -> dict[str, object]:
     """Coalesce concurrent cockpit route/API reads without hiding live changes."""
 
-    key = (qa_scenario, qa_scenarios_enabled)
+    key = (qa_scenario, qa_scenarios_enabled, runtime_status_data_proof_version())
     cached = _cockpit_context_cache.get(key)
     if cached is not None:
         cached_at, context = cached
         cache_age = monotonic() - cached_at
-        if cache_age <= COCKPIT_CONTEXT_CACHE_SECONDS:
-            return deepcopy(context)
-        if cache_age <= COCKPIT_CONTEXT_MAX_STALE_SECONDS:
+        if not _cockpit_context_has_universe_proof(context):
+            _cockpit_context_cache.pop(key, None)
+        elif cache_age <= COCKPIT_CONTEXT_CACHE_SECONDS:
+            return _cockpit_context_with_cache_status(
+                context,
+                cache_age_seconds=cache_age,
+                source="cache",
+            )
+        elif cache_age <= COCKPIT_CONTEXT_MAX_STALE_SECONDS:
             _refresh_cockpit_context_cache_in_background(
                 key,
                 qa_scenario=qa_scenario,
                 qa_scenarios_enabled=qa_scenarios_enabled,
             )
-            return deepcopy(context)
-        _cockpit_context_cache.pop(key, None)
+            return _cockpit_context_with_cache_status(
+                context,
+                cache_age_seconds=cache_age,
+                source="cache refresh running",
+            )
+        else:
+            _cockpit_context_cache.pop(key, None)
     task = _cockpit_context_inflight.get(key)
     if task is None or task.done():
         task = asyncio.create_task(
@@ -108,8 +124,153 @@ async def cached_cockpit_context(
         raise
     if _cockpit_context_inflight.get(key) is task:
         _cockpit_context_inflight.pop(key, None)
-    _cockpit_context_cache[key] = (monotonic(), deepcopy(context))
-    return deepcopy(context)
+    if _cockpit_context_has_universe_proof(context):
+        _cockpit_context_cache[key] = (monotonic(), deepcopy(context))
+    return _cockpit_context_with_cache_status(
+        context,
+        cache_age_seconds=0.0,
+        source="fresh request",
+    )
+
+
+async def cached_cockpit_context_with_timeout(
+    *,
+    qa_scenario: str | None = None,
+    qa_scenarios_enabled: bool | None = None,
+    timeout_seconds: float | None = None,
+) -> dict[str, object]:
+    """Return the cockpit contract without allowing first-load requests to hang."""
+
+    timeout = (
+        timeout_seconds
+        if timeout_seconds is not None
+        else _route_context_timeout_seconds()
+    )
+    task = asyncio.create_task(
+        cached_cockpit_context(
+            qa_scenario=qa_scenario,
+            qa_scenarios_enabled=qa_scenarios_enabled,
+        )
+    )
+    task.add_done_callback(_consume_context_task_result)
+    try:
+        return await asyncio.wait_for(asyncio.shield(task), timeout=timeout)
+    except TimeoutError:
+        return await _cockpit_status_delayed_context_with_data_proof(
+            timeout_seconds=timeout,
+            qa_scenario=qa_scenario,
+            qa_scenarios_enabled=qa_scenarios_enabled,
+        )
+
+
+def cockpit_status_delayed_context(
+    *,
+    timeout_seconds: float,
+    qa_scenario: str | None = None,
+    qa_scenarios_enabled: bool | None = None,
+) -> dict[str, object]:
+    """Build a conservative same-shape cockpit context for slow first loads."""
+
+    context = cockpit_context_from_sources(
+        {
+            "dashboard": _delayed_context("dashboard", timeout_seconds=timeout_seconds),
+            "execution": _delayed_context("execution", timeout_seconds=timeout_seconds),
+            "portfolio": _delayed_context("portfolio", timeout_seconds=timeout_seconds),
+            "market": _delayed_context("market", timeout_seconds=timeout_seconds),
+            "signals": _delayed_context("signals", timeout_seconds=timeout_seconds),
+        },
+        qa_scenario=qa_scenario,
+        qa_scenarios_enabled=qa_scenarios_enabled,
+    )
+    context["cockpit_context_freshness"] = {
+        "status_label": "Cockpit status delayed",
+        "status_class": "warn",
+        "age_seconds": 0,
+        "age_label": "checking",
+        "source": "bounded first-load fallback",
+        "detail": (
+            "Cockpit data did not finish loading inside the first-screen budget. "
+            "The next poll can use warmed cache; do not treat this fallback as source proof."
+        ),
+    }
+    return context
+
+
+async def _cockpit_status_delayed_context_with_data_proof(
+    *,
+    timeout_seconds: float,
+    qa_scenario: str | None = None,
+    qa_scenarios_enabled: bool | None = None,
+) -> dict[str, object]:
+    from agency.views.command import data_load_status_view, source_status_rows
+
+    dashboard = _delayed_context("dashboard", timeout_seconds=timeout_seconds)
+    dashboard = await _dashboard_with_direct_data_load_proof(
+        dashboard,
+        detail=(
+            "The full cockpit model is still loading, but the data-lane proof was "
+            "loaded separately for this first screen."
+        ),
+        data_load_status_view_builder=data_load_status_view,
+        source_status_rows_builder=source_status_rows,
+    )
+    context = cockpit_context_from_sources(
+        {
+            "dashboard": dashboard,
+            "execution": _delayed_context("execution", timeout_seconds=timeout_seconds),
+            "portfolio": _delayed_context("portfolio", timeout_seconds=timeout_seconds),
+            "market": _delayed_context("market", timeout_seconds=timeout_seconds),
+            "signals": _delayed_context("signals", timeout_seconds=timeout_seconds),
+        },
+        qa_scenario=qa_scenario,
+        qa_scenarios_enabled=qa_scenarios_enabled,
+    )
+    context["cockpit_context_freshness"] = {
+        "status_label": "Cockpit shell loading",
+        "status_class": "warn",
+        "age_seconds": 0,
+        "age_label": "checking",
+        "source": "bounded first-load fallback with data proof",
+        "detail": (
+            "The full cockpit model did not finish inside the first-screen budget. "
+            "The data-state proof shown on this page was loaded directly from the "
+            "runtime lane registry."
+        ),
+    }
+    return context
+
+
+def clear_cockpit_context_cache() -> None:
+    """Clear cached cockpit aggregates after operator state changes."""
+
+    for task in list(_cockpit_context_inflight.values()):
+        if not task.done():
+            task.cancel()
+    _cockpit_context_cache.clear()
+    _cockpit_context_inflight.clear()
+
+
+def _cockpit_context_with_cache_status(
+    context: Mapping[str, object],
+    *,
+    cache_age_seconds: float,
+    source: str,
+) -> dict[str, object]:
+    output = deepcopy(context)
+    age = max(0, int(round(cache_age_seconds)))
+    age_label = "just now" if age < 2 else f"{age}s ago"
+    output["cockpit_context_freshness"] = {
+        "status_label": "Cockpit data loaded",
+        "status_class": "pass" if cache_age_seconds <= COCKPIT_CONTEXT_CACHE_SECONDS else "warn",
+        "age_seconds": age,
+        "age_label": age_label,
+        "source": source,
+        "detail": (
+            f"Cockpit page data was assembled {age_label} from {source}. "
+            "This is separate from market-data source freshness."
+        ),
+    }
+    return output
 
 
 def _refresh_cockpit_context_cache_in_background(
@@ -143,7 +304,23 @@ def _store_cockpit_context_refresh(
         return
     if _cockpit_context_inflight.get(key) is task:
         _cockpit_context_inflight.pop(key, None)
-    _cockpit_context_cache[key] = (monotonic(), deepcopy(context))
+    if _cockpit_context_has_universe_proof(context):
+        _cockpit_context_cache[key] = (monotonic(), deepcopy(context))
+
+
+def _cockpit_context_has_universe_proof(context: Mapping[str, object]) -> bool:
+    if context.get("status_delayed") is True:
+        return False
+    scenario = _mapping(context.get("scenario"))
+    if _first_text(scenario.get("state")) == "status-delayed":
+        return False
+    data_state = _mapping(context.get("data_state"))
+    lane_rows = [
+        row
+        for row in _list(data_state.get("lane_rows"))
+        if str(_mapping(row).get("lane_id") or "") != "data_proof"
+    ]
+    return bool(_list(context.get("sources")) or lane_rows)
 
 
 async def cockpit_context(
@@ -208,6 +385,8 @@ async def cockpit_context(
     candidates = _list(context.get("candidates"))
     if candidates and _list(paper_review.get("queue")):
         return context
+    if not _paper_review_retry_worthwhile(paper_review):
+        return context
 
     # The scheduler can publish reports while a cockpit request is already
     # assembling its contexts. Re-check paper review once before trusting an
@@ -231,6 +410,17 @@ async def cockpit_context(
     if len(retry_candidates) > len(candidates):
         return retry_context
     return context if candidates else retry_context
+
+
+def _paper_review_retry_worthwhile(paper_review: Mapping[str, object]) -> bool:
+    context_status = _mapping(paper_review.get("context_status"))
+    if _first_text(context_status.get("status")) in {"delayed", "failed"}:
+        return False
+    verdict = _first_text(paper_review.get("verdict"))
+    if verdict == "runtime_reader_unavailable":
+        return False
+    progress = _mapping(paper_review.get("progress"))
+    return _first_text(progress.get("status_label")).lower() != "runtime unavailable"
 
 
 async def _cockpit_execution_preview_context() -> dict[str, object]:
@@ -293,6 +483,13 @@ def _source_load_timeout_seconds() -> float:
     )
 
 
+def _route_context_timeout_seconds() -> float:
+    return _context_timeout_seconds(
+        "AGENCY_COCKPIT_ROUTE_CONTEXT_TIMEOUT_SECONDS",
+        default=DEFAULT_ROUTE_CONTEXT_TIMEOUT_SECONDS,
+    )
+
+
 def _context_timeout_seconds(env_name: str, *, default: float) -> float:
     raw = os.environ.get(env_name, "")
     if not raw.strip():
@@ -307,6 +504,7 @@ def _context_timeout_seconds(env_name: str, *, default: float) -> float:
 def _delayed_context(name: str, *, timeout_seconds: float) -> dict[str, object]:
     label = _source_context_label(name)
     return {
+        "status_delayed": True,
         "context_status": {
             "status": "delayed",
             "status_label": f"{label} Check Delayed",
@@ -382,15 +580,34 @@ async def _dashboard_with_cockpit_data_proof(
             timeout=_source_load_timeout_seconds(),
         )
     except TimeoutError:
-        return fallback
-    except Exception:
-        return fallback
+        return await _dashboard_with_direct_data_load_proof(
+            fallback,
+            detail=(
+                "The cockpit could not confirm current data proof before the first "
+                "screen loaded. Recheck the source state or refresh the required source."
+            ),
+            data_load_status_view_builder=data_load_status_view_builder,
+            source_status_rows_builder=source_status_rows_builder,
+        )
+    except Exception as exc:
+        return await _dashboard_with_direct_data_load_proof(
+            fallback,
+            detail=f"The cockpit could not confirm current data proof: {exc}",
+            data_load_status_view_builder=data_load_status_view_builder,
+            source_status_rows_builder=source_status_rows_builder,
+        )
     data_sources = [
         _mapping(row)
         for row in _list(source_load_status.get("data_sources"))
         if _mapping(row)
     ]
     data_load_status = _mapping(source_load_status.get("data_load_status"))
+    if not data_sources:
+        data_sources = [
+            _mapping(row)
+            for row in _list(data_load_status.get("freshness_rows"))
+            if _mapping(row)
+        ]
     if not data_sources and not data_load_status:
         return fallback
     existing_data_load = _mapping(fallback.get("data_load_status"))
@@ -404,6 +621,71 @@ async def _dashboard_with_cockpit_data_proof(
             data_load_status=data_load_status,
             datasets=COCKPIT_DATA_HEALTH_DATASETS,
         )
+    return fallback
+
+
+async def _dashboard_with_direct_data_load_proof(
+    dashboard: Mapping[str, object],
+    *,
+    detail: str,
+    data_load_status_view_builder: Callable[[Mapping[str, object]], dict[str, object]],
+    source_status_rows_builder: Callable[[Sequence[Mapping[str, object]]], list[dict[str, object]]],
+) -> dict[str, object]:
+    try:
+        from agency.runtime.data_load_status import load_data_load_status
+
+        data_load_status = await asyncio.wait_for(
+            asyncio.to_thread(load_data_load_status),
+            timeout=_source_load_timeout_seconds(),
+        )
+    except Exception:
+        return _dashboard_with_missing_data_proof(dict(dashboard), detail=detail)
+    if not _dashboard_data_load_has_lane_rows(data_load_status):
+        return _dashboard_with_missing_data_proof(dict(dashboard), detail=detail)
+    fallback = dict(dashboard)
+    fallback["data_load_status"] = data_load_status_view_builder(data_load_status)
+    freshness_rows = [
+        _mapping(row)
+        for row in _list(data_load_status.get("freshness_rows"))
+        if _mapping(row)
+    ]
+    if freshness_rows:
+        fallback["data_sources"] = source_status_rows_builder(freshness_rows)
+    fallback["data_health"] = dashboard_data_health(
+        "Pre-flight cockpit",
+        data_load_status=data_load_status,
+        datasets=COCKPIT_DATA_HEALTH_DATASETS,
+    )
+    return fallback
+
+
+def _dashboard_with_missing_data_proof(
+    dashboard: Mapping[str, object],
+    *,
+    detail: str,
+) -> dict[str, object]:
+    fallback = dict(dashboard)
+    if _dashboard_data_load_has_lane_rows(_mapping(fallback.get("data_load_status"))):
+        return fallback
+    fallback["data_load_status"] = {
+        **_mapping(fallback.get("data_load_status")),
+        "status_label": "Source proof unavailable",
+        "status_class": "block",
+        "review_operational_ready": False,
+        "tradable_ready": False,
+        "overall_percent": 0,
+        "critical_lane_percent": 0,
+        "blocker_count": 1,
+        "warning_count": 0,
+        "source_proof_missing": True,
+        "blockers": [
+            {
+                "kind": "source_proof",
+                "item": "data_proof",
+                "reason": detail,
+            }
+        ],
+    }
     return fallback
 
 
@@ -460,6 +742,7 @@ def cockpit_context_from_sources(
     cycle = _cycle_section(dashboard, engines)
     qa_enabled = _qa_scenarios_enabled(qa_scenarios_enabled)
     scheduler = _mapping(dashboard.get("scheduler"))
+    status_delayed = _cockpit_source_status_delayed(dashboard)
     proof_timestamp = _first_text(
         _mapping(dashboard.get("data_load_status")).get("latest_checked_at"),
         _mapping(dashboard.get("data_load_status")).get("updated_at"),
@@ -484,13 +767,14 @@ def cockpit_context_from_sources(
         "sectors": _sector_rows(market),
         "sources": _source_rows(dashboard, proof_timestamp=proof_timestamp),
         "universe_blocked": _universe_blocked_rows(dashboard),
-        "signals": _signal_rows(signals_context),
+        "signals": _signal_rows(signals_context, candidates),
         "audit_lifecycle": _audit_lifecycle(candidates, _first_text(cycle.get("id"))),
         "policy": _policy_section(dashboard),
         "monitor_events": _monitor_events(dashboard),
         "monitor": monitor_status_from_scheduler(scheduler),
         "data_health": _mapping(dashboard.get("data_health")),
         "data_state": data_state,
+        "status_delayed": status_delayed,
         "preferences": _preferences_section(),
         "qa_scenarios_enabled": qa_enabled,
         "qa_scenarios": sorted(QA_SCENARIOS),
@@ -498,7 +782,14 @@ def cockpit_context_from_sources(
     context["scenario"] = _scenario_from_context(context, execution)
     if qa_enabled and qa_scenario in QA_SCENARIOS:
         context["scenario"] = _qa_scenario(qa_scenario, context)
+    context["scenario"] = _scenario_display_titles(_mapping(context.get("scenario")))
+    context["phase_states"] = _phase_states(context)
     return context
+
+
+def _cockpit_source_status_delayed(dashboard: Mapping[str, object]) -> bool:
+    context_status = _mapping(dashboard.get("context_status"))
+    return dashboard.get("status_delayed") is True or _first_text(context_status.get("status")).lower() == "delayed"
 
 
 def safe_cockpit_api_payload(context: Mapping[str, object]) -> dict[str, object]:
@@ -528,16 +819,7 @@ def cockpit_audit_payload(context: Mapping[str, object], ticker: str) -> dict[st
         for candidate in _list(context.get("candidates")):
             row = _mapping(candidate)
             if row.get("ticker") == normalized:
-                events = [
-                    {
-                        "message": (
-                            "Approved by current cockpit context."
-                            if row.get("status") == "approved"
-                            else str(row.get("blocker") or "Candidate is visible for audit.")
-                        ),
-                        "status": str(row.get("status") or "unknown"),
-                    }
-                ]
+                events = _candidate_audit_events(row)
                 break
     return {"ticker": normalized, "events": events}
 
@@ -594,6 +876,9 @@ def _cockpit_ticker_detail_timeout_payload(ticker: str) -> dict[str, object]:
             "action": "None",
             "confidence_pct": 0,
             "rationale": "Open the full candidate page for the current LLM rationale.",
+            "manual_review_available": False,
+            "manual_review_action": "",
+            "manual_review_detail": "Manual LLM review needs the current report hash, cycle ID, and as-of timestamp.",
         },
         "data_health": {
             "status_label": "Detail delayed",
@@ -612,7 +897,7 @@ def _cockpit_ticker_detail_timeout_payload(ticker: str) -> dict[str, object]:
         "signal_mix_note": "",
         "signals": [],
         "context_cards": [],
-        "detail_url": f"/candidates/{ticker}",
+        "detail_url": f"/candidates/{ticker}?from=cockpit#paper-review-heading",
     }
     return _scrub_secrets(payload)
 
@@ -629,8 +914,15 @@ def cockpit_ticker_detail_payload_from_context(
     data_health = _mapping(context.get("data_health"))
     email_evidence = _mapping(context.get("email_evidence"))
     news_evidence = _mapping(context.get("news_evidence"))
+    cycle_id = _first_text(latest.get("cycle_id"))
+    as_of = _first_text(latest.get("as_of"))
+    generated_at = _first_text(latest.get("generated_at"))
+    manual_llm_available = bool(cycle_id and as_of)
     payload = {
         "ticker": ticker,
+        "cycle_id": cycle_id,
+        "as_of": as_of,
+        "generated_at": generated_at,
         "title": f"{ticker} Detail",
         "summary": _first_text(
             brief.get("detail"),
@@ -664,6 +956,14 @@ def cockpit_ticker_detail_payload_from_context(
                 latest.get("llm_rationale"),
                 default="LLM review has not produced a rationale for this ticker yet.",
             ),
+            "manual_review_available": manual_llm_available,
+            "manual_review_action": f"/candidates/{ticker}/llm-review" if manual_llm_available else "",
+            "manual_review_detail": (
+                "Automatic LLM review is limited to the top 10 ranked candidates. "
+                "This runs the same reviewer for the selected ticker and report timestamp."
+            )
+            if manual_llm_available
+            else "Manual LLM review is unavailable because the current report timestamp is missing.",
         },
         "data_health": {
             "status_label": _first_text(data_health.get("status_label"), default="Unverified"),
@@ -699,7 +999,7 @@ def cockpit_ticker_detail_payload_from_context(
             )
             if card
         ],
-        "detail_url": f"/candidates/{ticker}",
+        "detail_url": f"/candidates/{ticker}?from=cockpit#paper-review-heading",
     }
     return _scrub_secrets(payload)
 
@@ -725,6 +1025,8 @@ def _cycle_section(
         dashboard.get("cycle_id"),
         default="current-cycle",
     )
+    if cycle_id.lower() in {"none", "null", "undefined"}:
+        cycle_id = "cycle not attached"
     sources_total = _int(readiness.get("source_count"), fallback=len(engines))
     if sources_total <= 0:
         sources_total = len(engines)
@@ -744,7 +1046,7 @@ def _cycle_section(
         "next_in": _first_text(
             data_load.get("next_update_label"),
             dashboard.get("next_cycle_label"),
-            default="scheduled by lane policy",
+            default="scheduled by refresh policy",
         ),
         "mode": "PAPER",
         "submit_enabled": False,
@@ -788,7 +1090,9 @@ def _engine_rows(
     execution: Mapping[str, object],
 ) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
-    for source in _list(dashboard.get("data_sources")):
+    data_load = _mapping(dashboard.get("data_load_status"))
+    source_rows = _list(dashboard.get("data_sources")) or _list(data_load.get("freshness_rows"))
+    for source in source_rows:
         item = _mapping(source)
         rows.append(
             {
@@ -813,10 +1117,10 @@ def _engine_rows(
         item = _mapping(lane)
         rows.append(
             {
-                "name": _first_text(item.get("label"), item.get("lane"), default="Signal lane"),
+                "name": _first_text(item.get("label"), item.get("lane"), default="Signal process"),
                 "state": _status_to_engine_state(item.get("status_class"), item.get("status_label")),
-                "age": _first_text(item.get("freshness_label"), default="latest lane status"),
-                "detail": _first_text(item.get("detail"), default="Signal lane reported no detail."),
+                "age": _first_text(item.get("freshness_label"), default="latest signal status"),
+                "detail": _first_text(item.get("detail"), default="Signal process reported no detail."),
             }
         )
     summary = _mapping(execution.get("summary"))
@@ -855,9 +1159,15 @@ def _funnel_section(
         if row.get("reviewable") is True or row.get("order_reviewable") is True
     )
     blocked = sum(1 for row in candidates if row.get("status") == "blocked")
+    data_load = _mapping(dashboard.get("data_load_status"))
+    active_universe = _int(
+        data_load.get("expected_ticker_count"),
+        _mapping(dashboard.get("live_config")).get("active_universe_count"),
+        fallback=total,
+    )
     return {
-        "universe": _int(_mapping(dashboard.get("live_config")).get("active_universe_count"), fallback=total),
-        "universe_ready": _int(_mapping(dashboard.get("full_live_readiness")).get("universe_count"), fallback=total),
+        "universe": active_universe,
+        "universe_ready": reviewable,
         "fundamentals_pass": _int(progress.get("approve_count"), fallback=0),
         "fundamentals_watch": _int(progress.get("pending_count"), fallback=0),
         "signals": len(_list(dashboard.get("candidates"))),
@@ -999,14 +1309,14 @@ def _candidate_rows(
                     reviewable=reviewable,
                     risk_label=risk_label,
                 ),
-                "blocker": None if actionable else "Order intent approval is required before submit." if order_reviewable else risk_text,
+                "blocker": None if actionable else "Order details approval is required before submit." if order_reviewable else risk_text,
                 "actionable": actionable,
                 "order_reviewable": order_reviewable,
                 "reviewable": reviewable,
                 "action_label": (
                     "Submit paper order"
                     if actionable
-                    else "Review order intent"
+                    else "Review order details"
                     if order_reviewable
                     else "Approve, defer, or reject"
                     if reviewable
@@ -1020,9 +1330,25 @@ def _candidate_rows(
                     else ["audit"]
                 ),
                 "order_action_url": "",
-                "approve_review_action": _first_text(item.get("approve_review_action")),
-                "defer_review_action": _first_text(item.get("defer_review_action")),
-                "reject_review_action": _first_text(item.get("reject_review_action")),
+                "execution_focus_url": f"/execution-preview?ticker={ticker.upper()}#focused-preview-{ticker.upper()}",
+                "approve_review_action": _cockpit_review_action_url(
+                    ticker,
+                    item,
+                    "APPROVE",
+                    fallback=_first_text(item.get("approve_review_action")),
+                ),
+                "defer_review_action": _cockpit_review_action_url(
+                    ticker,
+                    item,
+                    "DEFER",
+                    fallback=_first_text(item.get("defer_review_action")),
+                ),
+                "reject_review_action": _cockpit_review_action_url(
+                    ticker,
+                    item,
+                    "REJECT",
+                    fallback=_first_text(item.get("reject_review_action")),
+                ),
                 "caution_acknowledgement_required": bool(
                     item.get("caution_acknowledgement_required")
                 ),
@@ -1049,8 +1375,9 @@ def _candidate_rows(
                 "order_intent_hash_label": _first_text(preview.get("order_intent_hash_label"), default=""),
                 "cycle_id": _first_text(item.get("cycle_id"), default=""),
                 "as_of": _first_text(item.get("as_of"), default=""),
+                "as_of_label": _format_timestamp_or_text(item.get("as_of")),
                 "evidence_hash": _first_text(item.get("evidence_hash"), default=""),
-                "detail_url": f"/candidates/{ticker}",
+                "detail_url": f"/candidates/{ticker}?from=cockpit#paper-review-heading",
                 "audit_url": f"/api/audit/{ticker}",
             }
         )
@@ -1066,6 +1393,28 @@ def _candidate_rows(
                 else "LLM not run for this ticker"
             )
     return sorted_rows
+
+
+def _cockpit_review_action_url(
+    ticker: str,
+    item: Mapping[str, object],
+    decision: str,
+    *,
+    fallback: str = "",
+) -> str:
+    cycle_id = _first_text(item.get("cycle_id"))
+    as_of = _first_text(item.get("as_of"))
+    if not cycle_id or not as_of:
+        return fallback
+    query = urlencode(
+        {
+            "cycle_id": cycle_id,
+            "as_of": as_of,
+            "decision": decision,
+            "return_to": "cockpit",
+        }
+    )
+    return f"/candidates/{ticker.upper()}/reviews?{query}"
 
 
 def _llm_review_status_label(review: Mapping[str, object]) -> str:
@@ -1181,6 +1530,7 @@ def _account_section(
     buying_power = _float(account.get("buying_power"))
     return {
         "equity_reported": equity_reported,
+        "equity": equity,
         "policy_reported": any(
             (
                 gross_cap_reported,
@@ -1233,25 +1583,95 @@ def _source_rows(
     *,
     proof_timestamp: str = "",
 ) -> list[dict[str, object]]:
-    return source_health_rows(_list(dashboard.get("data_sources")), proof_timestamp=proof_timestamp)
+    sources = _list(dashboard.get("data_sources"))
+    data_load = _mapping(dashboard.get("data_load_status"))
+    if not sources:
+        sources = _list(data_load.get("freshness_rows"))
+    rows = source_health_rows(sources, proof_timestamp=proof_timestamp)
+    if rows:
+        return rows
+    if data_load:
+        return [_source_proof_unavailable_row(data_load, proof_timestamp=proof_timestamp)]
+    return []
+
+
+def _source_proof_unavailable_row(
+    data_load: Mapping[str, object],
+    *,
+    proof_timestamp: str,
+) -> dict[str, object]:
+    detail = _data_state_text(
+        _first_text(
+            data_load.get("detail"),
+            "No source-health rows were published for this cockpit cycle.",
+        )
+    )
+    return {
+        "name": "Source-health proof",
+        "tier": "operational",
+        "state": "unavailable",
+        "state_label": "Source proof unavailable",
+        "last_pull": _data_state_text(_first_text(data_load.get("generated_at"), default="not reported")),
+        "proof_timestamp": proof_timestamp or _data_state_text(
+            _first_text(data_load.get("status_checked_at"), default="not reported")
+        ),
+        "source_timestamp": _data_state_text(
+            _first_text(data_load.get("status_checked_at"), default="not reported")
+        ),
+        "analysis_timestamp": "not reported separately",
+        "coverage": _data_state_text(
+            _first_text(data_load.get("runtime_coverage_label"), default="coverage not reported")
+        ),
+        "note": detail,
+        "next_action": "Open System Status, refresh the unavailable source, then reload the cockpit.",
+        "refresh_action": {"label": "Open System Status", "url": "/command"},
+    }
 
 
 def _data_state_section(dashboard: Mapping[str, object]) -> dict[str, object]:
     data_load = _mapping(dashboard.get("data_load_status"))
     lane_rows = _data_state_lane_rows(data_load)
+    proof_missing = _data_state_proof_missing(dashboard, data_load, lane_rows)
+    explicit_review_ready = data_load.get("review_operational_ready")
+    explicit_paper_ready = data_load.get("tradable_ready")
     review_ready = _data_state_bool(
-        data_load.get("review_operational_ready"),
-        fallback=not any(row["status_class"] == "block" for row in lane_rows),
+        explicit_review_ready,
+        fallback=not proof_missing
+        and not any(row["status_class"] == "block" for row in lane_rows),
     )
     paper_ready = _data_state_bool(
-        data_load.get("tradable_ready"),
-        fallback=all(
+        explicit_paper_ready,
+        fallback=not proof_missing
+        and all(
             row["ready_for_paper_execution"] is True
             for row in lane_rows
             if row["required_now"] is True and row["blocks_execution"] is True
         ),
     )
-    top_gaps = _data_state_top_gaps(lane_rows)
+    if proof_missing:
+        review_ready = False
+        paper_ready = False
+    declared_warning_count = _int(data_load.get("warning_count"), fallback=0)
+    declared_blocker_count = _int(data_load.get("blocker_count"), fallback=0)
+    top_gaps = _data_state_top_gaps(lane_rows) or _data_state_blocker_gaps(data_load)
+    if proof_missing and not top_gaps:
+        top_gaps = [_missing_data_proof_gap(data_load)]
+    if (
+        not top_gaps
+        and (
+            declared_blocker_count > 0
+            or explicit_review_ready is False
+            or data_load.get("ready") is False
+        )
+    ):
+        top_gaps = [
+            _operational_readiness_gap(
+                data_load,
+                blocker_count=declared_blocker_count,
+                warning_count=declared_warning_count,
+            )
+        ]
+    display_lane_rows = lane_rows or [_gap_as_lane_row(gap) for gap in top_gaps]
     overall_percent = _bounded_int(
         data_load.get("overall_percent"),
         fallback=_progress_average(lane_rows),
@@ -1271,26 +1691,45 @@ def _data_state_section(dashboard: Mapping[str, object]) -> dict[str, object]:
         _mapping(dashboard.get("live_config")).get("active_universe_count"),
         fallback=0,
     )
-    warning_count = _int(data_load.get("warning_count"), fallback=len(top_gaps))
-    blocker_count = _int(
-        data_load.get("blocker_count"),
-        fallback=sum(1 for row in lane_rows if row["blocker"] is True),
-    )
+    warning_count = declared_warning_count or len(top_gaps)
+    blocker_count = declared_blocker_count or sum(1 for row in lane_rows if row["blocker"] is True)
     review_label = "Review ready" if review_ready else "Review not ready"
-    paper_label = "Ready for paper execution" if paper_ready else "Paper execution gated"
+    paper_label = (
+        "Ready for paper execution"
+        if paper_ready
+        else "Paper execution not ready"
+        if proof_missing
+        else "Paper execution gated"
+    )
     gap_summary = (
         _data_state_gap_summary(top_gaps)
         if top_gaps
-        else "No required lane gaps are reported for the current workflow."
+        else "No required data or agent gaps are reported for the current workflow."
     )
-    return {
-        "status_label": _data_state_text(data_load.get("status_label") or "Data state checked"),
-        "status_class": _first_text(data_load.get("status_class"), default="neutral"),
-        "headline": (
+    primary_gap = _mapping(top_gaps[0]) if top_gaps else {}
+    if proof_missing:
+        headline = (
+            f"{review_label}; {paper_label}. "
+            f"First action: {_first_text(primary_gap.get('recommended_action'), default='Recheck source proof.')}"
+        )
+    elif review_ready and not paper_ready and top_gaps:
+        headline = (
+            f"{review_label}; {paper_label}. "
+            "Research review can continue now; paper submit needs the listed "
+            "readiness checks first."
+        )
+    else:
+        headline = (
             f"{review_label}; {paper_label}. "
             f"{overall_percent}% overall data readiness with {warning_count} warning(s) "
-            f"and {blocker_count} blocker(s)."
+            f"and {blocker_count} paper-readiness issue(s)."
+        )
+    return {
+        "status_label": _data_state_text(data_load.get("status_label") or "Data state checked"),
+        "status_class": (
+            "block" if proof_missing or blocker_count else _first_text(data_load.get("status_class"), default="neutral")
         ),
+        "headline": headline,
         "overall_percent": overall_percent,
         "critical_lane_percent": critical_lane_percent,
         "active_universe_count": expected_ticker_count,
@@ -1306,7 +1745,7 @@ def _data_state_section(dashboard: Mapping[str, object]) -> dict[str, object]:
             "detail": (
                 "The loaded evidence is usable for research review."
                 if review_ready
-                else "Research review needs the listed lane gaps resolved first."
+                else "Research review needs the listed data or agent gaps resolved first."
             ),
         },
         "paper": {
@@ -1320,22 +1759,22 @@ def _data_state_section(dashboard: Mapping[str, object]) -> dict[str, object]:
             ),
         },
         "top_gaps": top_gaps[:3],
-        "lane_rows": lane_rows,
-        "loading_count": sum(1 for row in lane_rows if row["state"] == "loading"),
+        "lane_rows": display_lane_rows,
+        "loading_count": sum(1 for row in display_lane_rows if row["state"] == "loading"),
         "loaded_unanalyzed_count": sum(
-            1 for row in lane_rows if row["state"] == "loaded_unanalyzed"
+            1 for row in display_lane_rows if row["state"] == "loaded_unanalyzed"
         ),
-        "needs_refresh_count": sum(1 for row in lane_rows if row["state"] == "needs_refresh"),
+        "needs_refresh_count": sum(1 for row in display_lane_rows if row["state"] == "needs_refresh"),
         "unavailable_count": sum(
-            1 for row in lane_rows if row["state"] == "provider_unavailable"
+            1 for row in display_lane_rows if row["state"] == "provider_unavailable"
         ),
         "ready_review_count": sum(
-            1 for row in lane_rows if row["ready_for_review"] is True
+            1 for row in display_lane_rows if row["ready_for_review"] is True
         ),
         "ready_paper_count": sum(
-            1 for row in lane_rows if row["ready_for_paper_execution"] is True
+            1 for row in display_lane_rows if row["ready_for_paper_execution"] is True
         ),
-        "optional_count": sum(1 for row in lane_rows if row["state"] == "disabled_optional"),
+        "optional_count": sum(1 for row in display_lane_rows if row["state"] == "disabled_optional"),
         "as_of_label": _data_state_text(
             _first_text(
                 data_load.get("as_of_label"),
@@ -1356,24 +1795,103 @@ def _data_state_section(dashboard: Mapping[str, object]) -> dict[str, object]:
     }
 
 
+def _data_state_proof_missing(
+    dashboard: Mapping[str, object],
+    data_load: Mapping[str, object],
+    lane_rows: Sequence[Mapping[str, object]],
+) -> bool:
+    if lane_rows:
+        return False
+    if _data_state_bool(data_load.get("source_proof_missing"), fallback=False):
+        return True
+    if _list(data_load.get("blockers")):
+        return True
+    context_status = _mapping(dashboard.get("context_status"))
+    status = _first_text(context_status.get("status")).lower()
+    status_class = _first_text(context_status.get("status_class")).lower()
+    return status in {"delayed", "failed"} or status_class == "block"
+
+
+def _gap_as_lane_row(gap: Mapping[str, object]) -> dict[str, object]:
+    lane = _data_state_text(_first_text(gap.get("lane"), default="Source proof"))
+    status_label = _data_state_text(
+        _first_text(gap.get("status_label"), default="Needs attention")
+    )
+    status_class = _first_text(gap.get("status_class"), default="block")
+    detail = _data_state_text(
+        _first_text(gap.get("detail"), default="The source proof is not available.")
+    )
+    recommended_action = _data_state_text(
+        _first_text(gap.get("recommended_action"), default="Open System Status, then refresh this source.")
+    )
+    refresh_action = dict(_mapping(gap.get("refresh_action")))
+    state = "provider_unavailable" if status_class == "block" else "needs_refresh"
+    return {
+        "lane_id": lane.lower().replace(" ", "_"),
+        "name": lane,
+        "lane_kind_label": "data source",
+        "state": state,
+        "status_label": status_label,
+        "status_class": status_class,
+        "progress_label": _data_state_text(
+            _first_text(gap.get("progress_label"), default="not tracked")
+        ),
+        "progress_percent": None,
+        "eta_label": "not reported",
+        "required_now": True,
+        "required_label": "Required now",
+        "blocks_execution": _data_state_bool(gap.get("blocks_execution"), fallback=True),
+        "blocks_paper_label": "Yes",
+        "blocker": status_class == "block",
+        "ready_for_review": False,
+        "ready_for_paper_execution": False,
+        "latest_as_of_label": "not recorded",
+        "checked_at_label": "not checked",
+        "refresh_action": {
+            "url": _first_text(refresh_action.get("url")),
+            "label": _data_state_text(_first_text(refresh_action.get("label"))),
+            "detail": _data_state_text(_first_text(refresh_action.get("detail"))),
+        },
+        "requirement_label": "Current proof",
+        "operator_message": detail,
+        "recommended_action": recommended_action,
+        "gap_detail": detail,
+        "tooltip": f"{lane}: {status_label}. {detail} Next action: {recommended_action}",
+        "sort_key": 0 if status_class == "block" else 10,
+    }
+
+
 def _data_state_lane_rows(data_load: Mapping[str, object]) -> list[dict[str, object]]:
     rows = _list(data_load.get("lane_state_rows")) or _list(data_load.get("lane_states"))
     return [_data_state_lane_row(_mapping(row)) for row in rows]
 
 
 def _data_state_lane_row(row: Mapping[str, object]) -> dict[str, object]:
-    lane_id = _first_text(row.get("lane_id"), row.get("lane"), row.get("name"), default="lane")
+    lane_id = _first_text(row.get("lane_id"), row.get("lane"), row.get("name"), default="data_source")
     name = _data_state_text(
-        _first_text(row.get("name"), row.get("label"), row.get("lane_id"), default="Data lane")
+        _first_text(row.get("name"), row.get("label"), row.get("lane_id"), default="Data source")
     )
-    state = _first_text(row.get("state"), default=_state_from_lane_label(row))
+    state = _normalize_lane_state(_first_text(row.get("state"), default=_state_from_lane_label(row)))
     status_label = _data_state_text(
         _first_text(row.get("status_label"), row.get("display_status_label"), default="Status not reported")
     )
     status_class = _first_text(row.get("status_class"), default=_lane_state_class(row))
     progress_label = _data_state_text(_first_text(row.get("progress_label"), default="not tracked"))
+    eta_label = _data_state_text(
+        _first_text(
+            row.get("eta_label"),
+            row.get("eta"),
+            row.get("estimated_completion_label"),
+            row.get("eta_seconds"),
+            default="not reported",
+        )
+    )
     required_now = _data_state_bool(row.get("required_now"), fallback=True)
     blocks_execution = _data_state_bool(row.get("blocks_execution"), fallback=False)
+    effective_blocks_execution = _data_state_bool(
+        row.get("effective_blocks_execution"),
+        fallback=required_now and blocks_execution,
+    )
     ready_for_review = _data_state_bool(
         row.get("ready_for_review"),
         fallback=state in {"ready_for_review", "ready_for_paper_execution"},
@@ -1385,7 +1903,7 @@ def _data_state_lane_row(row: Mapping[str, object]) -> dict[str, object]:
     blocker = _data_state_bool(
         row.get("blocker"),
         fallback=required_now
-        and blocks_execution
+        and effective_blocks_execution
         and state
         in {"loading", "loaded_unanalyzed", "needs_refresh", "provider_unavailable"},
     )
@@ -1402,14 +1920,14 @@ def _data_state_lane_row(row: Mapping[str, object]) -> dict[str, object]:
         )
     )
     operator_message = _data_state_text(
-        _first_text(row.get("operator_message"), row.get("detail"), default="No lane-state explanation recorded.")
+        _first_text(row.get("operator_message"), row.get("detail"), default="No data-source explanation recorded.")
     )
     recommended_action = _lane_recommended_action(
         row,
         state=state,
         name=name,
         required_now=required_now,
-        blocks_execution=blocks_execution,
+        blocks_execution=effective_blocks_execution,
     )
     latest_as_of_label = _data_state_text(
         _first_text(row.get("latest_as_of_label"), row.get("latest_as_of"), default="not recorded")
@@ -1425,18 +1943,20 @@ def _data_state_lane_row(row: Mapping[str, object]) -> dict[str, object]:
     return {
         "lane_id": lane_id,
         "name": name,
-        "lane_kind_label": _data_state_text(
-            _first_text(row.get("lane_kind_label"), row.get("lane_kind"), default="lane")
+        "lane_kind_label": _lane_kind_operator_label(
+            _first_text(row.get("lane_kind_label"), row.get("lane_kind"), default="data source")
         ),
         "state": state,
         "status_label": status_label,
         "status_class": status_class,
         "progress_label": progress_label,
         "progress_percent": _lane_progress_percent(row, progress_label),
+        "eta_label": eta_label,
         "required_now": required_now,
         "required_label": "Required now" if required_now else "Optional today",
         "blocks_execution": blocks_execution,
-        "blocks_paper_label": "Yes" if blocks_execution else "No",
+        "effective_blocks_execution": effective_blocks_execution,
+        "blocks_paper_label": "Yes" if effective_blocks_execution else "No",
         "blocker": blocker,
         "ready_for_review": ready_for_review,
         "ready_for_paper_execution": ready_for_paper,
@@ -1468,14 +1988,26 @@ def _lane_refresh_action(
 ) -> dict[str, str]:
     explicit_url = _first_text(row.get("refresh_action_url"))
     explicit_label = _data_state_text(_first_text(row.get("refresh_action_label")))
+    refresh_disabled_reason = _data_state_text(
+        _first_text(row.get("refresh_disabled_reason"), row.get("refresh_action_disabled_reason"))
+    )
+    if explicit_url and (
+        refresh_disabled_reason or not _data_state_bool(row.get("refresh_runnable"), fallback=True)
+    ):
+        return {
+            "url": "",
+            "label": explicit_label or "Refresh unavailable",
+            "detail": refresh_disabled_reason
+            or "This data source has no runnable scheduler refresh job in the current policy.",
+        }
     if explicit_url:
         return {
             "url": explicit_url,
-            "label": explicit_label or "Refresh lane",
+            "label": explicit_label or "Refresh data source",
             "detail": _data_state_text(
                 _first_text(
                     row.get("refresh_action_detail"),
-                    default="Runs the lane refresh through the scheduler policy.",
+                    default="Runs the data refresh through the scheduler policy.",
                 )
             ),
         }
@@ -1487,14 +2019,14 @@ def _lane_refresh_action(
                 "label": "Policy locked",
                 "detail": (
                     f"{REFRESHABLE_MASSIVE_LANES.get(massive_lane, massive_lane)} "
-                    "is tracked for health, but this lane is not exposed as a "
+                    "is tracked for health, but this data source is not exposed as a "
                     "runnable scheduler refresh in the current policy."
                 ),
             }
         return {
             "url": f"/scheduler/massive-lanes/{massive_lane}/refresh",
-            "label": REFRESHABLE_MASSIVE_LANES.get(massive_lane, "Refresh lane"),
-            "detail": "Runs this lane through the scheduler's trade-aware policy.",
+            "label": REFRESHABLE_MASSIVE_LANES.get(massive_lane, "Refresh data source"),
+            "detail": "Runs this data source through the scheduler's trade-aware policy.",
         }
     dataset = source_dataset or lane_id
     if dataset == "subscription_emails" or lane_id == "subscription_thesis":
@@ -1513,12 +2045,14 @@ def _lane_refresh_action(
 
 
 def _refresh_massive_lane_id(lane_id: str, source_dataset: str) -> str:
-    if lane_id in REFRESHABLE_MASSIVE_LANES:
+    if lane_id in RUNNABLE_MASSIVE_LANES:
         return lane_id
     mapped = REFRESHABLE_DATASET_TO_LANE.get(source_dataset) or REFRESHABLE_DATASET_TO_LANE.get(
         lane_id
     )
-    return mapped or ""
+    if mapped:
+        return mapped
+    return lane_id if lane_id in REFRESHABLE_MASSIVE_LANES else ""
 
 
 def _data_state_top_gaps(
@@ -1535,31 +2069,165 @@ def _data_state_top_gaps(
         )
     ]
     ordered = sorted(gap_rows, key=lambda row: _int(row.get("sort_key"), fallback=99))
-    return [
-        {
-            "lane": str(row.get("name") or "Data lane"),
-            "status_label": str(row.get("status_label") or "Needs attention"),
-            "status_class": str(row.get("status_class") or "warn"),
-            "progress_label": str(row.get("progress_label") or "not tracked"),
-            "detail": str(row.get("operator_message") or "No lane detail recorded."),
-            "recommended_action": str(row.get("recommended_action") or "Review this lane."),
-            "blocks_execution": bool(row.get("blocks_execution")),
-        }
-        for row in ordered
-    ]
+    gaps: list[dict[str, object]] = []
+    for row in ordered:
+        lane = str(row.get("name") or "Data source")
+        refresh_action = _mapping(row.get("refresh_action"))
+        recommended_action = str(row.get("recommended_action") or "Review this data source.")
+        if refresh_action.get("url"):
+            recommended_action = _blocker_recommended_action(lane, refresh_action)
+        gaps.append(
+            {
+                "lane": lane,
+                "status_label": _data_state_gap_status_label(
+                    str(row.get("status_label") or "Needs attention")
+                ),
+                "status_class": str(row.get("status_class") or "warn"),
+                "progress_label": str(row.get("progress_label") or "not tracked"),
+                "detail": _data_state_gap_detail(
+                    str(row.get("operator_message") or "No data-source detail recorded.")
+                ),
+                "recommended_action": recommended_action,
+                "blocks_execution": bool(row.get("blocks_execution")),
+                "refresh_action": refresh_action,
+            }
+        )
+    return gaps
+
+
+def _data_state_gap_status_label(value: str) -> str:
+    text = _data_state_text(value)
+    return text.replace("Lane proof", "Data proof")
+
+
+def _data_state_gap_detail(value: str) -> str:
+    text = _data_state_text(value)
+    return text.replace(" lane proof ", " data proof ").replace(
+        "using the source refresh action",
+        "with the refresh button shown here",
+    )
+
+
+def _data_state_blocker_gaps(data_load: Mapping[str, object]) -> list[dict[str, object]]:
+    gaps: list[dict[str, object]] = []
+    for raw in _list(data_load.get("blockers")):
+        row = _mapping(raw)
+        item = _first_text(row.get("item"), row.get("dataset"), row.get("lane"), default="data_proof")
+        reason = _data_state_text(_first_text(row.get("reason"), row.get("detail")))
+        action = _blocker_refresh_action(item)
+        lane_label = _blocker_gap_label(item, action)
+        recommended_action = _blocker_recommended_action(lane_label, action)
+        gaps.append(
+            {
+                "lane": lane_label,
+                "status_label": "Needs attention",
+                "status_class": "block",
+                "progress_label": _data_state_text(
+                    _first_text(row.get("progress_label"), default="not reported")
+                ),
+                "detail": reason or "The cockpit could not verify this source for the current workflow.",
+                "recommended_action": recommended_action,
+                "blocks_execution": True,
+                "refresh_action": action,
+            }
+        )
+    return gaps[:3]
+
+
+def _missing_data_proof_gap(data_load: Mapping[str, object]) -> dict[str, object]:
+    detail = _data_state_text(
+        _first_text(
+            data_load.get("detail"),
+            "The cockpit has no current source-proof rows for this request.",
+        )
+    )
+    return {
+        "lane": "Source proof",
+        "status_label": "Unavailable",
+        "status_class": "block",
+        "progress_label": "not reported",
+        "detail": detail,
+        "recommended_action": "Open System Status, then Refresh the source listed as unavailable.",
+        "blocks_execution": True,
+        "refresh_action": {"url": "", "label": "", "detail": ""},
+    }
+
+
+def _operational_readiness_gap(
+    data_load: Mapping[str, object],
+    *,
+    blocker_count: int,
+    warning_count: int,
+) -> dict[str, object]:
+    status_class = "block" if blocker_count else "warn"
+    progress = _data_state_text(
+        _first_text(
+            data_load.get("progress_label"),
+            data_load.get("runtime_coverage_label"),
+            default="proof gap count reported",
+        )
+    )
+    detail = _data_state_text(
+        _first_text(
+            data_load.get("detail"),
+            (
+                f"Current data-load status reports {blocker_count} paper-readiness issue(s) "
+                f"and {warning_count} warning(s), but no lane-specific gap was attached."
+            ),
+        )
+    )
+    return {
+        "lane": "Readiness proof",
+        "status_label": "Needs attention" if blocker_count else "Needs refresh",
+        "status_class": status_class,
+        "progress_label": progress,
+        "detail": detail,
+        "recommended_action": (
+            "Open Command data readiness, refresh the listed data source, then reload "
+            "Cockpit and confirm the Proof timestamp changed."
+        ),
+        "blocks_execution": blocker_count > 0,
+        "refresh_action": {
+            "url": "/command#data-load-heading",
+            "label": "Open data readiness",
+            "detail": "Show the dashboard that lists the exact data-source refresh action.",
+        },
+    }
+
+
+def _blocker_refresh_action(item: str) -> dict[str, str]:
+    dataset = item.strip()
+    action = _lane_refresh_action({}, lane_id=dataset, source_dataset=dataset)
+    if action.get("url"):
+        return action
+    return {"url": "", "label": "", "detail": ""}
+
+
+def _blocker_gap_label(item: str, action: Mapping[str, object]) -> str:
+    label = _data_state_text(_first_text(action.get("label")))
+    if label.lower().startswith("refresh "):
+        return label[8:].strip() or _label_text(item)
+    return _label_text(item)
+
+
+def _blocker_recommended_action(lane_label: str, action: Mapping[str, object]) -> str:
+    label = _data_state_text(_first_text(action.get("label")))
+    if label:
+        return f"{label}, then reload the cockpit and confirm the proof timestamp changed."
+    return f"Open System Status for {lane_label}, then run the listed refresh job."
 
 
 def _data_state_gap_summary(top_gaps: Sequence[Mapping[str, object]]) -> str:
     execution_gaps = [row for row in top_gaps if row.get("blocks_execution") is True]
     rows = execution_gaps or list(top_gaps)
     labels = [
-        f"{row.get('lane')} ({row.get('progress_label')})"
+        f"{_label_text(str(row.get('name') or row.get('label') or row.get('lane') or 'Data source'))} ({row.get('progress_label')})"
         for row in rows[:3]
         if row.get("lane")
     ]
     if not labels:
-        return "Paper execution needs lane attention before submit."
-    return "Resolve or acknowledge these operationability gaps: " + "; ".join(labels) + "."
+        return "Paper execution needs data or agent attention before submit."
+    return "Resolve or acknowledge these readiness items before paper submit: " + "; ".join(labels) + "."
 
 
 def _lane_recommended_action(
@@ -1576,11 +2244,11 @@ def _lane_recommended_action(
     if state == "loading":
         return f"Wait for {name} to finish loading, then refresh the cockpit."
     if state == "loaded_unanalyzed":
-        return f"Run the {name} analysis before using this lane for decisions."
+        return f"Run the {name} analysis before using this source for decisions."
     if state == "needs_refresh":
         return f"Refresh {name}, then recheck the cockpit proof timestamp."
     if state == "provider_unavailable":
-        return f"Check provider access for {name}, then retry the lane refresh."
+        return f"Check provider access for {name}, then retry the data refresh."
     if state == "ready_for_paper_execution":
         return f"No action needed for {name}; it is ready for paper execution."
     if state == "ready_for_review":
@@ -1588,7 +2256,7 @@ def _lane_recommended_action(
     if not required_now:
         return f"No action needed today; {name} is not required for the current workflow."
     if blocks_execution:
-        return f"Review {name} before paper execution because this lane is execution-critical."
+        return f"Review {name} before paper execution because this source is paper-critical."
     return f"Review {name} before advancing this workflow."
 
 
@@ -1646,6 +2314,36 @@ def _data_state_text(value: object) -> str:
     return re.sub(r"\bstale\b", "needs refresh", text, flags=re.IGNORECASE)
 
 
+def _lane_kind_operator_label(value: object) -> str:
+    normalized = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if normalized in {"raw", "raw_acquisition", "source", "data_source"}:
+        return "Data source"
+    if normalized in {"derived", "derived_signal", "agent", "signal"}:
+        return "Agent analysis"
+    return _data_state_text(value)
+
+
+def _normalize_lane_state(value: str) -> str:
+    normalized = value.strip().lower().replace("-", "_").replace(" ", "_")
+    if normalized in {"stale", "expired", "unverified", "refresh_needed", "needs_refresh"}:
+        return "needs_refresh"
+    if normalized in {"loading", "pending", "planned", "running"}:
+        return "loading"
+    if normalized in {"unavailable", "failed", "missing", "blocked"}:
+        return "provider_unavailable"
+    if normalized in {
+        "loaded_unanalyzed",
+        "provider_unavailable",
+        "ready_for_review",
+        "ready_for_paper_execution",
+        "disabled_optional",
+    }:
+        return normalized
+    if normalized == "ready":
+        return "ready_for_review"
+    return normalized or "loaded_unanalyzed"
+
+
 def _state_from_lane_label(row: Mapping[str, object]) -> str:
     text = _first_text(
         row.get("status_label"),
@@ -1654,6 +2352,8 @@ def _state_from_lane_label(row: Mapping[str, object]) -> str:
     ).lower()
     if "loading" in text or "running" in text:
         return "loading"
+    if "stale" in text or "expired" in text or "unverified" in text:
+        return "needs_refresh"
     if "not required" in text or "optional" in text:
         return "disabled_optional"
     if "unavailable" in text or "failed" in text or "missing" in text:
@@ -1703,8 +2403,44 @@ def _data_lane_sort_key(
     return max(0, base)
 
 
-def _signal_rows(signals_context: Mapping[str, object]) -> list[dict[str, object]]:
+def _signal_rows(
+    signals_context: Mapping[str, object],
+    candidates: Sequence[Mapping[str, object]],
+) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
+    for candidate in candidates:
+        ticker = _first_text(candidate.get("ticker"))
+        if not ticker:
+            continue
+        conviction = _first_text(
+            candidate.get("final_conviction_label"),
+            candidate.get("score_display"),
+            default="not scored",
+        )
+        proof = _first_text(candidate.get("as_of"), default="timestamp not attached")
+        for raw_evidence in _list(candidate.get("evidence"))[:3]:
+            evidence = _mapping(raw_evidence)
+            detail = _first_text(evidence.get("text"))
+            if not detail:
+                continue
+            tier = _first_text(evidence.get("tier"), default="inferred").lower()
+            source = _first_text(evidence.get("source"), default="Candidate evidence")
+            state = "ready" if tier == "confirmed" else "partial" if tier == "inferred" else "blocked"
+            rows.append(
+                {
+                    "name": f"{ticker} - {source}",
+                    "ticker": ticker,
+                    "status": tier.title(),
+                    "state": state,
+                    "tier": tier,
+                    "kind": "candidate evidence",
+                    "detail": detail,
+                    "hard_value": _first_metric(detail),
+                    "source": source,
+                    "proof": proof,
+                    "meta": f"Candidate conviction {conviction}; source proof {proof}.",
+                }
+            )
     for raw in _list(signals_context.get("lanes")):
         item = _mapping(raw)
         state = _status_to_source_state(item.get("status_class"), item.get("status_label"))
@@ -1714,7 +2450,12 @@ def _signal_rows(signals_context: Mapping[str, object]) -> list[dict[str, object
                 "status": _first_text(item.get("status_label"), default="Signal status"),
                 "state": state,
                 "tier": _signal_tier_for_state(state),
+                "kind": "process health",
                 "detail": _first_text(item.get("detail"), default="No signal detail reported."),
+                "hard_value": "",
+                "source": _first_text(item.get("source"), item.get("lane"), default="Signal process"),
+                "proof": _first_text(item.get("freshness_label"), item.get("latest_as_of_label")),
+                "meta": _first_text(item.get("freshness_label"), item.get("latest_as_of_label")),
             }
         )
     return rows
@@ -1734,9 +2475,13 @@ def _scenario_from_context(
 ) -> dict[str, object]:
     engines = [_mapping(item) for item in _list(context.get("engines"))]
     candidates = [_mapping(item) for item in _list(context.get("candidates"))]
+    data_state = _mapping(context.get("data_state"))
+    data_review = _mapping(data_state.get("review"))
+    top_gaps = [_mapping(item) for item in _list(data_state.get("top_gaps"))]
     actionable_count = sum(1 for row in candidates if row.get("actionable") is True)
     reviewable_count = sum(1 for row in candidates if row.get("reviewable") is True)
     order_reviewable_count = sum(1 for row in candidates if row.get("order_reviewable") is True)
+    active_universe_count = _int(data_state.get("active_universe_count"), fallback=0)
     submitted_rows = _submitted_order_rows(execution)
     if submitted_rows:
         total_notional = round(sum(_money_value(row.get("notional")) for row in submitted_rows), 2)
@@ -1748,33 +2493,56 @@ def _scenario_from_context(
             "submitted_total_notional": total_notional,
             "candidate_controls_enabled": False,
         }
+    if context.get("status_delayed") is True and data_review.get("ready") is not True:
+        return _scenario_from_status_delay(context)
+    if data_review.get("ready") is False and top_gaps:
+        scenario = _scenario_from_data_gap(data_state, top_gaps)
+        if not candidates and active_universe_count <= 0:
+            scenario["headline"] = "Agency startup needed: load universe and market-data proof."
+            scenario["detail"] = (
+                f"{scenario.get('detail', '')} The cockpit has no active-universe count and no candidate queue, "
+                "so this is a startup/runtime configuration problem, not a quiet trading day."
+            ).strip()
+            scenario["runtime_setup_required"] = True
+            scenario["setup_steps"] = [
+                "Confirm the Pi runtime has the agency environment file and provider keys loaded.",
+                "Start the scheduler or trigger a data refresh from System Health.",
+                "Reload this cockpit and verify Active universe shows 168 tickers and a current proof timestamp.",
+            ]
+        return scenario
     down_engines = [engine for engine in engines if engine.get("state") == "down"]
-    if down_engines:
+    if down_engines and actionable_count == 0 and reviewable_count + order_reviewable_count == 0:
         return {
             "state": "outage",
-            "headline": "Selection is paused because critical data is unavailable.",
-            "detail": "Refresh the red engine or open its lane detail before approving new decisions.",
+            "headline": "Candidate approvals are locked because critical data is unavailable.",
+            "detail": "Refresh the red engine or open its detail before approving new decisions.",
             "engine_cards": _engine_cards(down_engines),
             "retry_label": _first_text(
                 _mapping(context.get("cycle")).get("next_in"),
-                default="Retry follows the scheduler lane policy.",
+                default="Retry follows the scheduler refresh policy.",
             ),
             "last_good_cycle_label": _last_good_cycle_label(context),
             "candidate_controls_enabled": False,
         }
     if actionable_count == 0:
         if reviewable_count + order_reviewable_count > 0:
+            review_count = reviewable_count + order_reviewable_count
             review_subject = (
-                f"{order_reviewable_count} order intents need approval"
+                f"{order_reviewable_count} order detail approvals need review"
                 if order_reviewable_count and not reviewable_count
                 else f"{reviewable_count} candidates are ready for research review"
                 if reviewable_count and not order_reviewable_count
-                else f"{reviewable_count + order_reviewable_count} candidates are ready for review"
+                else f"{review_count} candidates are ready for review"
             )
             return {
                 "state": "review",
                 "headline": f"{review_subject}.",
                 "detail": "Approve, defer, or reject the review rows; no paper order is staged until policy and execution gates create an orderable preview.",
+                "primary_nav_action": {
+                    "label": f"Start reviewing {review_count} {_plural('candidate', review_count)}",
+                    "detail": "Opens the candidate queue on this page; approval still requires the row-level evidence review.",
+                    "phase": "candidates",
+                },
                 "candidate_controls_enabled": True,
             }
         return {
@@ -1790,7 +2558,168 @@ def _scenario_from_context(
         "state": "normal",
         "headline": f"{actionable_count} trades ready. Approve what you want to ship today.",
         "detail": "Start with the ranked candidates, then review portfolio capacity before clearance.",
+        "primary_nav_action": {
+            "label": f"Review {actionable_count} ready {_plural('trade', actionable_count)}",
+            "detail": "Opens the ranked candidate queue before portfolio and clearance checks.",
+            "phase": "candidates",
+        },
         "candidate_controls_enabled": True,
+    }
+
+
+def _scenario_from_status_delay(context: Mapping[str, object]) -> dict[str, object]:
+    freshness = _mapping(context.get("cockpit_context_freshness"))
+    data_state = _mapping(context.get("data_state"))
+    top_gaps = [_mapping(item) for item in _list(data_state.get("top_gaps"))]
+    freshness_source = _first_text(freshness.get("source")).casefold()
+    first_gap_lane = _first_text(_mapping(top_gaps[0]).get("lane")).casefold() if top_gaps else ""
+    if top_gaps and ("data proof" in freshness_source or first_gap_lane != "source proof"):
+        return _scenario_from_data_gap(data_state, top_gaps)
+    proof_label = _first_text(
+        data_state.get("proof_label"),
+        freshness.get("age_label"),
+        default="checking now",
+    )
+    return {
+        "state": "status-delayed",
+        "headline": "Cockpit status is still loading.",
+        "detail": (
+            "The first-screen status proof has not finished yet. This is not a no-candidate verdict; "
+            "wait a few seconds or open System Status before approving decisions."
+        ),
+        "primary_action": {
+            "label": "Open System Status",
+            "url": "/command",
+            "method": "get",
+            "detail": "Open System Status and check live data-lane progress while the cockpit cache warms.",
+        },
+        "retry_label": "Recheck after the cockpit cache warms.",
+        "last_good_cycle_label": f"Current source proof: {proof_label}",
+        "candidate_controls_enabled": False,
+    }
+
+
+def _scenario_from_data_gap(
+    data_state: Mapping[str, object],
+    top_gaps: Sequence[Mapping[str, object]],
+) -> dict[str, object]:
+    primary = _mapping(top_gaps[0])
+    lane = _data_state_text(_first_text(primary.get("lane"), default="Required source"))
+    action = dict(_mapping(primary.get("refresh_action")))
+    if not _first_text(action.get("url")):
+        action_label = f"Open System Health for {lane}"
+        action = {
+            "label": action_label,
+            "url": "/command",
+            "method": "get",
+            "detail": f"Open System Status and inspect the source state for {lane}.",
+        }
+    recommended = _data_state_text(
+        _first_text(primary.get("recommended_action"), default="Refresh the source, then reload the cockpit.")
+    )
+    detail = _data_state_text(
+        _first_text(primary.get("detail"), default="Current proof is not ready for review.")
+    )
+    progress = _data_state_text(_first_text(primary.get("progress_label")))
+    status_context = (
+        f"{primary.get('lane', '')} {primary.get('status_label', '')} "
+        f"{detail} {recommended}"
+    ).lower()
+    is_missing_or_unavailable = any(
+        marker in status_context
+        for marker in (
+            "source proof",
+            "unavailable",
+            "provider unavailable",
+            "access denied",
+            "nothing should be trusted",
+            "no current source-proof",
+        )
+    )
+    if is_missing_or_unavailable:
+        return {
+            "state": "outage",
+            "headline": f"{lane} needs attention before review can continue.",
+            "detail": f"{detail} What to do now: {recommended}",
+            "data_gap": primary,
+            "primary_action": action,
+            "retry_label": _first_text(
+                data_state.get("proof_label"),
+                default="Recheck follows the scheduler refresh policy.",
+            ),
+            "last_good_cycle_label": f"Current source proof: {_first_text(data_state.get('proof_label'), default='not checked')}",
+            "candidate_controls_enabled": False,
+        }
+    if "still loading" in status_context:
+        headline = f"{lane} data is still loading."
+    elif "not analyzed" in status_context or "has not analyzed" in status_context:
+        headline = f"{lane} needs analysis before review can continue."
+    elif "refresh" in status_context:
+        headline = f"{lane} needs refresh before review can continue."
+    else:
+        headline = f"{lane} needs attention before review can continue."
+    return {
+        "state": "status-delayed",
+        "headline": headline,
+        "detail": f"{detail} What to do now: {recommended}",
+        "data_gap": primary,
+        "primary_action": action,
+        "retry_label": progress or _first_text(
+            data_state.get("proof_label"),
+            default="Recheck follows the scheduler refresh policy.",
+        ),
+        "last_good_cycle_label": f"Current source proof: {_first_text(data_state.get('proof_label'), default='not checked')}",
+        "candidate_controls_enabled": False,
+    }
+
+
+def _scenario_display_titles(scenario: Mapping[str, object]) -> dict[str, object]:
+    row = dict(scenario)
+    headline = _first_text(row.get("headline"), default="Today's cockpit is ready")
+    state = _first_text(row.get("state"), default="normal")
+    if state == "submitted":
+        page_title = "Paper orders were submitted"
+    elif state == "outage":
+        page_title = "Critical data needs attention"
+    elif state == "status-delayed":
+        page_title = "Cockpit status is still loading"
+    elif state == "no-actionable":
+        page_title = "No paper trade is ready right now"
+    elif state == "review":
+        page_title = "Review queue is ready"
+    else:
+        page_title = headline
+    row["page_title"] = page_title
+    row["browser_title"] = f"{page_title} - Trading Agency"
+    return row
+
+
+def _phase_states(context: Mapping[str, object]) -> dict[str, dict[str, str]]:
+    scenario = _mapping(context.get("scenario"))
+    funnel = _mapping(context.get("funnel"))
+    clearance = _mapping(context.get("clearance"))
+    state = _first_text(scenario.get("state"), default="normal")
+    reviewable = _int(funnel.get("reviewable"), funnel.get("actionable"), fallback=0)
+    orderable = _int(clearance.get("orderable_count"), clearance.get("ready_count"), fallback=0)
+    submitted = state == "submitted"
+    blocked = state in {"outage", "status-delayed"}
+    return {
+        "candidates": {
+            "state": "blocked" if blocked else "complete" if submitted or reviewable == 0 else "active",
+            "label": "Needs attention" if blocked else "Complete" if submitted or reviewable == 0 else "Review now",
+        },
+        "portfolio": {
+            "state": "complete" if submitted else "active" if reviewable == 0 and not blocked else "pending",
+            "label": "Checked" if submitted else "Review exposure" if reviewable == 0 and not blocked else "After candidates",
+        },
+        "clearance": {
+            "state": "complete" if submitted else "active" if orderable else "pending",
+            "label": "Complete" if submitted else f"{orderable} ready" if orderable else "No orders",
+        },
+        "cleared": {
+            "state": "complete" if submitted else "pending",
+            "label": "Submitted" if submitted else "After submit",
+        },
     }
 
 
@@ -1937,11 +2866,30 @@ def _qa_scenario(state: str, context: Mapping[str, object]) -> dict[str, object]
     if state == "outage":
         scenario = {
             "state": "outage",
-            "headline": "Selection is paused because critical data is unavailable.",
+            "headline": "Candidate approvals are locked because critical data is unavailable.",
             "detail": "Training scenario only. Refresh actions are disabled as readiness proof.",
             "engine_cards": _engine_cards([_mapping(item) for item in _list(context.get("engines"))][:2]),
             "retry_label": "Training retry countdown",
             "last_good_cycle_label": "Last good cycle proof: training scenario",
+            "candidate_controls_enabled": False,
+        }
+    elif state == "status-delayed":
+        scenario = {
+            "state": "status-delayed",
+            "headline": "Cockpit status is still checking current data proof.",
+            "detail": (
+                "Training scenario only. This is not an empty review queue; wait for "
+                "the current proof timestamp or refresh the named data source."
+            ),
+            "engine_cards": _engine_cards([_mapping(item) for item in _list(context.get("engines"))][:2]),
+            "retry_label": "Training retry countdown",
+            "last_good_cycle_label": "Last good cycle proof: training scenario",
+            "primary_action": {
+                "label": "Open System Status",
+                "url": "/command",
+                "method": "get",
+                "detail": "Open System Status and confirm the proof timestamp changed.",
+            },
             "candidate_controls_enabled": False,
         }
     elif state == "submitted":
@@ -2006,10 +2954,23 @@ def _portfolio_phase_section(
     portfolio_status: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     status = _mapping(portfolio_status)
+    position_count = len(positions)
+    guidance = (
+        f"Review {position_count} open paper position(s). Choose Keep or Close before clearing new orders."
+        if position_count
+        else "No open paper positions are reported. You can continue to clearance; the server will still revalidate account capacity."
+    )
     return {
-        "bluf": "Review current positions before clearing today's manifest.",
-        "empty_state": "No open paper positions are reported by the broker for this cycle.",
-        "position_count": len(positions),
+        "bluf": (
+            "Review current positions before clearing today's manifest."
+            if position_count
+            else "No open paper positions need review before clearance."
+        ),
+        "empty_state": "No open paper positions are reported by the broker for this cycle; continue to clearance if candidate review is complete.",
+        "guidance": guidance,
+        "advance_label": "Continue to Clearance",
+        "portfolio_review_required": position_count > 0,
+        "position_count": position_count,
         "status_label": _first_text(status.get("status_label"), default="Ready"),
         "status_class": _first_text(status.get("status_class"), default="pass"),
         "status_detail": _first_text(status.get("detail")),
@@ -2043,21 +3004,43 @@ def _clearance_section(
         preview = orderable.get(ticker)
         if not preview and not candidate.get("order_notional"):
             continue
+        preview_row = _mapping(preview)
         notional = _money_value(
             candidate.get("order_notional"),
-            preview.get("notional") if preview else None,
-            preview.get("notional_label") if preview else None,
+            preview_row.get("notional"),
+            preview_row.get("notional_label"),
+        )
+        order_intent_hash = _first_text(
+            preview_row.get("order_intent_hash"),
+            candidate.get("order_intent_hash"),
+        )
+        order_intent_hash_label = _first_text(
+            preview_row.get("order_intent_hash_label"),
+            candidate.get("order_intent_hash_label"),
+            default=order_intent_hash[:12] if order_intent_hash else "not attached",
+        )
+        side = _first_text(preview_row.get("side"), default="BUY").upper()
+        cycle_id = _first_text(
+            preview_row.get("cycle_id"),
+            candidate.get("cycle_id"),
+            default="not attached",
+        )
+        as_of = _first_text(
+            preview_row.get("as_of"),
+            candidate.get("as_of"),
+            default="not attached",
         )
         manifest.append(
             {
                 "kind": "buy" if candidate.get("direction") == "long" else "sell",
                 "ticker": ticker,
-                "side": _first_text(_mapping(preview).get("side"), default="BUY"),
+                "side": side,
                 "reason": _first_text(candidate.get("evidence_line"), default="Approved candidate"),
                 "notional": notional,
-                "order_intent_hash": _first_text(candidate.get("order_intent_hash")),
-                "cycle_id": _first_text(candidate.get("cycle_id")),
-                "as_of": _first_text(candidate.get("as_of")),
+                "order_intent_hash": order_intent_hash,
+                "order_intent_hash_label": order_intent_hash_label,
+                "cycle_id": cycle_id,
+                "as_of": as_of,
             }
         )
     status = _mapping(execution_status)
@@ -2083,18 +3066,98 @@ def _audit_lifecycle(
         ticker = str(row.get("ticker") or "")
         if not ticker:
             continue
-        traces[ticker] = [
-            {
-                "message": (
-                    "Approved by current cockpit context."
-                    if row.get("status") == "approved"
-                    else str(row.get("blocker") or "Candidate is visible for audit.")
-                ),
-                "status": str(row.get("status") or "unknown"),
-                "evidence_hash": str(row.get("evidence_hash") or ""),
-            }
-        ]
+        traces[ticker] = _candidate_audit_events(row)
     return {"cycle_id": cycle_id, "traces": traces}
+
+
+def _candidate_audit_events(row: Mapping[str, object]) -> list[dict[str, object]]:
+    ticker = _first_text(row.get("ticker"), default="Ticker")
+    status = _first_text(row.get("status"), default="unknown")
+    status_label = _first_text(row.get("status_label"), default=status)
+    evidence_line = _first_text(row.get("evidence_line"), default="")
+    risk_line = _first_text(row.get("risk_line"), row.get("blocker"), default="")
+    llm_label = _first_text(row.get("llm_label"), default="")
+    action_label = _first_text(row.get("action_label"), default="Open audit")
+    order_preview = _first_text(row.get("order_preview"), default="")
+    detail_url = _first_text(row.get("detail_url"), default=f"/candidates/{ticker}")
+    evidence_hash = _first_text(row.get("evidence_hash"), default="")
+    score = _first_text(row.get("score_display"), row.get("final_conviction_label"), default="")
+
+    first_message = (
+        "Approved by current cockpit context."
+        if status == "approved"
+        else _first_text(row.get("blocker"), default="Candidate is visible for audit.")
+    )
+    events: list[dict[str, object]] = [
+        {
+            "title": "Current cockpit status",
+            "message": first_message,
+            "detail": f"{ticker} is shown as {status_label}."
+            + (f" Final conviction {score}." if score else ""),
+            "status": status,
+            "evidence_hash": evidence_hash,
+            "detail_url": detail_url,
+        }
+    ]
+    if evidence_line:
+        events.append(
+            {
+                "title": "Primary evidence",
+                "message": evidence_line,
+                "detail": "This is the first evidence line used by the cockpit row.",
+                "status": "evidence",
+                "evidence_hash": evidence_hash,
+                "detail_url": detail_url,
+            }
+        )
+    for item in _list(row.get("evidence"))[:2]:
+        evidence = _mapping(item)
+        text = _first_text(evidence.get("text"), evidence.get("detail"))
+        if not text or text == evidence_line:
+            continue
+        events.append(
+            {
+                "title": _first_text(evidence.get("source"), default="Supporting evidence"),
+                "message": text,
+                "detail": f"Tier: {_first_text(evidence.get('tier'), default='not reported')}.",
+                "status": "evidence",
+                "evidence_hash": evidence_hash,
+                "detail_url": detail_url,
+            }
+        )
+    if risk_line:
+        events.append(
+            {
+                "title": "Risk / blocker",
+                "message": risk_line,
+                "detail": _first_text(row.get("risk_status_label"), default="Risk status not attached."),
+                "status": "risk",
+                "evidence_hash": evidence_hash,
+                "detail_url": detail_url,
+            }
+        )
+    if llm_label:
+        events.append(
+            {
+                "title": "LLM review",
+                "message": llm_label,
+                "detail": _first_text(row.get("llm_rationale"), default="No LLM rationale attached."),
+                "status": "llm",
+                "evidence_hash": evidence_hash,
+                "detail_url": detail_url,
+            }
+        )
+    events.append(
+        {
+            "title": "Next action",
+            "message": action_label,
+            "detail": order_preview or "No paper order is attached yet.",
+            "status": "action",
+            "evidence_hash": evidence_hash,
+            "detail_url": detail_url,
+        }
+    )
+    return events
 
 
 def _evidence_items(item: Mapping[str, object]) -> list[dict[str, str]]:
@@ -2127,7 +3190,11 @@ def _evidence_items(item: Mapping[str, object]) -> list[dict[str, str]]:
         {
             "tier": "suppressed",
             "source": "Evidence",
-            "text": "No concrete evidence line is available in the current pack.",
+            "text": (
+                "No current signal evidence was attached for this ticker; open the audit "
+                "to see whether source data is unavailable, still unanalyzed, or below "
+                "the display threshold."
+            ),
         }
     ]
 
@@ -2148,7 +3215,9 @@ def _compact_signals(signals: Sequence[object], *, limit: int = 8) -> list[dict[
     rows: list[dict[str, str]] = []
     for raw in signals[:limit]:
         signal = _mapping(raw)
-        lane = _first_text(signal.get("lane"), default="Signal")
+        lane = _label_text(
+            _first_text(signal.get("display_name"), signal.get("label"), signal.get("lane"), default="Signal")
+        )
         score = _first_text(signal.get("score"))
         confidence = _first_text(signal.get("confidence_pct"))
         confidence_label = f"{confidence}%" if confidence and not confidence.endswith("%") else confidence
@@ -2245,7 +3314,7 @@ def _candidate_status_label(
     if actionable:
         return "Ready to submit paper order"
     if order_reviewable:
-        return "Order intent needs approval"
+        return "Order details need approval"
     if reviewable:
         return "Ready for research review"
     if "BLOCK" in risk_label:

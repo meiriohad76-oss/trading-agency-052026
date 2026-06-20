@@ -25,6 +25,7 @@ from market_flow.storage import (
 )
 
 from research.scripts.pull_massive_stock_trades import (
+    MAX_LIVE_LANE_TICKERS,
     StockTradeProgressWriter,
     _lane_default_limit,
     _lane_resume_enabled,
@@ -94,6 +95,43 @@ def test_normalize_massive_trades_maps_short_fields_and_infers_pressure() -> Non
     assert frame.iloc[0]["timestamp_as_of"] == frame.iloc[0]["trade_ts"] + EXPECTED_LAG
     assert frame.iloc[0]["source_tier"] == "CONFIRMED_TRADE_PRINT"
     assert frame.iloc[0]["verification_level"] == "CONFIRMED"
+
+
+def test_classify_trades_marks_explicit_trf_off_exchange_and_venue() -> None:
+    classified = classify_trades(
+        pd.DataFrame(
+            [
+                {
+                    "ticker": "AAPL",
+                    "trade_ts": "2026-05-06T13:31:00Z",
+                    "price": 100.0,
+                    "size": 100,
+                    "exchange": "4",
+                    "trf_id": "201",
+                    "sequence_number": 1,
+                    "trade_id": "1",
+                },
+                {
+                    "ticker": "AAPL",
+                    "trade_ts": "2026-05-06T13:32:00Z",
+                    "price": 100.0,
+                    "size": 100,
+                    "exchange": "4",
+                    "trf_id": "",
+                    "sequence_number": 2,
+                    "trade_id": "2",
+                },
+            ]
+        )
+    )
+
+    by_sequence = classified.set_index("sequence_number")
+    assert bool(by_sequence.loc[1, "is_trf_off_exchange"]) is True
+    assert bool(by_sequence.loc[1, "is_off_exchange"]) is True
+    assert by_sequence.loc[1, "trf_venue"] == "FINRA/NYSE TRF"
+    assert bool(by_sequence.loc[2, "is_trf_off_exchange"]) is False
+    assert bool(by_sequence.loc[2, "is_off_exchange"]) is False
+    assert by_sequence.loc[2, "trf_venue"] == ""
 
 
 def test_premarket_trade_session_uses_0400_to_0930_eastern_window() -> None:
@@ -238,17 +276,17 @@ def test_live_slice_progress_treats_bounded_partial_page_as_usable(
         rows_written=1_000,
         issues=[],
         coverage=[
-                {
-                    "ticker": "AAPL",
-                    "trade_date": FETCHED_AT.date().isoformat(),
-                    "coverage_status": "partial",
-                    "complete": False,
-                    "downloaded_row_count": 1000,
-                    "pages_downloaded": 1,
-                    "order": "desc",
-                    "stop_reason": "max_pages_per_day",
-                }
-            ],
+            {
+                "ticker": "AAPL",
+                "trade_date": FETCHED_AT.date().isoformat(),
+                "coverage_status": "partial",
+                "complete": False,
+                "downloaded_row_count": 1000,
+                "pages_downloaded": 1,
+                "order": "desc",
+                "stop_reason": "max_pages_per_day",
+            }
+        ],
     )
 
     payload = json.loads(progress_path.read_text(encoding="utf-8"))
@@ -311,9 +349,17 @@ def test_stock_trade_script_requires_explicit_lane_tickers_and_single_day() -> N
     multi_day = SimpleNamespace(
         **{**valid.__dict__, "end": (FETCHED_AT + timedelta(days=1)).date()}
     )
-    broad = SimpleNamespace(
-        **{**valid.__dict__, "ticker": [f"T{i:02d}" for i in range(51)]}
+    active_universe = SimpleNamespace(
+        **{**valid.__dict__, "ticker": [f"T{i:03d}" for i in range(168)]}
     )
+    broad = SimpleNamespace(
+        **{
+            **valid.__dict__,
+            "ticker": [f"T{i:03d}" for i in range(MAX_LIVE_LANE_TICKERS + 1)],
+        }
+    )
+
+    _validate_lane_invocation(active_universe)
 
     for args in (no_ticker, bad_lane, multi_day, broad):
         try:
@@ -801,8 +847,7 @@ def test_massive_trade_params_use_new_york_trade_date_window() -> None:
 
 def test_redact_sensitive_text_removes_massive_api_key_from_errors() -> None:
     message = (
-        "403 for url "
-        "'https://api.polygon.io/v3/trades/AAPL?timestamp.gte=1&apiKey=secret-token'"
+        "403 for url 'https://api.polygon.io/v3/trades/AAPL?timestamp.gte=1&apiKey=secret-token'"
     )
 
     redacted = redact_sensitive_text(message)
@@ -977,6 +1022,8 @@ async def test_partial_trade_page_is_persisted_when_later_page_fails(tmp_path: P
 
 
 async def test_partial_trade_repair_resumes_from_saved_cursor(tmp_path: Path) -> None:
+    import warnings
+
     trade_root = tmp_path / "stock_trades"
     manifest_path = tmp_path / "stock_trades.json"
     seen_cursors: list[str | None] = []
@@ -1025,29 +1072,36 @@ async def test_partial_trade_repair_resumes_from_saved_cursor(tmp_path: Path) ->
             },
         )
 
-    second = await pull_massive_trades(
-        tickers=("aapl",),
-        requested=DateRange(FETCHED_AT.date(), FETCHED_AT.date()),
-        trade_root=trade_root,
-        manifest_path=manifest_path,
-        config=MassiveTradesConfig(
-            api_key="key",
-            base_url="https://api.polygon.io",
-            limit=1,
-            max_pages_per_day=1,
-        ),
-        transport=httpx.MockTransport(second_handler),
-        clock=lambda: FETCHED_AT,
-    )
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        second = await pull_massive_trades(
+            tickers=("aapl",),
+            requested=DateRange(FETCHED_AT.date(), FETCHED_AT.date()),
+            trade_root=trade_root,
+            manifest_path=manifest_path,
+            config=MassiveTradesConfig(
+                api_key="key",
+                base_url="https://api.polygon.io",
+                limit=1,
+                max_pages_per_day=1,
+            ),
+            transport=httpx.MockTransport(second_handler),
+            clock=lambda: FETCHED_AT,
+        )
     final_coverage = load_stock_trade_coverage_metadata(trade_root)["AAPL|2026-05-06"]
     persisted = pd.read_parquet(trade_root / "ticker=AAPL" / "year=2026" / "trades.parquet")
+    warning_messages = [str(w.message) for w in caught if issubclass(w.category, UserWarning)]
 
     assert second.rows_written == 1
     assert seen_cursors == [None, "resume-1"]
     assert len(persisted) == 2
     assert final_coverage["coverage_status"] == "complete"
+    assert final_coverage["row_count_verified"] is False
     assert final_coverage["downloaded_row_count"] == 2
     assert final_coverage["pages_downloaded"] == 2
+    assert any("pagination_completeness_uncertain" in msg for msg in warning_messages), (
+        f"Expected pagination_completeness_uncertain warning, got: {warning_messages}"
+    )
 
 
 async def test_live_slice_can_ignore_saved_backfill_cursor(tmp_path: Path) -> None:
@@ -1161,9 +1215,7 @@ async def test_time_windowed_backfill_marks_cross_window_page_as_boundary(
             )
         return httpx.Response(
             200,
-            json={
-                "results": [_raw(str(call_count), 101.0, 200, "2026-05-06T17:31:00Z")]
-            },
+            json={"results": [_raw(str(call_count), 101.0, 200, "2026-05-06T17:31:00Z")]},
         )
 
     trade_root = tmp_path / "stock_trades"
@@ -1198,11 +1250,7 @@ async def test_time_windowed_backfill_completes_independent_subday_windows(
 
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
-        timestamp = (
-            "2026-05-06T13:31:00Z"
-            if len(requests) == 1
-            else "2026-05-06T17:31:00Z"
-        )
+        timestamp = "2026-05-06T13:31:00Z" if len(requests) == 1 else "2026-05-06T17:31:00Z"
         return httpx.Response(
             200,
             json={"results": [_raw(str(len(requests)), 100.0, 100, timestamp)]},
@@ -1221,9 +1269,7 @@ async def test_time_windowed_backfill_completes_independent_subday_windows(
         transport=httpx.MockTransport(handler),
         clock=lambda: FETCHED_AT,
     )
-    coverage = load_stock_trade_coverage_metadata(tmp_path / "stock_trades")[
-        "AAPL|2026-05-06"
-    ]
+    coverage = load_stock_trade_coverage_metadata(tmp_path / "stock_trades")["AAPL|2026-05-06"]
 
     assert len(requests) == 2
     assert summary.rows_written == 2
@@ -1301,9 +1347,7 @@ async def test_time_windowed_backfill_resumes_after_completed_windows(
 
     assert second.coverage[0]["coverage_status"] == "complete"
     assert len(second_run_requests) == 1
-    assert second_run_requests[0].url.params["timestamp.gte"] == str(
-        _ns("2026-05-06T16:00:00Z")
-    )
+    assert second_run_requests[0].url.params["timestamp.gte"] == str(_ns("2026-05-06T16:00:00Z"))
     assert final_coverage["completed_window_count"] == 2
     assert final_coverage["downloaded_row_count"] == 2
     assert len(persisted) == 2

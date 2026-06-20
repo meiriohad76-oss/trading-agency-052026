@@ -71,10 +71,7 @@ def next_quarterly_filing_date(last_filing_date: date) -> date:
 
 
 def _latest_completed_daily_bar_date(current: date) -> date:
-    candidate = current - timedelta(days=1)
-    while candidate.weekday() >= 5:
-        candidate -= timedelta(days=1)
-    return candidate
+    return previous_trading_day(current)
 
 
 def _latest_published_daily_bar_date(checked_at: datetime) -> date:

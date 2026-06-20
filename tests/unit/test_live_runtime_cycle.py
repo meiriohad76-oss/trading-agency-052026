@@ -155,6 +155,47 @@ def test_recent_daily_price_manifest_stays_fresh_across_weekend(tmp_path: Path) 
     assert {signal["freshness"] for signal in signals} == {"FRESH"}
 
 
+def test_daily_price_manifest_stays_fresh_across_market_holiday_weekend(
+    tmp_path: Path,
+) -> None:
+    loader = loader_with(
+        tmp_path,
+        {
+            DatasetName.PRICES_DAILY: pl.DataFrame(
+                [
+                    price("AAPL", date(2026, 6, 17), 100.0, date(2026, 6, 17), "a1"),
+                    price("AAPL", date(2026, 6, 18), 110.0, date(2026, 6, 18), "a2"),
+                ]
+            )
+        },
+    )
+    _set_manifest_max_as_of(
+        loader.manifest_root,
+        DatasetName.PRICES_DAILY,
+        "2026-06-18T00:00:00+00:00",
+    )
+
+    cycle = build_live_pit_runtime_cycle(
+        cycle_id="cycle-juneteenth-weekend",
+        as_of=date(2026, 6, 20),
+        tickers={"AAPL"},
+        manifest_root=loader.manifest_root,
+        parquet_root=loader.parquet_root,
+        lanes=("abnormal_volume",),
+        generated_at=datetime(2026, 6, 20, 10, 30, tzinfo=UTC),
+    )
+    signals = [
+        signal
+        for pack in cycle.evidence_packs
+        for bucket in ("actionable_signals", "context_signals", "suppressed_signals")
+        for signal in pack[bucket]
+    ]
+
+    assert cycle.source_health[0]["status"] == "HEALTHY"
+    assert signals
+    assert {signal["freshness"] for signal in signals} == {"FRESH"}
+
+
 def test_old_daily_price_manifest_still_goes_stale(tmp_path: Path) -> None:
     loader = loader_with(
         tmp_path,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -7,6 +8,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import SQLAlchemyError
 
 from agency.api import reports as reports_api
 from agency.api.reports import RuntimeSelectionReportsUnavailable, runtime_selection_reports
@@ -14,34 +16,49 @@ from agency.app import create_app
 from agency.runtime.operational_filters import is_non_operational_payload
 
 HTTP_OK = 200
+HTTP_UNAVAILABLE = 503
 EXPECTED_LIMIT = 5
 
 
-def test_selection_reports_endpoint_uses_local_storage_when_postgres_is_unset(
+def test_selection_reports_endpoint_reports_unavailable_when_storage_is_unavailable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("AGENCY_RUNTIME_ARTIFACT_FALLBACK", "false")
+    async def unavailable_reports(**_kwargs: object) -> list[dict[str, object]]:
+        raise RuntimeSelectionReportsUnavailable("runtime selection-report storage is unavailable")
+
+    monkeypatch.setattr(
+        reports_api,
+        "runtime_selection_reports",
+        unavailable_reports,
+    )
     client = TestClient(create_app())
 
     response = client.get("/reports/selection")
 
-    assert response.status_code == HTTP_OK
-    assert isinstance(response.json(), list)
+    assert response.status_code == HTTP_UNAVAILABLE
+    assert response.json()["detail"] == "runtime selection-report storage is unavailable"
 
 
-def test_selection_reports_for_ticker_endpoint_uses_local_storage_when_postgres_is_unset(
+def test_selection_reports_for_ticker_endpoint_reports_unavailable_when_storage_is_unavailable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("AGENCY_RUNTIME_ARTIFACT_FALLBACK", "false")
+    async def unavailable_reports(**_kwargs: object) -> list[dict[str, object]]:
+        raise RuntimeSelectionReportsUnavailable("runtime selection-report storage is unavailable")
+
+    monkeypatch.setattr(
+        reports_api,
+        "runtime_selection_reports",
+        unavailable_reports,
+    )
     client = TestClient(create_app())
 
     response = client.get("/reports/selection/AAPL")
 
-    assert response.status_code == HTTP_OK
-    assert isinstance(response.json(), list)
+    assert response.status_code == HTTP_UNAVAILABLE
+    assert response.json()["detail"] == "runtime selection-report storage is unavailable"
 
 
-def test_selection_reports_endpoint_keeps_route_validation_enabled(
+def test_selection_reports_endpoint_prefers_latest_runtime_artifact(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     observed: dict[str, object] = {}
@@ -65,7 +82,7 @@ def test_selection_reports_endpoint_keeps_route_validation_enabled(
     assert observed["prefer_latest_artifact"] is True
 
 
-def test_selection_reports_ticker_endpoint_keeps_route_validation_enabled(
+def test_selection_reports_ticker_endpoint_prefers_latest_runtime_artifact(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     observed: dict[str, object] = {}
@@ -135,6 +152,154 @@ async def test_runtime_selection_reports_can_skip_internal_validation() -> None:
     assert payloads == [{"ticker": "AAPL"}]
 
 
+async def test_runtime_selection_reports_retries_transient_storage_error() -> None:
+    attempts = 0
+
+    async def reader(
+        session: object,
+        ticker: str | None,
+        limit: int,
+    ) -> list[dict[str, object]]:
+        del session, ticker, limit
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise SQLAlchemyError("database is temporarily busy")
+        return [_selection_report()]
+
+    payloads = await runtime_selection_reports(
+        session_provider=_fake_session_provider,
+        reader=reader,
+    )
+
+    assert attempts == 2
+    assert payloads[0]["ticker"] == "AAPL"
+
+
+async def test_runtime_selection_reports_coalesces_concurrent_cached_reads() -> None:
+    reports_api._clear_runtime_selection_report_cache()
+    attempts = 0
+
+    async def reader(
+        session: object,
+        ticker: str | None,
+        limit: int,
+    ) -> list[dict[str, object]]:
+        del session, ticker, limit
+        nonlocal attempts
+        attempts += 1
+        await asyncio.sleep(0.05)
+        return [_selection_report()]
+
+    try:
+        results = await asyncio.gather(
+            *[
+                runtime_selection_reports(
+                    session_provider=_fake_session_provider,
+                    reader=reader,
+                    validate_payloads=False,
+                    use_cache=True,
+                )
+                for _ in range(8)
+            ]
+        )
+    finally:
+        reports_api._clear_runtime_selection_report_cache()
+
+    assert attempts == 1
+    assert [[row["ticker"] for row in payloads] for payloads in results] == [["AAPL"]] * 8
+
+
+async def test_runtime_selection_reports_uses_recent_live_cache_on_storage_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reports_api._clear_runtime_selection_report_cache()
+    now = 1_000.0
+    storage_available = True
+
+    monkeypatch.setattr(reports_api, "monotonic", lambda: now)
+
+    async def reader(
+        session: object,
+        ticker: str | None,
+        limit: int,
+    ) -> list[dict[str, object]]:
+        del session, ticker, limit
+        if not storage_available:
+            raise SQLAlchemyError("database is temporarily busy")
+        return [_selection_report()]
+
+    try:
+        payloads = await runtime_selection_reports(
+            session_provider=_fake_session_provider,
+            reader=reader,
+            validate_payloads=False,
+            use_cache=True,
+        )
+        now += reports_api.REPORT_CACHE_SECONDS + 0.1
+        storage_available = False
+
+        cached_payloads = await runtime_selection_reports(
+            session_provider=_fake_session_provider,
+            reader=reader,
+            validate_payloads=False,
+            use_cache=True,
+        )
+    finally:
+        reports_api._clear_runtime_selection_report_cache()
+
+    assert payloads == cached_payloads
+
+
+async def test_runtime_selection_reports_returns_recent_cache_while_refresh_runs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reports_api._clear_runtime_selection_report_cache()
+    now = 1_000.0
+    calls = 0
+    refresh_started = asyncio.Event()
+    release_refresh = asyncio.Event()
+
+    monkeypatch.setattr(reports_api, "monotonic", lambda: now)
+
+    async def reader(
+        session: object,
+        ticker: str | None,
+        limit: int,
+    ) -> list[dict[str, object]]:
+        del session, ticker, limit
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return [_selection_report()]
+        refresh_started.set()
+        await release_refresh.wait()
+        return [{**_selection_report(), "ticker": "MSFT"}]
+
+    try:
+        payloads = await runtime_selection_reports(
+            session_provider=_fake_session_provider,
+            reader=reader,
+            validate_payloads=False,
+            use_cache=True,
+        )
+        now += reports_api.REPORT_CACHE_SECONDS + 0.1
+        cached_payloads = await runtime_selection_reports(
+            session_provider=_fake_session_provider,
+            reader=reader,
+            validate_payloads=False,
+            use_cache=True,
+        )
+
+        assert cached_payloads == payloads
+        await asyncio.wait_for(refresh_started.wait(), timeout=1)
+        release_refresh.set()
+        await asyncio.sleep(0)
+    finally:
+        release_refresh.set()
+        reports_api._clear_runtime_selection_report_cache()
+
+
 async def test_runtime_selection_reports_filters_demo_seed_payloads() -> None:
     demo = {**_selection_report(), "cycle_id": "demo-cycle-1"}
 
@@ -171,15 +336,19 @@ async def test_runtime_selection_reports_uses_latest_artifact_when_db_unavailabl
     assert payloads[0]["runtime_origin"] == "runtime_artifact_fallback"
 
 
-async def test_runtime_selection_reports_can_prefer_newer_runtime_artifact(
+async def test_runtime_selection_reports_prefers_runtime_artifact_without_storage_wait(
     tmp_path: Path,
 ) -> None:
+    attempts = 0
+
     async def reader(
         session: object,
         ticker: str | None,
         limit: int,
     ) -> list[dict[str, object]]:
         del session, ticker, limit
+        nonlocal attempts
+        attempts += 1
         return [
             {
                 **_selection_report(),
@@ -211,20 +380,25 @@ async def test_runtime_selection_reports_can_prefer_newer_runtime_artifact(
 
     assert payloads[0]["cycle_id"] == "full-active-refresh-20260524T0625Z"
     assert payloads[0]["runtime_origin"] == "runtime_artifact_selected"
-    assert payloads[0]["runtime_storage_superseded"] is True
+    assert payloads[0]["runtime_storage_superseded"] is False
     assert str(payloads[0]["runtime_artifact_path"]).endswith("selection-reports.json")
     assert payloads[0]["runtime_artifact_timestamp"] == "2026-05-24T06:26:28Z"
+    assert attempts == 0
 
 
-async def test_runtime_selection_reports_do_not_supersede_unknown_db_timestamp(
+async def test_runtime_selection_reports_prefer_valid_artifact_before_unknown_db_timestamp(
     tmp_path: Path,
 ) -> None:
+    attempts = 0
+
     async def reader(
         session: object,
         ticker: str | None,
         limit: int,
     ) -> list[dict[str, object]]:
         del session, ticker, limit
+        nonlocal attempts
+        attempts += 1
         return [
             {
                 **_selection_report(),
@@ -256,8 +430,9 @@ async def test_runtime_selection_reports_do_not_supersede_unknown_db_timestamp(
         validate_payloads=False,
     )
 
-    assert payloads[0]["cycle_id"] == "db-unknown-timestamp"
-    assert "runtime_storage_superseded" not in payloads[0]
+    assert payloads[0]["cycle_id"] == "artifact-valid-timestamp"
+    assert payloads[0]["runtime_origin"] == "runtime_artifact_selected"
+    assert attempts == 0
 
 
 async def test_runtime_selection_reports_does_not_use_artifact_by_default(

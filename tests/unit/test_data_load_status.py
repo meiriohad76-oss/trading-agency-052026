@@ -107,6 +107,73 @@ def test_data_load_status_is_ready_with_full_core_and_sparse_context(
     )
 
 
+def test_forward_fundamentals_health_warns_without_blocking_core_readiness(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    paths = _fixtures(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        data_load_status_module,
+        "DEFAULT_FORWARD_FUNDAMENTALS_STATE_ROOT",
+        tmp_path / "forward_state",
+    )
+    _write_manifest(paths["manifest_root"], "prices_daily", row_count=20, tickers=["AAPL", "MSFT"])
+    _write_manifest(paths["manifest_root"], "stock_trades", row_count=200, tickers=["AAPL", "MSFT"])
+    _write_manifest(paths["manifest_root"], "sec_company_facts", row_count=100, path="sec_company_facts")
+    _partition(paths["parquet_root"], "sec_company_facts", "AAPL")
+    _partition(paths["parquet_root"], "sec_company_facts", "MSFT")
+    _write_manifest(paths["manifest_root"], "sec_form4", row_count=12, path="sec_form4")
+    _partition(paths["parquet_root"], "sec_form4", "AAPL")
+    _write_manifest(paths["manifest_root"], "sec_13f", row_count=4, path="sec_13f")
+    _write_manifest(paths["manifest_root"], "news_rss", row_count=2)
+    _write_manifest(paths["manifest_root"], "subscription_emails", row_count=1)
+    _write_runtime_summary(
+        paths["runtime_summary"],
+        {
+            "abnormal_volume": 2,
+            "technical_analysis": 2,
+            "buy_sell_pressure": 2,
+            "block_trade_pressure": 2,
+            "unusual_trade_activity": 2,
+            "pre_market_unusual_activity": 2,
+            "market_flow_trend": 2,
+            "fundamentals": 2,
+            "insider": 2,
+            "institutional": 1,
+            "news": 1,
+            "subscription_thesis": 1,
+        },
+    )
+    _write_source_health(
+        paths["source_health"],
+        [
+            _source("daily-market-bars", freshness="FRESH", status="HEALTHY"),
+            _source("massive-stock-trades", freshness="FRESH", status="HEALTHY"),
+            _source("sec-company-facts", freshness="FRESH", status="HEALTHY"),
+            _source("sec-form4", freshness="FRESH", status="HEALTHY"),
+            _source("sec-13f", freshness="FRESH", status="HEALTHY"),
+            _source("rss-news", freshness="FRESH", status="HEALTHY"),
+            _source("subscription-email-thesis", freshness="FRESH", status="HEALTHY"),
+        ],
+    )
+
+    status = load_data_load_status(
+        config_path=paths["config"],
+        universe_path=paths["universe"],
+        manifest_root=paths["manifest_root"],
+        parquet_root=paths["parquet_root"],
+        runtime_summary_path=paths["runtime_summary"],
+        source_health_path=paths["source_health"],
+        now=datetime(2026, 5, 11, 15, 2, tzinfo=UTC),
+    )
+
+    forward = _source_row(status, "forward-fundamentals")
+    assert status["state"] == "ready"
+    assert status["blockers"] == []
+    assert forward["status_class"] == "warn"
+    assert "Forward fundamentals" in str(forward["detail"])
+
+
 def test_dynamic_readiness_uses_latest_completed_session_before_premarket(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
@@ -124,7 +191,9 @@ def test_dynamic_readiness_uses_latest_completed_session_before_premarket(
         "DEFAULT_RUNTIME_SUMMARY_PATH",
         paths["runtime_summary"],
     )
-    monkeypatch.setattr(data_load_status_module, "DEFAULT_SOURCE_HEALTH_PATH", paths["source_health"])
+    monkeypatch.setattr(
+        data_load_status_module, "DEFAULT_SOURCE_HEALTH_PATH", paths["source_health"]
+    )
     _write_manifest(
         paths["manifest_root"],
         "prices_daily",
@@ -443,6 +512,7 @@ def test_data_load_status_blocks_partial_core_market_data(
             "unusual_trade_activity": 1,
             "pre_market_unusual_activity": 1,
             "market_flow_trend": 1,
+            "sector_momentum": 1,
         },
     )
 
@@ -595,6 +665,72 @@ def test_data_load_status_counts_desc_partial_stock_trade_slice_as_live_usable(
     assert row["usable_coverage_pct"] == 100
     assert status["market_flow_summary"]["usable_ticker_count"] == 2
     assert status["review_operational_ready"] is True
+
+
+def test_data_load_status_keeps_fresh_daily_bar_subset_review_operational(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    paths = _fixtures(tmp_path, monkeypatch)
+    _write_manifest(
+        paths["manifest_root"],
+        "prices_daily",
+        row_count=20,
+        tickers=["AAPL", "MSFT"],
+    )
+    _write_manifest(
+        paths["manifest_root"],
+        "stock_trades",
+        row_count=200,
+        tickers=["AAPL", "MSFT"],
+    )
+    _write_runtime_summary(
+        paths["runtime_summary"],
+        {
+            "abnormal_volume": 1,
+            "technical_analysis": 1,
+            "buy_sell_pressure": 1,
+            "block_trade_pressure": 1,
+            "unusual_trade_activity": 1,
+            "pre_market_unusual_activity": 1,
+            "market_flow_trend": 1,
+        },
+    )
+    _write_source_health(
+        paths["source_health"],
+        [
+            _source("daily-market-bars", freshness="FRESH", status="DEGRADED"),
+            _source("massive-stock-trades", freshness="FRESH", status="HEALTHY"),
+        ],
+    )
+
+    status = load_data_load_status(
+        config_path=paths["config"],
+        universe_path=paths["universe"],
+        manifest_root=paths["manifest_root"],
+        parquet_root=paths["parquet_root"],
+        runtime_summary_path=paths["runtime_summary"],
+        source_health_path=paths["source_health"],
+        now=datetime(2026, 5, 11, 15, 2, tzinfo=UTC),
+    )
+
+    abnormal_volume = _lane(status, "abnormal_volume")
+    technical_analysis = _lane(status, "technical_analysis")
+    sector_momentum = _lane(status, "sector_momentum")
+
+    assert status["state"] == "attention"
+    assert status["ready"] is True
+    assert status["review_operational_ready"] is True
+    assert status["tradable_ready"] is False
+    assert status["blockers"] == []
+    assert status["mode"] == "review_subset"
+    assert abnormal_volume["status"] == "warning"
+    assert technical_analysis["status"] == "warning"
+    assert "covered ticker" in str(abnormal_volume["detail"]).lower()
+    assert "freshness is FRESH" not in str(abnormal_volume["detail"])
+    assert sector_momentum["status"] == "warning"
+    assert "freshness is FRESH" not in str(sector_momentum["detail"])
+    assert "available daily ohlcv bars" in str(sector_momentum["detail"]).lower()
 
 
 def test_data_load_status_marks_market_flow_partial_when_signals_miss_ticker(
@@ -1275,6 +1411,7 @@ def test_data_load_status_uses_stock_trade_parquet_rows_when_lane_and_coverage_m
     assert row["usable_ticker_count"] == 1
     assert row["partial_ticker_count"] == 1
     assert row["massive_lane_id"] == "massive_live_trade_slices"
+    assert row["max_as_of"] == "2026-05-12T21:05:00+00:00"
     assert "parquet row proof" in str(row["detail"])
     assert "lane manifest does not cover" not in str(status["blockers"])
     assert not status["blockers"]
@@ -2434,8 +2571,83 @@ def test_data_load_status_keeps_block_trade_refresh_execution_blocking(
     assert status["state"] == "blocked"
     assert status["tradable_ready"] is False
     assert any(
-        blocker["kind"] == "data_refresh"
-        and blocker["item"] == "massive_block_trade_feed"
+        blocker["kind"] == "data_refresh" and blocker["item"] == "massive_block_trade_feed"
+        for blocker in status["blockers"]
+    )
+
+
+def test_data_load_status_includes_lane_state_execution_blockers_in_tradable_ready(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    paths = _fixtures(tmp_path, monkeypatch)
+    _write_ready_core_market_lanes(paths)
+    monkeypatch.setattr(
+        data_load_status_module,
+        "load_data_refresh_progress",
+        lambda **_kwargs: {
+            "state": "complete",
+            "percent_complete": 100,
+            "eta_label": "complete",
+            "updated_at": "2026-05-11T15:00:00+00:00",
+            "massive_lanes": [
+                {
+                    "lane_id": "massive_daily_bars",
+                    "label": "Massive Daily Bars",
+                    "state": "complete",
+                    "status_class": "pass",
+                    "progress_label": "100% manifest coverage",
+                    "required_now": True,
+                    "blocks_execution": True,
+                    "latest_as_of": "2026-05-11T15:00:00+00:00",
+                },
+                {
+                    "lane_id": "massive_live_trade_slices",
+                    "label": "Massive Live Trade Slices",
+                    "state": "complete",
+                    "status_class": "pass",
+                    "progress_label": "100% manifest coverage",
+                    "required_now": True,
+                    "blocks_execution": True,
+                    "latest_as_of": "2026-05-11T15:00:00+00:00",
+                },
+                {
+                    "lane_id": "massive_block_trade_feed",
+                    "label": "Massive Block Trade Feed",
+                    "state": "stale",
+                    "status_class": "block",
+                    "progress_label": "100% manifest coverage",
+                    "required_now": True,
+                    "blocks_execution": True,
+                    "latest_as_of": "2026-05-11T14:42:00+00:00",
+                    "detail": "Block-trade proof is outside the paper-execution policy window.",
+                },
+            ],
+            "trade_pull": {"state": "complete", "lane_id": "massive_live_trade_slices"},
+        },
+    )
+
+    status = load_data_load_status(
+        config_path=paths["config"],
+        universe_path=paths["universe"],
+        manifest_root=paths["manifest_root"],
+        parquet_root=paths["parquet_root"],
+        runtime_summary_path=paths["runtime_summary"],
+        source_health_path=paths["source_health"],
+        now=datetime(2026, 5, 11, 15, 2, tzinfo=UTC),
+    )
+
+    block_lane = _lane_state(status, "massive_block_trade_feed")
+    pressure_lane = _lane_state(status, "block_trade_pressure")
+
+    assert status["review_operational_ready"] is True
+    assert status["tradable_ready"] is False
+    assert status["mode"] != "full_universe_tradable"
+    assert block_lane["state"] == "needs_refresh"
+    assert pressure_lane["state"] == "needs_refresh"
+    assert any(
+        blocker["kind"] == "lane_state"
+        and blocker["item"] in {"massive_block_trade_feed", "block_trade_pressure"}
         for blocker in status["blockers"]
     )
 
@@ -2791,6 +3003,169 @@ def test_data_load_status_endpoint_returns_payload(monkeypatch: MonkeyPatch) -> 
     assert response.json()["state"] == "ready"
 
 
+def test_data_load_status_reports_active_raw_lane_as_loading_not_hard_block(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    paths = _fixtures(tmp_path, monkeypatch)
+    _write_manifest(paths["manifest_root"], "prices_daily", row_count=20, tickers=["AAPL", "MSFT"])
+    _write_manifest(paths["manifest_root"], "stock_trades", row_count=200, tickers=["AAPL", "MSFT"])
+    _write_massive_lane_manifest(
+        paths["manifest_root"],
+        lane_id="massive_daily_bars",
+        dataset="prices_daily",
+        source_manifest="prices_daily.json",
+        tickers=["AAPL", "MSFT"],
+        fetched_at="2026-05-11T14:55:00+00:00",
+        coverage=[
+            {"ticker": "AAPL", "coverage_status": "complete", "complete": True},
+            {"ticker": "MSFT", "coverage_status": "complete", "complete": True},
+        ],
+    )
+    _write_massive_lane_manifest(
+        paths["manifest_root"],
+        lane_id="massive_live_trade_slices",
+        tickers=["AAPL", "MSFT"],
+        fetched_at="2026-05-11T14:55:00+00:00",
+        coverage=[
+            {
+                "ticker": "AAPL",
+                "coverage_status": "partial_usable",
+                "downloaded_row_count": 100,
+                "order": "desc",
+                "updated_at": "2026-05-11T14:55:00+00:00",
+            },
+            {
+                "ticker": "MSFT",
+                "coverage_status": "pending",
+                "updated_at": "2026-05-11T14:55:00+00:00",
+            },
+        ],
+    )
+    _write_runtime_summary(
+        paths["runtime_summary"],
+        {
+            "abnormal_volume": 2,
+            "technical_analysis": 2,
+            "buy_sell_pressure": 0,
+            "block_trade_pressure": 0,
+            "unusual_trade_activity": 0,
+            "pre_market_unusual_activity": 0,
+            "market_flow_trend": 0,
+        },
+    )
+    _write_source_health(
+        paths["source_health"],
+        [
+            _source("daily-market-bars", freshness="FRESH", status="HEALTHY"),
+            _source("massive-stock-trades", freshness="FRESH", status="HEALTHY"),
+        ],
+    )
+    monkeypatch.setattr(
+        data_load_status_module,
+        "load_data_refresh_progress",
+        lambda **_kwargs: {
+            "state": "running",
+            "percent_complete": 50,
+            "eta_label": "3m",
+            "updated_at": "2026-05-11T14:55:00+00:00",
+            "massive_lanes": [
+                {
+                    "lane_id": "massive_daily_bars",
+                    "label": "Massive Daily Bars",
+                    "state": "ready",
+                    "status_class": "pass",
+                    "progress_label": "100% manifest coverage",
+                    "required_now": True,
+                    "blocks_execution": True,
+                    "latest_as_of": "2026-05-11T14:55:00+00:00",
+                },
+                {
+                    "lane_id": "massive_live_trade_slices",
+                    "label": "Massive Live Trade Slices",
+                    "state": "running",
+                    "status_class": "warn",
+                    "progress_label": "1/2 ticker-days",
+                    "percent_complete": 50,
+                    "eta_label": "3m",
+                    "required_now": True,
+                    "blocks_execution": True,
+                    "latest_as_of": "2026-05-11T14:55:00+00:00",
+                    "detail": "Live slices are still loading.",
+                },
+            ],
+            "trade_pull": {"state": "running", "lane_id": "massive_live_trade_slices"},
+        },
+    )
+
+    status = load_data_load_status(
+        config_path=paths["config"],
+        universe_path=paths["universe"],
+        manifest_root=paths["manifest_root"],
+        parquet_root=paths["parquet_root"],
+        runtime_summary_path=paths["runtime_summary"],
+        source_health_path=paths["source_health"],
+        now=datetime(2026, 5, 11, 15, 2, tzinfo=UTC),
+    )
+
+    live_raw = _lane_state(status, "massive_live_trade_slices")
+    market_flow = _lane_state(status, "market_flow_trend")
+
+    assert status["state"] == "attention"
+    assert status["status_label"] == "Loaded With Gaps"
+    assert status["blockers"] == []
+    assert any(row["kind"] == "lane_loading" for row in status["warnings"])  # type: ignore[index]
+    assert live_raw["state"] == "loading"
+    assert live_raw["status_class"] == "warn"
+    assert market_flow["state"] == "loading"
+    assert market_flow["status_class"] == "warn"
+    assert "1/2 ticker-days" in str(market_flow["operator_message"])
+
+
+def test_loading_live_trade_lane_suppresses_stock_trade_dataset_blocker() -> None:
+    blockers = data_load_status_module._suppress_loading_lane_blockers(
+        [
+            {
+                "kind": "dataset",
+                "item": "stock_trades",
+                "reason": "Massive trade prints are not ready yet.",
+            },
+            {
+                "kind": "agent_lane",
+                "item": "market_flow_trend",
+                "reason": "Market-flow trend is waiting for raw data.",
+            },
+        ],
+        [
+            {"lane_id": "massive_live_trade_slices", "state": "loading"},
+            {"lane_id": "market_flow_trend", "state": "loading"},
+        ],
+    )
+
+    assert blockers == []
+
+
+def test_attention_headline_does_not_claim_review_operational_when_review_false() -> None:
+    warnings = [
+        {
+            "kind": "lane_loading",
+            "item": "massive_live_trade_slices",
+            "reason": "Massive Live Trade Slices data is still loading (67/78 ticker-days).",
+        }
+    ]
+
+    assert data_load_status_module._headline(
+        "attention",
+        review_operational_ready=False,
+    ) == "Data is still loading; review is not ready yet."
+    assert data_load_status_module._detail(
+        "attention",
+        [],
+        warnings,
+        review_operational_ready=False,
+    ) == "Massive Live Trade Slices data is still loading (67/78 ticker-days)."
+
+
 def test_data_load_status_marks_live_health_monitor_reliable(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
@@ -2848,9 +3223,9 @@ def test_data_load_status_health_monitor_ignores_untracked_stale_rows(
     assert isinstance(monitor, dict)
     assert monitor["status_label"] == "Live Health Monitor"
     assert monitor["row_count"] == 2
-    assert {
-        row["source"] for row in status["freshness_rows"] if isinstance(row, dict)
-    }.isdisjoint({"yfinance-daily"})
+    assert {row["source"] for row in status["freshness_rows"] if isinstance(row, dict)}.isdisjoint(
+        {"yfinance-daily"}
+    )
 
 
 def test_data_load_status_health_monitor_uses_source_specific_sla(
@@ -2950,6 +3325,7 @@ def test_data_load_status_degrades_daily_bar_source_health_for_partial_active_un
         coverage=[
             {"ticker": "AAPL", "coverage_status": "complete", "complete": True},
         ],
+        issues=[{"ticker": "MSFT", "reason": "no_daily_bar_available"}],
     )
 
     status = load_data_load_status(
@@ -2974,6 +3350,8 @@ def test_data_load_status_degrades_daily_bar_source_health_for_partial_active_un
     assert daily_source["missing_active_tickers"] == ["MSFT"]
     assert "1/2 active ticker(s)" in str(daily_source["detail"])
     assert "MSFT" in str(daily_source["detail"])
+    assert "provider returned no daily bar for MSFT" in str(daily_source["detail"])
+    assert "retry is not currently useful" in str(daily_source["detail"])
     assert daily_dataset["status"] == "blocked"
     assert daily_dataset["missing_active_tickers"] == ["MSFT"]
     assert "1/2 active ticker(s)" in str(daily_dataset["detail"])
@@ -3141,7 +3519,9 @@ def test_data_load_status_uses_context_manifests_as_source_health_proof(
     paths = _fixtures(tmp_path, monkeypatch)
     _write_manifest(paths["manifest_root"], "prices_daily", row_count=20, tickers=["AAPL", "MSFT"])
     _write_manifest(paths["manifest_root"], "stock_trades", row_count=200, tickers=["AAPL", "MSFT"])
-    _write_manifest(paths["manifest_root"], "sec_company_facts", row_count=100, path="sec_company_facts")
+    _write_manifest(
+        paths["manifest_root"], "sec_company_facts", row_count=100, path="sec_company_facts"
+    )
     _partition(paths["parquet_root"], "sec_company_facts", "AAPL")
     _partition(paths["parquet_root"], "sec_company_facts", "MSFT")
     _write_manifest(paths["manifest_root"], "sec_form4", row_count=12, path="sec_form4")
@@ -3390,7 +3770,9 @@ def test_subscription_email_status_active_progress_does_not_inherit_old_counts(
     assert email_status["article_links_found"] == 1
     assert email_status["linked_content_skipped"] == 0
     assert email_status["login_required"] == 1
-    assert email_status["continue_action_url"] == "/scheduler/subscription-emails/continue-after-login"
+    assert (
+        email_status["continue_action_url"] == "/scheduler/subscription-emails/continue-after-login"
+    )
     assert email_status["continue_button_label"] == "I logged in - open and analyze articles"
 
 
@@ -3453,13 +3835,17 @@ def test_subscription_email_status_reports_chrome_access_needed_after_login_ack(
     assert email_status["status_label"] == "Chrome agent access needed"
     assert email_status["status_class"] == "warn"
     assert detail in email_status["detail"]
-    assert "No current subscription email article-analysis progress file" not in email_status["detail"]
+    assert (
+        "No current subscription email article-analysis progress file" not in email_status["detail"]
+    )
     assert email_status["progress_label"] == (
         "Login acknowledged; Chrome agent access not connected"
     )
     assert email_status["progress_percent"] == 0
     assert "Close all Chrome windows" in email_status["next_action"]
-    assert email_status["continue_action_url"] == "/scheduler/subscription-emails/continue-after-login"
+    assert (
+        email_status["continue_action_url"] == "/scheduler/subscription-emails/continue-after-login"
+    )
     assert email_status["continue_button_label"] == "I logged in - open and analyze articles"
 
 
@@ -3537,6 +3923,7 @@ def test_data_load_status_blocks_stale_health_monitor_rows(
 
     monitor = status["health_monitor"]
     assert isinstance(monitor, dict)
+    assert monitor["status"] == "needs_refresh"
     assert monitor["status_label"] == "Health Monitor Needs Refresh"
     assert monitor["status_class"] == "block"
     assert monitor["live"] is False
@@ -3573,10 +3960,14 @@ def test_premarket_lane_is_not_required_before_premarket_window(
     )
 
     premarket = _lane(status, "pre_market_unusual_activity")
+    premarket_raw = _lane_state(status, "massive_premarket_trade_slices")
     assert status["tradable_ready"] is True
     assert premarket["status"] == "ready"
     assert premarket["required_now"] is False
     assert premarket["expected_count"] is None
+    assert premarket_raw["required_now"] is False
+    assert premarket_raw["blocks_execution"] is False
+    assert premarket_raw["state"] == "disabled_optional"
     assert "next pre-market refresh starts at" in premarket["detail"]
 
 
@@ -3622,18 +4013,80 @@ def test_premarket_lane_blocks_during_premarket_when_raw_lane_is_stale(
     assert premarket["status"] == "blocked"
     assert premarket["required_now"] is True
     assert premarket["source_status"] == "STALE"
-    assert any(
-        blocker["item"] == "pre_market_unusual_activity"
-        for blocker in status["blockers"]
-    )
+    assert any(blocker["item"] == "pre_market_unusual_activity" for blocker in status["blockers"])
     massive_source = next(
         row for row in status["freshness_rows"] if row["source"] == "massive-stock-trades"
     )
-    assert massive_source["status"] == "STALE"
-    assert "massive_premarket_trade_slices" in str(massive_source["detail"])
+    assert massive_source["status"] == "HEALTHY"
+    assert "massive_live_trade_slices" in str(massive_source["detail"])
     source_summary = status["source_summary"]
     assert isinstance(source_summary, dict)
-    assert source_summary["critical_blocker_count"] == 1
+    assert source_summary["critical_blocker_count"] == 0
+
+
+def test_premarket_trade_lane_reports_provider_access_denied(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    paths = _fixtures(tmp_path, monkeypatch)
+    _write_ready_core_market_lanes(paths)
+    _write_massive_lane_manifest(
+        paths["manifest_root"],
+        lane_id="massive_premarket_trade_slices",
+        tickers=["AAPL", "MSFT"],
+        fetched_at="2026-05-11T11:58:00+00:00",
+        coverage=[
+            {
+                "ticker": "AAPL",
+                "coverage_status": "failed",
+                "reason": "Client error '403 Forbidden' for url 'https://api.massive.test'",
+            },
+            {
+                "ticker": "MSFT",
+                "coverage_status": "failed",
+                "reason": "Client error '403 Forbidden' for url 'https://api.massive.test'",
+            },
+        ],
+    )
+    _write_massive_lane_manifest(
+        paths["manifest_root"],
+        lane_id="massive_block_trade_feed",
+        tickers=["AAPL", "MSFT"],
+        fetched_at="2026-05-11T11:58:00+00:00",
+        coverage=[
+            {"ticker": "AAPL", "coverage_status": "complete", "complete": True},
+            {"ticker": "MSFT", "coverage_status": "complete", "complete": True},
+        ],
+    )
+
+    status = load_data_load_status(
+        config_path=paths["config"],
+        universe_path=paths["universe"],
+        manifest_root=paths["manifest_root"],
+        parquet_root=paths["parquet_root"],
+        runtime_summary_path=paths["runtime_summary"],
+        source_health_path=paths["source_health"],
+        now=datetime(2026, 5, 11, 12, 0, tzinfo=UTC),
+    )
+
+    premarket = _lane(status, "pre_market_unusual_activity")
+    live_raw = _lane_state(status, "massive_live_trade_slices")
+    premarket_raw = _lane_state(status, "massive_premarket_trade_slices")
+    block_raw = _lane_state(status, "massive_block_trade_feed")
+    massive_source = next(
+        row for row in status["freshness_rows"] if row["source"] == "massive-stock-trades"
+    )
+    assert massive_source["status"] == "HEALTHY"
+    assert massive_source["freshness"] == "FRESH"
+    assert "massive_live_trade_slices" in str(massive_source["detail"])
+    assert "403 Forbidden" not in str(massive_source["detail"])
+    assert premarket["source_status"] == "UNAVAILABLE"
+    assert premarket_raw["state"] == "provider_unavailable"
+    assert "403 Forbidden" in str(premarket["detail"])
+    assert live_raw["state"] != "provider_unavailable"
+    assert block_raw["state"] != "provider_unavailable"
+    assert "403 Forbidden" not in str(live_raw["operator_message"])
+    assert "403 Forbidden" not in str(block_raw["operator_message"])
 
 
 def test_premarket_trade_lane_accepts_twenty_minute_old_proof(
@@ -3707,8 +4160,8 @@ def test_data_load_status_operator_copy_avoids_raw_stale_wording(
     )
 
     displayed_text = " ".join(
-            [
-                str(status["detail"]),
+        [
+            str(status["detail"]),
             *[str(row["detail"]) for row in status["datasets"]],
             *[str(row["detail"]) for row in status["freshness_rows"]],
             *[str(issue["reason"]) for issue in status["blockers"]],
@@ -4001,6 +4454,7 @@ def _write_massive_lane_manifest(
     coverage: list[dict[str, object]],
     window_start: str = "2026-05-11",
     window_end: str = "2026-05-11",
+    issues: list[dict[str, object]] | None = None,
 ) -> None:
     root = manifest_root / "massive_lanes"
     root.mkdir(parents=True, exist_ok=True)
@@ -4018,8 +4472,8 @@ def _write_massive_lane_manifest(
         "status": "complete",
         "coverage_pct": 100,
         "coverage": coverage,
-        "issues": [],
-        "issue_count": 0,
+        "issues": issues or [],
+        "issue_count": len(issues or []),
     }
     (root / f"{lane_id}.json").write_text(json.dumps(payload), encoding="utf-8")
 
@@ -4055,6 +4509,16 @@ def _lane_state(status: dict[str, object], name: str) -> dict[str, object]:
         key="lane_id",
         value=name,
         missing_label="lane state",
+    )
+
+
+def _source_row(status: dict[str, object], name: str) -> dict[str, object]:
+    return _row_by_key(
+        status,
+        collection="freshness_rows",
+        key="source",
+        value=name,
+        missing_label="source",
     )
 
 

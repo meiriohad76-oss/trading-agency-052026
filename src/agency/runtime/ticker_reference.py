@@ -5,7 +5,8 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, cast
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+from agency.paths import REPO_ROOT
+
 DEFAULT_TICKER_REFERENCE_PATH = REPO_ROOT / "research" / "data" / "reference" / "massive_ticker_details.json"
 
 

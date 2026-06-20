@@ -228,6 +228,54 @@ def test_live_readiness_prefers_newer_full_active_cycle_over_old_live_pit() -> N
     assert summary["ready"] is True
 
 
+def test_live_readiness_accepts_persisted_auto_lane_refresh_cycle() -> None:
+    summary = build_live_readiness(
+        source_health=[_source("sec-edgar", status="HEALTHY", freshness="FRESH")],
+        selection_reports=[
+            _report("live-pit-2026-06-01-20260601T160623Z", "MSFT", "WATCH"),
+            _report("auto-lane-refresh-20260601T173616Z", "AAPL", "WATCH"),
+        ],
+        risk_decisions=[
+            _risk("live-pit-2026-06-01-20260601T160623Z", "MSFT", "WARN"),
+            _risk("auto-lane-refresh-20260601T173616Z", "AAPL", "WARN"),
+        ],
+    )
+
+    assert summary["cycle_id"] == "auto-lane-refresh-20260601T173616Z"
+    assert summary["ready"] is True
+
+
+def test_live_readiness_uses_ready_lane_proof_over_old_source_health() -> None:
+    summary = build_live_readiness(
+        source_health=[
+            _source("massive-stock-trades", status="DEGRADED", freshness="STALE"),
+        ],
+        selection_reports=[
+            _report(
+                "auto-lane-refresh-20260601T173616Z",
+                "AAPL",
+                "WATCH",
+                source="massive-stock-trades",
+            ),
+        ],
+        risk_decisions=[
+            _risk("auto-lane-refresh-20260601T173616Z", "AAPL", "WARN"),
+        ],
+        lane_states=[
+            {
+                "lane_id": "massive_live_trade_slices",
+                "ready_for_review": True,
+                "required_now": True,
+                "blocks_execution": True,
+                "state": "ready_for_review",
+            },
+        ],
+    )
+
+    assert summary["ready"] is True
+    assert summary["blockers"] == []
+
+
 def test_live_readiness_prefers_operational_cycle_over_newer_manual_smoke() -> None:
     summary = build_live_readiness(
         source_health=[_source("sec-edgar", status="HEALTHY", freshness="FRESH")],

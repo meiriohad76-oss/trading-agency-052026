@@ -1,7 +1,9 @@
 """View-model constructors for the command page."""
+
 from __future__ import annotations
 
 import asyncio
+import os
 import re
 from collections.abc import Awaitable, Mapping, Sequence
 from datetime import UTC, datetime
@@ -45,9 +47,22 @@ from agency.views._shared import (
     _source_health_origin_label,
     _source_is_degraded,
     dashboard_data_health,
+    operator_status_label,
+    workflow_phase_summary,
 )
 
-DASHBOARD_RUNTIME_QUERY_TIMEOUT_SECONDS = 30.0
+
+def _dashboard_runtime_query_timeout_seconds() -> float:
+    raw = os.environ.get("AGENCY_DASHBOARD_RUNTIME_QUERY_TIMEOUT_SECONDS", "")
+    if raw.strip():
+        try:
+            return max(1.0, float(raw))
+        except ValueError:
+            pass
+    return 6.0
+
+
+DASHBOARD_RUNTIME_QUERY_TIMEOUT_SECONDS = _dashboard_runtime_query_timeout_seconds()
 COMMAND_DASHBOARD_REPORT_LIMIT = 20
 LIVE_CRITICAL_SCHEDULER_DATASETS = {"prices_daily", "stock_trades"}
 LIVE_CRITICAL_SCHEDULER_SIGNALS = {
@@ -92,12 +107,12 @@ SCHEDULER_DATASET_REFRESH_ACTIONS = {
     "prices_daily": {
         "url": "/scheduler/massive-lanes/massive_daily_bars/refresh",
         "label": "Refresh daily bars",
-        "detail": "Runs the Massive daily-bars lane under the trade-aware lane policy.",
+        "detail": "Refreshes daily market bars through the trade-aware scheduler.",
     },
     "stock_trades": {
         "url": "/scheduler/massive-lanes/massive_live_trade_slices/refresh",
         "label": "Refresh live trades",
-        "detail": "Runs the Massive live-trade-slices lane under the trade-aware lane policy.",
+        "detail": "Refreshes current trade data through the trade-aware scheduler.",
     },
 }
 
@@ -188,9 +203,32 @@ async def dashboard_context() -> dict[str, object]:
     full_live_readiness_view_model = full_live_readiness_view(full_live_readiness)
     scheduler_status = await scheduler_status_task
     scheduler_view_model = scheduler_work_queue_view(scheduler_status)
+    scheduler_view_model["scheduler_candidate_impact"] = scheduler_candidate_impact_context(
+        scheduler_view_model,
+        review_queue=review_queue,
+    )
     operational_readiness_view_model = operational_readiness_view(operational_readiness)
     provider_readiness_view_model = provider_readiness_view(provider_readiness)
     broker_view_model = broker_status_view(broker)
+    status_overview_view_model = command_status_overview(
+        broker=broker_view_model,
+        data_load_status=data_load_status_view_model,
+        data_refresh=data_refresh_view,
+        full_live_readiness=full_live_readiness_view_model,
+        operational_readiness=operational_readiness_view_model,
+        provider_readiness=provider_readiness_view_model,
+        review_progress=review_progress,
+        scheduler=scheduler_view_model,
+    )
+    operator_checklist = operator_checklist_context(
+        full_live_readiness=full_live_readiness_view_model,
+        review_progress=review_progress,
+        status_overview=status_overview_view_model,
+        execution_summary={},
+    )
+    email_status_view = _mapping_field(data_load_status_view_model, "subscription_email_status")
+    email_alert_active = _email_alert_active(email_status_view)
+    email_progress_active = _email_progress_active(email_status_view)
     runtime_signals = live_config.get("runtime_signals")
     runtime_signal_names = (
         tuple(str(lane) for lane in runtime_signals if isinstance(lane, str))
@@ -208,6 +246,9 @@ async def dashboard_context() -> dict[str, object]:
         "full_live_readiness": full_live_readiness_view_model,
         "live_config": live_config_view(live_config),
         "operational_readiness": operational_readiness_view_model,
+        "operator_checklist": operator_checklist,
+        "email_alert_active": email_alert_active,
+        "email_progress_active": email_progress_active,
         "provider_readiness": provider_readiness_view_model,
         "policy_sections": policy_sections(active_policy),
         "policy_summary": policy_summary(policy=active_policy),
@@ -215,18 +256,14 @@ async def dashboard_context() -> dict[str, object]:
         "review_progress": review_progress,
         "review_queue": review_queue,
         "scheduler": scheduler_view_model,
-        "status_overview": command_status_overview(
-            broker=broker_view_model,
-            data_load_status=data_load_status_view_model,
-            data_refresh=data_refresh_view,
-            full_live_readiness=full_live_readiness_view_model,
-            operational_readiness=operational_readiness_view_model,
-            provider_readiness=provider_readiness_view_model,
+        "status_overview": status_overview_view_model,
+        "workflow_summary": workflow_phase_summary(
             review_progress=review_progress,
-            scheduler=scheduler_view_model,
+            execution_summary={},
         ),
+        "command_freshness_label": _command_freshness_label(data_load_status_view_model),
         "data_health": dashboard_data_health(
-            "Command dashboard",
+            "Command center",
             data_load_status=data_load_status,
             datasets=(
                 "prices_daily",
@@ -241,6 +278,7 @@ async def dashboard_context() -> dict[str, object]:
         ),
         "summary": summary,
     }
+
 
 async def _dashboard_readiness_inputs(
     *,
@@ -262,6 +300,7 @@ async def _dashboard_readiness_inputs(
         "data_load_status": data_load_status,
         "active_policy": active_policy,
     }
+
 
 def command_summary(
     *,
@@ -295,6 +334,98 @@ def command_summary(
         "headline": _command_headline(candidate_count, actionable_candidate_count),
         "detail": _command_detail(candidate_count, degraded_source_count),
     }
+
+
+def operator_checklist_context(
+    *,
+    full_live_readiness: Mapping[str, object],
+    review_progress: Mapping[str, object],
+    status_overview: Mapping[str, object],
+    execution_summary: Mapping[str, object],
+) -> dict[str, object]:
+    """Build the first-screen operator checklist for the command dashboard."""
+    issue_summary = _mapping_field(status_overview, "issue_summary")
+    blocker_count = _optional_int(issue_summary, "blocker_count")
+    warning_count = _optional_int(issue_summary, "warning_count")
+    pending_count = _optional_int(review_progress, "pending_count")
+    orderable_count = _optional_int(execution_summary, "orderable_count")
+    system_label, system_state = operator_status_label(
+        "BLOCK" if blocker_count else "WARN" if warning_count else "PASS"
+    )
+    review_label, review_state = operator_status_label("WARN" if pending_count else "PASS")
+    execution_label, execution_state = operator_status_label(
+        "PASS" if full_live_readiness.get("tradable_ready") is True else "WARN"
+    )
+    orders_label, orders_state = operator_status_label("PASS" if orderable_count else "NO_TRADE")
+    rows = [
+        {
+            "label": "System ready?",
+            "value": system_label,
+            "state": system_state,
+            "href": "#system-diagnostics",
+            "detail": (
+                "No must-fix issues detected."
+                if blocker_count == 0
+                else f"{blocker_count} must-fix issue(s) need attention before paper execution."
+            ),
+        },
+        {
+            "label": "Candidates need review",
+            "value": str(pending_count),
+            "state": review_state,
+            "href": "#review-queue-heading",
+            "detail": (
+                "Review queue is clear."
+                if pending_count == 0
+                else f"Review {pending_count} candidate(s), starting with the top row."
+            ),
+        },
+        {
+            "label": "Execution preview open?",
+            "value": execution_label,
+            "state": execution_state,
+            "href": "/execution-preview",
+            "detail": str(
+                full_live_readiness.get("trading_gate_label")
+                or "Open execution preview after candidate review."
+            ),
+        },
+        {
+            "label": "Orders to submit",
+            "value": str(orderable_count),
+            "state": orders_state,
+            "href": "/execution-preview#orderable-heading",
+            "detail": (
+                "No orderable paper previews yet."
+                if orderable_count == 0
+                else f"{orderable_count} paper order(s) need order approval."
+            ),
+        },
+    ]
+    return {"items": rows, "item_rows": rows}
+
+
+def _command_freshness_label(data_load_status: Mapping[str, object]) -> str:
+    checked = str(data_load_status.get("status_checked_at_label") or "").strip()
+    if checked and checked != "not checked":
+        return f"Updated {checked}"
+    as_of = str(data_load_status.get("as_of_label") or "").strip()
+    if as_of and as_of != "not recorded":
+        return f"Data as of {as_of}"
+    return "Updated time not recorded"
+
+
+def _email_alert_active(email_status: Mapping[str, object]) -> bool:
+    return (
+        _optional_int(email_status, "login_required") > 0
+        or _optional_int(email_status, "linked_content_processing") > 0
+        or bool(str(email_status.get("continue_action_url") or "").strip())
+    )
+
+
+def _email_progress_active(email_status: Mapping[str, object]) -> bool:
+    return True
+
 
 def command_actions() -> list[dict[str, str]]:
     return [
@@ -332,9 +463,7 @@ async def _runtime_data_source_status_with_load_status_live() -> dict[str, objec
             timeout=DASHBOARD_RUNTIME_QUERY_TIMEOUT_SECONDS,
         )
     except Exception:  # noqa: BLE001
-        rows = unavailable_data_source_status(
-            "live source-health reader timed out or failed"
-        )
+        rows = unavailable_data_source_status("live source-health reader timed out or failed")
         return {
             "data_sources": rows,
             "data_load_status": await asyncio.to_thread(
@@ -347,9 +476,7 @@ async def _runtime_data_source_status_with_load_status_live() -> dict[str, objec
     if not data_source_rows:
         data_source_rows = [
             cast(Mapping[str, object], row)
-            for row in unavailable_data_source_status(
-                "live source-health reader returned no rows"
-            )
+            for row in unavailable_data_source_status("live source-health reader returned no rows")
         ]
     data_load_status = _mapping_field(payload, "data_load_status")
     if not data_load_status:
@@ -362,7 +489,6 @@ async def _runtime_data_source_status_with_load_status_live() -> dict[str, objec
         "data_sources": [dict(row) for row in data_source_rows],
         "data_load_status": data_load_status,
     }
-
 
 
 async def _dashboard_risk_decisions_live(
@@ -397,9 +523,7 @@ async def _dashboard_selection_reports_live_checked(
                 )
             )
     except Exception as exc:  # noqa: BLE001
-        raise RuntimeRowsUnavailable(
-            "Runtime selection-report reader is unavailable."
-        ) from exc
+        raise RuntimeRowsUnavailable("Runtime selection-report reader is unavailable.") from exc
 
 
 async def _dashboard_risk_decisions_live_checked(
@@ -426,9 +550,7 @@ async def _dashboard_risk_decisions_live_checked(
                 )
             )
     except Exception as exc:  # noqa: BLE001
-        raise RuntimeRowsUnavailable(
-            "Runtime risk-decision reader is unavailable."
-        ) from exc
+        raise RuntimeRowsUnavailable("Runtime risk-decision reader is unavailable.") from exc
 
 
 async def _rows_from_live_runtime(
@@ -472,6 +594,7 @@ def _source_operator_status(value: str) -> str:
         return "Needs refresh"
     return _operator_text(value)
 
+
 def readiness_view(summary: Mapping[str, object]) -> dict[str, object]:
     view = dict(summary)
     verdict = str(summary["verdict"])
@@ -480,6 +603,7 @@ def readiness_view(summary: Mapping[str, object]) -> dict[str, object]:
     view["status_class"] = _readiness_status_class(verdict)
     view["blocker_rows"] = _readiness_blocker_rows(summary)
     return view
+
 
 def data_refresh_progress_view(progress: Mapping[str, object]) -> dict[str, object]:
     view = dict(progress)
@@ -498,6 +622,7 @@ def data_refresh_progress_view(progress: Mapping[str, object]) -> dict[str, obje
         _mapping_list_field_or_empty(progress, "massive_lanes")
     )
     return view
+
 
 def _data_refresh_display(progress: Mapping[str, object]) -> dict[str, object]:
     state = str(progress.get("state") or "idle").lower()
@@ -520,7 +645,7 @@ def _data_refresh_display(progress: Mapping[str, object]) -> dict[str, object]:
             "the label shows the failed job count instead of implying success."
         ),
         "dataset_tooltip": (
-            "Dataset shows the current or failed dataset/lane from the latest "
+            "Dataset shows the current or failed dataset/process from the latest "
             "refresh status file."
         ),
         "jobs_tooltip": (
@@ -532,7 +657,7 @@ def _data_refresh_display(progress: Mapping[str, object]) -> dict[str, object]:
         ),
         "impact_tooltip": (
             "Refresh Impact separates live-critical failures from support and repair "
-            "work so background repairs do not look like paper-trading blockers."
+            "work so background repairs do not look like paper-trading issues."
         ),
         "next_action_tooltip": (
             "Next Action tells the operator what to do with this refresh state before "
@@ -545,9 +670,7 @@ def _data_refresh_display(progress: Mapping[str, object]) -> dict[str, object]:
 
 def _data_refresh_scope(progress: Mapping[str, object]) -> str:
     candidates = [
-        str(item)
-        for item in _list_or_empty(progress.get("failed_datasets"))
-        if str(item).strip()
+        str(item) for item in _list_or_empty(progress.get("failed_datasets")) if str(item).strip()
     ]
     current = str(progress.get("current_dataset") or "").strip()
     if current and current.lower() != "none":
@@ -676,17 +799,17 @@ def _data_refresh_current_job_label(progress: Mapping[str, object]) -> str:
 def _data_refresh_impact(scope: str, state: str) -> dict[str, str]:
     if state in {"idle", "complete", "planned"}:
         return {
-            "label": "No active load blocker",
+            "label": "No active load issue",
             "status_class": "pass" if state == "complete" else "neutral",
             "detail": "No active refresh failure is recorded for the latest status snapshot.",
         }
     if state == "running":
         if scope == "live_critical":
             return {
-                "label": "Live-critical refresh running",
+                "label": "Paper-critical refresh running",
                 "status_class": "warn",
                 "detail": (
-                    "A live-critical lane is actively loading. Wait for it to finish before "
+                    "Paper-critical market data is actively loading. Wait for it to finish before "
                     "submitting paper orders that depend on fresh market evidence."
                 ),
             }
@@ -705,7 +828,7 @@ def _data_refresh_impact(scope: str, state: str) -> dict[str, str]:
                 "status_class": "neutral",
                 "detail": (
                     "Historical repair or backtest coverage is actively loading. Live review "
-                    "can continue unless a downstream agent explicitly requires this lane."
+                    "can continue unless a downstream agent explicitly requires that dataset."
                 ),
             }
         return {
@@ -715,10 +838,10 @@ def _data_refresh_impact(scope: str, state: str) -> dict[str, str]:
         }
     if scope == "live_critical":
         return {
-            "label": "Live-critical affected",
+            "label": "Paper-critical affected",
             "status_class": "block",
             "detail": (
-                "The affected lane can change review, risk, or paper-order readiness. "
+                "The affected market data can change review, risk, or paper-order readiness. "
                 "Fix and rerun it before submitting paper orders that depend on it."
             ),
         }
@@ -744,26 +867,31 @@ def _data_refresh_impact(scope: str, state: str) -> dict[str, str]:
     return {
         "label": "Impact unknown",
         "status_class": "block" if state in {"failed", "blocked", "stale"} else "neutral",
-        "detail": "The refresh scope is not recognized, so treat the status as blocking until inspected.",
+        "detail": (
+            "The refresh scope is not recognized, so treat the status as a "
+            "must-fix issue until inspected."
+        ),
     }
 
 
 def _data_refresh_next_action(scope: str, state: str) -> str:
     if state == "running":
-        return "Wait for the active lane refresh to finish, then re-check data health."
+        return "Wait for the active data refresh to finish, then re-check data health."
     if state == "stale":
         return "Restart or inspect the refresh monitor before trusting the progress state."
     if state in {"failed", "blocked"}:
         if scope == "live_critical":
-            return "Fix the failed live-critical lane and rerun it before paper-order submission."
+            return (
+                "Fix the failed paper-critical refresh and rerun it before paper-order submission."
+            )
         if scope == "support":
             return "Review can continue with current health gates; rerun the support refresh for complete context."
         if scope == "repair":
             return "Keep live work moving; schedule or resume the repair job off-hours."
         return "Inspect logs and rerun the failed refresh before relying on affected data."
     if state == "complete":
-        return "Use the loaded data, subject to each lane's freshness badge."
-    return "No refresh action is required unless a lane or source falls outside policy."
+        return "Use the loaded data, subject to each source's freshness badge."
+    return "No refresh action is required unless a data source falls outside policy."
 
 
 def _data_refresh_failure_label(
@@ -783,9 +911,7 @@ def _data_refresh_failure_detail(
 ) -> str:
     if state not in {"failed", "blocked"} and progress.get("has_failures") is not True:
         return ""
-    datasets = [
-        str(item) for item in _list_or_empty(progress.get("failed_datasets")) if str(item)
-    ]
+    datasets = [str(item) for item in _list_or_empty(progress.get("failed_datasets")) if str(item)]
     dataset_label = ", ".join(datasets) if datasets else _data_refresh_current_job_label(progress)
     impact = _data_refresh_impact(scope, state)
     return f"{dataset_label} did not complete. {impact['detail']}"
@@ -806,7 +932,7 @@ def _data_refresh_massive_lane_view(row: Mapping[str, object]) -> dict[str, obje
         f"{status_label}. {impact_detail} "
         f"Manifest status: {row.get('manifest_status', 'missing')}; "
         f"coverage: {row.get('manifest_coverage_pct', 0)}%; "
-        f"detail: {row.get('detail', 'No lane detail recorded.')}"
+        f"detail: {row.get('detail', 'No data-pipeline detail recorded.')}"
     )
     view.update(
         {
@@ -817,11 +943,11 @@ def _data_refresh_massive_lane_view(row: Mapping[str, object]) -> dict[str, obje
             "impact_detail": impact_detail,
             "tooltip": _humanize_seconds_in_text(tooltip),
             "progress_tooltip": (
-                "Lane progress is based on the lane manifest and, when available, "
-                "the active lane progress file."
+                "Pipeline progress is based on the coverage record and, when available, "
+                "the active progress file."
             ),
-            "rows_tooltip": "Rows is the latest persisted row count from the lane manifest.",
-            "updated_tooltip": "Updated is the latest progress or manifest timestamp for this lane.",
+            "rows_tooltip": "Rows is the latest persisted row count from the coverage record.",
+            "updated_tooltip": "Updated is the latest progress or coverage timestamp for this data pipeline.",
         }
     )
     return view
@@ -891,23 +1017,24 @@ def _data_refresh_massive_lane_impact(row: Mapping[str, object]) -> tuple[str, s
         "massive_block_trade_feed",
     }:
         return (
-            "Execution-critical",
-            "This lane can affect paper-order readiness because live decisions depend on its market data.",
+            "Paper-critical",
+            "This data pipeline can affect paper-order readiness because live decisions depend on its market data.",
         )
     if "options" in lane_id:
         return (
             "Optional / entitlement",
-            "This lane is optional until the Massive options entitlement is verified and enabled.",
+            "This options feed is optional until the provider entitlement is verified and enabled.",
         )
     if "backtest" in lane_id or "trade_tape" in lane_id:
         return (
             "Research/repair",
-            "This lane supports backtesting and historical research; it should not block live paper trading.",
+            "This data pipeline supports backtesting and historical research; it should not block live paper trading.",
         )
     return (
         "Support/context",
-        "This lane supports context, reference data, or source hygiene for the agency.",
+        "This data pipeline supports context, reference data, or source hygiene for the agency.",
     )
+
 
 def trade_pull_progress_view(trade_pull: Mapping[str, object]) -> dict[str, object]:
     view: dict[str, object] = {
@@ -924,7 +1051,7 @@ def trade_pull_progress_view(trade_pull: Mapping[str, object]) -> dict[str, obje
         "latest_as_of": "not recorded",
         "window_label": "not recorded",
         "guardrail_label": "not configured",
-        "detail": "No Massive stock-trades pull status is available yet.",
+        "detail": "No current trade-data pull status is available yet.",
         "updated_at": "not recorded",
         "job_position_label": "not in latest batch",
     }
@@ -936,6 +1063,7 @@ def trade_pull_progress_view(trade_pull: Mapping[str, object]) -> dict[str, obje
     view["updated_at_label"] = _format_timestamp_or_text(view.get("updated_at"))
     return view
 
+
 def broker_status_view(broker: Mapping[str, object]) -> dict[str, object]:
     view = dict(broker)
     view["status_label"] = str(broker.get("status_label") or "Broker Unknown")
@@ -944,6 +1072,7 @@ def broker_status_view(broker: Mapping[str, object]) -> dict[str, object]:
     view["mode_label"] = _label_text(str(broker.get("mode") or "unknown"))
     view["checked_at"] = str(broker.get("checked_at") or "not checked")
     return view
+
 
 def command_status_overview(
     *,
@@ -992,7 +1121,7 @@ def command_status_overview(
             str(data_load_status.get("status_class") or "neutral"),
             (
                 f"{data_load_status.get('overall_percent', 0)}% ready; "
-                f"{data_load_status.get('blocker_count', 0)} blocker(s), "
+                f"{data_load_status.get('blocker_count', 0)} must-fix issue(s), "
                 f"{data_load_status.get('warning_count', 0)} warning(s)."
             ),
         ),
@@ -1004,7 +1133,9 @@ def command_status_overview(
             (
                 str(full_live_readiness.get("detail") or "")
                 if review_operational
-                else str(operational_readiness.get("status_label") or "Review readiness is blocked.")
+                else str(
+                    operational_readiness.get("status_label") or "Review readiness is blocked."
+                )
             ),
         ),
         _status_overview_row(
@@ -1056,7 +1187,7 @@ def command_status_overview(
             if refresh_eta not in {"", "not available"}
             else refresh_status,
             "tooltip": (
-                "Hard blockers stop review or operation. Execution gates can allow "
+                "Must-fix issues stop review or operation. Execution gates can allow "
                 "review while blocking paper-order submission. Warnings require review "
                 "but may still allow candidate analysis."
             ),
@@ -1072,7 +1203,7 @@ def command_status_overview(
             "detail": _humanize_seconds_in_text(
                 str(
                     trade_pull.get("detail")
-                    or "No Massive stock-trades pull status is available yet."
+                    or "No current trade-data pull status is available yet."
                 )
             ),
             "ticker_progress_label": str(
@@ -1111,6 +1242,7 @@ def _trade_pull_tooltip(trade_pull: Mapping[str, object]) -> str:
         f"Freshness: {trade_pull.get('latest_as_of') or 'not recorded'}."
     )
 
+
 def _system_process_rows(
     *,
     broker: Mapping[str, object],
@@ -1145,7 +1277,7 @@ def _system_process_rows(
             "live response",
             str(data_load_status.get("status_checked_at") or "not checked"),
             "FastAPI rendered the command page and loaded the runtime readers for this request.",
-            "Use the health, lane, and readiness rows below to decide whether the agency can trade.",
+            "Use the health, data-pipeline, and readiness rows below to decide whether the agency can trade.",
         ),
         _process_row(
             "process-health-monitor",
@@ -1176,7 +1308,7 @@ def _system_process_rows(
         ),
         _process_row(
             "process-massive-orchestrator",
-            "Massive multi-lane orchestrator",
+            "Market data coverage coordinator",
             str(massive_orchestrator.get("status_label") or "Unknown"),
             str(massive_orchestrator.get("status_class") or "neutral"),
             (
@@ -1188,8 +1320,7 @@ def _system_process_rows(
             str(massive_orchestrator.get("market_phase") or "market phase unknown"),
             str(massive_orchestrator.get("generated_at") or "not recorded"),
             str(
-                massive_orchestrator.get("detail")
-                or "Massive lane orchestration detail is unavailable."
+                massive_orchestrator.get("detail") or "Market-data coverage detail is unavailable."
             ),
             _massive_orchestrator_action(massive_orchestrator),
         ),
@@ -1210,7 +1341,7 @@ def _system_process_rows(
         ),
         _process_row(
             "process-massive-live",
-            "Massive live trade slices",
+            "Current trade-data refresh",
             str(trade_pull.get("status_label") or "No Pull"),
             str(trade_pull.get("status_class") or "neutral"),
             (
@@ -1220,12 +1351,12 @@ def _system_process_rows(
             str(data_refresh.get("eta_label") or "not available"),
             str(trade_pull.get("latest_as_of") or "not recorded"),
             str(trade_pull.get("updated_at") or "not recorded"),
-            str(trade_pull.get("detail") or "Massive live trade-pull detail is unavailable."),
+            str(trade_pull.get("detail") or "Current trade-data refresh detail is unavailable."),
             _trade_pull_action(trade_pull),
         ),
         _process_row(
             "process-massive-repair",
-            "Massive full-depth repair and backtest tape",
+            "Historical trade backfill and backtest tape",
             str(repair.get("status_label") or "Unknown"),
             str(repair.get("status_class") or "neutral"),
             f"{repair.get('job_count', 0)} repair job(s)",
@@ -1238,31 +1369,60 @@ def _system_process_rows(
         _process_row_for_rows(
             "process-prices-technical",
             "Daily bars and technical-analysis workers",
-            [*_select_rows(dataset_rows, "dataset", {"prices_daily"}), *_select_rows(lane_rows, "lane", {"abnormal_volume", "technical_analysis", "sector_momentum"})],
+            [
+                *_select_rows(dataset_rows, "dataset", {"prices_daily"}),
+                *_select_rows(
+                    lane_rows, "lane", {"abnormal_volume", "technical_analysis", "sector_momentum"}
+                ),
+            ],
             "Daily price, abnormal volume, technical setup, and sector context used by the signal dashboards.",
         ),
         _process_row_for_rows(
             "process-market-flow",
             "Market-flow trade workers",
-            [*_select_rows(dataset_rows, "dataset", {"stock_trades"}), *_select_rows(lane_rows, "lane", {"buy_sell_pressure", "block_trade_pressure", "unusual_trade_activity", "pre_market_unusual_activity", "market_flow_trend"})],
-            "Massive trade prints feed buy/sell pressure, blocks, unusual trades, pre-market activity, and market-flow trend.",
+            [
+                *_select_rows(dataset_rows, "dataset", {"stock_trades"}),
+                *_select_rows(
+                    lane_rows,
+                    "lane",
+                    {
+                        "buy_sell_pressure",
+                        "block_trade_pressure",
+                        "unusual_trade_activity",
+                        "pre_market_unusual_activity",
+                        "market_flow_trend",
+                    },
+                ),
+            ],
+            "Current trade prints feed buy/sell pressure, block-trade pressure, unusual trades, pre-market activity, and market-flow trend.",
         ),
         _process_row_for_rows(
             "process-sec-filings",
             "SEC and filing workers",
-            [*_select_rows(dataset_rows, "dataset", {"sec_company_facts", "sec_form4", "sec_13f"}), *_select_rows(lane_rows, "lane", {"fundamentals", "insider", "institutional"})],
-            "SEC company facts, insider Form 4, and 13F evidence supply slower-moving confirmation lanes.",
+            [
+                *_select_rows(
+                    dataset_rows, "dataset", {"sec_company_facts", "sec_form4", "sec_13f"}
+                ),
+                *_select_rows(lane_rows, "lane", {"fundamentals", "insider", "institutional"}),
+            ],
+            "SEC company facts, insider Form 4, and 13F evidence supply slower-moving confirmation evidence.",
         ),
         _process_row_for_rows(
             "process-news",
             "RSS/news worker",
-            [*_select_rows(dataset_rows, "dataset", {"news_rss"}), *_select_rows(lane_rows, "lane", {"news"})],
+            [
+                *_select_rows(dataset_rows, "dataset", {"news_rss"}),
+                *_select_rows(lane_rows, "lane", {"news"}),
+            ],
             "Headline/news rows add current context and can trigger affected-ticker mini cycles.",
         ),
         _process_row_for_rows(
             "process-email",
             "Subscription email and article-analysis worker",
-            [*_select_rows(dataset_rows, "dataset", {"subscription_emails"}), *_select_rows(lane_rows, "lane", {"subscription_thesis"})],
+            [
+                *_select_rows(dataset_rows, "dataset", {"subscription_emails"}),
+                *_select_rows(lane_rows, "lane", {"subscription_thesis"}),
+            ],
             "Mailbox alerts, opened article links, and LLM article theses provide paid-source context.",
         ),
         _process_row(
@@ -1277,7 +1437,10 @@ def _system_process_rows(
             str(full_live_active_refresh.get("eta_label", "not available")),
             "latest cycle",
             str(data_load_status.get("generated_at") or "not recorded"),
-            str(full_live_readiness.get("detail") or "Selection/LLM readiness detail is unavailable."),
+            str(
+                full_live_readiness.get("detail")
+                or "Selection/LLM readiness detail is unavailable."
+            ),
             "Review final-selection rows by conviction; LLM output is visible in selection and candidate detail.",
         ),
         _process_row(
@@ -1286,13 +1449,20 @@ def _system_process_rows(
             str(operational_readiness.get("status_label") or "Unknown"),
             str(operational_readiness.get("status_class") or "neutral"),
             (
-                f"{operational_readiness.get('blocker_count', 0)} blockers; "
+                f"{operational_readiness.get('blocker_count', 0)} must-fix issue(s); "
                 f"{operational_readiness.get('warning_count', 0)} warnings"
             ),
             "per review cycle",
             "policy and broker snapshot",
-            str(operational_readiness.get("generated_at") or broker.get("checked_at") or "not recorded"),
-            str(operational_readiness.get("detail") or "Risk and portfolio policy gate detail is unavailable."),
+            str(
+                operational_readiness.get("generated_at")
+                or broker.get("checked_at")
+                or "not recorded"
+            ),
+            str(
+                operational_readiness.get("detail")
+                or "Risk and portfolio policy gate detail is unavailable."
+            ),
             "Open Risk, then Execution Preview for rows that are ALLOW and orderable.",
         ),
         _process_row(
@@ -1354,6 +1524,7 @@ def _system_process_rows(
         ),
     ]
 
+
 def _process_row(
     row_id: str,
     process: str,
@@ -1377,10 +1548,9 @@ def _process_row(
         "last_update": _compact_timestamp_label(last_update),
         "detail": _humanize_seconds_in_text(detail),
         "action": action,
-        "tooltip": _humanize_seconds_in_text(
-            f"{process}: {detail} Action: {action}"
-        ),
+        "tooltip": _humanize_seconds_in_text(f"{process}: {detail} Action: {action}"),
     }
+
 
 def _process_status_label(value: str) -> str:
     text = str(value or "").strip()
@@ -1406,11 +1576,13 @@ def _process_status_label(value: str) -> str:
     }
     return replacements.get(normalized, text or "Unknown")
 
+
 def _compact_timestamp_label(value: str) -> str:
     text = str(value or "").strip()
     if not text or text.lower() in {"none", "not recorded", "not checked"}:
         return text or "not recorded"
     return _format_timestamp_or_text(text, default=text)
+
 
 def _process_row_for_rows(
     row_id: str,
@@ -1432,12 +1604,14 @@ def _process_row_for_rows(
         _combined_action(status_class),
     )
 
+
 def _select_rows(
     rows: Sequence[Mapping[str, object]],
     key: str,
     values: set[str],
 ) -> list[Mapping[str, object]]:
     return [row for row in rows if str(row.get(key) or "") in values]
+
 
 def _combined_status_class(rows: Sequence[Mapping[str, object]]) -> str:
     classes = {str(row.get("status_class") or "neutral") for row in rows}
@@ -1449,6 +1623,7 @@ def _combined_status_class(rows: Sequence[Mapping[str, object]]) -> str:
         return "pass"
     return "neutral"
 
+
 def _combined_status_label(status_class: str) -> str:
     return {
         "pass": "Operational",
@@ -1457,18 +1632,16 @@ def _combined_status_label(status_class: str) -> str:
         "neutral": "Not Verified",
     }.get(status_class, "Not Verified")
 
+
 def _combined_progress_label(rows: Sequence[Mapping[str, object]]) -> str:
     if not rows:
         return "not configured"
     ready = sum(1 for row in rows if str(row.get("status_class") or "") == "pass")
     total = len(rows)
-    coverage_values = [
-        _optional_int(row, "coverage_pct")
-        for row in rows
-        if "coverage_pct" in row
-    ]
+    coverage_values = [_optional_int(row, "coverage_pct") for row in rows if "coverage_pct" in row]
     average = round(sum(coverage_values) / len(coverage_values)) if coverage_values else 0
     return f"{ready}/{total} healthy; {average}% avg coverage"
+
 
 def _combined_freshness_label(rows: Sequence[Mapping[str, object]]) -> str:
     values = [
@@ -1483,6 +1656,7 @@ def _combined_freshness_label(rows: Sequence[Mapping[str, object]]) -> str:
         return unique[0]
     return ", ".join(unique[:3])
 
+
 def _combined_last_update(rows: Sequence[Mapping[str, object]]) -> str:
     candidates = [
         str(row.get("source_last_success_at") or row.get("max_as_of") or "")
@@ -1491,6 +1665,7 @@ def _combined_last_update(rows: Sequence[Mapping[str, object]]) -> str:
     ]
     return max(candidates) if candidates else "not recorded"
 
+
 def _combined_detail(rows: Sequence[Mapping[str, object]], default_detail: str) -> str:
     for status_class in ("block", "warn"):
         for row in rows:
@@ -1498,14 +1673,16 @@ def _combined_detail(rows: Sequence[Mapping[str, object]], default_detail: str) 
                 return str(row.get("detail") or default_detail)
     return default_detail
 
+
 def _combined_action(status_class: str) -> str:
     if status_class == "pass":
         return "Use normally in review and candidate scoring."
     if status_class == "warn":
         return "Use for review, but inspect the data-health detail before acting."
     if status_class == "block":
-        return "Refresh this lane before relying on it for execution."
-    return "Run the relevant refresh or runtime cycle to verify this lane."
+        return "Refresh this source before relying on it for execution."
+    return "Run the relevant refresh or runtime cycle to verify this source."
+
 
 def _next_job_eta(scheduler: Mapping[str, object]) -> str:
     for row in _mapping_list_field_or_empty(scheduler, "next_job_rows"):
@@ -1514,29 +1691,33 @@ def _next_job_eta(scheduler: Mapping[str, object]) -> str:
             return eta
     return "no due job"
 
+
 def _scheduler_action(scheduler: Mapping[str, object]) -> str:
     status_class = str(scheduler.get("status_class") or "neutral")
     if status_class == "pass":
         return "Scheduler does not block paper-order readiness."
     if status_class == "warn":
         return "Run due jobs or inspect datasets that need refresh before paper submission."
-    return "Fix scheduler or freshness blockers before using execution."
+    return "Fix scheduler or data-currency issues before using execution."
+
 
 def _massive_orchestrator_eta(orchestrator: Mapping[str, object]) -> str:
     for row in _mapping_list_field_or_empty(orchestrator, "lanes"):
         if str(row.get("status") or "") in {"RUNNING", "DUE_NOW"}:
             return str(row.get("eta_label") or "not available")
-    return "no due lane"
+    return "no due data refresh"
+
 
 def _massive_orchestrator_action(orchestrator: Mapping[str, object]) -> str:
     status_class = str(orchestrator.get("status_class") or "neutral")
     if status_class == "pass":
-        return "Use Massive-backed lanes normally in review and paper-gate checks."
+        return "Use current market-data pipelines normally in review and paper-gate checks."
     if status_class == "warn":
-        return "Run due Massive lanes in priority order; live lanes take precedence over repair."
+        return "Run due market-data refreshes in priority order; current-data refreshes take precedence over repair."
     if status_class == "block":
         return "Fix Massive credentials or source-health before relying on market-flow evidence."
-    return "Run the scheduler status check to verify Massive lane readiness."
+    return "Run the scheduler status check to verify market-data readiness."
+
 
 def _refresh_action(data_refresh: Mapping[str, object]) -> str:
     state = str(data_refresh.get("state") or "idle")
@@ -1546,6 +1727,7 @@ def _refresh_action(data_refresh: Mapping[str, object]) -> str:
         return "Open logs, fix the failed source, and rerun the refresh."
     return "Rerun only when a source falls outside policy or the scheduler marks it due."
 
+
 def _trade_pull_action(trade_pull: Mapping[str, object]) -> str:
     status_class = str(trade_pull.get("status_class") or "neutral")
     if status_class == "pass":
@@ -1554,12 +1736,14 @@ def _trade_pull_action(trade_pull: Mapping[str, object]) -> str:
         return "Use latest-slice signals; let full-depth repair finish for research/backtests."
     return "Repair Massive trade coverage before relying on market-flow signals."
 
+
 def _health_monitor_action(health_monitor: Mapping[str, object]) -> str:
     if str(health_monitor.get("status_class") or "") == "pass":
-        return "Health badges can be used; still follow each lane's freshness gate."
+        return "Health badges can be used; still follow each source's freshness gate."
     if str(health_monitor.get("status_class") or "") == "warn":
         return "Use as review context only until the live source-health reader is available."
     return "Do not rely on dashboard health badges for execution until monitoring refreshes."
+
 
 def _freshness_gate_status_label(checks: Sequence[Mapping[str, object]]) -> str:
     status_class = _freshness_gate_status_class(checks)
@@ -1567,6 +1751,7 @@ def _freshness_gate_status_label(checks: Sequence[Mapping[str, object]]) -> str:
         status_class,
         "Not Checked",
     )
+
 
 def _freshness_gate_status_class(checks: Sequence[Mapping[str, object]]) -> str:
     statuses = {str(check.get("status_class") or "neutral") for check in checks}
@@ -1578,10 +1763,12 @@ def _freshness_gate_status_class(checks: Sequence[Mapping[str, object]]) -> str:
         return "pass"
     return "neutral"
 
+
 def _freshness_gate_freshness_label(checks: Sequence[Mapping[str, object]]) -> str:
     if not checks:
         return "not checked"
     return f"{sum(1 for check in checks if check.get('status_class') == 'pass')}/{len(checks)} pass"
+
 
 def _freshness_gate_detail(checks: Sequence[Mapping[str, object]]) -> str:
     for status_class in ("block", "warn"):
@@ -1592,6 +1779,7 @@ def _freshness_gate_detail(checks: Sequence[Mapping[str, object]]) -> str:
         return "Broker state and critical evidence freshness checks are passing."
     return "Execution freshness checks are not loaded yet."
 
+
 def _mapping_list_field_or_empty(
     payload: Mapping[str, object],
     key: str,
@@ -1599,17 +1787,16 @@ def _mapping_list_field_or_empty(
     value = payload.get(key)
     if not isinstance(value, list):
         return []
-    return [
-        cast(Mapping[str, object], item)
-        for item in value
-        if isinstance(item, Mapping)
-    ]
+    return [cast(Mapping[str, object], item) for item in value if isinstance(item, Mapping)]
+
 
 def _list_or_empty(value: object) -> list[object]:
     return value if isinstance(value, list) else []
 
+
 def _bounded_percent(row: Mapping[str, object], key: str) -> int:
     return max(0, min(100, _int_field(row, key)))
+
 
 def _status_overview_row(
     row_id: str,
@@ -1625,6 +1812,7 @@ def _status_overview_row(
         "status_class": status_class,
         "detail": _humanize_seconds_in_text(detail or "No detail available."),
     }
+
 
 def data_load_status_view(status: Mapping[str, object]) -> dict[str, object]:
     view = cast(dict[str, object], _humanize_nested(dict(status)))
@@ -1647,12 +1835,10 @@ def data_load_status_view(status: Mapping[str, object]) -> dict[str, object]:
         _mapping_field(status, "subscription_email_status")
     )
     view["dataset_rows"] = [
-        _data_load_row(cast(Mapping[str, object], row))
-        for row in _list_field(status, "datasets")
+        _data_load_row(cast(Mapping[str, object], row)) for row in _list_field(status, "datasets")
     ]
     view["lane_rows"] = [
-        _data_load_row(cast(Mapping[str, object], row))
-        for row in _list_field(status, "lanes")
+        _data_load_row(cast(Mapping[str, object], row)) for row in _list_field(status, "lanes")
     ]
     view["lane_state_rows"] = [
         _lane_state_row(cast(Mapping[str, object], row))
@@ -1710,12 +1896,14 @@ def _subscription_email_status_view(row: Mapping[str, object]) -> dict[str, obje
     view.setdefault("affected_tickers", [])
     view.setdefault("affected_tickers_label", "Affected tickers: none")
     view.setdefault("mini_cycle_state", "")
-    view.setdefault("mini_cycle_status_label", "No stock mini-analysis run recorded for this email sync.")
+    view.setdefault(
+        "mini_cycle_status_label", "No stock mini-analysis run recorded for this email sync."
+    )
     view.setdefault("mini_cycle_ticker_rows", [])
     view.setdefault("refresh_action_url", "/scheduler/subscription-emails/login-refresh")
-    view.setdefault("refresh_button_label", "Open Seeking Alpha login refresh")
-    view.setdefault("continue_action_url", "")
-    view.setdefault("continue_button_label", "")
+    view.setdefault("refresh_button_label", "Open SA browser and verify login")
+    view.setdefault("continue_action_url", "/scheduler/subscription-emails/continue-after-login")
+    view.setdefault("continue_button_label", "I logged in - analyze unread SA emails")
     view["last_update_label"] = _format_timestamp_or_text(
         view.get("updated_at"),
         default="not recorded",
@@ -1729,9 +1917,7 @@ def _subscription_email_status_view(row: Mapping[str, object]) -> dict[str, obje
     total = links or attempted or succeeded + failed + skipped + login_required
     if not view.get("progress_label"):
         view["progress_label"] = (
-            f"{succeeded}/{total} article links analyzed"
-            if total
-            else "No article links selected"
+            f"{succeeded}/{total} article links analyzed" if total else "No article links selected"
         )
     if view.get("progress_percent") is None:
         view["progress_percent"] = 0 if total == 0 else round((succeeded / total) * 100)
@@ -1794,6 +1980,7 @@ def _source_health_kpi(rows: Sequence[Mapping[str, object]]) -> dict[str, str]:
         ),
     }
 
+
 def full_live_readiness_view(readiness: Mapping[str, object]) -> dict[str, object]:
     view = cast(dict[str, object], _humanize_nested(dict(readiness)))
     coverage = _mapping_field(readiness, "coverage")
@@ -1836,6 +2023,7 @@ def full_live_readiness_view(readiness: Mapping[str, object]) -> dict[str, objec
     )
     return view
 
+
 def _humanized_mapping(
     row: Mapping[str, object],
     *,
@@ -1847,6 +2035,7 @@ def _humanized_mapping(
             view[field] = _operator_text(view[field])
     return view
 
+
 def _humanize_nested(value: object) -> object:
     if isinstance(value, str):
         return _operator_text(value)
@@ -1855,6 +2044,7 @@ def _humanize_nested(value: object) -> object:
     if isinstance(value, list):
         return [_humanize_nested(item) for item in value]
     return value
+
 
 def scheduler_work_queue_view(status: Mapping[str, object]) -> dict[str, object]:
     view = cast(dict[str, object], _humanize_nested(dict(status)))
@@ -1866,14 +2056,16 @@ def scheduler_work_queue_view(status: Mapping[str, object]) -> dict[str, object]
     gate = _mapping_field(view, "execution_freshness_gate")
     scheduler_runtime = _mapping_field(view, "scheduler_runtime")
     massive_orchestrator = _mapping_field(view, "massive_orchestrator")
+    job_rows = _mapping_list_field(view, "jobs")
+    next_job_rows = _mapping_list_field(view, "next_jobs")
     view["headline"] = str(summary["headline"])
     view["status_label"] = str(tradability["status_label"])
     view["status_class"] = str(tradability["status_class"])
     view["tradability_detail"] = str(tradability["detail"])
     view["runtime"] = scheduler_runtime
-    view["job_rows"] = _mapping_list_field(view, "jobs")[:10]
-    view["next_job_rows"] = _mapping_list_field(view, "next_jobs")
-    job_rows = _mapping_list_field(view, "jobs")
+    view["job_count"] = len(job_rows)
+    view["job_rows"] = [_compact_scheduler_job_row(row) for row in job_rows[:10]]
+    view["next_job_rows"] = [_compact_scheduler_job_row(row) for row in next_job_rows[:10]]
     view["stale_rows"] = [
         _scheduler_dataset_review_row(row, jobs=job_rows)
         for row in _mapping_list_field(view, "stale_datasets")[:8]
@@ -1896,23 +2088,137 @@ def scheduler_work_queue_view(status: Mapping[str, object]) -> dict[str, object]
     view["massive_orchestrator"] = massive_view
     view["massive_lane_rows"] = massive_lane_rows
     view["massive_signal_rows"] = massive_signal_rows
-    view["repair"] = repair
-    view["repair_rows"] = _mapping_list_field(repair, "jobs")[:6]
-    view["freshness_checks"] = _mapping_list_field(gate, "checks")
     repair_rows = _mapping_list_field(repair, "jobs")
+    compact_repair = dict(repair)
+    compact_repair["jobs"] = [_compact_scheduler_job_row(row) for row in repair_rows[:10]]
+    compact_repair["job_count"] = len(repair_rows)
+    compact_repair["jobs_truncated_count"] = max(0, len(repair_rows) - 10)
+    view["repair"] = compact_repair
+    view["repair_plan"] = compact_repair
+    view["repair_rows"] = [_compact_scheduler_job_row(row) for row in repair_rows[:6]]
+    view["freshness_checks"] = _mapping_list_field(gate, "checks")
     view["automation_status"] = _scheduler_automation_status(scheduler_runtime)
     view["trading_freshness_gate"] = _scheduler_trading_freshness_gate(tradability)
     view["refresh_workload"] = _scheduler_refresh_workload(
-        jobs=_mapping_list_field(view, "jobs"),
+        jobs=job_rows,
         massive_lanes=massive_lane_rows,
         repair_rows=repair_rows,
     )
     view["tier_rows"] = [
-        dict(_mapping_field(tiers, key))
-        for key in ("T0", "T1", "T2", "T3")
-        if key in tiers
+        dict(_mapping_field(tiers, key)) for key in ("T0", "T1", "T2", "T3") if key in tiers
     ]
+    view["jobs"] = [_compact_scheduler_job_row(row) for row in job_rows[:25]]
+    view["jobs_truncated_count"] = max(0, len(job_rows) - 25)
+    view["next_jobs"] = [_compact_scheduler_job_row(row) for row in next_job_rows[:25]]
+    view["next_jobs_truncated_count"] = max(0, len(next_job_rows) - 25)
     return view
+
+
+def scheduler_candidate_impact_context(
+    scheduler: Mapping[str, object],
+    *,
+    review_queue: Sequence[Mapping[str, object]],
+) -> dict[str, object]:
+    running_count = _optional_int(_mapping_field(scheduler, "refresh_workload"), "running_count")
+    due_count = _optional_int(
+        _mapping_field(scheduler, "refresh_workload"), "live_critical_due_count"
+    )
+    review_count = len(review_queue)
+    if running_count:
+        detail = (
+            f"{running_count} refresh job(s) are still running. Candidate rankings may update "
+            "after those jobs finish."
+        )
+        status_class = "warn"
+        status_label = "May update candidates"
+    elif due_count:
+        detail = (
+            f"{due_count} urgent refresh job(s) are due. Review can continue, but execution "
+            "should wait for required data checks."
+        )
+        status_class = "warn"
+        status_label = "Refresh due"
+    elif review_count:
+        detail = f"{review_count} candidate(s) are ready for review with no proven active refresh impact."
+        status_class = "pass"
+        status_label = "Review list stable"
+    else:
+        detail = "No candidate-specific scheduler impact is proven right now."
+        status_class = "neutral"
+        status_label = "No candidate impact"
+    return {
+        "status_label": status_label,
+        "status_class": status_class,
+        "detail": detail,
+    }
+
+
+def _compact_scheduler_job_row(row: Mapping[str, object]) -> dict[str, object]:
+    output = dict(row)
+    command = output.pop("command", None)
+    command_items = [str(item) for item in command] if isinstance(command, list) else []
+    ticker_values = _row_tickers(output)
+    command_tickers = _command_ticker_values(command_items)
+    ticker_sample = ticker_values[:8] or command_tickers[:8]
+    ticker_count = _optional_int(output, "ticker_count") or len(ticker_values) or len(command_tickers)
+    output.pop("tickers", None)
+    output["command_available"] = bool(command_items)
+    output["command_arg_count"] = len(command_items)
+    output["command_preview"] = _command_preview(command_items, command_tickers)
+    output["ticker_count"] = ticker_count
+    output["ticker_sample"] = ticker_sample
+    output["ticker_sample_label"] = ", ".join(ticker_sample) if ticker_sample else "not ticker-scoped"
+    if len(command_tickers) > len(ticker_sample):
+        output["ticker_sample_label"] = (
+            f"{output['ticker_sample_label']} +{len(command_tickers) - len(ticker_sample)} more"
+        )
+    return output
+
+
+def _row_tickers(row: Mapping[str, object]) -> list[str]:
+    value = row.get("tickers")
+    if isinstance(value, list):
+        return [str(ticker).upper() for ticker in value if str(ticker).strip()]
+    value = row.get("ticker_sample")
+    if isinstance(value, list):
+        return [str(ticker).upper() for ticker in value if str(ticker).strip()]
+    ticker = str(row.get("ticker") or "").strip().upper()
+    return [ticker] if ticker else []
+
+
+def _command_ticker_values(command: Sequence[str]) -> list[str]:
+    tickers: list[str] = []
+    index = 0
+    while index < len(command):
+        if command[index] == "--ticker" and index + 1 < len(command):
+            tickers.append(command[index + 1])
+            index += 2
+            continue
+        index += 1
+    return tickers
+
+
+def _command_preview(command: Sequence[str], tickers: Sequence[str]) -> str:
+    if not command:
+        return ""
+    preview: list[str] = []
+    index = 0
+    skipped_tickers = 0
+    while index < len(command) and len(preview) < 12:
+        token = command[index]
+        if token == "--ticker" and index + 1 < len(command):
+            skipped_tickers += 1
+            if skipped_tickers <= 3:
+                preview.extend([token, command[index + 1]])
+            index += 2
+            continue
+        preview.append(token)
+        index += 1
+    if len(command) > index:
+        preview.append("...")
+    if len(tickers) > 3:
+        preview.append(f"+{len(tickers) - 3} tickers")
+    return " ".join(preview)
 
 
 def _scheduler_dataset_review_row(
@@ -1926,9 +2232,7 @@ def _scheduler_dataset_review_row(
     runnable_job = _runnable_dataset_refresh_job(dataset, jobs)
     action_url = str(action.get("url") or "") if runnable_job else ""
     view["refresh_action_url"] = action_url
-    view["refresh_button_label"] = str(
-        action.get("label") if action_url else "Open Refresh Queue"
-    )
+    view["refresh_button_label"] = str(action.get("label") if action_url else "Open Refresh Queue")
     view["refresh_action_detail"] = str(
         (
             f"{action.get('detail')} Runnable job: "
@@ -1939,9 +2243,7 @@ def _scheduler_dataset_review_row(
     )
     view["refresh_enabled"] = bool(action_url)
     view["refresh_disabled_reason"] = (
-        ""
-        if action_url
-        else "No runnable scheduler job exists for this dataset right now."
+        "" if action_url else "No runnable scheduler job exists for this dataset right now."
     )
     return view
 
@@ -1996,15 +2298,15 @@ def _scheduler_trading_freshness_gate(
 ) -> dict[str, object]:
     status_label = str(tradability.get("status_label") or "Unknown")
     status_class = str(tradability.get("status_class") or "neutral")
-    detail = str(tradability.get("detail") or "Trading freshness gate is not checked.")
+    detail = str(tradability.get("detail") or "Data currency check is not checked.")
     return {
-        "label": "Trading Freshness Gate",
+        "label": "Data Currency Check",
         "status_label": status_label,
         "status_class": status_class,
         "detail": detail,
         "tooltip": (
-            "Trading Freshness Gate uses broker freshness and live-critical evidence "
-            "freshness. It answers whether review or paper-order submission can proceed."
+            "Checks whether broker state and required market evidence are current enough "
+            "for review or paper submission."
         ),
     }
 
@@ -2020,14 +2322,12 @@ def _scheduler_refresh_workload(
         *[row for row in massive_lanes if _scheduler_row_status(row) == "DUE_NOW"],
     ]
     live_critical_due = [
-        row for row in due_rows if _scheduler_row_is_live_critical(row)
+        row
+        for row in due_rows
+        if _scheduler_row_is_automatic_refresh(row) and _scheduler_row_is_live_critical(row)
     ]
-    support_due = [
-        row for row in due_rows if not _scheduler_row_is_live_critical(row)
-    ]
-    repair_due = [
-        row for row in repair_rows if _scheduler_row_status(row) == "DUE_NOW"
-    ]
+    support_due = [row for row in due_rows if row not in live_critical_due]
+    repair_due = [row for row in repair_rows if _scheduler_row_status(row) == "DUE_NOW"]
     running_count = sum(
         1
         for row in [*jobs, *massive_lanes, *repair_rows]
@@ -2044,13 +2344,13 @@ def _scheduler_refresh_workload(
     if not live_critical_due and (support_due or repair_due or running_count):
         status_class = "neutral"
     detail = (
-        f"{len(live_critical_due)} live-critical due; "
-        f"{len(support_due)} support due; "
-        f"{len(repair_due)} repair due; "
+        f"{len(live_critical_due)} urgent refresh due; "
+        f"{len(support_due)} context refresh pending; "
+        f"{len(repair_due)} backfill pending; "
         f"{running_count} running."
     )
     if next_live_eta_label != "not needed":
-        detail = f"{detail} Next live-critical ETA: {next_live_eta_label}."
+        detail = f"{detail} Next urgent refresh ETA: {next_live_eta_label}."
     return {
         "label": "Refresh Workload",
         "status_label": status_label,
@@ -2062,9 +2362,9 @@ def _scheduler_refresh_workload(
         "running_count": running_count,
         "next_live_eta_label": next_live_eta_label,
         "tooltip": (
-            "Refresh Workload separates live-critical due jobs from support and repair jobs. "
-            "Live-critical due jobs can block paper orders; support and repair jobs improve "
-            "coverage without automatically blocking review."
+            "Refresh Workload separates urgent paper-data jobs from support and repair jobs. "
+            "Urgent paper-data jobs are automatic lane/data refreshes that can block paper "
+            "orders; support and repair jobs improve context without automatically blocking review."
         ),
     }
 
@@ -2083,6 +2383,18 @@ def _scheduler_row_is_live_critical(row: Mapping[str, object]) -> bool:
     return signal_lane in LIVE_CRITICAL_SCHEDULER_SIGNALS
 
 
+def _scheduler_row_is_automatic_refresh(row: Mapping[str, object]) -> bool:
+    kind = str(row.get("kind") or "")
+    if not kind and row.get("lane_id"):
+        kind = "massive_lane"
+    command_available = bool(row.get("command")) or row.get("command_available") is True
+    return (
+        _scheduler_row_status(row) == "DUE_NOW"
+        and kind in {"dataset", "massive_lane"}
+        and command_available
+    )
+
+
 def _first_eta_label(rows: Sequence[Mapping[str, object]]) -> str:
     for row in rows:
         eta = str(row.get("eta_label") or "").strip()
@@ -2099,9 +2411,9 @@ def _scheduler_workload_status_label(
     running_count: int,
 ) -> str:
     if live_count:
-        return f"{live_count} live-critical due"
+        return f"{live_count} urgent refresh due"
     if support_count or repair_count:
-        return "Support/repair due"
+        return "Context or backfill pending"
     if running_count:
         return "Refresh running"
     return "Queue clear"
@@ -2144,7 +2456,7 @@ def _massive_lane_view(row: Mapping[str, object]) -> dict[str, object]:
             "coverage_label": coverage_label,
             "progress_percent": progress_percent,
             "progress_style": f"width: {progress_percent}%",
-            "progress_meter_label": f"{progress_percent}% lane progress",
+            "progress_meter_label": f"{progress_percent}% data-pipeline progress",
             "progress_detail_label": _massive_lane_progress_detail_label(
                 row,
                 coverage_label=coverage_label,
@@ -2159,7 +2471,20 @@ def _massive_lane_view(row: Mapping[str, object]) -> dict[str, object]:
             **refresh_control,
         }
     )
-    return view
+    compact = _compact_scheduler_job_row(view)
+    fresh_tickers = compact.pop("fresh_tickers", None)
+    if isinstance(fresh_tickers, list):
+        fresh_sample = [str(ticker).upper() for ticker in fresh_tickers[:8] if str(ticker).strip()]
+        compact["fresh_ticker_sample"] = fresh_sample
+        compact["fresh_ticker_sample_label"] = (
+            ", ".join(fresh_sample) if fresh_sample else "no current ticker sample"
+        )
+        if len(fresh_tickers) > len(fresh_sample):
+            compact["fresh_ticker_sample_label"] = (
+                f"{compact['fresh_ticker_sample_label']} +{len(fresh_tickers) - len(fresh_sample)} more"
+            )
+    compact.pop("command_profile", None)
+    return compact
 
 
 def _massive_signal_view_rows(
@@ -2179,15 +2504,15 @@ def _massive_signal_view(
     required_rows = [lane_index[lane] for lane in required_lanes if lane in lane_index]
     is_execution_critical = any(lane.get("blocks_execution") is True for lane in required_rows)
     if is_execution_critical:
-        impact_label = "Execution-critical signal"
+        impact_label = "Paper-critical signal"
         impact_detail = (
-            "This signal depends on execution-critical Massive raw lanes; waiting or "
-            "missing raw data blocks or weakens paper-trading evidence."
+            "This signal depends on paper-critical market source data; waiting or "
+            "missing source data blocks or weakens paper-trading evidence."
         )
     else:
         impact_label = "Context signal"
         impact_detail = (
-            "This signal uses Massive context lanes. Missing data weakens context but "
+            "This signal uses market-data context pipelines. Missing data weakens context but "
             "does not by itself close paper-order execution."
         )
     missing_lanes = [lane for lane in required_lanes if lane not in lane_index]
@@ -2204,7 +2529,7 @@ def _massive_signal_view(
                 is_execution_critical=is_execution_critical,
             ),
             "tooltip": (
-                f"{impact_detail} Required raw lanes: "
+                f"{impact_detail} Required source data: "
                 f"{', '.join(required_lanes) if required_lanes else 'none'}."
             ),
         }
@@ -2213,21 +2538,13 @@ def _massive_signal_view(
 
 
 def _massive_lane_summary(rows: Sequence[Mapping[str, object]]) -> dict[str, object]:
-    execution_ready = [
-        row for row in rows if row.get("bucket_label") == "Execution-Critical Ready"
-    ]
+    execution_ready = [row for row in rows if row.get("bucket_label") == "Paper-ready data loaded"]
     execution_needs_refresh = [
-        row
-        for row in rows
-        if row.get("bucket_label") == "Execution-Critical Needs Refresh"
+        row for row in rows if row.get("bucket_label") == "Needs refresh before paper"
     ]
-    support_due = [
-        row for row in rows if row.get("bucket_label") == "Support / Context Due"
-    ]
+    support_due = [row for row in rows if row.get("bucket_label") == "Context refresh due"]
     research_disabled = [
-        row
-        for row in rows
-        if row.get("bucket_label") == "Research / Disabled / Not Entitled"
+        row for row in rows if row.get("bucket_label") == "Research / Optional / Entitlement"
     ]
     return {
         "execution_ready_count": len(execution_ready),
@@ -2235,19 +2552,19 @@ def _massive_lane_summary(rows: Sequence[Mapping[str, object]]) -> dict[str, obj
         "support_due_count": len(support_due),
         "research_disabled_count": len(research_disabled),
         "execution_ready_tooltip": (
-            "Execution-critical lanes with enough local data loaded for their current "
+            "Paper-critical data feeds with enough local data loaded for their current "
             "window. Health proof may still require verification before paper orders."
         ),
         "execution_needs_refresh_tooltip": (
-            "Execution-critical lanes that are due, running, waiting, or blocked. These "
+            "Paper-critical data feeds that are due, running, waiting, or unavailable. These "
             "can affect paper-trading evidence freshness."
         ),
         "support_due_tooltip": (
-            "Non-execution lanes that improve context or source hygiene. These should "
+            "Context feeds that improve source hygiene or research detail. These should "
             "not be confused with live-trading blockers."
         ),
         "research_disabled_tooltip": (
-            "Research, repair, optional, disabled, or entitlement-dependent lanes. These "
+            "Research, repair, optional, disabled, or entitlement-dependent data feeds. These "
             "are tracked separately so they do not look like live failures."
         ),
     }
@@ -2259,7 +2576,7 @@ def _massive_lane_display_status_label(row: Mapping[str, object]) -> str:
     manifest_status = str(row.get("manifest_status") or "").lower()
     manifest_coverage = _optional_int(row, "manifest_coverage_pct")
     if status == "READY_FROM_RAW":
-        return "Ready From Live Slices"
+        return "Derived From Current Trade Data"
     if status == "SKIPPED" and (
         manifest_status in {"complete", "partial_usable"} or manifest_coverage > 0
     ):
@@ -2271,14 +2588,14 @@ def _massive_lane_display_status_label(row: Mapping[str, object]) -> str:
     if status == "DEFERRED":
         return "Scheduled Later"
     if status == "WAITING":
-        return "Waiting For Raw Lane"
+        return "Waiting For Source Data"
     if status == "BLOCKED":
-        return "Blocked"
+        return "Needs Attention"
     if status == "DISABLED":
         if "options" in lane_id:
             return "Disabled / Entitlement Not Verified"
         if "backtest" in lane_id:
-            return "Disabled / Research Lane"
+            return "Disabled / Research Only"
         return "Disabled / Not Enabled"
     return status.replace("_", " ").title() if status else "Unknown"
 
@@ -2306,22 +2623,22 @@ def _massive_lane_impact(row: Mapping[str, object]) -> tuple[str, str]:
     lane_id = str(row.get("lane_id") or row.get("name") or "")
     if row.get("blocks_execution") is True:
         return (
-            "Execution-critical",
-            "This lane can affect paper-order readiness when its data or health proof needs refresh, is due, or is blocked.",
+            "Paper-critical",
+            "This data pipeline can affect paper-order readiness when its data or health proof needs refresh, is due, or has a provider or policy issue.",
         )
     if "options" in lane_id:
         return (
             "Optional / entitlement",
-            "This lane is optional until the provider entitlement is verified and enabled.",
+            "This options feed is optional until the provider entitlement is verified and enabled.",
         )
     if "backtest" in lane_id:
         return (
             "Research/repair",
-            "This lane supports research and backtesting. It should not block live review or paper orders.",
+            "This data pipeline supports research and backtesting. It should not block live review or paper orders.",
         )
     return (
         "Support/context",
-        "This lane improves context or source hygiene. It does not directly block paper-order submission.",
+        "This data pipeline improves context or source hygiene. It does not directly block paper-order submission.",
     )
 
 
@@ -2331,27 +2648,24 @@ def _massive_lane_bucket_label(
     status_label: str,
 ) -> str:
     lane_id = str(row.get("lane_id") or row.get("name") or "")
-    if (
-        row.get("blocks_execution") is not True
-        and (
-            _scheduler_row_status(row) in {"DISABLED", "DEFERRED"}
-            or "backtest" in lane_id
-            or "options" in lane_id
-        )
+    if row.get("blocks_execution") is not True and (
+        _scheduler_row_status(row) in {"DISABLED", "DEFERRED"}
+        or "backtest" in lane_id
+        or "options" in lane_id
     ):
-        return "Research / Disabled / Not Entitled"
+        return "Research / Optional / Entitlement"
     if row.get("blocks_execution") is True:
         if status_label in {
             "Blocked",
             "Refresh Due",
             "Refreshing",
-            "Waiting For Raw Lane",
+            "Waiting For Source Data",
         }:
-            return "Execution-Critical Needs Refresh"
-        return "Execution-Critical Ready"
+            return "Needs refresh before paper"
+        return "Paper-ready data loaded"
     if _scheduler_row_status(row) in {"DUE_NOW", "RUNNING", "WAITING"}:
-        return "Support / Context Due"
-    return "Research / Disabled / Not Entitled"
+        return "Context refresh due"
+    return "Research / Optional / Entitlement"
 
 
 def _massive_lane_action_label(
@@ -2360,24 +2674,24 @@ def _massive_lane_action_label(
     status_label: str,
 ) -> str:
     if status_label == "Refresh Due":
-        return "Run lane refresh"
+        return "Run data refresh"
     if status_label == "Refreshing":
         return "Wait for refresh"
     if status_label == "Blocked":
-        return "Fix lane blocker"
+        return "Fix data access or policy issue"
     if status_label == "Scheduled Later":
         return "No action now"
     if status_label == "Disabled / Entitlement Not Verified":
         return "Verify entitlement"
-    if status_label == "Disabled / Research Lane":
+    if status_label == "Disabled / Research Only":
         return "Enable only for research"
     if status_label == "Loaded / No Pull Needed":
         return "No pull needed"
-    if status_label == "Ready From Live Slices":
+    if status_label == "Derived From Current Trade Data":
         return "Derived locally"
-    if status_label == "Waiting For Raw Lane":
-        return "Wait for raw lane"
-    return str(row.get("reason") or "Inspect lane detail")
+    if status_label == "Waiting For Source Data":
+        return "Wait for source data"
+    return str(row.get("reason") or "Inspect data-pipeline detail")
 
 
 def _massive_lane_refresh_control(row: Mapping[str, object]) -> dict[str, object]:
@@ -2389,11 +2703,11 @@ def _massive_lane_refresh_control(row: Mapping[str, object]) -> dict[str, object
     scope_label = _massive_lane_refresh_scope_label(row)
     disabled_reason = "" if enabled else _massive_lane_refresh_disabled_reason(row)
     tooltip = (
-        f"Starts only this data lane through the scheduler's trade-aware policy. "
+        f"Starts only this data pipeline through the scheduler's trade-aware policy. "
         f"Scope: {scope_label}. Budget: {row.get('request_budget_label', 'not recorded')}."
         if enabled
         else (
-            f"Lane refresh is unavailable because the current trade-aware policy "
+            f"Pipeline refresh is unavailable because the current trade-aware policy "
             f"does not expose a runnable command for status {status or 'UNKNOWN'}. "
             f"{disabled_reason}"
         )
@@ -2412,7 +2726,7 @@ def _massive_lane_refresh_button_label(lane_id: str, *, enabled: bool) -> str:
     label = REFRESHABLE_MASSIVE_LANES.get(lane_id)
     if label:
         return label
-    return "Refresh lane" if enabled else "Policy locked"
+    return "Refresh data pipeline" if enabled else "Policy locked"
 
 
 def _massive_lane_refresh_scope_label(row: Mapping[str, object]) -> str:
@@ -2427,26 +2741,26 @@ def _massive_lane_refresh_scope_label(row: Mapping[str, object]) -> str:
         return f"next safe batch {batch_count} ticker(s)"
     if ticker_count:
         return f"{ticker_count} planned ticker(s)"
-    return "lane-level scope only"
+    return "data-pipeline scope only"
 
 
 def _massive_lane_refresh_disabled_reason(row: Mapping[str, object]) -> str:
     status = _scheduler_row_status(row)
-    reason = str(row.get("reason") or "No lane reason recorded.")
+    reason = str(row.get("reason") or "No data-pipeline reason recorded.")
     if status == "RUNNING":
-        return "This lane is already refreshing."
+        return "This data pipeline is already refreshing."
     if status == "DEFERRED":
         return f"Scheduled later by market-session policy. {reason}"
     if status == "WAITING":
-        return f"Waiting for the required raw lane or prerequisite data. {reason}"
+        return f"Waiting for the required source data or prerequisite data. {reason}"
     if status == "BLOCKED":
-        return f"Blocked by lane policy. {reason}"
+        return f"Stopped by data policy or provider access. {reason}"
     if status == "DISABLED":
         return f"Disabled by configuration or entitlement policy. {reason}"
     if status in {"SKIPPED", "READY", "READY_FROM_RAW"}:
-        return f"The lane is fresh enough or derived locally; no pull is needed now. {reason}"
+        return f"The data is current enough or derived locally; no pull is needed now. {reason}"
     if status == "DUE_NOW":
-        return f"The lane is due, but no safe lane command is available. {reason}"
+        return f"The data pipeline is due, but no safe refresh command is available. {reason}"
     return reason
 
 
@@ -2506,9 +2820,9 @@ def _massive_lane_progress_detail_label(
 def _massive_display_status_class(status_label: str) -> str:
     if status_label == "Blocked":
         return "block"
-    if status_label in {"Refresh Due", "Refreshing", "Waiting For Raw Lane"}:
+    if status_label in {"Refresh Due", "Refreshing", "Waiting For Source Data"}:
         return "warn"
-    if status_label in {"Loaded / No Pull Needed", "Ready From Live Slices"}:
+    if status_label in {"Loaded / No Pull Needed", "Derived From Current Trade Data"}:
         return "pass"
     return "neutral"
 
@@ -2525,8 +2839,8 @@ def _massive_display_health_class(health_label: str) -> str:
 
 def _massive_lane_status_tooltip(row: Mapping[str, object], status_label: str) -> str:
     return (
-        f"{status_label}. Raw scheduler status: {row.get('status', 'unknown')}. "
-        f"Reason: {row.get('reason', 'No Massive lane rationale recorded.')}"
+        f"{status_label}. Scheduler status: {row.get('status', 'unknown')}. "
+        f"Reason: {row.get('reason', 'No data-pipeline rationale recorded.')}"
     )
 
 
@@ -2541,8 +2855,8 @@ def _massive_lane_health_tooltip(row: Mapping[str, object], health_label: str) -
 
 def _massive_lane_coverage_tooltip(row: Mapping[str, object], coverage_label: str) -> str:
     return (
-        f"{coverage_label}. Manifest: {row.get('manifest_status', 'missing')} / "
-        f"{row.get('manifest_coverage_pct', 0)}%. Planned ticker tier: "
+        f"{coverage_label}. Coverage record: {row.get('manifest_status', 'missing')} / "
+        f"{row.get('manifest_coverage_pct', 0)}%. Planned priority group: "
         f"{row.get('ticker_tier', 'not recorded')}."
     )
 
@@ -2557,7 +2871,7 @@ def _massive_lane_budget_tooltip(row: Mapping[str, object]) -> str:
 
 def _massive_lane_action_tooltip(row: Mapping[str, object], action_label: str) -> str:
     return (
-        f"{action_label}. This action is derived from lane status "
+        f"{action_label}. This action is derived from data-pipeline status "
         f"{row.get('status', 'unknown')} and execution impact."
     )
 
@@ -2570,14 +2884,14 @@ def _massive_signal_requirement_summary(
     is_execution_critical: bool,
 ) -> str:
     if missing_lanes:
-        return f"Missing raw lane declaration: {', '.join(missing_lanes)}"
+        return f"Missing source-data declaration: {', '.join(missing_lanes)}"
     if status.upper() == "READY":
-        return "Required raw lanes are ready."
+        return "Required source data is ready."
     if status.upper() == "WAITING":
         prefix = "Execution evidence waiting" if is_execution_critical else "Context waiting"
-        return f"{prefix}: {', '.join(required_lanes) if required_lanes else 'no raw lanes'}"
+        return f"{prefix}: {', '.join(required_lanes) if required_lanes else 'no source-data requirement'}"
     if status.upper() == "BLOCKED":
-        return "Required raw lane is blocked."
+        return "Required source data has a provider or policy issue."
     return status.replace("_", " ").title() if status else "Requirement unverified."
 
 
@@ -2586,7 +2900,7 @@ def live_config_view(readiness: Mapping[str, object]) -> dict[str, object]:
     view["scope_label"] = "Configuration readiness"
     view["scope_detail"] = (
         "This panel checks whether the agency is configured to run; it is not data "
-        "freshness proof. Use Agency Data Readiness and Lane Refresh for freshness, "
+        "freshness proof. Use Agency Data Readiness and Refresh Queue for freshness, "
         "coverage health, and active load progress."
     )
     view["provider_tooltip"] = (
@@ -2601,12 +2915,12 @@ def live_config_view(readiness: Mapping[str, object]) -> dict[str, object]:
         "Tickers is the configured universe size from explicit tickers or active universe membership."
     )
     view["blockers_tooltip"] = (
-        "Blockers are missing required configuration items. A blocker prevents the configured "
+        "Must-fix issues are missing required configuration items. A must-fix issue prevents the configured "
         "workflow from being considered ready."
     )
     view["runtime_signal_label"] = str(_optional_int(view, "runtime_signal_count"))
     view["runtime_signals_tooltip"] = (
-        "Runtime Signals counts configured runtime signal lanes that the live cycle may evaluate. "
+        "Runtime Signals counts configured runtime signal processes that the live cycle may evaluate. "
         "Signal freshness and health are shown in Agency Data Readiness and Signals."
     )
     view["config_tooltip"] = (
@@ -2618,6 +2932,7 @@ def live_config_view(readiness: Mapping[str, object]) -> dict[str, object]:
         if isinstance(row, Mapping)
     ]
     return view
+
 
 def _live_config_check_row(row: Mapping[str, object]) -> dict[str, object]:
     view = dict(row)
@@ -2674,7 +2989,7 @@ def _live_config_check_impact(label: str, status: str) -> tuple[str, str]:
         or "coverage" in normalized
     ):
         return (
-            "Execution-critical",
+            "Paper-critical",
             "This configuration can affect live evidence, review readiness, or paper-order gates.",
         )
     if "options" in normalized:
@@ -2682,14 +2997,20 @@ def _live_config_check_impact(label: str, status: str) -> tuple[str, str]:
             "Optional",
             "This configuration improves optional options context and should not block core paper trading.",
         )
-    if "subscription" in normalized or "rss" in normalized or "sec" in normalized or "13f" in normalized or "cusip" in normalized:
+    if (
+        "subscription" in normalized
+        or "rss" in normalized
+        or "sec" in normalized
+        or "13f" in normalized
+        or "cusip" in normalized
+    ):
         return (
             "Support/context",
             "This configuration improves context and evidence quality but does not by itself prove freshness.",
         )
     if status == "BLOCK":
         return (
-            "Execution-critical",
+            "Paper-critical",
             "This missing configuration blocks the configured workflow until fixed.",
         )
     return (
@@ -2766,11 +3087,10 @@ def _live_config_status_class(status: str) -> str:
         return "block"
     return "neutral"
 
+
 def provider_readiness_view(readiness: Mapping[str, object]) -> dict[str, object]:
     view = dict(readiness)
-    provider_rows = [
-        cast(Mapping[str, object], row) for row in _list_field(readiness, "providers")
-    ]
+    provider_rows = [cast(Mapping[str, object], row) for row in _list_field(readiness, "providers")]
     required_total = sum(1 for row in provider_rows if row.get("required_now") is True)
     required_ready = sum(
         1
@@ -2789,7 +3109,7 @@ def provider_readiness_view(readiness: Mapping[str, object]) -> dict[str, object
     view["scope_detail"] = (
         "Checks whether local provider credentials and config are present. This does "
         "not prove live API connectivity or data freshness; use the data-source "
-        "health and lane refresh panels for that."
+        "health and refresh panels for that."
     )
     view["configured_label"] = f"{configured_count}/{provider_count} total configured"
     view["required_ready_count"] = required_ready
@@ -2797,7 +3117,9 @@ def provider_readiness_view(readiness: Mapping[str, object]) -> dict[str, object
     view["active_ready_label"] = f"{required_ready}/{required_total} active ready"
     view["planned_configured_count"] = planned_configured
     view["planned_missing_count"] = max(0, planned_total - planned_configured)
-    view["planned_optional_label"] = f"{max(0, planned_total - planned_configured)} planned optional"
+    view["planned_optional_label"] = (
+        f"{max(0, planned_total - planned_configured)} planned optional"
+    )
     view["connections_tooltip"] = (
         "Active required providers are needed by today's configured workflow. "
         "Alpaca counts as active when paper broker or broker submission is enabled. "
@@ -2823,11 +3145,9 @@ def provider_readiness_view(readiness: Mapping[str, object]) -> dict[str, object
         if planned_configured == 1
         else f"{planned_configured} planned providers configured"
     )
-    view["provider_rows"] = [
-        _provider_readiness_row(row)
-        for row in provider_rows
-    ]
+    view["provider_rows"] = [_provider_readiness_row(row) for row in provider_rows]
     return view
+
 
 def _data_load_row(row: Mapping[str, object]) -> dict[str, object]:
     view = dict(row)
@@ -2851,28 +3171,72 @@ def _data_load_row(row: Mapping[str, object]) -> dict[str, object]:
 def _lane_state_row(row: Mapping[str, object]) -> dict[str, object]:
     view = dict(row)
     view["name"] = _label_text(str(row.get("label") or row.get("lane_id") or "Unknown"))
-    view["lane_kind_label"] = _label_text(str(row.get("lane_kind") or "lane"))
+    view["lane_kind_label"] = _lane_kind_operator_label(row.get("lane_kind"))
     view["status_label"] = _operator_text(row.get("status_label") or "Unknown")
     view["operator_message"] = _operator_text(
-        row.get("operator_message") or "No lane-state explanation recorded."
+        row.get("operator_message") or "No data-source explanation recorded."
     )
     view["recommended_action"] = _operator_text(
-        row.get("recommended_action") or "No lane action recorded."
+        row.get("recommended_action") or "No data-source action recorded."
     )
     view["latest_as_of_label"] = _format_timestamp_or_text(row.get("latest_as_of"))
     view["checked_at_label"] = _format_timestamp_or_text(row.get("checked_at"))
+    view["source_proof_label"] = _operator_text(
+        row.get("source_proof_label")
+        or _lane_source_proof_label(row)
+    )
+    view["manifest_path_label"] = _operator_text(row.get("manifest_path") or "manifest not recorded")
     progress_percent = _bounded_lane_state_progress(row)
     view["progress_percent"] = progress_percent
     view["progress_style"] = f"width: {progress_percent}%"
-    view["progress_meter_label"] = f"{progress_percent}% lane progress"
+    view["progress_meter_label"] = f"{progress_percent}% data-pipeline progress"
     view["eta_label"] = _operator_text(row.get("eta_label") or "not available")
     requirements = [
-        str(item)
-        for item in _list_field_or_empty(row, "raw_lanes_required")
-        if str(item).strip()
+        str(item) for item in _list_field_or_empty(row, "raw_lanes_required") if str(item).strip()
     ]
     view["requirement_label"] = ", ".join(requirements) if requirements else "Direct source"
+    view["refresh_action"] = _lane_refresh_action(row)
     return view
+
+
+def _lane_source_proof_label(row: Mapping[str, object]) -> str:
+    status = str(row.get("source_status") or "UNKNOWN")
+    freshness = str(row.get("source_freshness") or "UNKNOWN")
+    if freshness.upper() == "STALE":
+        freshness = "Needs refresh"
+    checked = _format_timestamp_or_text(row.get("checked_at"), default="not checked")
+    manifest = str(row.get("manifest_path") or "manifest not recorded")
+    return f"Provider {status}; freshness {freshness}; checked {checked}; {manifest}"
+
+
+def _lane_refresh_action(row: Mapping[str, object]) -> dict[str, object]:
+    available = row.get("refresh_action_available") is True
+    return {
+        "enabled": available,
+        "label": _operator_text(row.get("refresh_action_label") or "No direct refresh"),
+        "action": str(row.get("refresh_action_url") or ""),
+        "method": str(row.get("refresh_action_method") or "post").lower(),
+        "detail": _operator_text(
+            row.get("refresh_action_detail") or "No source refresh detail recorded."
+        ),
+        "disabled_reason": _operator_text(
+            row.get("refresh_action_disabled_reason")
+            or (
+                ""
+                if available
+                else "No scheduler refresh action is attached to this data source."
+            )
+        ),
+    }
+
+
+def _lane_kind_operator_label(value: object) -> str:
+    normalized = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if normalized in {"raw", "raw_acquisition", "source", "data_source"}:
+        return "Data source"
+    if normalized in {"derived", "derived_signal", "agent", "signal"}:
+        return "Agent analysis"
+    return _label_text(str(value or "lane"))
 
 
 def _bounded_lane_state_progress(row: Mapping[str, object]) -> int:
@@ -2897,13 +3261,16 @@ def _data_load_issue(
         "status_class": str(row.get("status_class") or fallback_status_class),
     }
 
+
 def _freshness_status_row(row: Mapping[str, object]) -> dict[str, object]:
     source = str(row.get("source") or "")
     status = str(row.get("status") or "UNKNOWN")
     freshness = str(row.get("freshness") or "UNKNOWN")
     status_class = str(row.get("status_class") or "neutral")
     display_status = "Needs refresh" if status.upper() == "STALE" else _operator_text(status)
-    display_freshness = "Needs refresh" if freshness.upper() == "STALE" else _operator_text(freshness)
+    display_freshness = (
+        "Needs refresh" if freshness.upper() == "STALE" else _operator_text(freshness)
+    )
     detail = _operator_text(row.get("detail") or "No freshness detail recorded.")
     impact_label = _source_impact_label(row)
     validity_label = _source_validity_label(row)
@@ -2962,7 +3329,7 @@ def _count_phrase(count: int, label: str) -> str:
 def _source_impact_label(row: Mapping[str, object]) -> str:
     source = str(row.get("source") or "").lower()
     if row.get("critical") is True or source in {"daily-market-bars", "massive-stock-trades"}:
-        return "Execution-critical"
+        return "Paper-critical"
     if source in {"rss-news", "subscription-email-thesis"}:
         return "Current-context"
     if source in {"sec-company-facts", "sec-form4", "sec-13f"}:
@@ -2998,7 +3365,7 @@ def _source_next_action(row: Mapping[str, object], *, impact_label: str) -> str:
     detail = str(row.get("detail") or "").lower()
     if status_class == "block":
         if source in {"daily-market-bars", "massive-stock-trades"}:
-            return "Refresh the Massive lane before paper-trading decisions."
+            return "Refresh this market-data pipeline before paper-trading decisions."
         return "Refresh this source before relying on its evidence."
     if source in {"rss-news", "subscription-email-thesis"} and (
         status_class == "warn" or freshness == "STALE" or status == "STALE"
@@ -3007,7 +3374,7 @@ def _source_next_action(row: Mapping[str, object], *, impact_label: str) -> str:
             return "Rerun the news refresh so headline context reflects the latest session."
         return "Rerun email ingest and article analysis, including any required login step."
     if freshness == "PARTIAL" or status == "DEGRADED":
-        return "Use covered tickers for review and let the repair lane finish."
+        return "Use covered tickers for review and let the backfill job finish."
     if "source-health row is" in detail or "older than" in detail:
         return "Refresh source-health monitoring proof."
     if impact_label == "Slow-moving support":
@@ -3016,12 +3383,15 @@ def _source_next_action(row: Mapping[str, object], *, impact_label: str) -> str:
         return "No action needed for this source."
     return "Review this source before using its evidence."
 
+
 def _full_live_command_rows(readiness: Mapping[str, object]) -> list[dict[str, object]]:
     coverage = _mapping_field(readiness, "coverage")
     active_refresh = _mapping_field(readiness, "active_refresh")
     status_class = str(readiness.get("status_class", "neutral"))
-    freshness_class = "block" if _optional_int(coverage, "critical_source_blocker_count") else (
-        "warn" if _optional_int(coverage, "source_warning_count") else "pass"
+    freshness_class = (
+        "block"
+        if _optional_int(coverage, "critical_source_blocker_count")
+        else ("warn" if _optional_int(coverage, "source_warning_count") else "pass")
     )
     agent_blocked = _optional_int(coverage, "agent_blocked_count")
     agent_warning = _optional_int(coverage, "agent_warning_count")
@@ -3062,9 +3432,9 @@ def _full_live_command_rows(readiness: Mapping[str, object]) -> list[dict[str, o
             ),
             "status_class": agent_class,
             "detail": (
-                f"{coverage.get('critical_lane_percent', 0)}% critical-lane output coverage; "
+                f"{coverage.get('critical_lane_percent', 0)}% critical-agent output coverage; "
                 f"{coverage.get('agent_ready_count', 0)}/"
-                f"{coverage.get('agent_total_count', 0)} total lanes fully ready."
+                f"{coverage.get('agent_total_count', 0)} total agents fully ready."
             ),
             "tooltip": _signal_worker_tooltip(coverage),
         },
@@ -3093,7 +3463,9 @@ def _agency_mode_label(readiness: Mapping[str, object]) -> str:
 
 
 def _trading_gate_label(readiness: Mapping[str, object]) -> str:
-    return "Paper Trading Ready" if readiness.get("tradable_ready") is True else "Paper Trading Gated"
+    return (
+        "Paper Trading Ready" if readiness.get("tradable_ready") is True else "Paper Trading Gated"
+    )
 
 
 def _agency_mode_tooltip(
@@ -3110,6 +3482,7 @@ def _agency_mode_tooltip(
         f"Universe: {coverage.get('expected_ticker_count', 0)} tickers; "
         f"signals: {coverage.get('signal_count', 0)}."
     )
+
 
 def _full_live_blocking_reason(readiness: Mapping[str, object]) -> str:
     blockers = [
@@ -3166,7 +3539,9 @@ def _critical_lane_counts(coverage: Mapping[str, object]) -> tuple[int, int]:
     match = re.search(r"(\d+)\s*/\s*(\d+)", label)
     if match:
         return int(match.group(1)), int(match.group(2))
-    return _optional_int(coverage, "agent_ready_count"), _optional_int(coverage, "agent_total_count")
+    return _optional_int(coverage, "agent_ready_count"), _optional_int(
+        coverage, "agent_total_count"
+    )
 
 
 def _critical_usable_with_warnings(coverage: Mapping[str, object]) -> int:
@@ -3182,19 +3557,27 @@ def _signal_worker_tooltip(coverage: Mapping[str, object]) -> str:
         "Fully ready means the worker produced output and source freshness passed. "
         "Usable with warnings means rows exist but source freshness, coverage, or health "
         "proof is partial. "
-        f"Critical lanes: {ready}/{total} fully ready, {usable}/{total} usable with warnings; "
+        f"Critical agents: {ready}/{total} fully ready, {usable}/{total} usable with warnings; "
         f"output coverage {coverage.get('critical_lane_percent', 0)}%."
     )
 
 
 def _active_refresh_value(active_refresh: Mapping[str, object]) -> str:
     state = str(active_refresh.get("state") or "idle")
-    dataset = str(active_refresh.get("running_dataset") or active_refresh.get("current_dataset") or "")
+    dataset = str(
+        active_refresh.get("running_dataset") or active_refresh.get("current_dataset") or ""
+    )
     if state == "running":
-        if dataset in {"sec_form4", "sec_company_facts", "sec_13f", "news_rss", "subscription_emails"}:
+        if dataset in {
+            "sec_form4",
+            "sec_company_facts",
+            "sec_13f",
+            "news_rss",
+            "subscription_emails",
+        }:
             return "Support refresh running"
         if dataset:
-            return "Live-critical loading"
+            return "Paper-critical loading"
         return "Refresh running"
     if state in {"failed", "blocked"}:
         return "Refresh failed"
@@ -3205,27 +3588,34 @@ def _active_refresh_value(active_refresh: Mapping[str, object]) -> str:
 
 def _active_refresh_detail(active_refresh: Mapping[str, object], refresh_state: str) -> str:
     dataset = _label_text(
-        str(active_refresh.get("running_dataset") or active_refresh.get("current_dataset") or "no dataset")
+        str(
+            active_refresh.get("running_dataset")
+            or active_refresh.get("current_dataset")
+            or "no dataset"
+        )
     )
     eta = str(active_refresh.get("eta_label") or "not available")
     value = _active_refresh_value(active_refresh)
     if value == "Support refresh running":
-        return f"{dataset} running · ETA {eta} · support lane · review can continue."
-    if value == "Live-critical loading":
-        return f"{dataset} running · ETA {eta} · live-critical lane may gate execution."
+        return f"{dataset} running · ETA {eta} · support refresh · review can continue."
+    if value == "Paper-critical loading":
+        return f"{dataset} running · ETA {eta} · paper-critical data may gate execution."
     if value == "Refresh needs attention":
         return f"{dataset} refresh monitor needs attention; ETA {eta}."
     return f"ETA {eta}; state {refresh_state}."
 
 
 def _active_refresh_tooltip(active_refresh: Mapping[str, object]) -> str:
-    dataset = str(active_refresh.get("running_dataset") or active_refresh.get("current_dataset") or "none")
+    dataset = str(
+        active_refresh.get("running_dataset") or active_refresh.get("current_dataset") or "none"
+    )
     return (
         "Active Refresh explains whether a running job blocks review or paper trading. "
         f"Dataset: {dataset}. ETA: {active_refresh.get('eta_label', 'not available')}. "
         f"Jobs: {active_refresh.get('completed_jobs', 0)}/{active_refresh.get('total_jobs', 0)}. "
         f"Status file: {active_refresh.get('status_path', 'not recorded')}."
     )
+
 
 def _optional_int(payload: Mapping[str, object], key: str) -> int:
     value = payload.get(key)
@@ -3237,13 +3627,16 @@ def _optional_int(payload: Mapping[str, object], key: str) -> int:
         return round(value)
     return 0
 
+
 def _optional_mapping(payload: Mapping[str, object], key: str) -> Mapping[str, object]:
     value = payload.get(key)
     return value if isinstance(value, Mapping) else {}
 
+
 def _list_field_or_empty(payload: Mapping[str, object], key: str) -> list[object]:
     value = payload.get(key)
     return value if isinstance(value, list) else []
+
 
 def _data_load_count_label(row: Mapping[str, object]) -> str:
     produced = row.get("produced_count")
@@ -3261,19 +3654,19 @@ def _data_load_count_label(row: Mapping[str, object]) -> str:
         return f"{row_count:,} rows"
     return "coverage n/a"
 
+
 def operational_readiness_view(readiness: Mapping[str, object]) -> dict[str, object]:
     view = dict(readiness)
     view["check_rows"] = [
         cast(Mapping[str, object], row) for row in _list_field(readiness, "checks")
     ]
-    view["key_rows"] = [
-        cast(Mapping[str, object], row) for row in _list_field(readiness, "keys")
-    ]
+    view["key_rows"] = [cast(Mapping[str, object], row) for row in _list_field(readiness, "keys")]
     view["next_action_rows"] = [str(action) for action in _list_field(readiness, "next_actions")]
     view["broker_execution_label"] = (
         "Enabled" if readiness.get("broker_execution_enabled") is True else "Disabled"
     )
     return view
+
 
 async def paper_review_status_context() -> dict[str, object]:
     report_result, data_sources, risk_result = await asyncio.gather(
@@ -3314,8 +3707,10 @@ async def paper_review_status_context() -> dict[str, object]:
         readiness=readiness,
     )
 
+
 async def operational_readiness_context() -> dict[str, object]:
     from agency.views.portfolio import _broker_execution_enabled
+
     report_result, source_load_status, risk_result = await asyncio.gather(
         _dashboard_selection_reports_live_checked(FINAL_SELECTION_REPORT_LIMIT),
         _runtime_data_source_status_with_load_status_live(),
@@ -3364,11 +3759,7 @@ async def operational_readiness_context() -> dict[str, object]:
 
 
 def _runtime_unavailable_readiness(*errors: object) -> dict[str, object]:
-    details = [
-        str(error)
-        for error in errors
-        if isinstance(error, BaseException) and str(error)
-    ]
+    details = [str(error) for error in errors if isinstance(error, BaseException) and str(error)]
     detail = (
         "Runtime repository is unavailable for selection reports or risk decisions. "
         "Refresh/restart the runtime database connection, then reload this status."
@@ -3405,25 +3796,33 @@ def _runtime_unavailable_readiness(*errors: object) -> dict[str, object]:
 def _runtime_unavailable_paper_status(
     readiness: Mapping[str, object],
 ) -> dict[str, object]:
+    progress = {
+        "total_count": 0,
+        "reviewed_count": 0,
+        "pending_count": 0,
+        "approve_count": 0,
+        "defer_count": 0,
+        "reject_count": 0,
+        "reviewed_label": "0/0",
+        "status_label": "Runtime Unavailable",
+        "status_class": "block",
+        "detail": "Paper-review queue cannot be read until runtime storage is available.",
+    }
     return {
         "schema_version": "0.1.0",
         "cycle_id": readiness.get("cycle_id"),
         "ready": False,
         "verdict": readiness.get("verdict"),
-        "progress": {
-            "total_count": 0,
-            "reviewed_count": 0,
-            "pending_count": 0,
-            "approve_count": 0,
-            "defer_count": 0,
-            "reject_count": 0,
-            "reviewed_label": "0/0",
-            "status_label": "Runtime Unavailable",
-            "status_class": "block",
-            "detail": "Paper-review queue cannot be read until runtime storage is available.",
-        },
+        "status_label": progress["status_label"],
+        "status_class": progress["status_class"],
+        "detail": progress["detail"],
+        "total_count": progress["total_count"],
+        "pending_count": progress["pending_count"],
+        "approved_count": progress["approve_count"],
+        "progress": progress,
         "queue": [],
     }
+
 
 async def scheduler_work_queue_raw_context() -> dict[str, object]:
     from agency.views.market_regime import broker_status_context
@@ -3479,14 +3878,22 @@ async def paper_review_status_from_runtime(
         readiness,
         review_events=review_events,
     )
+    progress = paper_review_progress(queue)
     return {
         "schema_version": "0.1.0",
         "cycle_id": readiness.get("cycle_id"),
         "ready": readiness.get("ready"),
         "verdict": readiness.get("verdict"),
-        "progress": paper_review_progress(queue),
+        "status_label": progress.get("status_label"),
+        "status_class": progress.get("status_class"),
+        "detail": progress.get("detail"),
+        "total_count": progress.get("total_count"),
+        "pending_count": progress.get("pending_count"),
+        "approved_count": progress.get("approve_count"),
+        "progress": progress,
         "queue": queue,
     }
+
 
 async def human_review_events_for_reports(
     reports: Sequence[Mapping[str, object]],
@@ -3498,12 +3905,13 @@ async def human_review_events_for_reports(
                 reports,
                 readiness,
                 event_type="HUMAN_REVIEW",
-                limit_per_ticker=50,
+                limit_per_ticker=5,
             ),
             timeout=DASHBOARD_RUNTIME_QUERY_TIMEOUT_SECONDS,
         )
     except Exception:  # noqa: BLE001
         return []
+
 
 def paper_review_queue(
     reports: Sequence[Mapping[str, object]],
@@ -3513,6 +3921,7 @@ def paper_review_queue(
     review_events: Sequence[Mapping[str, object]] = (),
 ) -> list[dict[str, object]]:
     from agency.views.candidates import _paper_review_row, _paper_review_sort_key
+
     cycle_id = readiness.get("cycle_id")
     if not isinstance(cycle_id, str) or not cycle_id:
         return []
@@ -3530,6 +3939,7 @@ def paper_review_queue(
     ]
     return sorted(rows, key=_paper_review_sort_key)
 
+
 def paper_review_progress(
     review_queue: Sequence[Mapping[str, object]],
 ) -> dict[str, object]:
@@ -3538,6 +3948,7 @@ def paper_review_progress(
         _review_progress_status_class,
         _review_progress_status_label,
     )
+
     total_count = len(review_queue)
     decisions = [_review_decision_key(row.get("human_review_decision")) for row in review_queue]
     pending_count = decisions.count("pending")
@@ -3558,8 +3969,10 @@ def paper_review_progress(
         "detail": _review_progress_detail(total_count, pending_count),
     }
 
+
 def _review_decision_key(value: object) -> str:
     return str(value or "").strip().casefold()
+
 
 def policy_sections(policy: PortfolioPolicy | None = None) -> list[dict[str, object]]:
     resolved_policy = policy or PortfolioPolicy.from_env()
@@ -3651,6 +4064,7 @@ def policy_sections(policy: PortfolioPolicy | None = None) -> list[dict[str, obj
         },
     ]
 
+
 def policy_summary(
     *,
     db_backed: bool = False,
@@ -3673,6 +4087,7 @@ def policy_summary(
         "source_label": source_label,
     }
 
+
 def _risk_decision_index(
     risk_decisions: Sequence[Mapping[str, object]],
 ) -> dict[tuple[str, str, str], Mapping[str, object]]:
@@ -3682,6 +4097,7 @@ def _risk_decision_index(
         if all(key) and key not in indexed:
             indexed[key] = decision
     return indexed
+
 
 def _source_status_class(source: Mapping[str, object]) -> str:
     age_seconds = _source_checked_age_seconds(source)
@@ -3702,12 +4118,14 @@ def _source_checked_age_seconds(source: Mapping[str, object]) -> int | None:
         parsed = parsed.replace(tzinfo=UTC)
     return max(0, int((datetime.now(UTC) - parsed.astimezone(UTC)).total_seconds()))
 
+
 def _readiness_status_class(verdict: str) -> str:
     if verdict == "ready_for_paper_validation":
         return "pass"
     if verdict in {"context_only_source_health", "context_only_lane_state"}:
         return "warn"
     return "block"
+
 
 def _readiness_blocker_rows(summary: Mapping[str, object]) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
@@ -3723,6 +4141,7 @@ def _readiness_blocker_rows(summary: Mapping[str, object]) -> list[dict[str, str
             }
         )
     return rows
+
 
 def _provider_readiness_row(row: Mapping[str, object]) -> dict[str, object]:
     provider_id = str(row.get("id") or "").strip()
@@ -3775,6 +4194,7 @@ def _provider_readiness_row(row: Mapping[str, object]) -> dict[str, object]:
         "tooltip": tooltip,
     }
 
+
 def _provider_requirement_label(required_now: bool, configured: bool) -> str:
     if required_now:
         return "Active required"
@@ -3782,12 +4202,14 @@ def _provider_requirement_label(required_now: bool, configured: bool) -> str:
         return "Optional configured"
     return "Planned optional"
 
+
 def _provider_requirement_reason(required_now: bool, configured: bool) -> str:
     if required_now:
         return "This provider is required by today's workflow."
     if configured:
         return "This provider is optional for today's workflow and currently configured."
     return "This provider is planned for future capabilities and does not block today's paper flow."
+
 
 def _provider_secret_status(
     *,
@@ -3807,6 +4229,7 @@ def _provider_secret_status(
         return "Missing required keys"
     return "Missing optional key" if len(keys) == 1 else "Missing optional keys"
 
+
 def _provider_impact_label(
     provider_id: str,
     required_now: bool,
@@ -3816,7 +4239,7 @@ def _provider_impact_label(
     if not required_now and not configured and status == "PLANNED":
         return "Optional/roadmap"
     return {
-        "alpaca": "Execution-critical broker/provider",
+        "alpaca": "Paper-critical broker/provider",
         "sec_edgar": "Filings and ownership evidence",
         "openai": "LLM review/explanation",
         "openfigi": "Reference-data support",
@@ -3828,6 +4251,7 @@ def _provider_impact_label(
         "thetadata": "Options-history context",
         "finra": "Market-structure context",
     }.get(provider_id, "Provider support")
+
 
 def _provider_next_action(
     *,
@@ -3841,9 +4265,7 @@ def _provider_next_action(
     if not keys:
         return "No credential action required."
     missing_keys = [
-        str(key.get("name"))
-        for key in keys
-        if key.get("present") is not True and key.get("name")
+        str(key.get("name")) for key in keys if key.get("present") is not True and key.get("name")
     ]
     missing_label = ", ".join(missing_keys) if missing_keys else key_label
     if configured:
@@ -3869,12 +4291,14 @@ def _provider_next_action(
         return f"Add {key_label} in .env before workflows require this provider."
     return f"No action for today; add {key_label} only when enabling this roadmap provider."
 
+
 def _command_hero_class(candidate_count: int, degraded_source_count: int) -> str:
     if degraded_source_count > 0:
         return "hero-watch"
     if candidate_count > 0:
         return "hero-success"
     return "hero-info"
+
 
 def _command_headline(candidate_count: int, actionable_candidate_count: int) -> str:
     if candidate_count == 0:
@@ -3884,6 +4308,7 @@ def _command_headline(candidate_count: int, actionable_candidate_count: int) -> 
         f"{_plural('actionable candidate', actionable_candidate_count)} across "
         f"{candidate_count} {_plural('report', candidate_count)}."
     )
+
 
 def _command_detail(candidate_count: int, degraded_source_count: int) -> str:
     if degraded_source_count == 0:

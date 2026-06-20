@@ -39,7 +39,8 @@ def test_zero_position_portfolio_has_explicit_empty_state() -> None:
     context = cockpit_context_from_sources(sources)
 
     assert context["portfolio_phase"]["empty_state"] == (
-        "No open paper positions are reported by the broker for this cycle."
+        "No open paper positions are reported by the broker for this cycle; "
+        "continue to clearance if candidate review is complete."
     )
 
 

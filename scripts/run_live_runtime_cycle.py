@@ -48,7 +48,7 @@ DEFAULT_NEWS_CONSUMPTION_LEDGER_PATH = ROOT / "research" / "data" / "state" / "n
 
 
 async def main() -> int:
-    load_dotenv(ROOT / ".env", override=True)
+    load_dotenv(ROOT / ".env", override=False)
     args = _parse_args()
     config = load_refresh_config(args.config, repo_root=ROOT) if args.config else None
     lanes = _runtime_signals(args, config)

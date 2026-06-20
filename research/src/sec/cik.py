@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -34,8 +35,27 @@ def parse_company_tickers(payload: Mapping[str, Any]) -> dict[str, TickerCik]:
     return mapping
 
 
-def universe_tickers(path: Path) -> list[str]:
-    frame = pd.read_parquet(path, columns=["ticker"])
+def universe_tickers(
+    path: Path,
+    *,
+    as_of: date | None = None,
+    active_only: bool = True,
+) -> list[str]:
+    columns = ["ticker"]
+    if active_only:
+        columns.extend(["start_date", "end_date"])
+    try:
+        frame = pd.read_parquet(path, columns=columns)
+    except (ValueError, KeyError):
+        if active_only:
+            frame = pd.read_parquet(path, columns=["ticker"])
+        else:
+            raise
+    if active_only and {"start_date", "end_date"}.issubset(frame.columns):
+        current = pd.Timestamp(as_of or date.today())
+        start = pd.to_datetime(frame["start_date"], errors="coerce")
+        end = pd.to_datetime(frame["end_date"], errors="coerce")
+        frame = frame[(start <= current) & (end.isna() | (end > current))]
     return sorted(
         ticker
         for raw in frame["ticker"].dropna().unique()

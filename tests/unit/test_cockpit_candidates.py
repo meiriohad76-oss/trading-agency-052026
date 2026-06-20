@@ -13,15 +13,35 @@ from tests.unit.test_cockpit_contract import _sample_sources
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 TEMPLATE = PROJECT_ROOT / "src/agency/templates/cockpit.html"
+PANELS_TEMPLATE = PROJECT_ROOT / "src/agency/templates/_cockpit_panels.html"
+EVIDENCE_LEGEND = PROJECT_ROOT / "src/agency/templates/_evidence_legend.html"
 STYLES = PROJECT_ROOT / "src/agency/static/styles.css"
+V3_STYLES = PROJECT_ROOT / "src/agency/static/v3-screens.css"
+COCKPIT_JS = PROJECT_ROOT / "src/agency/static/cockpit.js"
 
 
 def _template() -> str:
     return TEMPLATE.read_text(encoding="utf-8")
 
 
+def _panels_template() -> str:
+    return PANELS_TEMPLATE.read_text(encoding="utf-8")
+
+
+def _evidence_legend() -> str:
+    return EVIDENCE_LEGEND.read_text(encoding="utf-8")
+
+
 def _styles() -> str:
     return STYLES.read_text(encoding="utf-8")
+
+
+def _v3_styles() -> str:
+    return V3_STYLES.read_text(encoding="utf-8")
+
+
+def _cockpit_js() -> str:
+    return COCKPIT_JS.read_text(encoding="utf-8")
 
 
 def test_candidate_row_includes_concrete_evidence_not_generic_copy() -> None:
@@ -62,7 +82,11 @@ def test_candidate_row_missing_evidence_and_risk_uses_neutral_copy() -> None:
     row = context["candidates"][0]
 
     assert row["evidence_tiers"] == ["suppressed"]
-    assert row["evidence_line"] == "No concrete evidence line is available in the current pack."
+    assert row["evidence_line"] == (
+        "No current signal evidence was attached for this ticker; open the audit "
+        "to see whether source data is unavailable, still unanalyzed, or below "
+        "the display threshold."
+    )
     assert row["risk_line"] == "Risk check did not attach a specific finding."
     assert row["risk_status_label"] == "Risk proof not attached"
 
@@ -169,7 +193,7 @@ def test_candidate_row_uses_reference_missing_copy_when_sector_is_absent() -> No
     context = cockpit_context_from_sources(sources)
     row = context["candidates"][0]
 
-    assert row["sector"] == "Reference lane not loaded"
+    assert row["sector"] == "Reference data not loaded"
 
 
 def test_candidate_row_uses_cached_ticker_reference_metadata() -> None:
@@ -226,9 +250,12 @@ def test_candidate_evidence_tiers_are_visually_distinct() -> None:
 
 def test_candidate_evidence_thresholds_have_whymark_tips() -> None:
     html = _template()
+    legend = _evidence_legend()
 
-    assert "Evidence tiers: confirmed uses direct source data" in html
-    assert "data-cockpit-tip=\"evidence-tier-thresholds\"" in html
+    assert "{{ evidence_legend(compact=true) }}" in html
+    assert "Evidence tiers" in legend
+    assert "confirmed direct data" in legend
+    assert "data-cockpit-tip=\"evidence-tier-thresholds\"" in legend
 
 
 def test_candidate_row_layout_keeps_decision_controls_from_compressing_evidence() -> None:
@@ -236,6 +263,93 @@ def test_candidate_row_layout_keeps_decision_controls_from_compressing_evidence(
     row_rule = css.split(".cockpit-candidate-row {", 1)[1].split("}", 1)[0]
 
     assert "grid-template-columns: 1fr;" in row_rule
+
+
+def test_cockpit_declares_variation_a_shell_markers() -> None:
+    html = _template()
+
+    assert 'class="cockpit-shell vA"' in html
+    assert 'data-ux-variation="variation-a-preflight"' in html
+    for marker in (
+        'data-tour="topline"',
+        'data-tour="datastate"',
+        'data-tour="cluster"',
+        'data-tour="engines"',
+        'data-tour="instruments"',
+        'data-tour="phaserail"',
+        'data-tour="candidates"',
+    ):
+        assert marker in html
+
+
+def test_cockpit_variation_a_css_removes_legacy_chrome() -> None:
+    css = _v3_styles()
+
+    assert "Cockpit Variation A parity layer" in css
+    assert ".v3-screen-cockpit .sidebar" in css
+    assert "display: none;" in css
+    assert 'width: min(1440px, 100%);' in css
+    assert "--amber: #ffb845;" in css
+    assert "--cyan: #5ad7f0;" in css
+    assert "--green: #5fe49d;" in css
+    assert "--red: #ff6868;" in css
+
+
+def test_cockpit_candidate_actions_preserve_ticker_context() -> None:
+    html = _template()
+    js = _cockpit_js()
+    css = _v3_styles()
+
+    assert 'data-cockpit-focus-ticker="{{ candidate.ticker }}"' in html
+    assert "#focused-preview-" in html
+    assert "data-cockpit-manifest-row" in html
+    assert "selectedTicker" in js
+    assert "data-cockpit-flow-focus" in js
+    assert ".cockpit-manifest-row[data-cockpit-flow-focus]" in css
+
+
+def test_cockpit_ticker_drawer_has_concrete_detail_slots_and_manual_llm_action() -> None:
+    panels = _panels_template()
+    js = _cockpit_js()
+
+    for marker in (
+        "data-ticker-data-health-detail",
+        "data-ticker-llm-action",
+        "data-ticker-context",
+        "data-ticker-evidence",
+    ):
+        assert marker in panels
+    assert "manual_review_available" in js
+    assert "dataHealthDetailText" in js
+    assert "No primary signal evidence was returned for this ticker" not in js
+
+
+def test_cockpit_portfolio_phase_has_guidance_and_local_decision_hooks() -> None:
+    context = cockpit_context_from_sources(_sample_sources())
+    html = _template()
+    js = _cockpit_js()
+
+    assert context["portfolio_phase"]["portfolio_review_required"] is True  # type: ignore[index]
+    assert "Review 1 open paper position" in str(context["portfolio_phase"]["guidance"])  # type: ignore[index]
+    assert context["account"]["equity"] == 100000.0  # type: ignore[index]
+    assert 'data-portfolio-decision-summary' in html
+    assert 'data-capacity-impact' in html
+    assert 'data-position-decision-state' in html
+    assert 'data-position-notional="{{ position.market_value|default(0, true) }}"' in html
+    assert "updateLocalExitManifest" in js
+    assert "Operator marked Close in portfolio review" in js
+
+
+def test_cockpit_empty_portfolio_can_advance_to_clearance() -> None:
+    sources = _sample_sources()
+    sources["portfolio"]["positions"] = []  # type: ignore[index]
+
+    context = cockpit_context_from_sources(sources)
+
+    assert context["positions"] == []
+    assert context["portfolio_phase"]["portfolio_review_required"] is False  # type: ignore[index]
+    assert "continue to clearance" in str(context["portfolio_phase"]["guidance"]).lower()  # type: ignore[index]
+    assert "continue to clearance" in str(context["portfolio_phase"]["empty_state"]).lower()  # type: ignore[index]
 
 
 def test_blocked_candidate_has_audit_link_not_approve_button() -> None:
@@ -550,7 +664,10 @@ async def test_cached_cockpit_context_coalesces_concurrent_requests(monkeypatch)
     async def fake_cockpit_context(**_kwargs: object) -> dict[str, object]:
         calls["count"] += 1
         await cockpit_module.asyncio.sleep(0.01)
-        return {"build": calls["count"]}
+        return {
+            "build": calls["count"],
+            "data_state": {"lane_rows": [{"lane_id": "massive_live_trade_slices"}]},
+        }
 
     monkeypatch.setattr(cockpit_module, "cockpit_context", fake_cockpit_context)
 
@@ -559,7 +676,10 @@ async def test_cached_cockpit_context_coalesces_concurrent_requests(monkeypatch)
         cockpit_module.cached_cockpit_context(),
     )
 
-    assert first == second == {"build": 1}
+    assert first["build"] == second["build"] == 1
+    assert first["data_state"] == second["data_state"]
+    assert first["cockpit_context_freshness"]["status_label"] == "Cockpit data loaded"
+    assert second["cockpit_context_freshness"]["status_label"] == "Cockpit data loaded"
     assert calls["count"] == 1
 
 
@@ -570,7 +690,10 @@ async def test_warm_cockpit_context_cache_primes_first_runtime_request(monkeypat
 
     async def fake_cockpit_context(**_kwargs: object) -> dict[str, object]:
         calls["count"] += 1
-        return {"build": calls["count"]}
+        return {
+            "build": calls["count"],
+            "data_state": {"lane_rows": [{"lane_id": "massive_live_trade_slices"}]},
+        }
 
     monkeypatch.setattr(cockpit_module, "cockpit_context", fake_cockpit_context)
 
@@ -578,8 +701,62 @@ async def test_warm_cockpit_context_cache_primes_first_runtime_request(monkeypat
     context = await cockpit_module.cached_cockpit_context()
 
     assert warmed is True
-    assert context == {"build": 1}
+    assert context["build"] == 1
+    assert context["data_state"] == {"lane_rows": [{"lane_id": "massive_live_trade_slices"}]}
+    assert context["cockpit_context_freshness"]["status_label"] == "Cockpit data loaded"
     assert calls["count"] == 1
+
+
+async def test_cockpit_context_cache_covers_one_runtime_smoke_sequence(monkeypatch) -> None:
+    calls = {"count": 0}
+    now = {"value": 1000.0}
+    cockpit_module._cockpit_context_cache.clear()
+    cockpit_module._cockpit_context_inflight.clear()
+
+    async def fake_cockpit_context(**_kwargs: object) -> dict[str, object]:
+        calls["count"] += 1
+        return {
+            "build": calls["count"],
+            "data_state": {"lane_rows": [{"lane_id": "massive_live_trade_slices"}]},
+        }
+
+    monkeypatch.setattr(cockpit_module, "monotonic", lambda: now["value"])
+    monkeypatch.setattr(cockpit_module, "cockpit_context", fake_cockpit_context)
+
+    first = await cockpit_module.cached_cockpit_context()
+    now["value"] += 10.0
+    second = await cockpit_module.cached_cockpit_context()
+
+    assert first["build"] == second["build"] == 1
+    assert second["cockpit_context_freshness"]["source"] == "cache"
+    assert calls["count"] == 1
+    assert cockpit_module._cockpit_context_inflight == {}
+
+
+async def test_cockpit_context_cache_invalidates_when_data_proof_changes(monkeypatch) -> None:
+    calls = {"count": 0}
+    proof = {"value": 1}
+    cockpit_module._cockpit_context_cache.clear()
+    cockpit_module._cockpit_context_inflight.clear()
+
+    async def fake_cockpit_context(**_kwargs: object) -> dict[str, object]:
+        calls["count"] += 1
+        return {"build": calls["count"]}
+
+    monkeypatch.setattr(cockpit_module, "cockpit_context", fake_cockpit_context)
+    monkeypatch.setattr(
+        cockpit_module,
+        "runtime_status_data_proof_version",
+        lambda: proof["value"],
+    )
+
+    first = await cockpit_module.cached_cockpit_context()
+    proof["value"] = 2
+    second = await cockpit_module.cached_cockpit_context()
+
+    assert first["build"] == 1
+    assert second["build"] == 2
+    assert calls["count"] == 2
 
 
 async def test_expired_cockpit_cache_serves_last_context_while_refreshing(monkeypatch) -> None:
@@ -587,14 +764,21 @@ async def test_expired_cockpit_cache_serves_last_context_while_refreshing(monkey
     now = {"value": 1000.0}
     cockpit_module._cockpit_context_cache.clear()
     cockpit_module._cockpit_context_inflight.clear()
-    cockpit_module._cockpit_context_cache[(None, None)] = (
+    cache_key = (None, None, cockpit_module.runtime_status_data_proof_version())
+    cockpit_module._cockpit_context_cache[cache_key] = (
         now["value"] - cockpit_module.COCKPIT_CONTEXT_CACHE_SECONDS - 1.0,
-        {"build": "last-proven"},
+        {
+            "build": "last-proven",
+            "data_state": {"lane_rows": [{"lane_id": "massive_live_trade_slices"}]},
+        },
     )
 
     async def fake_cockpit_context(**_kwargs: object) -> dict[str, object]:
         calls["count"] += 1
-        return {"build": "fresh"}
+        return {
+            "build": "fresh",
+            "data_state": {"lane_rows": [{"lane_id": "massive_live_trade_slices"}]},
+        }
 
     monkeypatch.setattr(cockpit_module, "monotonic", lambda: now["value"])
     monkeypatch.setattr(cockpit_module, "cockpit_context", fake_cockpit_context)
@@ -604,8 +788,8 @@ async def test_expired_cockpit_cache_serves_last_context_while_refreshing(monkey
     await cockpit_module.asyncio.sleep(0)
     refreshed = await cockpit_module.cached_cockpit_context()
 
-    assert context == {"build": "last-proven"}
-    assert refreshed == {"build": "fresh"}
+    assert context["build"] == "last-proven"
+    assert refreshed["build"] == "fresh"
     assert calls["count"] == 1
 
 
@@ -733,8 +917,9 @@ def test_ready_preview_without_submit_is_order_intent_review_not_paper_ready() -
     assert row["actionable"] is False
     assert row["order_reviewable"] is True
     assert row["status"] == "pending"
-    assert row["status_label"] == "Order intent needs approval"
-    assert row["action_label"] == "Review order intent"
+    assert row["status_label"] == "Order details need approval"
+    assert row["action_label"] == "Review order details"
+    assert row["execution_focus_url"] == "/execution-preview?ticker=AMZN#focused-preview-AMZN"
     assert context["scenario"]["state"] == "review"
 
 
@@ -855,8 +1040,12 @@ def test_cockpit_ticker_detail_payload_surfaces_rich_candidate_brief() -> None:
     )
 
     assert payload["ticker"] == "AMZN"
+    assert payload["cycle_id"] == "cycle-live"
+    assert payload["as_of"] == "2026-05-22T00:00:00+00:00"
     assert payload["headline"] == "AMZN is selected for human review."
     assert payload["llm"]["status_label"] == "Included"
+    assert payload["llm"]["manual_review_available"] is True
+    assert payload["llm"]["manual_review_action"] == "/candidates/AMZN/llm-review"
     assert payload["support_cards"][0]["detail"].startswith("Hard evidence: score +0.87")
     assert payload["signals"][0]["hard_evidence"] == (
         "Score +0.87 bullish; Confidence 55%"

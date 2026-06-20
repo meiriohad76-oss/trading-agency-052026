@@ -27,6 +27,22 @@ class EmailRecord:
     linked_content_signal_strength: str | None = None
     linked_content_context_chars: int | None = None
     linked_content_confidence: float | None = None
+    local_llm_article_status: str | None = None
+    local_llm_article_provider: str | None = None
+    local_llm_article_model: str | None = None
+    local_llm_article_context_source: str | None = None
+    local_llm_article_direction: str | None = None
+    local_llm_article_confidence: float | None = None
+    local_llm_article_tickers: tuple[str, ...] = ()
+    local_llm_article_thesis: str | None = None
+    local_llm_article_key_points: tuple[str, ...] = ()
+    local_llm_article_catalysts: tuple[str, ...] = ()
+    local_llm_article_risk_flags: tuple[str, ...] = ()
+    local_llm_article_decision_use: str | None = None
+    local_llm_article_signal_strength: str | None = None
+    local_llm_article_comparison: str | None = None
+    local_llm_article_error: str | None = None
+    local_llm_article_can_affect_trade_gates: bool = False
 
 
 @dataclass(frozen=True)

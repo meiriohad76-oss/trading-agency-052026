@@ -31,7 +31,7 @@ def read_lane_manifest(path: Path) -> dict[str, Any]:
         return {}
     try:
         payload = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, json.JSONDecodeError):
+    except OSError, json.JSONDecodeError:
         return {}
     return payload if isinstance(payload, dict) else {}
 
@@ -154,7 +154,45 @@ def _preserve_existing_newer_window(
         return False
     existing_end = _manifest_window_end(existing)
     candidate_end = _manifest_window_end(candidate)
-    return existing_end is not None and candidate_end is not None and candidate_end < existing_end
+    if existing_end is None or candidate_end is None or candidate_end >= existing_end:
+        return False
+    if lane_id == "massive_daily_bars":
+        return _daily_bar_existing_window_is_at_least_as_good(existing, candidate)
+    return True
+
+
+def _daily_bar_existing_window_is_at_least_as_good(
+    existing: Mapping[str, Any],
+    candidate: Mapping[str, Any],
+) -> bool:
+    return _daily_bar_manifest_quality(existing) >= _daily_bar_manifest_quality(candidate)
+
+
+def _daily_bar_manifest_quality(payload: Mapping[str, Any]) -> tuple[int, int, int, int, int]:
+    status = str(payload.get("status") or "").lower()
+    ready_status = 1 if status in {"complete", "partial_usable", "ready", "usable"} else 0
+    return (
+        ready_status,
+        _complete_coverage_count(payload.get("coverage", [])),
+        _safe_int(payload.get("complete_coverage_pct")),
+        _safe_int(payload.get("coverage_pct")),
+        _safe_int(payload.get("ticker_count")),
+    )
+
+
+def _complete_coverage_count(coverage: object) -> int:
+    return len(_complete_tickers(_mapping_rows(coverage)))
+
+
+def _safe_int(value: object) -> int:
+    if value is None or isinstance(value, bool):
+        return 0
+    if not isinstance(value, int | float | str):
+        return 0
+    try:
+        return int(value)
+    except TypeError, ValueError:
+        return 0
 
 
 def _write_superseded_manifest(
@@ -338,7 +376,6 @@ def _safe_lane_id(value: str) -> str:
 
 def _safe_filename_fragment(value: str) -> str:
     safe = "".join(
-        char if char.isalnum() or char in {"-", "_", "."} else "_"
-        for char in value.strip()
+        char if char.isalnum() or char in {"-", "_", "."} else "_" for char in value.strip()
     )
     return safe.strip("._") or "unknown"

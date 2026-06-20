@@ -19,16 +19,23 @@ from subscription_email.article_types import FetchedArticle
 from subscription_email.config import SubscriptionEmailConfig
 from subscription_email.types import EmailRecord
 
+from agency.runtime.local_llm import (
+    LOCAL_LLM_BASE_URL_ENV,
+    LOCAL_LLM_MODEL_ENV,
+    LocalLlmConfig,
+)
 from agency.services.llm_review import looks_like_openai_api_key
 
 OPENAI_API_KEY_ENV = "OPENAI_API_KEY"
 OPENAI_BASE_URL_ENV = "OPENAI_BASE_URL"
 OPENAI_ARTICLE_MODEL_ENV = "OPENAI_ARTICLE_ANALYSIS_MODEL"
 ARTICLE_LLM_ENABLED_ENV = "SUBSCRIPTION_EMAIL_LLM_ANALYSIS_ENABLED"
+ARTICLE_LLM_PROVIDER_ENV = "SUBSCRIPTION_EMAIL_ARTICLE_LLM_PROVIDER"
 DEFAULT_ARTICLE_MODEL = "gpt-5-nano"
 PROMPT_CLASS = "subscription-email-article-analysis-v1"
 MAX_BODY_CONTEXT_CHARS = 1600
 MAX_ARTICLE_LLM_BODY_CHARS = 5_000
+MAX_LOCAL_OLLAMA_ARTICLE_CHARS = 900
 MAX_TEXT_ITEM_CHARS = 360
 MAX_ITEMS = 6
 HTTP_BAD_REQUEST = 400
@@ -61,10 +68,34 @@ class ArticleLlmAnalyzer:
     model: str
     enabled: bool
     base_url: str = "https://api.openai.com/v1"
+    provider: str = "openai"
     timeout_seconds: int = 45
 
     @classmethod
     def from_config(cls, config: SubscriptionEmailConfig) -> ArticleLlmAnalyzer:
+        provider = (
+            os.environ.get(ARTICLE_LLM_PROVIDER_ENV)
+            or config.article_llm_provider
+            or "openai"
+        ).strip().lower()
+        if provider == "local_ollama":
+            local_config = LocalLlmConfig.from_env()
+            model = os.environ.get(LOCAL_LLM_MODEL_ENV, "").strip() or config.article_llm_model
+            timeout_seconds = max(
+                config.article_llm_timeout_seconds,
+                int(local_config.timeout_seconds),
+            )
+            return cls(
+                api_key=None,
+                model=model.strip() or local_config.model,
+                enabled=(
+                    config.article_llm_analysis_enabled
+                    or _env_flag(ARTICLE_LLM_ENABLED_ENV)
+                ),
+                base_url=local_config.base_url,
+                provider=provider,
+                timeout_seconds=max(1, timeout_seconds),
+            )
         model = (
             os.environ.get(OPENAI_ARTICLE_MODEL_ENV)
             or config.article_llm_model
@@ -75,6 +106,7 @@ class ArticleLlmAnalyzer:
             model=model.strip() or DEFAULT_ARTICLE_MODEL,
             enabled=config.article_llm_analysis_enabled or _env_flag(ARTICLE_LLM_ENABLED_ENV),
             base_url=os.environ.get(OPENAI_BASE_URL_ENV, "https://api.openai.com/v1").rstrip("/"),
+            provider=provider,
             timeout_seconds=config.article_llm_timeout_seconds,
         )
 
@@ -88,6 +120,13 @@ class ArticleLlmAnalyzer:
         fallback = analyze_article(page, config=config)
         if not self.enabled:
             return fallback
+        if self.provider == "local_ollama":
+            return self._analyze_with_local_ollama_shadow(
+                page,
+                config=config,
+                record=record,
+                fallback=fallback,
+            )
         if not looks_like_openai_api_key(self.api_key):
             return _fallback_with_reason(
                 fallback,
@@ -107,6 +146,47 @@ class ArticleLlmAnalyzer:
             return _fallback_with_reason(
                 fallback,
                 f"deterministic_keyword_fallback: {_safe_error(exc)}",
+            )
+
+    def _analyze_with_local_ollama_shadow(
+        self,
+        page: FetchedArticle,
+        *,
+        config: SubscriptionEmailConfig,
+        record: EmailRecord,
+        fallback: Mapping[str, object],
+    ) -> dict[str, object]:
+        if not self.base_url.strip() or not self.model.strip():
+            return _fallback_with_local_shadow_status(
+                fallback,
+                provider="local_ollama",
+                model=self.model,
+                status="not_configured",
+                error=(
+                    f"Set {LOCAL_LLM_BASE_URL_ENV} and {LOCAL_LLM_MODEL_ENV} "
+                    "before running local article analysis."
+                ),
+            )
+        try:
+            payload = self._request_local_ollama(
+                _local_ollama_messages(page, config=config, record=record)
+            )
+            shadow = normalize_article_llm_analysis(
+                payload,
+                page=page,
+                config=config,
+                fallback=fallback,
+                model=self.model,
+                provider="local_ollama",
+            )
+            return _fallback_with_local_shadow_analysis(fallback, shadow)
+        except (httpx.HTTPError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            return _fallback_with_local_shadow_status(
+                fallback,
+                provider="local_ollama",
+                model=self.model,
+                status="failed",
+                error=_safe_error(exc),
             )
 
     def _request(self, messages: list[dict[str, str]]) -> Mapping[str, object]:
@@ -135,6 +215,28 @@ class ArticleLlmAnalyzer:
             response.raise_for_status()
             return cast(Mapping[str, object], response.json())
 
+    def _request_local_ollama(self, messages: list[dict[str, str]]) -> Mapping[str, object]:
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "stream": False,
+            "think": False,
+            "format": "json",
+            "options": {
+                "temperature": 0,
+                "num_predict": 260,
+                "num_ctx": 3072,
+            },
+        }
+        with httpx.Client(timeout=self.timeout_seconds) as client:
+            response = client.post(
+                _ollama_chat_url(self.base_url),
+                headers={"Content-Type": "application/json"},
+                json=payload,
+            )
+            response.raise_for_status()
+            return _local_ollama_response_payload(response.json())
+
 
 def analyze_article_with_optional_llm(
     page: FetchedArticle,
@@ -152,6 +254,7 @@ def normalize_article_llm_analysis(
     config: SubscriptionEmailConfig,
     fallback: Mapping[str, object],
     model: str,
+    provider: str = "openai",
 ) -> dict[str, object]:
     direction = _choice(str(payload.get("direction", "")), ALLOWED_DIRECTIONS)
     tickers = _configured_tickers(payload.get("tickers"), config)
@@ -161,7 +264,7 @@ def normalize_article_llm_analysis(
     thesis = _sentence_fragment(_text(payload.get("thesis"), MAX_TEXT_ITEM_CHARS))
     decision_use = _sentence_fragment(_text(payload.get("decision_use"), MAX_TEXT_ITEM_CHARS))
     strength = _choice(str(payload.get("signal_strength", "")), ALLOWED_STRENGTHS)
-    confidence = _float(payload.get("confidence"))
+    confidence = _confidence(payload.get("confidence"), strength=strength)
     output = {
         **dict(fallback),
         "status": "article_analyzed",
@@ -175,7 +278,7 @@ def normalize_article_llm_analysis(
         "decision_use": decision_use or str(fallback.get("decision_use", "")),
         "signal_strength": strength or _strength_from_confidence(confidence),
         "confidence": confidence,
-        "context_source": _analysis_identity(model),
+        "context_source": _analysis_identity(model, provider=provider),
         "context_chars": len(" ".join(page.text[: config.article_max_chars].split())),
         "status_code": int(page.status_code),
         "title_hash": _hash(page.title or ""),
@@ -195,8 +298,82 @@ def _messages(
     config: SubscriptionEmailConfig,
     record: EmailRecord,
 ) -> list[dict[str, str]]:
-    article_text = _clip(page.text, _article_body_limit(config))
-    prompt = {
+    prompt = _article_prompt(page, config=config, record=record)
+    return [
+        {
+            "role": "system",
+            "content": (
+                "You are a supervised equity-research article analyst. "
+                "You produce concise ticker-specific evidence summaries for a "
+                "paper-trading research workflow."
+            ),
+        },
+        {"role": "user", "content": json.dumps(prompt, ensure_ascii=True, sort_keys=True)},
+    ]
+
+
+def _local_ollama_messages(
+    page: FetchedArticle,
+    *,
+    config: SubscriptionEmailConfig,
+    record: EmailRecord,
+) -> list[dict[str, str]]:
+    prompt = _local_ollama_article_prompt(page, config=config, record=record)
+    return [
+        {
+            "role": "system",
+            "content": (
+                "You are a shadow-only local article analyst for a supervised "
+                "paper-trading workflow. Return one compact valid JSON object only. "
+                "Keys: direction, confidence, tickers, thesis, key_points, catalysts, "
+                "risk_flags, decision_use, signal_strength. You cannot approve trades, "
+                "block trades, change gates, or feed subscription_thesis."
+            ),
+        },
+        {"role": "user", "content": json.dumps(prompt, ensure_ascii=True, sort_keys=True)},
+    ]
+
+
+def _local_ollama_article_prompt(
+    page: FetchedArticle,
+    *,
+    config: SubscriptionEmailConfig,
+    record: EmailRecord,
+) -> dict[str, object]:
+    article_text = _clip(page.text, MAX_LOCAL_OLLAMA_ARTICLE_CHARS)
+    return {
+        "task": PROMPT_CLASS,
+        "shadow_only": True,
+        "configured_tickers": list(config.tickers),
+        "email_subject": _clip(record.subject, 180),
+        "article_title": _clip(page.title or "", 180),
+        "article_text": article_text,
+        "body_characters_original": len(page.text),
+        "body_truncated": len(article_text) < len(page.text),
+        "allowed": {
+            "direction": sorted(ALLOWED_DIRECTIONS),
+            "catalysts": sorted(ALLOWED_CATALYSTS),
+            "risk_flags": sorted(ALLOWED_RISKS),
+            "signal_strength": sorted(ALLOWED_STRENGTHS),
+        },
+        "rules": [
+            "Use only configured_tickers.",
+            "Use concise ticker-specific wording.",
+            "No trading instruction.",
+            "JSON only.",
+        ],
+    }
+
+
+def _article_prompt(
+    page: FetchedArticle,
+    *,
+    config: SubscriptionEmailConfig,
+    record: EmailRecord,
+    body_limit: int | None = None,
+) -> dict[str, object]:
+    article_text = _clip(page.text, body_limit or _article_body_limit(config))
+    return {
         "task": PROMPT_CLASS,
         "guardrails": [
             "Summarize and reason over only the provided email/article text.",
@@ -230,17 +407,6 @@ def _messages(
             "signal_strength": "low, medium, or high",
         },
     }
-    return [
-        {
-            "role": "system",
-            "content": (
-                "You are a supervised equity-research article analyst. "
-                "You produce concise ticker-specific evidence summaries for a "
-                "paper-trading research workflow."
-            ),
-        },
-        {"role": "user", "content": json.dumps(prompt, ensure_ascii=True, sort_keys=True)},
-    ]
 
 
 def _article_body_limit(config: SubscriptionEmailConfig) -> int:
@@ -330,6 +496,104 @@ def _fallback_with_reason(
     return output
 
 
+def _fallback_with_local_shadow_analysis(
+    fallback: Mapping[str, object],
+    shadow: Mapping[str, object],
+) -> dict[str, object]:
+    output = dict(fallback)
+    output.update(
+        {
+            "local_llm_article_status": "completed",
+            "local_llm_article_provider": "local_ollama",
+            "local_llm_article_model": _local_shadow_model(shadow.get("context_source")),
+            "local_llm_article_context_source": _string(shadow.get("context_source")),
+            "local_llm_article_direction": _string(shadow.get("direction")),
+            "local_llm_article_confidence": _float(shadow.get("confidence")),
+            "local_llm_article_tickers": _string_items(shadow.get("tickers")),
+            "local_llm_article_thesis": _string(shadow.get("thesis")),
+            "local_llm_article_key_points": _string_items(shadow.get("key_points")),
+            "local_llm_article_catalysts": _string_items(shadow.get("catalysts")),
+            "local_llm_article_risk_flags": _string_items(shadow.get("risk_flags")),
+            "local_llm_article_decision_use": _string(shadow.get("decision_use")),
+            "local_llm_article_signal_strength": _string(shadow.get("signal_strength")),
+            "local_llm_article_comparison": _local_shadow_comparison(fallback, shadow),
+            "local_llm_article_can_affect_trade_gates": False,
+        }
+    )
+    return output
+
+
+def _fallback_with_local_shadow_status(
+    fallback: Mapping[str, object],
+    *,
+    provider: str,
+    model: str,
+    status: str,
+    error: str,
+) -> dict[str, object]:
+    output = dict(fallback)
+    output.update(
+        {
+            "local_llm_article_status": status,
+            "local_llm_article_provider": provider,
+            "local_llm_article_model": model,
+            "local_llm_article_context_source": _analysis_identity(
+                model,
+                provider="local_ollama",
+            )
+            if model
+            else "",
+            "local_llm_article_error": _clip(error, MAX_TEXT_ITEM_CHARS),
+            "local_llm_article_comparison": (
+                "Local LLM article read was unavailable; deterministic article "
+                "analysis remains the only scored evidence."
+            ),
+            "local_llm_article_can_affect_trade_gates": False,
+        }
+    )
+    return output
+
+
+def _local_shadow_comparison(
+    fallback: Mapping[str, object],
+    shadow: Mapping[str, object],
+) -> str:
+    deterministic = _direction_text(fallback.get("direction"))
+    local = _direction_text(shadow.get("direction"))
+    confidence = _float(shadow.get("confidence"))
+    confidence_text = f" at {round(confidence * 100)}% confidence" if confidence else ""
+    if deterministic == local:
+        return f"Local LLM agrees with deterministic direction {deterministic}{confidence_text}."
+    if local == "NEUTRAL" and deterministic != "NEUTRAL":
+        return (
+            f"Local LLM is neutral while deterministic direction is {deterministic}"
+            f"{confidence_text}."
+        )
+    if deterministic == "NEUTRAL" and local != "NEUTRAL":
+        return (
+            f"Local LLM sees {local} context while deterministic direction is NEUTRAL"
+            f"{confidence_text}."
+        )
+    return (
+        f"Local LLM disagrees: deterministic direction {deterministic}, "
+        f"local direction {local}{confidence_text}."
+    )
+
+
+def _local_shadow_model(context_source: object) -> str:
+    context = _string(context_source)
+    prefix = "local_ollama_article_analysis:"
+    suffix = f":{PROMPT_CLASS}"
+    if not context.startswith(prefix) or not context.endswith(suffix):
+        return ""
+    return context[len(prefix) : -len(suffix)]
+
+
+def _direction_text(value: object) -> str:
+    text = _string(value).upper()
+    return text if text in ALLOWED_DIRECTIONS else "NEUTRAL"
+
+
 def _configured_tickers(value: object, config: SubscriptionEmailConfig) -> list[str]:
     configured = {ticker.upper() for ticker in config.tickers}
     output: list[str] = []
@@ -386,12 +650,44 @@ def _clip(value: str, max_chars: int) -> str:
 
 
 def _float(value: object) -> float:
-    if not isinstance(value, int | float) or isinstance(value, bool):
+    if isinstance(value, bool):
         return 0.0
-    parsed = float(value)
+    if isinstance(value, int | float):
+        parsed = float(value)
+    elif isinstance(value, str):
+        try:
+            parsed = float(value.strip())
+        except ValueError:
+            return 0.0
+    else:
+        return 0.0
     if not math.isfinite(parsed):
         return 0.0
     return max(0.0, min(1.0, parsed))
+
+
+def _confidence(value: object, *, strength: str | None) -> float:
+    parsed = _float(value)
+    if parsed > 0.0 or _looks_like_numeric_zero(value):
+        return parsed
+    return {
+        "high": 0.8,
+        "medium": 0.55,
+        "low": 0.3,
+    }.get(str(strength or "").lower(), 0.0)
+
+
+def _looks_like_numeric_zero(value: object) -> bool:
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, int | float):
+        return float(value) == 0.0
+    if isinstance(value, str):
+        try:
+            return float(value.strip()) == 0.0
+        except ValueError:
+            return False
+    return False
 
 
 def _strength_from_confidence(confidence: float) -> str:
@@ -407,8 +703,47 @@ def _normalize_url(value: str) -> str:
     return urlunsplit((parsed.scheme, parsed.netloc.lower(), parsed.path, parsed.query, ""))
 
 
-def _analysis_identity(model: str) -> str:
-    return f"openai_llm_article_analysis:{model}:{PROMPT_CLASS}"
+def _analysis_identity(model: str, *, provider: str = "openai") -> str:
+    prefix = "local_ollama_article_analysis" if provider == "local_ollama" else "openai_llm_article_analysis"
+    return f"{prefix}:{model}:{PROMPT_CLASS}"
+
+
+def _local_ollama_response_payload(response: Mapping[str, object]) -> Mapping[str, object]:
+    message = response["message"]
+    if not isinstance(message, Mapping):
+        raise TypeError("Ollama message must be an object")
+    content = message["content"]
+    if not isinstance(content, str):
+        raise TypeError("Ollama message content must be text")
+    return _json_object_from_text(content)
+
+
+def _json_object_from_text(content: str) -> Mapping[str, object]:
+    try:
+        payload = json.loads(content)
+    except json.JSONDecodeError:
+        start = content.find("{")
+        if start < 0:
+            raise
+        payload, _end = json.JSONDecoder().raw_decode(content[start:])
+    if not isinstance(payload, Mapping):
+        raise TypeError("article analysis JSON must be an object")
+    return cast(Mapping[str, object], payload)
+
+
+def _ollama_chat_url(base_url: str) -> str:
+    base = base_url.strip().rstrip("/")
+    if not base:
+        return ""
+    parsed = urlsplit(base)
+    path = parsed.path.rstrip("/")
+    if path.endswith("/api/chat") or path == "/api/chat":
+        return base
+    return urlunsplit((parsed.scheme, parsed.netloc, f"{path}/api/chat", "", ""))
+
+
+def _string(value: object) -> str:
+    return value if isinstance(value, str) and value else ""
 
 
 def _redact_urls(value: str) -> str:
@@ -431,7 +766,10 @@ def _env_flag(name: str) -> bool:
 
 def _safe_error(exc: Exception) -> str:
     text = str(exc) or exc.__class__.__name__
-    return _clip(text.replace(os.environ.get(OPENAI_API_KEY_ENV, ""), "[REDACTED]"), 160)
+    api_key = os.environ.get(OPENAI_API_KEY_ENV, "").strip()
+    if api_key:
+        text = text.replace(api_key, "[REDACTED]")
+    return _clip(text, 160)
 
 
 def _verify_context() -> ssl.SSLContext | bool:

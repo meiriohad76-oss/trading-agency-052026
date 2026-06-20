@@ -108,26 +108,28 @@ def market_flow_feature_frame(
         pre_market_volume = float(total["pre_market_volume"])
         pre_market_signed_volume = float(total["pre_market_signed_volume"])
         focus_trade_count = _int_from_row(total, "focus_trade_count")
-        absolute_block_count = _int_from_row(total, "absolute_block_count", _int_from_row(total, "block_count"))
+        absolute_block_count = _int_from_row(
+            total, "absolute_block_count", _int_from_row(total, "block_count")
+        )
         relative_block_count = _int_from_row(total, "relative_block_count")
         focus_notional = _float_from_row(total, "focus_notional")
         signed_focus_notional = _float_from_row(total, "signed_focus_notional")
         directional_pressure = _ratio(signed_focus_notional, focus_notional)
         focus_notional_share = _ratio(focus_notional, total_notional)
+        focus_activity_score = focus_notional_share * math.log1p(focus_trade_count)
         activity_metadata = _activity_anomaly_metadata(ticker_daily)
+        pre_market_activity_metadata = _pre_market_activity_metadata(ticker_daily)
+        latest_pressure = _latest_metric(ticker_daily, "net_notional_pressure")
+        prior_pressure = _prior_pressure_median(ticker_daily)
         trend_participation = _market_flow_trend_participation(ticker_daily)
         buy_sell_pressure = (
-            normalized_config.net_notional_weight
-            * _float_from_row(total, "net_notional_pressure")
-            + normalized_config.net_volume_weight
-            * _float_from_row(total, "net_volume_pressure")
+            normalized_config.net_notional_weight * _float_from_row(total, "net_notional_pressure")
+            + normalized_config.net_volume_weight * _float_from_row(total, "net_volume_pressure")
             + normalized_config.pre_market_weight
             * _ratio(pre_market_signed_volume, pre_market_volume)
             * min(1.0, _ratio(pre_market_volume, total_volume) * 4.0)
         )
-        block_trade_pressure = (
-            directional_pressure * focus_notional_share * math.log1p(focus_trade_count)
-        )
+        block_trade_pressure = directional_pressure * focus_activity_score
         rows.append(
             {
                 "ticker": ticker,
@@ -136,6 +138,13 @@ def market_flow_feature_frame(
                 "total_notional": total_notional,
                 "net_volume_pressure": _float_from_row(total, "net_volume_pressure"),
                 "net_notional_pressure": _float_from_row(total, "net_notional_pressure"),
+                "latest_net_notional_pressure": latest_pressure,
+                "prior_net_notional_pressure_median": prior_pressure,
+                "net_notional_pressure_delta": latest_pressure - prior_pressure,
+                "latest_pre_market_pressure": _latest_metric(
+                    ticker_daily,
+                    "pre_market_pressure",
+                ),
                 "pre_market_volume": pre_market_volume,
                 "pre_market_volume_share": _ratio(pre_market_volume, total_volume),
                 "pre_market_net_pressure": _ratio(pre_market_signed_volume, pre_market_volume),
@@ -144,10 +153,24 @@ def market_flow_feature_frame(
                 "absolute_block_count": absolute_block_count,
                 "relative_block_count": relative_block_count,
                 "off_exchange_count": _int_from_row(total, "off_exchange_count"),
+                "trf_off_exchange_count": _int_from_row(total, "trf_off_exchange_count"),
+                "trf_off_exchange_notional": _float_from_row(total, "trf_off_exchange_notional"),
+                "trf_off_exchange_share": _ratio(
+                    _float_from_row(total, "trf_off_exchange_notional"),
+                    total_notional,
+                ),
+                "large_print_count": _int_from_row(total, "large_print_count"),
+                "large_print_notional": _float_from_row(total, "large_print_notional"),
+                "largest_focus_notional": _float_from_row(total, "largest_focus_notional"),
+                "largest_focus_notional_multiple": _float_from_row(
+                    total,
+                    "largest_focus_notional_multiple",
+                ),
                 "focus_notional": focus_notional,
                 "focus_notional_share": focus_notional_share,
                 "signed_focus_notional": signed_focus_notional,
                 "directional_pressure": directional_pressure,
+                "focus_activity_score": focus_activity_score,
                 "block_notional_threshold": _float_from_row(
                     total,
                     "block_notional_threshold",
@@ -162,6 +185,7 @@ def market_flow_feature_frame(
                 "buy_sell_pressure": buy_sell_pressure,
                 "block_trade_pressure": block_trade_pressure,
                 **activity_metadata,
+                **pre_market_activity_metadata,
                 "unusual_trade_activity": _unusual_trade_activity(ticker_daily),
                 "pre_market_unusual_activity": _pre_market_unusual_activity(ticker_daily),
                 "market_flow_trend": _market_flow_trend(ticker_daily),
@@ -225,48 +249,49 @@ def _prepared_trade_frame(raw: pl.DataFrame, config: MarketFlowFeatureConfig) ->
         _session_expr(schema, "PRE_MARKET").alias("__is_pre_market"),
         _bool_expr(schema, "is_block_trade").alias("__source_block_trade"),
         _bool_expr(schema, "is_off_exchange").alias("__is_off_exchange"),
+        _trf_off_exchange_expr(schema).alias("__is_trf_off_exchange"),
     )
     ticker_median_size = pl.col("__size").median().over("ticker")
     ticker_median_notional = pl.col("__notional").median().over("ticker")
-    return (
-        frame.with_columns(
+    return frame.with_columns(
+        (
+            pl.col("__source_block_trade")
+            | (pl.col("__size") >= config.block_absolute_shares_floor)
+            | (pl.col("__notional") >= config.block_absolute_notional_floor)
+        ).alias("__absolute_block"),
+        (
             (
-                pl.col("__source_block_trade")
-                | (pl.col("__size") >= config.block_absolute_shares_floor)
-                | (pl.col("__notional") >= config.block_absolute_notional_floor)
-            ).alias("__absolute_block"),
-            (
-                (
-                    (ticker_median_size > 0.0)
-                    & (
-                        pl.col("__size")
-                        >= ticker_median_size * config.block_relative_median_multiple
-                    )
+                (ticker_median_size > 0.0)
+                & (pl.col("__size") >= ticker_median_size * config.block_relative_median_multiple)
+            )
+            | (
+                (ticker_median_notional > 0.0)
+                & (
+                    pl.col("__notional")
+                    >= ticker_median_notional * config.block_relative_median_multiple
                 )
-                | (
-                    (ticker_median_notional > 0.0)
-                    & (
-                        pl.col("__notional")
-                        >= ticker_median_notional * config.block_relative_median_multiple
-                    )
-                )
-            ).alias("__relative_block"),
-            pl.max_horizontal(
-                pl.lit(config.block_absolute_shares_floor),
-                ticker_median_size * config.block_relative_median_multiple,
-            ).alias("__block_size_threshold"),
-            pl.max_horizontal(
-                pl.lit(config.block_absolute_notional_floor),
-                ticker_median_notional * config.block_relative_median_multiple,
-            ).alias("__block_notional_threshold"),
-        )
-        .with_columns(
-            pl.col("__absolute_block").alias("__is_block_trade"),
-            (
-                pl.col("__is_off_exchange")
-                | (pl.col("__absolute_block") & pl.col("__relative_block"))
-            ).alias("__is_focus"),
-        )
+            )
+        ).alias("__relative_block"),
+        pl.max_horizontal(
+            pl.lit(config.block_absolute_shares_floor),
+            ticker_median_size * config.block_relative_median_multiple,
+        ).alias("__block_size_threshold"),
+        pl.max_horizontal(
+            pl.lit(config.block_absolute_notional_floor),
+            ticker_median_notional * config.block_relative_median_multiple,
+        ).alias("__block_notional_threshold"),
+        pl.when(ticker_median_notional > 0.0)
+        .then(pl.col("__notional") / ticker_median_notional)
+        .otherwise(0.0)
+        .alias("__notional_multiple"),
+    ).with_columns(
+        pl.col("__absolute_block").alias("__is_block_trade"),
+        (pl.col("__absolute_block") & pl.col("__relative_block")).alias("__large_print"),
+        (
+            pl.col("__is_off_exchange")
+            | pl.col("__is_trf_off_exchange")
+            | (pl.col("__absolute_block") & pl.col("__relative_block"))
+        ).alias("__is_focus"),
     )
 
 
@@ -292,6 +317,18 @@ def _total_activity(prepared: pl.DataFrame) -> pl.DataFrame:
         pl.col("__relative_block").sum().alias("relative_block_count"),
         pl.col("__absolute_block").sum().alias("block_count"),
         pl.col("__is_off_exchange").sum().alias("off_exchange_count"),
+        pl.col("__is_trf_off_exchange").sum().alias("trf_off_exchange_count"),
+        pl.when(pl.col("__is_trf_off_exchange"))
+        .then(pl.col("__notional"))
+        .otherwise(0.0)
+        .sum()
+        .alias("trf_off_exchange_notional"),
+        pl.col("__large_print").sum().alias("large_print_count"),
+        pl.when(pl.col("__large_print"))
+        .then(pl.col("__notional"))
+        .otherwise(0.0)
+        .sum()
+        .alias("large_print_notional"),
         pl.col("__block_notional_threshold").max().alias("block_notional_threshold"),
         pl.col("__block_size_threshold").max().alias("block_size_threshold"),
         pl.when(pl.col("__is_focus"))
@@ -304,6 +341,16 @@ def _total_activity(prepared: pl.DataFrame) -> pl.DataFrame:
         .otherwise(0.0)
         .sum()
         .alias("signed_focus_notional"),
+        pl.when(pl.col("__is_focus"))
+        .then(pl.col("__notional"))
+        .otherwise(0.0)
+        .max()
+        .alias("largest_focus_notional"),
+        pl.when(pl.col("__is_focus"))
+        .then(pl.col("__notional_multiple"))
+        .otherwise(0.0)
+        .max()
+        .alias("largest_focus_notional_multiple"),
     )
     return frame.with_columns(
         _safe_ratio_expr("signed_volume", "total_volume").alias("net_volume_pressure"),
@@ -417,6 +464,20 @@ def _bool_expr(schema: pl.Schema, column: str) -> pl.Expr:
     )
 
 
+def _text_expr(schema: pl.Schema, column: str) -> pl.Expr:
+    if column not in schema:
+        return pl.lit("")
+    return pl.col(column).cast(pl.Utf8, strict=False).str.strip_chars().fill_null("")
+
+
+def _trf_off_exchange_expr(schema: pl.Schema) -> pl.Expr:
+    explicit = _bool_expr(schema, "is_trf_off_exchange")
+    inferred = _text_expr(schema, "exchange").is_in(["4", "4.0"]) & (
+        _text_expr(schema, "trf_id") != ""
+    )
+    return (explicit | inferred).fill_null(False)
+
+
 def _safe_ratio_expr(numerator: str, denominator: str) -> pl.Expr:
     return (
         pl.when(pl.col(denominator) > 0.0)
@@ -448,6 +509,8 @@ def _feature_row(
     unusual_trade_activity = _unusual_trade_activity(daily)
     pre_market_unusual_activity = _pre_market_unusual_activity(daily)
     market_flow_trend = _market_flow_trend(daily)
+    latest_pressure = _latest_metric(daily, "net_notional_pressure")
+    prior_pressure = _prior_pressure_median(daily)
     return {
         "ticker": ticker,
         "trade_count": len(prepared),
@@ -458,6 +521,9 @@ def _feature_row(
             float(prepared["__signed_notional"].sum()),
             total_notional,
         ),
+        "latest_net_notional_pressure": latest_pressure,
+        "prior_net_notional_pressure_median": prior_pressure,
+        "net_notional_pressure_delta": latest_pressure - prior_pressure,
         "pre_market_volume": float(pre_market["__size"].sum()),
         "block_count": int(_bool(focus, "is_block_trade").sum()) if not focus.empty else 0,
         "off_exchange_count": int(_bool(focus, "is_off_exchange").sum()) if not focus.empty else 0,
@@ -482,8 +548,7 @@ def _buy_sell_pressure(
     return (
         config.net_notional_weight
         * _ratio(float(prepared["__signed_notional"].sum()), total_notional)
-        + config.net_volume_weight
-        * _ratio(float(prepared["__signed_volume"].sum()), total_volume)
+        + config.net_volume_weight * _ratio(float(prepared["__signed_volume"].sum()), total_volume)
         + config.pre_market_weight
         * _ratio(float(pre_market["__signed_volume"].sum()), pre_market_volume)
         * min(1.0, pre_market_share * 4.0)
@@ -605,45 +670,105 @@ def _activity_anomaly_metadata(daily: pd.DataFrame) -> dict[str, object]:
         }
     latest = daily.iloc[-1]
     baseline = daily.iloc[:-1]
+    latest_trade_count = float(latest["trade_count"])
+    latest_notional = float(latest["notional"])
+    latest_volume = float(latest["volume"])
     if baseline.empty:
         trade_count_ratio = 1.0
         notional_ratio = 1.0
         volume_ratio = 1.0
+        baseline_trade_count = 0.0
+        baseline_notional = 0.0
+        baseline_volume = 0.0
         z_score = 0.0
         mad_score = 0.0
     else:
+        baseline_trade_count = _positive_median(baseline["trade_count"]) or 0.0
+        baseline_notional = _positive_median(baseline["notional"]) or 0.0
+        baseline_volume = _positive_median(baseline["volume"]) or 0.0
         trade_count_ratio = _activity_ratio(
-            float(latest["trade_count"]),
-            _positive_median(baseline["trade_count"]),
+            latest_trade_count,
+            baseline_trade_count,
         )
         notional_ratio = _activity_ratio(
-            float(latest["notional"]),
-            _positive_median(baseline["notional"]),
+            latest_notional,
+            baseline_notional,
         )
         volume_ratio = _activity_ratio(
-            float(latest["volume"]),
-            _positive_median(baseline["volume"]),
+            latest_volume,
+            baseline_volume,
         )
         z_scores = [
-            robust_z_score(float(latest["trade_count"]), baseline["trade_count"]),
-            robust_z_score(float(latest["notional"]), baseline["notional"]),
-            robust_z_score(float(latest["volume"]), baseline["volume"]),
+            robust_z_score(latest_trade_count, baseline["trade_count"]),
+            robust_z_score(latest_notional, baseline["notional"]),
+            robust_z_score(latest_volume, baseline["volume"]),
         ]
         mad_scores = [
-            robust_mad_score(float(latest["trade_count"]), baseline["trade_count"]),
-            robust_mad_score(float(latest["notional"]), baseline["notional"]),
-            robust_mad_score(float(latest["volume"]), baseline["volume"]),
+            robust_mad_score(latest_trade_count, baseline["trade_count"]),
+            robust_mad_score(latest_notional, baseline["notional"]),
+            robust_mad_score(latest_volume, baseline["volume"]),
         ]
         z_score = max(z_scores, key=abs)
         mad_score = max(mad_scores, key=abs)
     max_ratio = max(trade_count_ratio, notional_ratio, volume_ratio)
     return {
+        "latest_activity_trade_count": latest_trade_count,
+        "baseline_activity_trade_count_median": baseline_trade_count,
+        "latest_activity_notional": latest_notional,
+        "baseline_activity_notional_median": baseline_notional,
+        "latest_activity_volume": latest_volume,
+        "baseline_activity_volume_median": baseline_volume,
         "trade_count_anomaly_ratio": trade_count_ratio,
         "notional_anomaly_ratio": notional_ratio,
         "volume_anomaly_ratio": volume_ratio,
         "activity_anomaly_z_score": z_score,
         "activity_anomaly_mad_score": mad_score,
         "activity_anomaly_band": anomaly_band(max_ratio, z_score, mad_score),
+    }
+
+
+def _pre_market_activity_metadata(daily: pd.DataFrame) -> dict[str, object]:
+    if daily.empty:
+        return {
+            "latest_pre_market_trade_count": 0.0,
+            "baseline_pre_market_trade_count_median": 0.0,
+            "latest_pre_market_notional": 0.0,
+            "baseline_pre_market_notional_median": 0.0,
+            "latest_pre_market_volume": 0.0,
+            "baseline_pre_market_volume_median": 0.0,
+            "pre_market_trade_count_anomaly_ratio": 0.0,
+            "pre_market_notional_anomaly_ratio": 0.0,
+            "pre_market_volume_anomaly_ratio": 0.0,
+        }
+    latest = daily.iloc[-1]
+    baseline = daily.iloc[:-1]
+    latest_count = float(latest["pre_market_count"])
+    latest_notional = float(latest["pre_market_notional"])
+    latest_volume = float(latest["pre_market_volume"])
+    if baseline.empty:
+        baseline_count = 0.0
+        baseline_notional = 0.0
+        baseline_volume = 0.0
+        count_ratio = 1.0
+        notional_ratio = 1.0
+        volume_ratio = 1.0
+    else:
+        baseline_count = _positive_median(baseline["pre_market_count"]) or 0.0
+        baseline_notional = _positive_median(baseline["pre_market_notional"]) or 0.0
+        baseline_volume = _positive_median(baseline["pre_market_volume"]) or 0.0
+        count_ratio = _activity_ratio(latest_count, baseline_count)
+        notional_ratio = _activity_ratio(latest_notional, baseline_notional)
+        volume_ratio = _activity_ratio(latest_volume, baseline_volume)
+    return {
+        "latest_pre_market_trade_count": latest_count,
+        "baseline_pre_market_trade_count_median": baseline_count,
+        "latest_pre_market_notional": latest_notional,
+        "baseline_pre_market_notional_median": baseline_notional,
+        "latest_pre_market_volume": latest_volume,
+        "baseline_pre_market_volume_median": baseline_volume,
+        "pre_market_trade_count_anomaly_ratio": count_ratio,
+        "pre_market_notional_anomaly_ratio": notional_ratio,
+        "pre_market_volume_anomaly_ratio": volume_ratio,
     }
 
 
@@ -658,6 +783,26 @@ def _market_flow_trend_participation(daily: pd.DataFrame) -> float:
         1.0,
         math.log1p(max(_activity_ratio(latest_notional, prior_notional) - 1.0, 0.0)),
     )
+
+
+def _prior_pressure_median(daily: pd.DataFrame) -> float:
+    if len(daily) < 2 or "net_notional_pressure" not in daily.columns:
+        return 0.0
+    history = daily.iloc[:-1]
+    if history.empty:
+        return 0.0
+    return float(history["net_notional_pressure"].median())
+
+
+def _latest_metric(daily: pd.DataFrame, column: str) -> float:
+    if daily.empty or column not in daily.columns:
+        return 0.0
+    value = daily.iloc[-1][column]
+    try:
+        parsed = float(value)
+    except TypeError, ValueError:
+        return 0.0
+    return parsed if math.isfinite(parsed) else 0.0
 
 
 def _numeric(frame: pd.DataFrame, column: str, default: float) -> pd.Series:
@@ -722,7 +867,7 @@ def _float_from_row(row: pd.Series, column: str, default: float = 0.0) -> float:
     value = row.get(column, default)
     try:
         parsed = float(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return default
     return parsed if math.isfinite(parsed) else default
 
@@ -740,6 +885,10 @@ def _empty_frame() -> pd.DataFrame:
             "total_notional",
             "net_volume_pressure",
             "net_notional_pressure",
+            "latest_net_notional_pressure",
+            "prior_net_notional_pressure_median",
+            "net_notional_pressure_delta",
+            "latest_pre_market_pressure",
             "pre_market_volume",
             "pre_market_volume_share",
             "pre_market_net_pressure",
@@ -748,19 +897,42 @@ def _empty_frame() -> pd.DataFrame:
             "absolute_block_count",
             "relative_block_count",
             "off_exchange_count",
+            "trf_off_exchange_count",
+            "trf_off_exchange_notional",
+            "trf_off_exchange_share",
+            "large_print_count",
+            "large_print_notional",
+            "largest_focus_notional",
+            "largest_focus_notional_multiple",
             "focus_notional",
             "focus_notional_share",
             "signed_focus_notional",
             "directional_pressure",
+            "focus_activity_score",
             "block_notional_threshold",
             "block_size_threshold",
             "block_threshold_method",
+            "latest_activity_trade_count",
+            "baseline_activity_trade_count_median",
+            "latest_activity_notional",
+            "baseline_activity_notional_median",
+            "latest_activity_volume",
+            "baseline_activity_volume_median",
             "trade_count_anomaly_ratio",
             "notional_anomaly_ratio",
             "volume_anomaly_ratio",
             "activity_anomaly_z_score",
             "activity_anomaly_mad_score",
             "activity_anomaly_band",
+            "latest_pre_market_trade_count",
+            "baseline_pre_market_trade_count_median",
+            "latest_pre_market_notional",
+            "baseline_pre_market_notional_median",
+            "latest_pre_market_volume",
+            "baseline_pre_market_volume_median",
+            "pre_market_trade_count_anomaly_ratio",
+            "pre_market_notional_anomaly_ratio",
+            "pre_market_volume_anomaly_ratio",
             *FEATURE_COLUMNS,
             "market_flow_trend_participation",
         ]

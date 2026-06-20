@@ -15,6 +15,11 @@ from agency.app import create_app
 from agency.views.cockpit import _scrub_secrets
 
 
+def test_cockpit_route_timeout_budget_fits_first_byte_gate() -> None:
+    assert cockpit_view.DEFAULT_ROUTE_CONTEXT_TIMEOUT_SECONDS < 12.0
+    assert cockpit_view.DEFAULT_ROUTE_CONTEXT_TIMEOUT_SECONDS > 0.0
+
+
 def _context() -> dict[str, object]:
     return {
         "cycle": {"id": "cycle-route-test", "mode": "PAPER"},
@@ -89,6 +94,21 @@ def _context() -> dict[str, object]:
                 }
             ],
         },
+        "data_state": {
+            "status_label": "Ready",
+            "status_class": "pass",
+            "headline": "Review ready; Paper execution gated.",
+            "overall_percent": 100,
+            "critical_lane_percent": 100,
+            "active_universe_count": 168,
+            "active_universe_label": "168 active-universe tickers",
+            "review": {"ready": True, "label": "Review ready", "status_class": "pass"},
+            "paper": {"ready": False, "label": "Paper execution gated", "status_class": "warn"},
+            "top_gaps": [],
+            "lane_rows": [],
+            "as_of_label": "2026-05-22",
+            "proof_label": "2026-05-22 19:12 UTC",
+        },
         "preferences": {"color_preset": "amber", "theme": "accent", "density": "full"},
         "qa_scenarios_enabled": False,
         "qa_scenarios": [],
@@ -102,6 +122,11 @@ def _client(monkeypatch: MonkeyPatch) -> TestClient:
 
     monkeypatch.setattr(dashboard_module, "cockpit_context", fake_cockpit_context)
     monkeypatch.setattr(dashboard_module, "cached_cockpit_context", fake_cockpit_context)
+    monkeypatch.setattr(
+        dashboard_module,
+        "cached_cockpit_context_with_timeout",
+        fake_cockpit_context,
+    )
     cockpit_view._cockpit_context_cache.clear()
     cockpit_view._cockpit_context_inflight.clear()
     return TestClient(create_app())
@@ -113,36 +138,140 @@ def test_cockpit_route_renders(monkeypatch: MonkeyPatch) -> None:
     response = client.get("/cockpit")
 
     assert response.status_code == 200
-    assert "Pre-Flight Cockpit" in response.text
+    assert "Today&#39;s Cockpit" in response.text or "Today&apos;s Cockpit" in response.text
     assert 'data-cockpit-ready="true"' not in response.text
     assert 'data-ux-feature="rich-ticker-detail"' in response.text
     assert "1 trade ready" in response.text
     assert "ROUT" in response.text
 
 
-def test_root_route_renders_v3_cockpit(monkeypatch: MonkeyPatch) -> None:
-    client = _client(monkeypatch)
+def test_cockpit_route_uses_default_cache_key_when_qa_is_disabled(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    captured_kwargs: dict[str, object] = {}
 
-    response = client.get("/")
+    async def fake_cockpit_context(**kwargs: object) -> dict[str, object]:
+        captured_kwargs.update(kwargs)
+        return _context()
+
+    monkeypatch.delenv("AGENCY_COCKPIT_QA_SCENARIOS", raising=False)
+    monkeypatch.setattr(
+        dashboard_module,
+        "cached_cockpit_context_with_timeout",
+        fake_cockpit_context,
+    )
+    cockpit_view._cockpit_context_cache.clear()
+    cockpit_view._cockpit_context_inflight.clear()
+    client = TestClient(create_app())
+
+    response = client.get("/cockpit?scenario=outage")
 
     assert response.status_code == 200
-    assert "Pre-Flight Cockpit" in response.text
-    assert "1 trade ready" in response.text
-    assert "ROUT" in response.text
-    assert "Command shows the current operating picture" not in response.text
+    assert captured_kwargs == {
+        "qa_scenario": None,
+        "qa_scenarios_enabled": None,
+    }
+
+
+async def test_cockpit_context_timeout_returns_conservative_same_shape_payload(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    async def slow_cockpit_context(**_kwargs: object) -> dict[str, object]:
+        await asyncio.sleep(1.0)
+        return _context()
+
+    monkeypatch.setattr(cockpit_view, "cached_cockpit_context", slow_cockpit_context)
+
+    context = await cockpit_view.cached_cockpit_context_with_timeout(timeout_seconds=0.01)
+
+    assert context["cockpit_context_freshness"]["status_label"] == "Cockpit shell loading"  # type: ignore[index]
+    assert context["data_state"]["review"]["ready"] is False  # type: ignore[index]
+    assert context["data_state"]["paper"]["ready"] is False  # type: ignore[index]
+    assert context["status_delayed"] is True
+    assert context["scenario"]["state"] == "status-delayed"  # type: ignore[index]
+    assert "needs analysis before review can continue" in str(context["scenario"]["headline"]).lower()  # type: ignore[index]
+    assert "what to do now" in str(context["scenario"]["detail"]).lower()  # type: ignore[index]
+
+
+async def test_cockpit_context_timeout_does_not_cancel_warming_context(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    completed = asyncio.Event()
+    cancelled = False
+
+    async def slow_cockpit_context(**_kwargs: object) -> dict[str, object]:
+        nonlocal cancelled
+        try:
+            await asyncio.sleep(0.05)
+        except asyncio.CancelledError:
+            cancelled = True
+            raise
+        completed.set()
+        return _context()
+
+    monkeypatch.setattr(cockpit_view, "cached_cockpit_context", slow_cockpit_context)
+
+    context = await cockpit_view.cached_cockpit_context_with_timeout(timeout_seconds=0.01)
+    await asyncio.wait_for(completed.wait(), timeout=0.5)
+
+    assert context["cockpit_context_freshness"]["status_label"] == "Cockpit shell loading"  # type: ignore[index]
+    assert cancelled is False
+
+
+def test_cockpit_status_delayed_context_is_not_cacheable_universe_proof() -> None:
+    context = cockpit_view.cockpit_status_delayed_context(timeout_seconds=0.01)
+
+    assert context["status_delayed"] is True
+    assert context["scenario"]["state"] == "status-delayed"  # type: ignore[index]
+    assert cockpit_view._cockpit_context_has_universe_proof(context) is False
+
+
+def test_cockpit_scenario_does_not_hide_review_ready_state_behind_delay() -> None:
+    context = {
+        "status_delayed": True,
+        "engines": [],
+        "candidates": [],
+        "data_state": {
+            "review": {"ready": True, "label": "Review ready"},
+            "paper": {"ready": False, "label": "Paper execution gated"},
+            "top_gaps": [],
+        },
+    }
+
+    scenario = cockpit_view._scenario_from_context(context, {})
+
+    assert scenario["state"] == "no-actionable"
+    assert "still loading" not in str(scenario["headline"]).lower()
+
+
+def test_root_route_redirects_to_cockpit_without_legacy_context(monkeypatch: MonkeyPatch) -> None:
+    async def fail_command_context() -> dict[str, object]:
+        raise AssertionError("root should not build the legacy command dashboard")
+
+    async def fail_execution_context() -> dict[str, object]:
+        raise AssertionError("root should not build the legacy execution dashboard")
+
+    monkeypatch.setattr(dashboard_module, "_command_dashboard_route_context", fail_command_context)
+    monkeypatch.setattr(dashboard_module, "_execution_preview_route_base_context", fail_execution_context)
+    client = TestClient(create_app())
+
+    response = client.get("/", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/cockpit"
 
 
 def test_root_cockpit_exposes_displayed_data_health(monkeypatch: MonkeyPatch) -> None:
     client = _client(monkeypatch)
 
-    response = client.get("/")
+    response = client.get("/cockpit")
 
     assert response.status_code == 200
-    assert 'class="panel data-health-panel data-health-pass"' in response.text
-    assert "Displayed Data Health" in response.text
-    assert "Coverage" in response.text
-    assert "Freshness" in response.text
-    assert "Last update" in response.text
+    assert 'class="cockpit-data-state-strip"' in response.text
+    assert "Session Readiness" in response.text
+    assert "Review data sources" in response.text
+    assert "Lane State Board" in response.text
+    assert "Latest proof/as-of" in response.text
 
 
 def test_cockpit_payload_scrubber_removes_common_secret_aliases() -> None:
@@ -169,9 +298,10 @@ def test_cockpit_is_primary_operating_entrypoint(monkeypatch: MonkeyPatch) -> No
     response = client.get("/cockpit")
 
     assert response.status_code == 200
-    assert '<a class="brand" href="/command">' in response.text
+    assert '<a class="brand" href="/cockpit">' in response.text
     nav = response.text.split('<nav class="nav-list">', 1)[1].split("</nav>", 1)[0]
     assert nav.index('href="/cockpit"') < nav.index('href="/command"')
+    assert "System Health" in nav
 
 
 def test_command_dashboard_has_explicit_parallel_route() -> None:
@@ -245,7 +375,11 @@ def test_api_audit_returns_trace_for_known_ticker(monkeypatch: MonkeyPatch) -> N
     response = client.get("/api/audit/ROUT")
 
     assert response.status_code == 200
-    assert response.json()["events"][0]["message"] == "Approved by current cockpit context."
+    events = response.json()["events"]
+    assert events[0]["title"] == "Current cockpit status"
+    assert events[0]["message"] == "Approved by current cockpit context."
+    assert "ROUT is shown as approved" in events[0]["detail"]
+    assert any(event["message"] == "Real route fixture evidence." for event in events)
 
 
 def test_api_cockpit_ticker_detail_returns_rich_payload(monkeypatch: MonkeyPatch) -> None:
@@ -491,6 +625,7 @@ async def test_cockpit_data_proof_fallback_has_bounded_timeout(
         return {"data_sources": [], "data_load_status": {}}
 
     monkeypatch.setenv("AGENCY_COCKPIT_SOURCE_LOAD_TIMEOUT_SECONDS", "0.02")
+    monkeypatch.setattr("agency.runtime.data_load_status.load_data_load_status", dict)
     context = await cockpit_view._dashboard_with_cockpit_data_proof(
         {
             "context_status": {
@@ -506,3 +641,73 @@ async def test_cockpit_data_proof_fallback_has_bounded_timeout(
 
     assert context["context_status"]["status"] == "delayed"  # type: ignore[index]
     assert "data_health" not in context
+
+
+async def test_cockpit_data_proof_timeout_uses_direct_lane_registry(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    async def slow_source_status() -> dict[str, object]:
+        await asyncio.sleep(0.25)
+        return {"data_sources": [], "data_load_status": {}}
+
+    monkeypatch.setenv("AGENCY_COCKPIT_SOURCE_LOAD_TIMEOUT_SECONDS", "0.02")
+    monkeypatch.setattr(
+        "agency.runtime.data_load_status.load_data_load_status",
+        lambda: {
+            "status_label": "Loaded With Gaps",
+            "status_class": "warn",
+            "overall_percent": 84,
+            "critical_lane_percent": 55,
+            "expected_ticker_count": 168,
+            "review_operational_ready": True,
+            "tradable_ready": False,
+            "lane_states": [
+                {
+                    "lane_id": "massive_live_trade_slices",
+                    "label": "Massive live trade slices",
+                    "lane_kind": "raw",
+                    "state": "ready_for_review",
+                    "status_label": "Ready for review",
+                    "status_class": "pass",
+                    "progress_label": "168/168 ticker-days",
+                    "required_now": True,
+                    "blocks_execution": True,
+                    "ready_for_review": True,
+                    "ready_for_paper_execution": False,
+                    "latest_as_of": "2026-06-01T22:20:48+00:00",
+                    "checked_at": "2026-06-01T22:21:00+00:00",
+                    "operator_message": "Current live slice is loaded.",
+                    "recommended_action": "Use for review.",
+                }
+            ],
+            "freshness_rows": [
+                {
+                    "source": "massive-stock-trades",
+                    "label": "Massive Stock Trades",
+                    "status": "HEALTHY",
+                    "freshness": "FRESH",
+                    "status_class": "pass",
+                    "checked_at": "2026-06-01T22:21:00+00:00",
+                    "coverage_label": "168/168 ticker-days",
+                    "detail": "Live trade lane is current.",
+                }
+            ],
+        },
+    )
+
+    context = await cockpit_view._dashboard_with_cockpit_data_proof(
+        {
+            "context_status": {
+                "status": "delayed",
+                "status_label": "Command Dashboard Check Delayed",
+                "status_class": "warn",
+            }
+        },
+        source_load_status_builder=slow_source_status,
+        data_load_status_view_builder=command_view.data_load_status_view,
+        source_status_rows_builder=command_view.source_status_rows,
+    )
+
+    assert context["data_load_status"]["lane_state_rows"]  # type: ignore[index]
+    assert context["data_sources"][0]["source"] == "massive-stock-trades"  # type: ignore[index]
+    assert context["data_health"]["rows"]  # type: ignore[index]

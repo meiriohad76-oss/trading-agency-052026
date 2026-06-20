@@ -292,3 +292,150 @@ def test_cockpit_source_counts_are_internally_consistent() -> None:
     context = cockpit_context_from_sources(sources)
 
     assert context["cycle"]["sources_degraded"] <= context["cycle"]["sources_total"]
+
+
+def test_cockpit_missing_source_proof_never_reads_as_ready() -> None:
+    sources = _sample_sources()
+    dashboard = sources["dashboard"]
+    dashboard["data_load_status"] = {
+        "status_label": "Source proof unavailable",
+        "status_class": "block",
+        "source_proof_missing": True,
+        "overall_percent": 0,
+        "critical_lane_percent": 0,
+        "blocker_count": 1,
+    }
+
+    context = cockpit_context_from_sources(sources)
+    data_state = context["data_state"]
+
+    assert data_state["review"]["ready"] is False
+    assert data_state["paper"]["ready"] is False
+    assert data_state["overall_percent"] == 0
+    assert data_state["top_gaps"][0]["lane"] == "Source proof"
+    assert context["scenario"]["state"] == "outage"
+    assert "needs attention before review can continue" in context["scenario"]["headline"]
+    assert context["scenario"]["primary_action"]["label"] == "Open System Health for Source proof"
+    assert context["scenario"]["primary_action"]["url"] == "/command"
+    assert context["scenario"]["primary_action"]["method"] == "get"
+
+
+def test_cockpit_blocker_gap_exposes_concrete_refresh_action() -> None:
+    sources = _sample_sources()
+    dashboard = sources["dashboard"]
+    dashboard["data_load_status"] = {
+        "status_label": "Blocked",
+        "status_class": "block",
+        "review_operational_ready": False,
+        "tradable_ready": False,
+        "overall_percent": 66,
+        "critical_lane_percent": 55,
+        "blocker_count": 1,
+        "blockers": [
+            {
+                "kind": "dataset",
+                "item": "stock_trades",
+                "reason": "Massive trade prints source needs refresh for the active universe.",
+            }
+        ],
+    }
+
+    context = cockpit_context_from_sources(sources)
+    gap = context["data_state"]["top_gaps"][0]
+
+    assert gap["lane"] == "Live Trade Slices"
+    assert gap["refresh_action"]["url"] == "/scheduler/massive-lanes/massive_live_trade_slices/refresh"
+    assert gap["refresh_action"]["label"] == "Refresh Live Trade Slices"
+    assert context["scenario"]["primary_action"] == gap["refresh_action"]
+    assert context["scenario"]["state"] == "status-delayed"
+    assert "needs refresh before review can continue" in context["scenario"]["headline"]
+    assert "outage" not in context["scenario"]["state"]
+
+
+def test_cockpit_loading_data_gap_is_not_presented_as_outage() -> None:
+    sources = _sample_sources()
+    dashboard = sources["dashboard"]
+    dashboard["data_load_status"] = {
+        "status_label": "Loaded With Gaps",
+        "status_class": "warn",
+        "review_operational_ready": False,
+        "tradable_ready": False,
+        "overall_percent": 90,
+        "critical_lane_percent": 71,
+        "blocker_count": 0,
+        "warning_count": 1,
+        "lane_states": [
+            {
+                "lane_id": "massive_live_trade_slices",
+                "label": "Massive Live Trade Slices",
+                "state": "loading",
+                "status_label": "Data is still loading",
+                "status_class": "warn",
+                "progress_label": "67/78 ticker-days",
+                "eta_label": "6m",
+                "required_now": True,
+                "blocks_execution": True,
+                "blocker": True,
+                "operator_message": (
+                    "Massive Live Trade Slices data is still loading "
+                    "(67/78 ticker-days)."
+                ),
+                "recommended_action": (
+                    "Wait for Massive Live Trade Slices to finish, then refresh the dashboard."
+                ),
+            }
+        ],
+    }
+
+    context = cockpit_context_from_sources(sources)
+
+    assert context["scenario"]["state"] == "status-delayed"
+    assert "data is still loading" in context["scenario"]["headline"]
+    assert "outage" not in context["scenario"]["state"]
+
+
+def test_cockpit_review_queue_is_not_hidden_by_noncritical_engine_warning() -> None:
+    sources = _sample_sources()
+    dashboard = sources["dashboard"]
+    dashboard["data_load_status"] = {
+        "status_label": "Review ready",
+        "status_class": "warn",
+        "review_operational_ready": True,
+        "tradable_ready": False,
+        "overall_percent": 66,
+        "critical_lane_percent": 55,
+        "lane_states": [
+            {
+                "lane_id": "massive_block_trade_feed",
+                "name": "Massive Block Trade Feed",
+                "state": "needs_refresh",
+                "status_label": "Lane proof needs refresh",
+                "status_class": "block",
+                "progress_label": "100% manifest coverage",
+                "required_now": True,
+                "blocks_execution": True,
+                "blocker": True,
+                "operator_message": "Block-trade proof needs refresh before paper execution.",
+                "refresh_action_url": "/scheduler/massive-lanes/massive_block_trade_feed/refresh",
+                "refresh_action_label": "Refresh Block Trade Feed",
+            }
+        ],
+    }
+    dashboard["data_sources"] = [
+        {
+            "name": "activity-alerts",
+            "status_label": "UNAVAILABLE",
+            "status_class": "block",
+            "freshness_label": "UNAVAILABLE",
+            "checked_at": "2026-05-08T10:31:58+00:00",
+            "detail": "Activity-alerts has not reported today.",
+        }
+    ]
+
+    context = cockpit_context_from_sources(sources)
+
+    assert context["data_state"]["review"]["ready"] is True
+    assert context["scenario"]["state"] == "normal"
+    assert "Selection is paused" not in context["scenario"]["headline"]
+    assert context["scenario"]["primary_nav_action"]["label"] == "Review 1 ready trade"
+    assert context["scenario"]["primary_nav_action"]["phase"] == "candidates"

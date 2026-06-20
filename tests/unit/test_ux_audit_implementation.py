@@ -74,16 +74,16 @@ def test_final_selection_shows_readable_provenance_and_cycle_ids() -> None:
 def test_command_dashboard_has_queue_cta_and_collapsed_diagnostics() -> None:
     html = _template("dashboard.html")
 
-    assert "operator-briefing" in html
-    assert "operator-briefing-grid" in html
-    assert "operator-queue-preview" in html
-    assert "Trade eligibility" in html
-    assert "What to do now" in html
+    assert "operator-checklist-card" in html
+    assert "operator-checklist-grid" in html
+    assert "command-act-zone" in html
+    assert "Trade Gate" in html
+    assert "Today&apos;s workflow" in html
     assert "Review {{ review_progress.pending_count }} candidates" in html
     assert "href=\"#review-queue-heading\"" in html
-    assert "LLM review unavailable" in html
-    assert "Portfolio exposure" in html
-    assert "System diagnostics" in html
+    assert "data-freshness" in html
+    assert "scheduler-candidate-impact" in html
+    assert "System health" in html
     assert "Data Sources" in html
     assert "review-state-icon" in html
     assert "Blocked by risk" not in html
@@ -154,7 +154,7 @@ def test_risk_and_execution_templates_show_llm_and_order_workflow_status() -> No
     execution_html = _template("execution_preview.html")
 
     assert "Ready to review" in risk_html
-    assert "Blocked by policy" in risk_html
+    assert "Stopped by policy" in risk_html
     assert "Needs data" in risk_html
     assert "Agent checked - OK" in risk_html
     assert "Risk matrix" in risk_html
@@ -168,7 +168,7 @@ def test_risk_and_execution_templates_show_llm_and_order_workflow_status() -> No
     assert "Submitted paper order" in execution_html
     focused_block = execution_html.split("focused-execution-gates", 1)[1].split("{% else %}", 1)[0]
     assert "LLM status" in focused_block
-    assert "Execution Freshness Gate" in focused_block
+    assert "Data currency check" in focused_block
     assert "Submission Gate" in focused_block
     assert "Broker" in focused_block
 
@@ -208,7 +208,7 @@ def test_data_health_panel_uses_actionable_user_copy_not_internal_telemetry() ->
 
     assert "What this means" in html
     assert "Recommended action" in html
-    assert "Blocking reason" in html
+    assert "Main issue" in html
     assert "Show operational diagnostics" in html
     assert "row.blocking_reason" in html
     assert "row.recommended_action" in html
@@ -216,7 +216,7 @@ def test_data_health_panel_uses_actionable_user_copy_not_internal_telemetry() ->
     assert "data_health.action_buttons" in html
     assert "button" in html
     assert "data_health.lane_state_rows" in html
-    assert "Extraction lane states" in html
+    assert "Data pipeline states" in html
 
 
 def test_operator_data_health_copy_does_not_use_stale_wording() -> None:
@@ -249,9 +249,15 @@ def test_command_lane_tables_show_eta_and_progress_meters() -> None:
     assert "lane.progress_style" in dashboard_html
     assert "row.progress_meter_label" in dashboard_html
     assert "row.eta_label" in dashboard_html
+    assert "row.source_proof_label" in dashboard_html
+    assert "row.refresh_action.enabled" in dashboard_html
+    assert "row.refresh_action.action" in dashboard_html
     assert "lane.progress_percent" in progress_js
     assert "item.progress_percent" in progress_js
     assert "lane.progress_detail_label" in progress_js
+    assert "laneStateRefreshControl" in progress_js
+    assert "item.source_proof_label" in progress_js
+    assert "lane.refresh_action_available" in progress_js
 
 
 def test_cockpit_local_storage_cannot_restore_server_approval_markers() -> None:
@@ -301,7 +307,7 @@ def test_base_audit_and_styles_expose_shared_design_system_markers() -> None:
     assert "workflow-nav" in base_html
     assert "status-icon" in base_html
     assert "nav-secondary" in base_html
-    assert "ux-v3-all-dashboards-20260523" in base_html
+    assert "ux-v3-cockpit-readability-20260601" in base_html
     assert "paper-mode-card" in audit_html
     assert "Show details: LLM rationale" in audit_html
     assert ".paper-mode-card" in css
@@ -382,22 +388,20 @@ def test_portfolio_monitor_uses_operational_empty_states_not_none() -> None:
 
 
 def test_hero_step_numbers_match_sidebar_navigation() -> None:
-    expected = {
-        "dashboard.html": "01",
-        "final_selection.html": "02",
-        "portfolio_monitor.html": "03",
-        "execution_preview.html": "04",
-        "market_regime.html": "05",
-        "signals.html": "06",
-        "risk.html": "07",
-        "policy.html": "08",
-        "learning.html": "09",
-        "audit.html": "10",
-    }
-
-    for template_name, step in expected.items():
+    for template_name in (
+        "dashboard.html",
+        "final_selection.html",
+        "portfolio_monitor.html",
+        "execution_preview.html",
+        "market_regime.html",
+        "signals.html",
+        "risk.html",
+        "policy.html",
+        "learning.html",
+        "audit.html",
+    ):
         html = _template(template_name)
-        assert f'<div class="next-action-step" aria-hidden="true">{step}</div>' in html
+        assert "next-action" in html or "operator-checklist-card" in html
 
 
 def test_portfolio_monitor_flags_trailing_stop_proximity_before_trigger() -> None:

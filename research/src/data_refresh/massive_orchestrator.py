@@ -173,10 +173,10 @@ MASSIVE_RAW_LANE_POLICIES: tuple[MassiveRawLanePolicy, ...] = (
         blocks_execution=True,
         default_priority=80,
         default_cadence_minutes=60,
-        default_max_tickers_per_batch=100,
+        default_max_tickers_per_batch=None,
         quiet_priority=80,
         quiet_cadence_minutes=60,
-        quiet_max_tickers_per_batch=100,
+        quiet_max_tickers_per_batch=None,
         request_budget_label="1 grouped-daily request per market date",
         max_requests_per_cycle=1,
         storage_manifest="research/data/manifests/massive_lanes/massive_daily_bars.json",
@@ -197,18 +197,18 @@ MASSIVE_RAW_LANE_POLICIES: tuple[MassiveRawLanePolicy, ...] = (
             "market_flow_trend",
         ),
         active_phases=ACTIVE_TRADE_PHASES,
-        ticker_tier_active="T0/T1",
+        ticker_tier_active="T0/T1/T2",
         ticker_tier_quiet="T0/T1/T2",
         freshness_requirement_seconds=LIVE_OPERATIONAL_FRESHNESS_REQUIREMENT_SECONDS,
         blocks_execution=True,
         default_priority=100,
         default_cadence_minutes=5,
-        default_max_tickers_per_batch=30,
+        default_max_tickers_per_batch=None,
         quiet_priority=70,
         quiet_cadence_minutes=60,
-        quiet_max_tickers_per_batch=50,
-        request_budget_label="bounded latest-print pages for active tiers",
-        max_requests_per_cycle=30,
+        quiet_max_tickers_per_batch=None,
+        request_budget_label="one latest-print page per active ticker",
+        max_requests_per_cycle=None,
         storage_manifest="research/data/manifests/massive_lanes/massive_live_trade_slices.json",
     ),
     MassiveRawLanePolicy(
@@ -222,18 +222,18 @@ MASSIVE_RAW_LANE_POLICIES: tuple[MassiveRawLanePolicy, ...] = (
         command_profile="stock_trades_premarket",
         consumer_signal_lanes=("pre_market_unusual_activity",),
         active_phases=PREMARKET_PHASES,
-        ticker_tier_active="T0/T1",
+        ticker_tier_active="T0/T1/T2",
         ticker_tier_quiet="T0/T1",
         freshness_requirement_seconds=LIVE_OPERATIONAL_FRESHNESS_REQUIREMENT_SECONDS,
         blocks_execution=True,
         default_priority=105,
         default_cadence_minutes=5,
-        default_max_tickers_per_batch=30,
+        default_max_tickers_per_batch=None,
         quiet_priority=30,
         quiet_cadence_minutes=240,
-        quiet_max_tickers_per_batch=50,
-        request_budget_label="bounded latest-print pages during pre-market only",
-        max_requests_per_cycle=30,
+        quiet_max_tickers_per_batch=None,
+        request_budget_label="one pre-market latest-print page per active ticker",
+        max_requests_per_cycle=None,
         storage_manifest="research/data/manifests/massive_lanes/massive_premarket_trade_slices.json",
     ),
     MassiveRawLanePolicy(
@@ -247,16 +247,16 @@ MASSIVE_RAW_LANE_POLICIES: tuple[MassiveRawLanePolicy, ...] = (
         command_profile="derive_block_trades_from_live_slices",
         consumer_signal_lanes=("block_trade_pressure",),
         active_phases=REGULAR_MARKET_PHASES,
-        ticker_tier_active="T0/T1",
+        ticker_tier_active="T0/T1/T2",
         ticker_tier_quiet="T0/T1/T2",
         freshness_requirement_seconds=LIVE_OPERATIONAL_FRESHNESS_REQUIREMENT_SECONDS,
         blocks_execution=True,
         default_priority=98,
         default_cadence_minutes=5,
-        default_max_tickers_per_batch=15,
+        default_max_tickers_per_batch=None,
         quiet_priority=65,
         quiet_cadence_minutes=60,
-        quiet_max_tickers_per_batch=50,
+        quiet_max_tickers_per_batch=None,
         request_budget_label="0 Massive requests; consumes massive_live_trade_slices",
         max_requests_per_cycle=0,
         storage_manifest="research/data/manifests/massive_lanes/massive_block_trade_feed.json",
@@ -546,7 +546,11 @@ def _policy_required(
     if policy.dataset == "prices_daily" and config.market_data_provider != "massive":
         return False
     if policy.dataset in {"reference_data"}:
-        return bool(configured_lanes.intersection(policy.consumer_signal_lanes)) if configured_lanes else True
+        return (
+            bool(configured_lanes.intersection(policy.consumer_signal_lanes))
+            if configured_lanes
+            else True
+        )
     return policy.dataset in set(config.datasets)
 
 
@@ -742,6 +746,17 @@ def _lane_window(
     if policy.command_profile in {"stock_trades_live", "stock_trades_premarket"}:
         target = _operational_trade_slice_date(session)
         return target, target
+    if policy.raw_source_dataset == "prices_daily":
+        if session.phase in {"pre_market", "regular_market"}:
+            completed = previous_trading_day(session.market_date)
+            return completed, completed
+        if extraction_decision is not None and (
+            extraction_decision.start is not None or extraction_decision.end is not None
+        ):
+            start = extraction_decision.start or extraction_decision.end
+            end = extraction_decision.end or extraction_decision.start
+            return start, end
+        return config.start, config.end
     if extraction_decision is not None and (
         extraction_decision.start is not None or extraction_decision.end is not None
     ):
@@ -752,11 +767,6 @@ def _lane_window(
         start = config.stock_trades_start or config.stock_trades_end or session.market_date
         end = config.stock_trades_end or config.stock_trades_start or session.market_date
         return start, end
-    if policy.raw_source_dataset == "prices_daily":
-        if session.phase in {"pre_market", "regular_market"}:
-            completed = previous_trading_day(session.market_date)
-            return completed, completed
-        return config.start, config.end
     return None, None
 
 

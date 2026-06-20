@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
@@ -11,6 +12,7 @@ from typing import Any
 
 from dotenv import load_dotenv
 
+from agency.paths import REPO_ROOT, resolve_repo_root
 from agency.runtime.portfolio_news_agent_bridge import (
     ensure_portfolio_news_agent_agency_config,
     portfolio_news_agent_env_path,
@@ -18,11 +20,17 @@ from agency.runtime.portfolio_news_agent_bridge import (
     portfolio_news_agent_root,
 )
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-PYTHON = os.environ.get("AGENCY_PYTHON", str(REPO_ROOT / ".venv" / "Scripts" / "python"))
+_resolve_repo_root = resolve_repo_root
+PYTHON = os.environ.get("AGENCY_PYTHON", sys.executable)
 WORK_QUEUE_TICK_SECONDS = int(os.environ.get("AGENCY_WORK_QUEUE_TICK_SECONDS", "60"))
 WORK_QUEUE_MAX_COMMANDS = int(os.environ.get("AGENCY_WORK_QUEUE_MAX_COMMANDS", "3"))
 COMMAND_TIMEOUT_SECONDS = int(os.environ.get("AGENCY_SCHEDULER_COMMAND_TIMEOUT_SECONDS", "240"))
+COMMAND_TIMEOUT_GRACE_SECONDS = int(
+    os.environ.get("AGENCY_SCHEDULER_COMMAND_TIMEOUT_GRACE_SECONDS", "120")
+)
+MAX_COMMAND_TIMEOUT_SECONDS = int(
+    os.environ.get("AGENCY_SCHEDULER_MAX_COMMAND_TIMEOUT_SECONDS", "1800")
+)
 RUNTIME_CYCLE_MAX_TICKERS = int(os.environ.get("AGENCY_SCHEDULER_RUNTIME_MAX_TICKERS", "250"))
 CANONICAL_RUNTIME_OUTPUT_ROOT = "research\\results\\latest-live-runtime-cycle"
 MINI_RUNTIME_OUTPUT_ROOT = "research\\results\\latest-mini-runtime-cycle"
@@ -105,7 +113,7 @@ def _run_dataset_refresh(dataset: str) -> None:
     if dataset == "stock_trades":
         print(
             "[scheduler] skipped stock_trades direct batch; Massive trade data is "
-            "owned by raw lanes in the scheduler work queue.",
+            "owned by data-source lanes in the scheduler work queue.",
             flush=True,
         )
         return
@@ -266,6 +274,7 @@ def _run_work_queue_tick() -> None:
                 command_row.get("name") or command_row.get("lane_id") or "unknown"
             )
             job_id = str(command_row.get("job_id") or command_row.get("name") or "unknown")
+            command_timeout_seconds = _command_timeout_seconds(command_row)
             executed_job_ids.add(job_id)
             record_scheduler_runtime_status(
                 state="running",
@@ -280,11 +289,12 @@ def _run_work_queue_tick() -> None:
                         "kind": str(command_row.get("kind") or "unknown"),
                         "name": command_name,
                         "started_at": command_started_at.isoformat(),
+                        "timeout_seconds": command_timeout_seconds,
                     },
                     "last_tick_commands": executed,
                 },
             )
-            result = _run_queue_command(command)
+            result = _run_queue_command(command, timeout_seconds=command_timeout_seconds)
             refreshed_tickers = _ordered_unique(
                 [*refreshed_tickers, *_tickers_from_command(command)]
             )
@@ -296,6 +306,7 @@ def _run_work_queue_tick() -> None:
                     "name": command_name,
                     "exit_code": result.returncode,
                     "duration_seconds": int((command_finished_at - command_started_at).total_seconds()),
+                    "timeout_seconds": command_timeout_seconds,
                     "stdout_tail": (result.stdout or "")[-500:],
                     "stderr_tail": (result.stderr or "")[-500:],
                 }
@@ -315,6 +326,7 @@ def _run_work_queue_tick() -> None:
         if data_commands_executed and not errors and RUNTIME_CYCLE_AFTER_DATA_REFRESH:
             runtime_command = _runtime_cycle_command(tickers=refreshed_tickers)
             runtime_started_at = datetime.now(UTC)
+            runtime_timeout_seconds = _runtime_command_timeout_seconds(refreshed_tickers)
             record_scheduler_runtime_status(
                 state="running",
                 detail="Automatic lane refresh is updating live runtime artifacts.",
@@ -329,11 +341,12 @@ def _run_work_queue_tick() -> None:
                         "name": "live_runtime_cycle",
                         "ticker_count": len(refreshed_tickers),
                         "started_at": runtime_started_at.isoformat(),
+                        "timeout_seconds": runtime_timeout_seconds,
                     },
                     "last_tick_commands": executed,
                 },
             )
-            result = _run_queue_command(runtime_command)
+            result = _run_queue_command(runtime_command, timeout_seconds=runtime_timeout_seconds)
             executed.append(
                 {
                     "job_id": "runtime:live_cycle_after_data_refresh",
@@ -341,6 +354,7 @@ def _run_work_queue_tick() -> None:
                     "name": "live_runtime_cycle",
                     "exit_code": result.returncode,
                     "duration_seconds": int((datetime.now(UTC) - runtime_started_at).total_seconds()),
+                    "timeout_seconds": runtime_timeout_seconds,
                     "ticker_count": len(refreshed_tickers),
                     "stdout_tail": (result.stdout or "")[-500:],
                     "stderr_tail": (result.stderr or "")[-500:],
@@ -431,7 +445,7 @@ def _commands_for_tick(queue: dict[str, object]) -> list[dict[str, object]]:
             if row.get("status") == "DUE_NOW" and row.get("command"):
                 commands.append(dict(row))
     for row in _mapping_rows(queue.get("jobs")):
-        if row.get("kind") != "dataset":
+        if row.get("kind") not in {"dataset", "signal_lane"}:
             continue
         if row.get("status") != "DUE_NOW" or not row.get("command"):
             continue
@@ -1091,22 +1105,27 @@ def _next_command_for_tick(
     return None
 
 
-def _run_queue_command(command: list[str]) -> subprocess.CompletedProcess[str]:
+def _run_queue_command(
+    command: list[str],
+    *,
+    timeout_seconds: int | None = None,
+) -> subprocess.CompletedProcess[str]:
     normalized = _normalize_command(command)
+    timeout = max(1, timeout_seconds or COMMAND_TIMEOUT_SECONDS)
     try:
         return subprocess.run(
             normalized,
             capture_output=True,
             text=True,
             cwd=str(REPO_ROOT),
-            timeout=COMMAND_TIMEOUT_SECONDS,
+            timeout=timeout,
         )
     except TimeoutExpired as exc:
         return subprocess.CompletedProcess(
             normalized,
             124,
             stdout=str(exc.stdout or ""),
-            stderr=f"Command timed out after {COMMAND_TIMEOUT_SECONDS}s.",
+            stderr=f"Command timed out after {timeout}s.",
         )
 
 
@@ -1213,13 +1232,56 @@ def _expected_tick_timeout_seconds() -> int:
     return max(COMMAND_TIMEOUT_SECONDS * command_slots + WORK_QUEUE_TICK_SECONDS, 1)
 
 
+def _command_timeout_seconds(command_row: Mapping[str, object]) -> int:
+    candidates = [COMMAND_TIMEOUT_SECONDS]
+    eta = _optional_int(command_row.get("eta_seconds"))
+    if eta is not None and eta > 0:
+        candidates.append(eta + COMMAND_TIMEOUT_GRACE_SECONDS)
+    ticker_sample = command_row.get("ticker_sample")
+    sample_count = len(ticker_sample) if isinstance(ticker_sample, list) else 0
+    ticker_count = _optional_int(command_row.get("ticker_count")) or sample_count
+    if ticker_count > 0 and str(command_row.get("kind") or "") == "massive_lane":
+        candidates.append(ticker_count * 8 + COMMAND_TIMEOUT_GRACE_SECONDS)
+    return min(max(candidates), max(MAX_COMMAND_TIMEOUT_SECONDS, COMMAND_TIMEOUT_SECONDS))
+
+
+def _runtime_command_timeout_seconds(tickers: list[str]) -> int:
+    if not tickers:
+        return COMMAND_TIMEOUT_SECONDS
+    return min(
+        max(COMMAND_TIMEOUT_SECONDS, len(tickers) * 5 + COMMAND_TIMEOUT_GRACE_SECONDS),
+        max(MAX_COMMAND_TIMEOUT_SECONDS, COMMAND_TIMEOUT_SECONDS),
+    )
+
+
+def _optional_int(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        return int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+
+
 def _normalize_command(command: list[str]) -> list[str]:
     if not command:
         return command
     first = command[0].replace("/", "\\").lower()
+    normalized_args = [_normalize_repo_path_arg(item) for item in command[1:]]
     if first.endswith(("\\.venv\\scripts\\python", "\\.venv\\scripts\\python.exe")):
-        return [PYTHON, *command[1:]]
-    return command
+        return [PYTHON, *normalized_args]
+    return [command[0], *normalized_args]
+
+
+def _normalize_repo_path_arg(value: str) -> str:
+    if os.sep != "/" or "\\" not in value:
+        return value
+    normalized = value.replace("\\", "/")
+    if normalized.startswith(("./", "../", "/", "http://", "https://")):
+        return value
+    if normalized.startswith(("scripts/", "research/", "schemas/", "migrations/")):
+        return normalized
+    return value
 
 
 def _runtime_cycle_command(*, tickers: list[str] | None = None) -> list[str]:

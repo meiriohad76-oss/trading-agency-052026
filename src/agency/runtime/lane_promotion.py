@@ -43,12 +43,12 @@ LANE_PROMOTION_POLICIES: dict[str, LanePromotionPolicy] = {
     ),
     "institutional": LanePromotionPolicy(
         "institutional",
-        ACTION_WEIGHTED,
-        "Can contribute to WATCH as lagged ownership context.",
+        CONTEXT_ONLY,
+        "Context only: 13F filings are delayed by up to 45 days after quarter end.",
         "SEC 13F manifest available and mapped through the local CUSIP map.",
         (
-            "Official 13F data is confirmed but lagged, so it supports rather than dominates "
-            "decisions."
+            "Official lagged 13F data confirms historical institutional positioning, but the "
+            "filing delay makes it unsuitable as a current action-weighted signal."
         ),
     ),
     "abnormal_volume": LanePromotionPolicy(

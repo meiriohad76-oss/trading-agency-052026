@@ -46,7 +46,11 @@ def test_submit_disabled_until_gate_and_phrase() -> None:
     script = _script()
 
     assert "SUBMIT_PHRASE = \"submit paper orders\"" in script
-    assert "ack.checked && phrase.value.trim() === SUBMIT_PHRASE" in script
+    assert "const phraseMatches = phrase.value.trim() === SUBMIT_PHRASE" in script
+    assert "const manifestReady = manifestHasOrderIntent()" in script
+    assert "acknowledged && phraseMatches" in script
+    assert "!manifestReady" in script
+    assert "No paper order manifest is attached for this cycle." in script
 
 
 def test_cockpit_submit_advances_to_cleared_only_after_successful_response() -> None:
@@ -103,15 +107,26 @@ def test_clearance_phase_starts_with_bluf_sentence() -> None:
     assert "Check the manifest, confirm the paper-only gate, then submit approved paper orders." in html
 
 
+def test_clearance_manifest_displays_order_proof_fields() -> None:
+    html = _template()
+
+    assert "Action" in html
+    assert "Proof time" in html
+    assert "Intent hash" in html
+    assert "row.order_intent_hash_label" in html
+    assert "Review only; no broker submit field is attached." in html
+    assert 'name="order_intent_hash"' in html
+
+
 def test_cockpit_submit_reuses_execution_freshness_gate(monkeypatch: MonkeyPatch) -> None:
     calls: list[str] = []
 
-    async def fake_submit_execution_order(**kwargs: object) -> RedirectResponse:
+    async def fake_submit_execution_order_core(**kwargs: object) -> dict[str, object]:
         calls.append(str(kwargs["ticker"]))
-        return RedirectResponse("/execution-preview", status_code=303)
+        return {"ticker": str(kwargs["ticker"]), "broker_order_id": "", "order_intent_hash": "a" * 64}
 
     _patch_submit_context(monkeypatch)
-    monkeypatch.setattr(dashboard_module, "submit_execution_order", fake_submit_execution_order)
+    monkeypatch.setattr(dashboard_module, "_submit_execution_order_core", fake_submit_execution_order_core)
 
     response = TestClient(create_app()).post(
         "/cockpit/submit",
@@ -128,13 +143,13 @@ def test_cockpit_submit_passes_request_and_all_order_rows_to_submit_handler(
 ) -> None:
     calls: list[tuple[str, str]] = []
 
-    async def fake_submit_execution_order(request: Request, **kwargs: object) -> RedirectResponse:
+    async def fake_submit_execution_order_core(request: Request, **kwargs: object) -> dict[str, object]:
         assert request.url.path == "/cockpit/submit"
         calls.append((str(kwargs["ticker"]), str(kwargs["order_intent_hash"])))
-        return RedirectResponse("/execution-preview", status_code=303)
+        return {"ticker": str(kwargs["ticker"]), "broker_order_id": "", "order_intent_hash": str(kwargs["order_intent_hash"])}
 
     _patch_submit_context(monkeypatch, include_second=True)
-    monkeypatch.setattr(dashboard_module, "submit_execution_order", fake_submit_execution_order)
+    monkeypatch.setattr(dashboard_module, "_submit_execution_order_core", fake_submit_execution_order_core)
 
     response = TestClient(create_app()).post(
         "/cockpit/submit",
@@ -151,13 +166,13 @@ def test_cockpit_submit_accepts_explicit_json_manifest(
 ) -> None:
     calls: list[tuple[str, str]] = []
 
-    async def fake_submit_execution_order(request: Request, **kwargs: object) -> RedirectResponse:
+    async def fake_submit_execution_order_core(request: Request, **kwargs: object) -> dict[str, object]:
         assert request.headers["content-type"] == "application/json"
         calls.append((str(kwargs["ticker"]), str(kwargs["order_intent_hash"])))
-        return RedirectResponse("/execution-preview", status_code=303)
+        return {"ticker": str(kwargs["ticker"]), "broker_order_id": "", "order_intent_hash": str(kwargs["order_intent_hash"])}
 
     _patch_submit_context(monkeypatch, include_second=True)
-    monkeypatch.setattr(dashboard_module, "submit_execution_order", fake_submit_execution_order)
+    monkeypatch.setattr(dashboard_module, "_submit_execution_order_core", fake_submit_execution_order_core)
 
     response = TestClient(create_app()).post(
         "/cockpit/submit",
@@ -198,17 +213,17 @@ def test_cockpit_submit_rejects_tampered_hidden_fields(monkeypatch: MonkeyPatch)
     )
 
     assert response.status_code == 409
-    assert response.json()["detail"] == "order intent changed; refresh cockpit and approve again"
+    assert response.json()["detail"] == "order details changed; refresh cockpit and approve again"
 
 
 def test_cockpit_submit_handles_partial_broker_failure(monkeypatch: MonkeyPatch) -> None:
-    async def fake_submit_execution_order(**kwargs: object) -> RedirectResponse:
+    async def fake_submit_execution_order_core(**kwargs: object) -> dict[str, object]:
         if kwargs["ticker"] == "BBB":
             raise HTTPException(status_code=503, detail="Alpaca rejected BBB")
-        return RedirectResponse("/execution-preview", status_code=303)
+        return {"ticker": str(kwargs["ticker"]), "broker_order_id": "", "order_intent_hash": str(kwargs["order_intent_hash"])}
 
     _patch_submit_context(monkeypatch, include_second=True)
-    monkeypatch.setattr(dashboard_module, "submit_execution_order", fake_submit_execution_order)
+    monkeypatch.setattr(dashboard_module, "_submit_execution_order_core", fake_submit_execution_order_core)
 
     response = TestClient(create_app()).post(
         "/cockpit/submit",
@@ -225,11 +240,11 @@ def test_cockpit_submit_handles_partial_broker_failure(monkeypatch: MonkeyPatch)
 def test_cockpit_submit_treats_accepted_async_reconcile_as_non_rejected(
     monkeypatch: MonkeyPatch,
 ) -> None:
-    async def fake_submit_execution_order(**_kwargs: object) -> RedirectResponse:
+    async def fake_submit_execution_order_core(**_kwargs: object) -> dict[str, object]:
         raise HTTPException(status_code=202, detail="paper submit accepted; reconciliation pending")
 
     _patch_submit_context(monkeypatch, broker_order_id="paper-pending")
-    monkeypatch.setattr(dashboard_module, "submit_execution_order", fake_submit_execution_order)
+    monkeypatch.setattr(dashboard_module, "_submit_execution_order_core", fake_submit_execution_order_core)
 
     response = TestClient(create_app()).post(
         "/cockpit/submit",
@@ -246,13 +261,13 @@ def test_cockpit_submit_treats_accepted_async_reconcile_as_non_rejected(
 def test_cockpit_submit_keeps_reconcile_pending_rows_accepted_in_partial_failure(
     monkeypatch: MonkeyPatch,
 ) -> None:
-    async def fake_submit_execution_order(**kwargs: object) -> RedirectResponse:
+    async def fake_submit_execution_order_core(**kwargs: object) -> dict[str, object]:
         if kwargs["ticker"] == "BBB":
             raise HTTPException(status_code=503, detail="Alpaca rejected BBB")
         raise HTTPException(status_code=202, detail="paper submit accepted; reconciliation pending")
 
     _patch_submit_context(monkeypatch, include_second=True, broker_order_id="paper-pending")
-    monkeypatch.setattr(dashboard_module, "submit_execution_order", fake_submit_execution_order)
+    monkeypatch.setattr(dashboard_module, "_submit_execution_order_core", fake_submit_execution_order_core)
 
     response = TestClient(create_app()).post(
         "/cockpit/submit",
@@ -276,7 +291,7 @@ def test_cockpit_submit_requires_order_intent_hash_match(monkeypatch: MonkeyPatc
     )
 
     assert response.status_code == 409
-    assert "order intent changed" in response.json()["detail"]
+    assert "order details changed" in response.json()["detail"]
 
 
 def test_cockpit_submit_rejects_live_trading(monkeypatch: MonkeyPatch) -> None:
@@ -293,11 +308,11 @@ def test_cockpit_submit_rejects_live_trading(monkeypatch: MonkeyPatch) -> None:
 
 
 def test_cockpit_submit_records_broker_order_ids(monkeypatch: MonkeyPatch) -> None:
-    async def fake_submit_execution_order(**_kwargs: object) -> RedirectResponse:
-        return RedirectResponse("/execution-preview", status_code=303)
+    async def fake_submit_execution_order_core(**_kwargs: object) -> dict[str, object]:
+        return {"ticker": "AAA", "broker_order_id": "paper-123", "order_intent_hash": "a" * 64}
 
     _patch_submit_context(monkeypatch, broker_order_id="paper-123")
-    monkeypatch.setattr(dashboard_module, "submit_execution_order", fake_submit_execution_order)
+    monkeypatch.setattr(dashboard_module, "_submit_execution_order_core", fake_submit_execution_order_core)
 
     response = TestClient(create_app()).post(
         "/cockpit/submit",
@@ -327,6 +342,97 @@ def test_clearance_context_manifest_exits_before_buys() -> None:
 
     assert manifest[0]["kind"] == "exit"
     assert manifest[-1]["kind"] == "buy"
+
+
+def test_clearance_context_manifest_carries_visible_order_proof() -> None:
+    sources = _sample_sources()
+    sources["dashboard"]["review_queue"] = [  # type: ignore[index]
+        {
+            "ticker": "AMZN",
+            "action": "WATCH",
+            "conviction_pct": 69,
+            "gate_status": "PASS",
+            "risk_decision": "WARN",
+            "review_state": "Ready",
+            "human_review_decision": "Approve",
+            "source_count": 5,
+            "confirmed_signal_count": 2,
+            "cycle_id": "cycle-live-20260522-1530",
+            "as_of": "2026-05-22T15:28:30+00:00",
+        }
+    ]
+    sources["execution"]["preview_rows"] = [  # type: ignore[index]
+        {
+            "ticker": "AMZN",
+            "preview_state": "READY",
+            "side": "BUY",
+            "submit_enabled": True,
+            "order_value_label": "$1000.00",
+            "notional": 1000.0,
+            "order_intent_hash": "a" * 64,
+            "order_intent_hash_label": "aaaaaaaaaaaa",
+            "cycle_id": "cycle-live-20260522-1530",
+            "as_of": "2026-05-22T15:28:30+00:00",
+        }
+    ]
+    sources["execution"]["orderable_rows"] = sources["execution"]["preview_rows"]  # type: ignore[index]
+
+    context = cockpit_context_from_sources(sources)
+    manifest = context["clearance"]["manifest"]
+
+    assert manifest == [
+        {
+            "kind": "buy",
+            "ticker": "AMZN",
+            "side": "BUY",
+            "reason": "5 independent source(s); 2 confirmed signal(s).",
+            "notional": 1000.0,
+            "order_intent_hash": "a" * 64,
+            "order_intent_hash_label": "aaaaaaaaaaaa",
+            "cycle_id": "cycle-live-20260522-1530",
+            "as_of": "2026-05-22T15:28:30+00:00",
+        }
+    ]
+
+
+def test_clearance_manifest_uses_execution_preview_proof_when_candidate_is_older() -> None:
+    sources = _sample_sources()
+    sources["dashboard"]["review_queue"] = [  # type: ignore[index]
+        {
+            "ticker": "AMZN",
+            "action": "WATCH",
+            "conviction_pct": 69,
+            "gate_status": "PASS",
+            "risk_decision": "WARN",
+            "review_state": "Ready",
+            "human_review_decision": "Approve",
+            "source_count": 5,
+            "confirmed_signal_count": 2,
+            "cycle_id": "old-cycle",
+            "as_of": "2026-05-22T14:00:00+00:00",
+        }
+    ]
+    sources["execution"]["preview_rows"] = [  # type: ignore[index]
+        {
+            "ticker": "AMZN",
+            "preview_state": "READY",
+            "side": "BUY",
+            "submit_enabled": True,
+            "notional": 1000.0,
+            "order_intent_hash": "b" * 64,
+            "order_intent_hash_label": "bbbbbbbbbbbb",
+            "cycle_id": "current-execution-cycle",
+            "as_of": "2026-05-22T15:28:30+00:00",
+        }
+    ]
+    sources["execution"]["orderable_rows"] = sources["execution"]["preview_rows"]  # type: ignore[index]
+
+    context = cockpit_context_from_sources(sources)
+    manifest = context["clearance"]["manifest"]
+
+    assert manifest[0]["order_intent_hash"] == "b" * 64
+    assert manifest[0]["cycle_id"] == "current-execution-cycle"
+    assert manifest[0]["as_of"] == "2026-05-22T15:28:30+00:00"
 
 
 def _submit_form(*, include_second: bool = False) -> dict[str, object]:

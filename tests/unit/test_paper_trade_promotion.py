@@ -59,7 +59,7 @@ def test_approved_high_conviction_watch_can_be_promoted_to_paper_buy_preview() -
     assert preview["preview_state"] == "READY"
     assert preview["side"] == "BUY"
     assert preview["notional"] == EXPECTED_NOTIONAL
-    assert "order-intent preview" in str(preview["reasons"][0])
+    assert "order-details preview" in str(preview["reasons"][0])
 
 
 def test_promoted_report_uses_trade_plan_schema_02_and_policy_fractions() -> None:

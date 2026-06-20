@@ -10,6 +10,7 @@ TEMPLATE = REPO_ROOT / "src/agency/templates/cockpit.html"
 PANELS = REPO_ROOT / "src/agency/templates/_cockpit_panels.html"
 BASE_TEMPLATE = REPO_ROOT / "src/agency/templates/base.html"
 STYLES = REPO_ROOT / "src/agency/static/styles.css"
+V3_STYLES = REPO_ROOT / "src/agency/static/v3-screens.css"
 COCKPIT_JS = REPO_ROOT / "src/agency/static/cockpit.js"
 DATA_REFRESH_PROGRESS_JS = REPO_ROOT / "src/agency/static/data-refresh-progress.js"
 
@@ -29,6 +30,25 @@ def test_cockpit_template_has_bluf_before_diagnostics() -> None:
     assert "cockpit-engine-strip" in html
     assert html.index("cockpit-bluf") < html.index("cockpit-engine-strip")
     assert "System diagnostics" not in html.split("cockpit-phase", 1)[0]
+
+
+def test_cockpit_startup_runtime_gap_has_operator_checklist_and_truthful_empty_state() -> None:
+    html = _template()
+    css = V3_STYLES.read_text(encoding="utf-8")
+
+    assert "cockpit-startup-checklist" in html
+    assert "scenario.setup_steps" in html
+    assert "This is not a no-trade result" in html
+    assert "Candidate queue waits for live runtime proof." in html
+    assert "Candidate queue waits for current data proof." in html
+    assert "This is not a no-candidate verdict." in html
+    assert "Candidate queue is unavailable until the data lanes report current proof." in html
+    assert "This is not a completed market review." in html
+    assert "cockpit-empty-actions" in html
+    assert "cockpit-first-nav" in html
+    assert ".v3-screen-cockpit .cockpit-startup-checklist" in css
+    assert ".v3-screen-cockpit .cockpit-empty-actions" in css
+    assert ".v3-screen-cockpit .cockpit-first-nav" in css
 
 
 def test_cockpit_template_has_phase_rail() -> None:
@@ -109,6 +129,47 @@ def test_cockpit_template_has_instrument_nav() -> None:
     assert "Monitor" in html
 
 
+def test_cockpit_template_exposes_dashboard_navigation() -> None:
+    html = _template()
+
+    assert "cockpit-first-nav" in html
+    assert "Fix Data" in html
+    assert "SA Login" in html
+    assert "cockpit-dashboard-nav" in html
+    assert "Open dashboards" in html
+    assert 'href="/signals"' in html
+    assert 'href="/signals?lane=fundamentals#signal-rows-heading"' in html
+    assert "Fundamentals &amp; SEC" in html
+    assert 'href="/portfolio-monitor"' in html
+    assert 'href="/market-regime"' in html
+    assert 'href="/command"' in html
+
+
+def test_cockpit_template_exposes_persistent_sa_email_agent_controls() -> None:
+    html = _template()
+    css = V3_STYLES.read_text(encoding="utf-8")
+
+    assert "cockpit-email-agent-control" in html
+    assert "Seeking Alpha login and article analysis" in html
+    assert 'action="/scheduler/subscription-emails/login-refresh?return_to=cockpit"' in html
+    assert "Open SA browser and verify login" in html
+    assert (
+        'action="/scheduler/subscription-emails/continue-after-login?return_to=cockpit"'
+        in html
+    )
+    assert "I logged in - analyze unread SA emails" in html
+    assert ".cockpit-email-agent-control" in css
+
+
+def test_cockpit_mobile_primary_actions_keep_touch_target_height() -> None:
+    css = V3_STYLES.read_text(encoding="utf-8")
+
+    assert ".v3-screen-cockpit .cockpit-primary-action .button" in css
+    assert ".v3-screen-cockpit .cockpit-top-actions .button" in css
+    assert "min-height: 46px" not in css
+    assert "min-height: 58px" in css
+
+
 def test_cockpit_template_uses_mono_class_for_numeric_readouts() -> None:
     html = _template()
     css = _styles()
@@ -117,12 +178,14 @@ def test_cockpit_template_uses_mono_class_for_numeric_readouts() -> None:
     assert ".cockpit-mono" in css
 
 
-def test_base_brand_links_to_command_without_demoting_cockpit_nav() -> None:
+def test_base_brand_links_to_cockpit_and_marks_legacy_routes_diagnostic() -> None:
     base = BASE_TEMPLATE.read_text(encoding="utf-8")
 
-    assert '<a class="brand" href="/command">' in base
+    assert '<a class="brand" href="/cockpit">' in base
     assert "href=\"/cockpit\"" in base
     assert "Cockpit" in base
+    assert "System Health" in base       # /command nav label (was "Diagnostics: System Status")
+    assert "Order Clearance" in base     # /execution-preview nav label (was "Diagnostic: Order Preview")
     assert "data-enable-heartbeat" in base
 
 
@@ -135,13 +198,30 @@ def test_cockpit_template_posts_research_review_actions() -> None:
     assert "Approve Research" in html
 
 
+def test_cockpit_paused_data_proof_keeps_candidates_visible_for_inspection() -> None:
+    html = _template()
+    css = _styles()
+
+    assert 'candidate_actions_paused = scenario.state in ["outage", "status-delayed"]' in html
+    assert 'scenario.state != "no-actionable"' not in html
+    assert 'scenario.state not in ["outage", "status-delayed", "no-actionable"]' not in html
+    assert "cockpit-candidate-table-paused" in html
+    assert "Inspect ticker" in html
+    assert "before approving or sending this ticker forward" in html
+    assert "Reason: {{ scenario.detail" in html
+    assert "Proof: {{ scenario.last_good_cycle_label" in html
+    assert "Existing candidates remain visible below for inspection." in html
+    assert ".cockpit-candidate-table-paused" in css
+
+
 def test_cockpit_static_controls_are_truthful_and_filterable() -> None:
     html = _template()
     panels = PANELS.read_text(encoding="utf-8")
     script = COCKPIT_JS.read_text(encoding="utf-8")
 
     assert 'data-cockpit-ready="true"' not in html
-    assert 'data-cockpit-ticker-payload="{{ candidate|tojson|safe }}"' in html
+    assert "data-cockpit-ticker-payload='{{ candidate|tojson }}'" in html
+    assert 'data-cockpit-ticker-payload="{{ candidate|tojson|safe }}"' not in html
     assert 'class="cockpit-phase-cell active"' not in html
     assert "window.confirm(" not in script
     assert "showRestoreNotice(" in script
@@ -156,11 +236,20 @@ def test_cockpit_static_controls_are_truthful_and_filterable() -> None:
     assert "cockpit-monitor-item monitor-{{ event.status_class|default('info', true)|lower" in panels
 
 
-def test_cockpit_script_forces_safety_scenario_starting_phase() -> None:
+def test_cockpit_script_allows_phase_navigation_in_safety_scenarios() -> None:
     script = COCKPIT_JS.read_text(encoding="utf-8")
 
     assert 'scenarioState === "submitted" ? "cleared"' in script
-    assert 'scenarioState === "outage" || scenarioState === "no-actionable"' in script
+    assert (
+        'scenarioState === "outage" || scenarioState === "status-delayed"'
+        in script
+    )
+    assert 'scenarioState === "no-actionable"' in script
+    assert "function scenarioSafePhase(phase)" in script
+    assert "return phase || defaultPhase;" in script
+    assert "state.phase = safetyScenario || hasPrimaryWorkflowAction" in script
+    assert "state.phase = scenarioSafePhase(pendingRestore.phase)" in script
+    assert "submitGateInvalidated = true" in script
 
 
 def test_cockpit_engine_strip_does_not_call_healthy_fresh_source_down() -> None:

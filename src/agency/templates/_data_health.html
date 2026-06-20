@@ -23,7 +23,7 @@
         <p>{{ data_health.recommended_action }}</p>
       </article>
       <article>
-        <span class="metric-label">Blocking reason</span>
+        <span class="metric-label">Main issue</span>
         <p>{{ data_health.primary_blocker_detail }}</p>
       </article>
     </div>
@@ -70,9 +70,9 @@
     <p class="panel-note">{{ data_health.detail }}</p>
     <p class="muted-line">
       {% if data_health.monitor_live %}
-        Live Health Monitor: {{ data_health.monitor_label }}
+        Health proof: {{ data_health.monitor_label }}
       {% else %}
-        Health Monitor Status: {{ data_health.monitor_label }}
+        Health proof status: {{ data_health.monitor_label }}
       {% endif %}
       &middot; {{ data_health.visible_row_count }} displayed input(s) checked
       {% if data_health.hidden_row_count %}
@@ -93,11 +93,11 @@
       </div>
       {% endif %}
       {% if data_health.lane_state_rows %}
-      <div class="data-health-lane-state-strip" aria-label="Extraction lane states">
+      <div class="data-health-lane-state-strip" aria-label="Data pipeline states">
         {% for lane in data_health.lane_state_rows %}
         <article class="data-health-lane-state data-health-row-{{ lane.status_class }}" title="{{ lane.tooltip }}">
           <div>
-            <span class="metric-label">Lane</span>
+            <span class="metric-label">Data pipeline</span>
             <strong>{{ lane.name }}</strong>
           </div>
           <span class="tag tag-{{ lane.status_class }}">{{ lane.status_label }}</span>
@@ -150,7 +150,7 @@
             <p>{{ row.why_it_matters }}</p>
           </div>
           <div class="data-health-row-explain">
-            <span class="metric-label">Blocking reason</span>
+            <span class="metric-label">Main issue</span>
             <p>{{ row.blocking_reason }}</p>
           </div>
           <div class="data-health-row-explain">
@@ -163,7 +163,7 @@
           </details>
         </article>
         {% else %}
-        <p class="empty-block">No data-health rows were attached to this dashboard.</p>
+        <p class="empty-block">No data-health rows were attached to this page.</p>
         {% endfor %}
       </div>
     </details>

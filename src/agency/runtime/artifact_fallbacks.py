@@ -7,7 +7,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+from agency.paths import REPO_ROOT
+
 DEFAULT_RUNTIME_ARTIFACT_ROOT = (
     REPO_ROOT / "research" / "results" / "latest-live-runtime-cycle"
 )
@@ -43,6 +44,20 @@ def runtime_risk_decision_artifacts(
 ) -> list[dict[str, object]]:
     return _runtime_rows(
         "risk-decisions.json",
+        artifact_root=artifact_root,
+        ticker=ticker,
+        limit=limit,
+    )
+
+
+def runtime_execution_preview_artifacts(
+    *,
+    artifact_root: Path | None = None,
+    ticker: str | None = None,
+    limit: int = 500,
+) -> list[dict[str, object]]:
+    return _runtime_rows(
+        "execution-previews.json",
         artifact_root=artifact_root,
         ticker=ticker,
         limit=limit,

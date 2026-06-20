@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import sys
 from collections.abc import Mapping
 from datetime import UTC, date, datetime
@@ -37,7 +38,7 @@ from prices.puller import universe_tickers  # noqa: E402
 DEFAULT_PROGRESS_PATH = (
     ROOT / "research" / "results" / "latest-data-refresh" / "stock-trades-progress.json"
 )
-MAX_LIVE_LANE_TICKERS = 50
+MAX_LIVE_LANE_TICKERS = int(os.environ.get("AGENCY_MAX_LIVE_LANE_TICKERS", "200"))
 LIVE_STOCK_TRADE_LANES = {
     "massive_live_trade_slices",
     "massive_premarket_trade_slices",

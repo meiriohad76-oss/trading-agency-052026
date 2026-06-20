@@ -101,6 +101,35 @@ def test_runtime_cycle_from_payload_accepts_json_compatible_inputs() -> None:
     assert cycle.risk_decisions[0]["projected_gross_exposure_pct"] == PROJECTED_EXPOSURE_PCT
 
 
+def test_runtime_cycle_from_payload_threads_market_regime_into_risk_checks() -> None:
+    cycle = build_runtime_cycle_from_payload(
+        {
+            "cycle_id": CYCLE_ID,
+            "as_of": AS_OF,
+            "generated_at": GENERATED_AT,
+            "tickers": ["aapl"],
+            "source_health": [source_health()],
+            "signals": [_signal("AAPL", 0.7)],
+            "market_regime_snapshot": {
+                "market_backdrop": {"regime": "RISK_OFF", "vol_regime": "HIGH"},
+                "per_stock_context": {
+                    "AAPL": {
+                        "sector": "XLK",
+                        "sector_bias": "HEADWIND",
+                        "sector_state": "DECLINING",
+                        "conviction_boost": -0.05,
+                    }
+                },
+            },
+        }
+    )
+
+    check = _risk_check(cycle, "market_regime")
+    assert check["status"] == "WARN"
+    assert "RISK_OFF" in check["reason"]
+    assert "XLK" in check["reason"]
+
+
 def test_runtime_cycle_threads_broker_exposure_into_risk() -> None:
     cycle = build_runtime_cycle(
         cycle_id=CYCLE_ID,
@@ -397,6 +426,16 @@ def _assert_contracts(cycle: RuntimeCycleResult) -> None:
         validate_contract("execution-preview", preview)
     for event in cycle.all_lifecycle_events:
         validate_contract("candidate-lifecycle-event", event)
+
+
+def _risk_check(cycle: RuntimeCycleResult, name: str) -> dict[str, str]:
+    checks = cycle.risk_decisions[0]["checks"]
+    assert isinstance(checks, list)
+    for check in checks:
+        assert isinstance(check, dict)
+        if check.get("name") == name:
+            return {str(key): str(value) for key, value in check.items()}
+    raise AssertionError(f"missing risk check {name}")
 
 
 def _review_key(event: Mapping[str, object]) -> tuple[str, str, str]:

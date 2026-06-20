@@ -476,7 +476,7 @@ def _final_caution_summary(
     blockers = [gate for gate in gates if gate["status"] == "BLOCK"]
     warnings = [gate for gate in gates if gate["status"] == "WARN"]
     if blockers:
-        return "Blocking gate: " + _human_list([str(gate["label"]) for gate in blockers]) + "."
+        return "Must-fix gate: " + _human_list([str(gate["label"]) for gate in blockers]) + "."
     if risk_flags:
         labels = _human_list([_label_text(flag) for flag in risk_flags])
         return f"Risk flag to review: {labels}."
@@ -547,7 +547,7 @@ def _final_selection_next_step(
     if action == "NO_TRADE":
         return "No human approval is needed now; keep it visible only for traceability."
     if gate_status == "BLOCK":
-        return "Blocked by selection policy; inspect the policy gates before reconsidering."
+        return "Stopped by selection policy; inspect the policy checks before reconsidering."
     if risk_flags:
         return "Risk flags are present; wait for stronger evidence or a later cycle."
     return "No immediate review action."

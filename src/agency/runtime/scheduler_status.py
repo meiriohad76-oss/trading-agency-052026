@@ -6,7 +6,8 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+from agency.paths import REPO_ROOT
+
 DEFAULT_STATUS_PATH = REPO_ROOT / "research" / "results" / "latest-scheduler-runtime-status.json"
 DEFAULT_TICK_STALE_SECONDS = int(
     os.environ.get("AGENCY_SCHEDULER_TICK_STALE_SECONDS", "900")

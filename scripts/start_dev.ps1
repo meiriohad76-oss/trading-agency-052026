@@ -1,12 +1,12 @@
 param(
     [int]$Port = 8000,
     [switch]$SkipMigrations,
-    [switch]$Kiosk
+    [switch]$Kiosk,
+    [switch]$InstallDeps
 )
 
 $ErrorActionPreference = "Stop"
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-$Python = Join-Path $RepoRoot ".venv\Scripts\python.exe"
 
 Set-Location $RepoRoot
 $StartPath = "/"
@@ -18,25 +18,6 @@ if (-not (Test-Path ".env")) {
     Copy-Item ".env.example" ".env"
 }
 
-function Get-DotEnvValue {
-    param([string]$Name)
-
-    if (-not (Test-Path ".env")) {
-        return ""
-    }
-
-    $escaped = [regex]::Escape($Name)
-    $line = Get-Content ".env" |
-        Where-Object { $_ -match "^\s*$escaped\s*=" } |
-        Select-Object -Last 1
-    if (-not $line) {
-        return ""
-    }
-
-    $value = ($line -split "=", 2)[1].Trim()
-    return $value.Trim('"').Trim("'")
-}
-
 function Get-TradingAgencyServerProcesses {
     param([int]$Port)
 
@@ -45,12 +26,25 @@ function Get-TradingAgencyServerProcesses {
     $factoryPattern = "agency\.app:create_app.*--factory"
     $legacyPattern = "run_local_app\.py"
     $portPattern = "--port\s+$Port(\s|$)"
-    Get-CimInstance Win32_Process |
-        Where-Object {
-            $_.CommandLine -and
-            (($_.CommandLine -match $appPattern -and $_.CommandLine -match $portPattern) -or ($_.CommandLine -match $factoryPattern -and $_.CommandLine -match $portPattern) -or $_.CommandLine -match $legacyPattern) -and
-            ($_.CommandLine -match $repoPattern -or $_.CommandLine -match "\\.venv\\Scripts\\python")
+    try {
+        Get-CimInstance Win32_Process |
+            Where-Object {
+                $_.CommandLine -and
+                (($_.CommandLine -match $appPattern -and $_.CommandLine -match $portPattern) -or ($_.CommandLine -match $factoryPattern -and $_.CommandLine -match $portPattern) -or $_.CommandLine -match $legacyPattern) -and
+                ($_.CommandLine -match $repoPattern -or $_.CommandLine -match "\\.venv\\Scripts\\python")
+            }
+        return
+    } catch {
+        Write-Warning "CIM process inspection failed: $($_.Exception.Message). Falling back to the listener on port $Port."
+        $connections = @(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
+        foreach ($connection in $connections) {
+            [pscustomobject]@{
+                ProcessId = $connection.OwningProcess
+                ParentProcessId = 0
+                CommandLine = "port $Port listener"
+            }
         }
+    }
 }
 
 function Stop-ExistingTradingAgencyServers {
@@ -68,61 +62,30 @@ function Stop-ExistingTradingAgencyServers {
     Start-Sleep -Seconds 2
 }
 
-if (-not (Test-Path $Python)) {
+if (-not (Test-Path ".\.venv\Scripts\python.exe")) {
     py -3.14 -m venv .venv
 }
 
-$env:PYTHONPATH = "$RepoRoot\src;$RepoRoot\research\src"
-
-$DotEnvDatabaseUrl = Get-DotEnvValue "DATABASE_URL"
-if (-not $env:DATABASE_URL -or -not $env:DATABASE_URL.Trim()) {
-    if ($DotEnvDatabaseUrl) {
-        $env:DATABASE_URL = $DotEnvDatabaseUrl
-        if ($env:DATABASE_URL.Trim().ToLowerInvariant().StartsWith("sqlite:///")) {
-            $env:DATABASE_URL = $env:DATABASE_URL -replace "^sqlite:///", "sqlite+aiosqlite:///"
-        }
-        Write-Host "DATABASE_URL is configured from .env"
-    } else {
-        $env:DATABASE_URL = "sqlite+aiosqlite:///./agency_local.db"
-        Write-Host "DATABASE_URL fallback configured for local SQLite persistence."
-    }
-} elseif ($env:DATABASE_URL.Trim().ToLowerInvariant().StartsWith("sqlite:///")) {
-    $env:DATABASE_URL = $env:DATABASE_URL -replace "^sqlite:///", "sqlite+aiosqlite:///"
-}
-
-$env:AGENCY_PAPER_TRADE_PROMOTION_ENABLED = "true"
-$env:AGENCY_PAPER_TRADE_MIN_CONVICTION = "0.62"
-$env:AGENCY_BROKER_SUBMIT_ENABLED = "true"
-$env:AGENCY_ALPACA_BROKER_ENABLED = "true"
+Write-Host "DATABASE_URL is loaded by the application from .env when present."
 
 $cfgPath = "research\config\live-refresh.local.json"
 if (Test-Path $cfgPath) {
-    try {
-        $cfg = Get-Content $cfgPath -Raw | ConvertFrom-Json
-        $today = Get-Date -Format "yyyy-MM-dd"
-        if ($cfg.end -ne $today) {
-            Write-Host "Updating live refresh end date from $($cfg.end) to $today"
-            $cfg.end = $today
-            $json = $cfg | ConvertTo-Json -Depth 20
-            $utf8NoBom = New-Object System.Text.UTF8Encoding $false
-            [System.IO.File]::WriteAllText((Resolve-Path $cfgPath).Path, $json, $utf8NoBom)
-        }
-    } catch {
-        Write-Warning "Could not update $cfgPath before server start: $($_.Exception.Message)"
-    }
+    Write-Host "Using live refresh config at $cfgPath. Lane dates are derived by the scheduler."
 }
 
 Stop-ExistingTradingAgencyServers -Port $Port
 
-& $Python -m pip install --upgrade pip
-& $Python -m pip install -e ".[dev]"
+if ($InstallDeps) {
+    .\.venv\Scripts\python -m pip install --upgrade pip
+    .\.venv\Scripts\python -m pip install -e ".[dev]"
+}
 
 if (-not $env:ALPACA_API_KEY -or -not $env:ALPACA_SECRET_KEY) {
     Write-Warning "ALPACA_API_KEY and ALPACA_SECRET_KEY are not set in this shell. Add your paper account keys before submitting paper orders."
 }
 
 if (-not $SkipMigrations) {
-    & $Python -m alembic upgrade head
+    .\.venv\Scripts\python -m alembic upgrade head
 }
 
 $health = $null
@@ -140,9 +103,4 @@ if ($null -ne $health) {
 }
 
 Write-Host "Starting Trading Agency dev server at http://127.0.0.1:$Port$StartPath"
-if ($env:DATABASE_URL -and $env:DATABASE_URL.Trim()) {
-    Write-Host "DATABASE_URL is configured in the current shell."
-} else {
-    Write-Host "DATABASE_URL is configured from .env."
-}
-& $Python -m uvicorn agency.app:app --host 127.0.0.1 --port $Port
+.\.venv\Scripts\python -m uvicorn agency.app:app --host 127.0.0.1 --port $Port

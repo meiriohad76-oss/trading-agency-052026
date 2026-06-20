@@ -5,8 +5,8 @@ import json
 import time
 from collections.abc import Callable, Mapping
 from typing import Any
-from urllib.error import URLError
-from urllib.request import Request, urlopen
+
+import httpx
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8000"
 HTTP_OK = 200
@@ -42,7 +42,66 @@ ROUTE_BUDGETS: dict[str, dict[str, object]] = {
         "kind": "total",
         "seconds": COCKPIT_ROOT_FIRST_BYTE_BUDGET_SECONDS,
     },
+    "/command": {
+        "label": "Command dashboard",
+        "metric": "total_seconds",
+        "kind": "total",
+        "seconds": COCKPIT_ROOT_FIRST_BYTE_BUDGET_SECONDS,
+    },
+    "/final-selection": {
+        "label": "Final selection dashboard",
+        "metric": "total_seconds",
+        "kind": "total",
+        "seconds": COCKPIT_ROOT_FIRST_BYTE_BUDGET_SECONDS,
+    },
+    "/execution-preview": {
+        "label": "Execution preview dashboard",
+        "metric": "total_seconds",
+        "kind": "total",
+        "seconds": COCKPIT_ROOT_FIRST_BYTE_BUDGET_SECONDS,
+    },
+    "/signals": {
+        "label": "Signals dashboard",
+        "metric": "total_seconds",
+        "kind": "total",
+        "seconds": COCKPIT_ROOT_FIRST_BYTE_BUDGET_SECONDS,
+    },
+    "/portfolio-monitor": {
+        "label": "Portfolio monitor dashboard",
+        "metric": "total_seconds",
+        "kind": "total",
+        "seconds": COCKPIT_ROOT_FIRST_BYTE_BUDGET_SECONDS,
+    },
+    "/risk": {
+        "label": "Risk dashboard",
+        "metric": "total_seconds",
+        "kind": "total",
+        "seconds": COCKPIT_ROOT_FIRST_BYTE_BUDGET_SECONDS,
+    },
+    "/learning": {
+        "label": "Learning dashboard",
+        "metric": "total_seconds",
+        "kind": "total",
+        "seconds": COCKPIT_ROOT_FIRST_BYTE_BUDGET_SECONDS,
+    },
+    "/audit": {
+        "label": "Audit dashboard",
+        "metric": "total_seconds",
+        "kind": "total",
+        "seconds": COCKPIT_ROOT_FIRST_BYTE_BUDGET_SECONDS,
+    },
+    "/market-regime": {
+        "label": "Market regime dashboard",
+        "metric": "total_seconds",
+        "kind": "total",
+        "seconds": COCKPIT_ROOT_FIRST_BYTE_BUDGET_SECONDS,
+    },
 }
+DASHBOARD_TEXT_ROUTES = tuple(
+    path
+    for path in ROUTE_BUDGETS
+    if path not in {"/reports/selection", "/api/cockpit"}
+)
 
 
 def main() -> None:
@@ -65,21 +124,26 @@ def check_runtime(
 ) -> dict[str, object]:
     fetch_json = timed_fetch_json or _fetch_json_with_timing
     fetch_text = timed_fetch_text or _fetch_text_with_timing
+    reports_probe_path = _selection_reports_probe_path(min_selection_reports)
     health_result = fetch_json(base_url, "/health")
-    reports_result = fetch_json(base_url, "/reports/selection")
+    reports_result = fetch_json(base_url, reports_probe_path)
     decisions_result = fetch_json(base_url, "/risk/decisions")
     cockpit_api_result = fetch_json(base_url, "/api/cockpit")
     metrics_result = fetch_text(base_url, "/metrics")
-    dashboard_result = fetch_text(base_url, "/")
-    cockpit_result = fetch_text(base_url, "/cockpit")
+    text_route_results = {
+        path: fetch_text(base_url, path)
+        for path in DASHBOARD_TEXT_ROUTES
+    }
     route_timings = {
         "/health": _route_timing("/health", health_result),
         "/reports/selection": _route_timing("/reports/selection", reports_result),
         "/risk/decisions": _route_timing("/risk/decisions", decisions_result),
         "/api/cockpit": _route_timing("/api/cockpit", cockpit_api_result),
         "/metrics": _route_timing("/metrics", metrics_result),
-        "/": _route_timing("/", dashboard_result),
-        "/cockpit": _route_timing("/cockpit", cockpit_result),
+        **{
+            path: _route_timing(path, result)
+            for path, result in text_route_results.items()
+        },
     }
     _enforce_route_budgets(route_timings)
     health = _payload(health_result)
@@ -103,6 +167,11 @@ def check_runtime(
         "source_health": metric_value(str(metrics), "agency_source_health_total"),
         "route_timings": route_timings,
     }
+
+
+def _selection_reports_probe_path(min_selection_reports: int) -> str:
+    limit = max(1, min_selection_reports)
+    return f"/reports/selection?limit={limit}"
 
 
 def metric_value(metrics: str, name: str) -> float:
@@ -130,29 +199,78 @@ def _fetch_json_with_timing(base_url: str, path: str) -> dict[str, object]:
 
 def _fetch_text_with_timing(base_url: str, path: str) -> dict[str, object]:
     last_error: BaseException | None = None
+    fetcher = _fetch_first_byte_with_timing if _is_first_byte_route(path) else _fetch_full_text_with_timing
     for attempt in range(HTTP_MAX_ATTEMPTS):
-        started = time.perf_counter()
         try:
-            request = Request(f"{base_url}{path}", headers={"Connection": "close"})
-            with urlopen(request, timeout=HTTP_TIMEOUT_SECONDS) as response:
-                first_byte_at = time.perf_counter()
-                if response.status != HTTP_OK:
-                    raise RuntimeError(f"{path} returned HTTP {response.status}")
-                text: str = response.read().decode("utf-8")
-                finished = time.perf_counter()
-                return {
-                    "path": path,
-                    "payload": text,
-                    "first_byte_seconds": round(first_byte_at - started, 3),
-                    "total_seconds": round(finished - started, 3),
-                    "attempt": attempt + 1,
-                }
-        except (ConnectionResetError, TimeoutError, URLError) as exc:
+            return fetcher(base_url, path, attempt=attempt)
+        except (ConnectionResetError, TimeoutError, httpx.TimeoutException, httpx.TransportError) as exc:
             last_error = exc
+            if _is_timeout_error(exc):
+                break
             if attempt < HTTP_MAX_ATTEMPTS - 1:
                 time.sleep(0.25 * (attempt + 1))
                 continue
     raise RuntimeError(f"{path} is unavailable") from last_error
+
+
+def _fetch_full_text_with_timing(
+    base_url: str,
+    path: str,
+    *,
+    attempt: int,
+) -> dict[str, object]:
+    started = time.perf_counter()
+    response = httpx.get(
+        f"{base_url}{path}",
+        follow_redirects=True,
+        timeout=HTTP_TIMEOUT_SECONDS,
+    )
+    finished = time.perf_counter()
+    if response.status_code != HTTP_OK:
+        raise RuntimeError(f"{path} returned HTTP {response.status_code}")
+    return {
+        "path": path,
+        "payload": response.text,
+        "first_byte_seconds": round(response.elapsed.total_seconds(), 3),
+        "total_seconds": round(finished - started, 3),
+        "attempt": attempt + 1,
+    }
+
+
+def _fetch_first_byte_with_timing(
+    base_url: str,
+    path: str,
+    *,
+    attempt: int,
+) -> dict[str, object]:
+    started = time.perf_counter()
+    with httpx.stream(
+        "GET",
+        f"{base_url}{path}",
+        follow_redirects=True,
+        timeout=HTTP_TIMEOUT_SECONDS,
+    ) as response:
+        first_byte_at = time.perf_counter()
+        if response.status_code != HTTP_OK:
+            raise RuntimeError(f"{path} returned HTTP {response.status_code}")
+        payload = next(iter(response.iter_bytes(chunk_size=1)), b"").decode("utf-8")
+        finished = time.perf_counter()
+    return {
+        "path": path,
+        "payload": payload,
+        "first_byte_seconds": round(first_byte_at - started, 3),
+        "total_seconds": round(finished - started, 3),
+        "attempt": attempt + 1,
+    }
+
+
+def _is_first_byte_route(path: str) -> bool:
+    budget = ROUTE_BUDGETS.get(path)
+    return bool(budget and budget.get("kind") == "first-byte")
+
+
+def _is_timeout_error(exc: BaseException) -> bool:
+    return isinstance(exc, (TimeoutError, httpx.TimeoutException))
 
 
 def _payload(result: TimedFetchResult | Any) -> Any:
@@ -171,9 +289,7 @@ def _route_timing(path: str, result: TimedFetchResult) -> dict[str, object]:
         timing["budget_seconds"] = budget["seconds"]
         timing["budget_metric"] = budget["metric"]
         timing["budget_status"] = (
-            "pass"
-            if float(timing[str(budget["metric"])]) <= float(budget["seconds"])
-            else "fail"
+            "pass" if float(timing[str(budget["metric"])]) <= float(budget["seconds"]) else "fail"
         )
     return timing
 
@@ -181,7 +297,7 @@ def _route_timing(path: str, result: TimedFetchResult) -> dict[str, object]:
 def _float_value(value: object) -> float:
     try:
         return round(float(value), 3)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return 0.0
 
 
@@ -196,8 +312,7 @@ def _enforce_route_budgets(
             label = str(budget["label"])
             kind = str(budget["kind"])
             raise RuntimeError(
-                f"{label} route exceeded {maximum:.1f}s {kind} budget "
-                f"({path}: {observed:.2f}s)"
+                f"{label} route exceeded {maximum:.1f}s {kind} budget ({path}: {observed:.2f}s)"
             )
 
 

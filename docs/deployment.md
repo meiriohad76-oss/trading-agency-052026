@@ -66,6 +66,15 @@ Set local-only secrets in `.env`; do not commit real values.
   set `AGENCY_ENABLE_LLM_REVIEW=true`; optionally set
   `OPENAI_LLM_REVIEW_MODEL`, `OPENAI_BASE_URL`, and
   `AGENCY_LLM_REVIEW_MAX_CANDIDATES`.
+- Raspberry Pi / Open WebUI local LLM is optional and shadow-only. To use it
+  for advisory off-hours summaries, set `AGENCY_LOCAL_LLM_ENABLED=true`,
+  `AGENCY_LOCAL_LLM_PROVIDER=openwebui`, `AGENCY_LOCAL_LLM_BASE_URL`,
+  `AGENCY_LOCAL_LLM_API_KEY`, and `AGENCY_LOCAL_LLM_MODEL`. If Open WebUI is
+  behind Cloudflare or its chat wrapper is unavailable, set
+  `AGENCY_LOCAL_LLM_PROVIDER=ollama` and point `AGENCY_LOCAL_LLM_BASE_URL` at
+  the Pi Ollama API, for example `http://10.100.102.18:11434`; direct Ollama
+  mode requires no API key. It cannot approve trades, promote candidates, or
+  override risk gates.
 - Planned provider keys are optional until their connectors are enabled:
   `OPENFIGI_API_KEY`, `BENZINGA_API_KEY`, `UNUSUAL_WHALES_API_KEY`,
   `FRED_API_KEY`, `THETADATA_USERNAME`, and `THETADATA_PASSWORD`.
@@ -106,6 +115,21 @@ To include supervised LLM review for bounded WATCH candidates:
   --llm-review-max-candidates 10 `
   --output-root research\results\t83-live-runtime-cycle
 ```
+
+To run local Pi/Open WebUI advisory summaries after a cycle:
+
+```powershell
+.\.venv\Scripts\python scripts\check_local_llm.py
+
+.\.venv\Scripts\python scripts\run_local_llm_insights.py `
+  --input-root research\results\latest-live-runtime-cycle `
+  --output-root research\results\latest-local-llm-insights `
+  --max-tickers 168
+```
+
+The output artifact is
+`research\results\latest-local-llm-insights\local-llm-insights.json`. These
+summaries are review context only and are not consumed as execution approvals.
 
 For the first stocks-only PIT replay, keep options/unusual-activity providers out
 of the gate and evaluate freshness at the replay date:

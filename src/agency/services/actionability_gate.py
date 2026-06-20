@@ -22,6 +22,8 @@ class LaneActionabilityRule:
     min_sources: int = 1
     min_confirmed_sources: int = 1
     inferred_needs_confirmed_corroboration: bool = True
+    max_actionability: str | None = None
+    max_actionability_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -35,7 +37,10 @@ class ActionabilityGateConfig:
 DEFAULT_LANE_RULES: Mapping[str, LaneActionabilityRule] = {
     "fundamentals": LaneActionabilityRule(),
     "insider": LaneActionabilityRule(),
-    "institutional": LaneActionabilityRule(),
+    "institutional": LaneActionabilityRule(
+        max_actionability="CONTEXT_ONLY",
+        max_actionability_reason="13f_data_delayed",
+    ),
     "sector_momentum": LaneActionabilityRule(),
     "news": LaneActionabilityRule(min_sources=2, min_confirmed_sources=1),
     "activity_alerts": LaneActionabilityRule(),
@@ -112,6 +117,13 @@ def _gate_signal(
     reason = _threshold_reason(signal, rule, lane_stats, confirmed_directions)
     if reason is not None:
         return _reclassify(output, "CONTEXT_ONLY", reason)
+    cap_reason = _max_actionability_reason(output, rule)
+    if cap_reason is not None:
+        return _reclassify(
+            output,
+            cast(str, rule.max_actionability),
+            cap_reason,
+        )
     output["suppression_reason"] = None
     return output
 
@@ -169,8 +181,24 @@ def _eligible_confirmed_directions(
             continue
         if lane_stats.confirmed_source_count < rule.min_confirmed_sources:
             continue
+        if _max_actionability_reason(signal, rule) is not None:
+            continue
         directions.add(str(signal["direction"]))
     return directions
+
+
+def _max_actionability_reason(
+    signal: Mapping[str, object],
+    rule: LaneActionabilityRule,
+) -> str | None:
+    if rule.max_actionability is None:
+        return None
+    ceiling_order = {"ACTIONABLE": 0, "CONTEXT_ONLY": 1, "SUPPRESSED": 2}
+    current = str(signal["actionability"])
+    ceiling = rule.max_actionability
+    if ceiling_order.get(current, 0) >= ceiling_order.get(ceiling, 0):
+        return None
+    return rule.max_actionability_reason or "lane_max_actionability"
 
 
 def _reclassify(signal: dict[str, object], actionability: str, reason: str) -> dict[str, object]:

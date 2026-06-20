@@ -144,6 +144,21 @@ def test_source_state_does_not_treat_generic_access_text_as_unavailable() -> Non
     assert state["label"] == "Usable with proof timestamp"
 
 
+def test_source_state_unknown_with_timestamp_needs_verification() -> None:
+    state = source_state(
+        {
+            "status": "UNKNOWN",
+            "status_label": "UNKNOWN",
+            "freshness": "UNKNOWN",
+            "last_update": "2026-05-22T14:00:00+00:00",
+        }
+    )
+
+    assert state["state"] == "needs_refresh"
+    assert state["label"] == "Source status needs verification"
+    assert "confirm the health status" in state["next_action"]
+
+
 def test_refreshable_lane_has_refresh_action() -> None:
     context = cockpit_context_from_sources(_sources())
     html = PANELS.read_text(encoding="utf-8")

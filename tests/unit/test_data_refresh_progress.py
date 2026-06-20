@@ -545,6 +545,80 @@ def test_data_refresh_progress_exposes_massive_lane_progress(
     assert lane["analysis_state"] == "loading"
 
 
+def test_data_refresh_progress_promotes_running_massive_lane_to_top_level(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lane_root = tmp_path / "massive_lanes"
+    lane_root.mkdir()
+    (lane_root / "massive_live_trade_slices.json").write_text(
+        json.dumps(
+            {
+                "lane_id": "massive_live_trade_slices",
+                "status": "partial_usable",
+                "coverage_pct": 100,
+                "ticker_count": 30,
+                "row_count": 12345,
+                "fetched_at": "2026-06-01T21:51:54+00:00",
+                "window": {"start": "2026-06-01", "end": "2026-06-01"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(progress_module, "DEFAULT_MASSIVE_LANE_MANIFEST_ROOT", lane_root)
+    monkeypatch.setattr(
+        progress_module,
+        "_active_process_command_lines",
+        lambda: (
+            "python research/scripts/pull_massive_stock_trades.py "
+            "--lane-id massive_live_trade_slices --ticker GEHC",
+        ),
+    )
+    status_path = tmp_path / "data-refresh-status.json"
+    status_path.write_text(
+        json.dumps(
+            {
+                "updated_at": "2026-06-01T21:34:33+00:00",
+                "progress": {"state": "complete", "completed_jobs": 1, "total_jobs": 1},
+                "jobs": [{"dataset": "news_rss", "status": "passed"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "massive_live_trade_slices-progress.json").write_text(
+        json.dumps(
+            {
+                "lane_id": "massive_live_trade_slices",
+                "state": "running",
+                "percent_complete": 30,
+                "eta_seconds": 240,
+                "ticker_days_processed": 9,
+                "ticker_days_total": 30,
+                "current_ticker": "GEHC",
+                "current_trade_date": "2026-06-01",
+                "start": "2026-06-01",
+                "end": "2026-06-01",
+                "updated_at": "2026-06-01T21:54:54+00:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    progress = load_data_refresh_progress(status_path)
+
+    assert progress["state"] == "running"
+    assert progress["status_label"] == "Loading"
+    assert progress["is_loading"] is True
+    assert progress["current_dataset"] == "massive_live_trade_slices"
+    assert progress["active_lane_id"] == "massive_live_trade_slices"
+    assert progress["current_ticker"] == "GEHC"
+    assert progress["completed_jobs"] == 9
+    assert progress["total_jobs"] == 30
+    assert progress["percent_complete"] == 30
+    assert progress["eta_label"] == "4m"
+    assert "current ticker GEHC" in str(progress["detail"])
+
+
 def test_data_refresh_progress_marks_orphaned_massive_lane_running_state(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
