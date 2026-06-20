@@ -249,6 +249,26 @@ def test_scheduler_broad_dataset_preserves_planned_tickers_by_tier_order() -> No
     ]
 
 
+def test_scheduler_caps_generic_dataset_commands_to_safe_default_batch() -> None:
+    tickers = tuple(f"T{i:02d}" for i in range(25))
+    tiers = build_ticker_tiers(active_universe=tickers)
+
+    queue = build_scheduler_work_queue(
+        _market_plan("after_hours", dataset="sec_form4", tickers=tickers),
+        tiers=tiers,
+        data_load_status={"state": "ready", "datasets": []},
+        source_health=_fresh_sources(),
+        broker={"connected": True, "checked_at": NOW.isoformat()},
+        now=NOW,
+    )
+
+    command = queue["next_jobs"][0]["command"]
+
+    assert command.count("--ticker") == 20
+    assert command[-2:] == ["--ticker", "T19"]
+    assert "T20" not in command
+
+
 def test_scheduler_dataset_command_uses_planned_extraction_action() -> None:
     tiers = build_ticker_tiers(active_universe=["AAPL"])
 

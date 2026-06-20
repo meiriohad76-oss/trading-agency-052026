@@ -17,6 +17,32 @@ def test_pre_market_jobs_include_stock_trades_and_email() -> None:
     assert "sec_company_facts" not in names
 
 
+def test_commands_for_tick_includes_due_signal_lanes() -> None:
+    queue = {
+        "massive_orchestrator": {"lanes": []},
+        "jobs": [
+            {
+                "job_id": "signal:buy_sell_pressure",
+                "kind": "signal_lane",
+                "name": "buy_sell_pressure",
+                "status": "DUE_NOW",
+                "command": ["python", "scripts/run_live_runtime_cycle.py", "--signal", "buy_sell_pressure"],
+            },
+            {
+                "job_id": "dataset:sec_form4",
+                "kind": "dataset",
+                "name": "sec_form4",
+                "status": "WAITING",
+                "command": ["python", "research/scripts/run_data_refresh_batch.py"],
+            },
+        ],
+    }
+
+    commands = scheduler_runner._commands_for_tick(queue)
+
+    assert [row["job_id"] for row in commands] == ["signal:buy_sell_pressure"]
+
+
 def test_subscription_email_login_refresh_reprocesses_seen_batch_and_records_progress(
     tmp_path: Path,
     monkeypatch,
@@ -523,7 +549,7 @@ def test_work_queue_tick_records_job_success_cadence_memory(monkeypatch) -> None
     assert status["last_tick_commands"][0]["exit_code"] == 0
 
 
-def test_work_queue_command_extractor_ignores_signal_jobs() -> None:
+def test_work_queue_command_extractor_includes_signal_jobs() -> None:
     queue = {
         "massive_orchestrator": {"lanes": []},
         "jobs": [
@@ -534,8 +560,10 @@ def test_work_queue_command_extractor_ignores_signal_jobs() -> None:
 
     commands = scheduler_runner._commands_for_tick(queue)
 
-    assert len(commands) == 1
-    assert commands[0]["command"] == ["python", "data.py"]
+    assert [row["command"] for row in commands] == [
+        ["python", "signal.py"],
+        ["python", "data.py"],
+    ]
 
 
 def test_work_queue_command_extractor_does_not_rerun_running_lanes() -> None:

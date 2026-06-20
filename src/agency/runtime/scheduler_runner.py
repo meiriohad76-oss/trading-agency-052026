@@ -445,7 +445,7 @@ def _commands_for_tick(queue: dict[str, object]) -> list[dict[str, object]]:
             if row.get("status") == "DUE_NOW" and row.get("command"):
                 commands.append(dict(row))
     for row in _mapping_rows(queue.get("jobs")):
-        if row.get("kind") != "dataset":
+        if row.get("kind") not in {"dataset", "signal_lane"}:
             continue
         if row.get("status") != "DUE_NOW" or not row.get("command"):
             continue

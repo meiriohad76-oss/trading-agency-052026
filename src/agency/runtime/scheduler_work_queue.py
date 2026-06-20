@@ -2005,7 +2005,11 @@ def _stock_trade_live_command(
     end = _row_date_text(row.get("end")) or start
     if not start or not end:
         return []
-    limit = max_tickers if max_tickers is not None and max_tickers > 0 else len(tickers)
+    limit = (
+        max_tickers
+        if max_tickers is not None and max_tickers > 0
+        else len(tickers)
+    )
     lane_id = str(row.get("lane_id") or "massive_live_trade_slices")
     command = [
         ".\\.venv\\Scripts\\python",
@@ -2081,7 +2085,11 @@ def _derive_block_trades_command(
     end = _row_date_text(row.get("end")) or start
     if not start or not end:
         return []
-    limit = max_tickers if max_tickers is not None and max_tickers > 0 else len(tickers)
+    limit = (
+        max_tickers
+        if max_tickers is not None and max_tickers > 0
+        else len(tickers)
+    )
     lane_id = str(row.get("lane_id") or "massive_block_trade_feed")
     source_manifest = _local_derivation_source_manifest_path(row, "massive_live_trade_slices")
     command = [
@@ -2129,7 +2137,11 @@ def _stock_trade_backfill_command(
     end = _row_date_text(row.get("end")) or start
     if not start or not end:
         return []
-    limit = max_tickers if max_tickers is not None and max_tickers > 0 else len(tickers)
+    limit = (
+        max_tickers
+        if max_tickers is not None and max_tickers > 0
+        else min(len(tickers), EXPLICIT_COMMAND_TICKER_LIMIT)
+    )
     command = [
         ".\\.venv\\Scripts\\python",
         "research\\scripts\\backfill_massive_stock_trades.py",
@@ -2704,7 +2716,11 @@ def _dataset_command(
     _extend_command_window(command, dataset, row=row, market_date=market_date)
     if dataset in {"news_rss", "subscription_emails", "sec_13f"}:
         return command
-    limit = max_tickers if max_tickers is not None and max_tickers > 0 else len(tickers)
+    limit = (
+        max_tickers
+        if max_tickers is not None and max_tickers > 0
+        else min(len(tickers), EXPLICIT_COMMAND_TICKER_LIMIT)
+    )
     for ticker in list(tickers)[:limit]:
         command.extend(["--ticker", ticker])
     return command
