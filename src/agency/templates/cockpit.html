@@ -120,6 +120,19 @@
           <small>paper previews</small>
         </article>
       </section>
+      {% set primary_nav_action = scenario.primary_nav_action|default({}, true) %}
+      {% if primary_nav_action and primary_nav_action.phase %}
+        <div class="cockpit-top-actions" aria-label="Primary cockpit action">
+          <button
+            class="button button-primary cockpit-main-action"
+            type="button"
+            data-cockpit-phase-target="{{ primary_nav_action.phase }}"
+            data-cockpit-scroll="true"
+            title="{{ primary_nav_action.detail }}"
+          >{{ primary_nav_action.label|default("Start review", true) }}</button>
+          <small>{{ primary_nav_action.detail }}</small>
+        </div>
+      {% endif %}
       <nav class="cockpit-first-nav" aria-label="Primary dashboard navigation">
         <a href="/command">
           <span>Fix Data</span>
@@ -142,19 +155,6 @@
           <small>Email evidence agent</small>
         </a>
       </nav>
-      {% set primary_nav_action = scenario.primary_nav_action|default({}, true) %}
-      {% if primary_nav_action and primary_nav_action.phase %}
-        <div class="cockpit-top-actions" aria-label="Primary cockpit action">
-          <button
-            class="button button-primary cockpit-main-action"
-            type="button"
-            data-cockpit-phase-target="{{ primary_nav_action.phase }}"
-            data-cockpit-scroll="true"
-            title="{{ primary_nav_action.detail }}"
-          >{{ primary_nav_action.label|default("Start review", true) }}</button>
-          <small>{{ primary_nav_action.detail }}</small>
-        </div>
-      {% endif %}
       {% if scenario.primary_action and scenario.primary_action.url %}
         {% if scenario.primary_action.method|default("post", true) == "get" %}
           <div class="cockpit-primary-action" title="{{ scenario.primary_action.detail }}">

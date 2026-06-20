@@ -6932,6 +6932,37 @@ table.signal-table {
   color: var(--text-muted);
 }
 
+.cockpit-topline .cockpit-instrument-cluster-brief {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.cockpit-topline .cockpit-instrument-cluster-brief .cockpit-arc-gauge {
+  min-height: 52px;
+  justify-items: start;
+  align-content: center;
+  gap: 1px;
+  padding: 6px 8px;
+  text-align: left;
+}
+
+.cockpit-topline .cockpit-instrument-cluster-brief .cockpit-arc-gauge p {
+  font-size: 0.72rem;
+}
+
+.cockpit-topline .cockpit-instrument-cluster-brief .cockpit-arc-gauge strong {
+  font-size: 0.98rem;
+  line-height: 1.08;
+}
+
+.cockpit-topline .cockpit-instrument-cluster-brief .cockpit-arc-gauge small {
+  display: none;
+}
+
 .cockpit-panel {
   position: fixed;
   inset: 0;
