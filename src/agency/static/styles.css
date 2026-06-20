@@ -6963,6 +6963,67 @@ table.signal-table {
   display: none;
 }
 
+.cockpit-topline .cockpit-data-state-strip-compact {
+  grid-template-columns: minmax(260px, 0.8fr) minmax(420px, 1.2fr);
+  gap: 8px;
+  margin: 8px 0;
+  padding: 8px;
+  border-left-width: 3px;
+  background: rgba(8, 26, 43, 0.55);
+}
+
+.cockpit-topline .cockpit-data-state-strip-compact .cockpit-data-state-headline {
+  gap: 3px;
+}
+
+.cockpit-topline .cockpit-data-state-strip-compact .cockpit-data-state-headline h2 {
+  font-size: 1rem;
+}
+
+.cockpit-topline .cockpit-data-state-strip-compact .cockpit-data-state-headline p {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: 0.88rem;
+}
+
+.cockpit-topline .cockpit-data-state-strip-compact .cockpit-data-state-gaps {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.cockpit-topline .cockpit-data-state-strip-compact .cockpit-data-state-gaps > strong {
+  grid-column: 1 / -1;
+  font-size: 0.9rem;
+}
+
+.cockpit-topline .cockpit-data-state-strip-compact .cockpit-data-state-gap {
+  gap: 3px;
+  padding: 6px;
+}
+
+.cockpit-topline .cockpit-data-state-strip-compact .cockpit-data-state-gap strong {
+  font-size: 0.86rem;
+}
+
+.cockpit-topline .cockpit-data-state-strip-compact .cockpit-data-state-gap p {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: 0.78rem;
+  line-height: 1.25;
+}
+
+.cockpit-topline .cockpit-data-state-strip-compact .cockpit-data-state-gap small,
+.cockpit-topline .cockpit-data-state-strip-compact .cockpit-data-state-gap form {
+  display: none;
+}
+
 .cockpit-panel {
   position: fixed;
   inset: 0;
@@ -7216,8 +7277,35 @@ table.signal-table {
     grid-template-columns: 1fr;
   }
 
-  .cockpit-operator-path,
+  .cockpit-operator-path {
+    grid-template-columns: 1fr;
+  }
+
   .cockpit-first-nav {
+    grid-template-columns: repeat(5, minmax(96px, 1fr));
+    gap: 6px;
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+
+  .cockpit-first-nav a {
+    min-height: 46px;
+    padding: 6px 8px;
+  }
+
+  .cockpit-first-nav span {
+    font-size: 0.86rem;
+  }
+
+  .cockpit-first-nav small {
+    display: none;
+  }
+
+  .cockpit-topline .cockpit-data-state-strip-compact {
+    grid-template-columns: 1fr;
+  }
+
+  .cockpit-topline .cockpit-data-state-strip-compact .cockpit-data-state-gaps {
     grid-template-columns: 1fr;
   }
 

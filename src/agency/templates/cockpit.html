@@ -51,6 +51,67 @@
         <span>Proof: {{ data_state.proof_label|default("not checked", true) if data_state is defined else "not checked" }}</span>
       </div>
       {% set first_gap = (data_state.top_gaps|default([], true))[0]|default({}, true) %}
+      <section class="cockpit-data-state-strip cockpit-data-state-strip-compact" aria-label="Session readiness">
+        <div class="cockpit-data-state-headline">
+          <p class="eyebrow">Session readiness</p>
+          <h2>{{ data_review.label|default("Review status unavailable", true) }} / {{ data_paper.label|default("Paper execution status unavailable", true) }}</h2>
+          <p>{{ data_state.headline|default("Data-pipeline proof is not available for this cockpit request.", true) }}</p>
+        </div>
+        <div class="cockpit-data-state-gaps" aria-label="Paper readiness checks">
+          <strong>{% if review_is_ready and not paper_is_ready %}Before paper submit{% else %}Current action{% endif %}</strong>
+          {% for gap in data_state.top_gaps|default([], true) %}
+            <article class="cockpit-data-state-gap" title="{{ gap.detail }}">
+              <span class="status-pill status-pill-{{ gap.status_class|default('warn', true) }}">{{ gap.lane }}</span>
+              <strong>{{ gap.status_label|default("Needs attention", true) }}</strong>
+              <p>
+                {% if review_is_ready and not paper_is_ready %}
+                  Research review can continue. For paper submit, {{ gap.lane }} proof is not ready.
+                {% else %}
+                  {{ gap.lane }} proof is not ready.
+                {% endif %}
+                {{ gap.recommended_action|default("Use the available refresh action, then confirm the proof timestamp changed.", true) }}
+              </p>
+            </article>
+          {% else %}
+            <p>No required data or agent gaps are reported for the current workflow.</p>
+          {% endfor %}
+        </div>
+      </section>
+      {% set primary_nav_action = scenario.primary_nav_action|default({}, true) %}
+      {% if primary_nav_action and primary_nav_action.phase %}
+        <div class="cockpit-top-actions" aria-label="Primary cockpit action">
+          <button
+            class="button button-primary cockpit-main-action"
+            type="button"
+            data-cockpit-phase-target="{{ primary_nav_action.phase }}"
+            data-cockpit-scroll="true"
+            title="{{ primary_nav_action.detail }}"
+          >{{ primary_nav_action.label|default("Start review", true) }}</button>
+          <small>{{ primary_nav_action.detail }}</small>
+        </div>
+      {% endif %}
+      <nav class="cockpit-first-nav" aria-label="Primary dashboard navigation">
+        <a href="/command">
+          <span>Fix Data</span>
+          <small>Refresh lanes and workers</small>
+        </a>
+        <a href="/signals">
+          <span>Signals</span>
+          <small>Evidence and scoring</small>
+        </a>
+        <a href="/signals?lane=fundamentals#signal-rows-heading">
+          <span>Fundamentals</span>
+          <small>SEC, ownership, company facts</small>
+        </a>
+        <a href="/portfolio-monitor">
+          <span>Portfolio</span>
+          <small>Positions and exposure</small>
+        </a>
+        <a href="#email-agent">
+          <span>SA Login</span>
+          <small>Email evidence agent</small>
+        </a>
+      </nav>
       <div class="cockpit-operator-path" aria-label="What to do now">
         <article class="cockpit-operator-step cockpit-operator-step-now">
           <span>1</span>
@@ -120,41 +181,6 @@
           <small>paper previews</small>
         </article>
       </section>
-      {% set primary_nav_action = scenario.primary_nav_action|default({}, true) %}
-      {% if primary_nav_action and primary_nav_action.phase %}
-        <div class="cockpit-top-actions" aria-label="Primary cockpit action">
-          <button
-            class="button button-primary cockpit-main-action"
-            type="button"
-            data-cockpit-phase-target="{{ primary_nav_action.phase }}"
-            data-cockpit-scroll="true"
-            title="{{ primary_nav_action.detail }}"
-          >{{ primary_nav_action.label|default("Start review", true) }}</button>
-          <small>{{ primary_nav_action.detail }}</small>
-        </div>
-      {% endif %}
-      <nav class="cockpit-first-nav" aria-label="Primary dashboard navigation">
-        <a href="/command">
-          <span>Fix Data</span>
-          <small>Refresh lanes and workers</small>
-        </a>
-        <a href="/signals">
-          <span>Signals</span>
-          <small>Evidence and scoring</small>
-        </a>
-        <a href="/signals?lane=fundamentals#signal-rows-heading">
-          <span>Fundamentals</span>
-          <small>SEC, ownership, company facts</small>
-        </a>
-        <a href="/portfolio-monitor">
-          <span>Portfolio</span>
-          <small>Positions and exposure</small>
-        </a>
-        <a href="#email-agent">
-          <span>SA Login</span>
-          <small>Email evidence agent</small>
-        </a>
-      </nav>
       {% if scenario.primary_action and scenario.primary_action.url %}
         {% if scenario.primary_action.method|default("post", true) == "get" %}
           <div class="cockpit-primary-action" title="{{ scenario.primary_action.detail }}">
