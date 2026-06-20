@@ -21,7 +21,7 @@ def test_command_dashboard_starts_with_act_zone_and_review_queue() -> None:
     assert 'class="command-diagnose-zone"' in html
     assert html.index('class="command-act-zone"') < html.index('id="review-queue-heading"')
     assert html.index('id="review-queue-heading"') < html.index('class="command-diagnose-zone"')
-    assert "System diagnostics" in html
+    assert "System health" in html  # section label (was "System diagnostics")
     assert "advanced-detail" in html
 
 
@@ -208,17 +208,19 @@ def test_sidebar_uses_operator_workflow_labels_and_breadcrumb() -> None:
     nav_html = html.split('<nav class="workflow-breadcrumb"', 1)[0]
 
     assert "Today's Cockpit" in html
-    assert "Diagnostics: System Status" in html
-    assert "Diagnostic: Candidate Queue" in html
-    assert "Diagnostic: Order Preview" in html
-    assert "Diagnostic: Market &amp; Universe" in html
-    assert "Diagnostic: Signal Analysis" in html
-    assert "Diagnostic: Risk Rules" in html
-    assert "Diagnostic: Trading Policy" in html
-    assert "Diagnostic: Audit Trail" in html
+    # Labels were renamed from "Diagnostic: X" to clear operator-friendly names.
+    assert "System Health" in html          # /command (was "Diagnostics: System Status")
+    assert "Market &amp; Universe" in html  # /market-regime (was "Diagnostic: Market & Universe")
+    assert "Signal Analysis" in html        # /signals (was "Diagnostic: Signal Analysis")
+    assert "Candidate Review" in html       # /final-selection (was "Diagnostic: Candidate Queue")
+    assert "Order Clearance" in html        # /execution-preview (was "Diagnostic: Order Preview")
+    assert "Risk Rules" in html             # /risk (was "Diagnostic: Risk Rules")
+    assert "Trading Policy" in html         # /policy (was "Diagnostic: Trading Policy")
+    assert "Audit Trail" in html            # /audit (was "Diagnostic: Audit Trail")
     assert "Today's cycle" in html
     assert "workflow-breadcrumb" in html
-    assert html.index("Research diagnostics") < html.index("Legacy workflow diagnostics")
+    # Research section appears before Workflow section in nav.
+    assert html.index(">Research<") < html.index(">Workflow<")
     assert "V3 Cockpit" not in html
     assert "Ops status" not in html
     assert "Universe &amp; market" not in nav_html
@@ -232,10 +234,11 @@ def test_global_phase_rail_uses_plain_workflow_not_numeric_steps() -> None:
     html = _template("base.html")
 
     assert "v3-phase-index" not in html
-    assert "Candidate Diagnostics" in html
-    assert "Portfolio Diagnostics" in html
-    assert "Order Diagnostics" in html
-    assert "Audit Diagnostics" in html
+    # Phase rail labels were renamed from "X Diagnostics" to plain functional names.
+    assert "Candidate Queue" in html     # phase rail (was "Candidate Diagnostics")
+    assert "Portfolio" in html           # phase rail (was "Portfolio Diagnostics")
+    assert "Order Preview" in html       # phase rail (was "Order Diagnostics")
+    assert "Audit Trail" in html         # phase rail (was "Audit Diagnostics")
     assert ">01<" not in html
     assert ">02<" not in html
     assert ">03<" not in html

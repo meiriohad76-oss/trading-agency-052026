@@ -83,7 +83,7 @@ def test_command_dashboard_has_queue_cta_and_collapsed_diagnostics() -> None:
     assert "href=\"#review-queue-heading\"" in html
     assert "data-freshness" in html
     assert "scheduler-candidate-impact" in html
-    assert "System diagnostics" in html
+    assert "System health" in html
     assert "Data Sources" in html
     assert "review-state-icon" in html
     assert "Blocked by risk" not in html

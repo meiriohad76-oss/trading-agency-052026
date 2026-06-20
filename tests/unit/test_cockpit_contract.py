@@ -315,7 +315,7 @@ def test_cockpit_missing_source_proof_never_reads_as_ready() -> None:
     assert data_state["top_gaps"][0]["lane"] == "Source proof"
     assert context["scenario"]["state"] == "outage"
     assert "needs attention before review can continue" in context["scenario"]["headline"]
-    assert context["scenario"]["primary_action"]["label"] == "Open Diagnostics for Source proof"
+    assert context["scenario"]["primary_action"]["label"] == "Open System Health for Source proof"
     assert context["scenario"]["primary_action"]["url"] == "/command"
     assert context["scenario"]["primary_action"]["method"] == "get"
 

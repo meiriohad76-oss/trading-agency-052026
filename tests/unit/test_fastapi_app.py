@@ -1174,6 +1174,28 @@ def test_final_selection_route_preserves_requested_focus(
         focus_ticker: str | None = None,
     ) -> dict[str, object]:
         seen["focus_ticker"] = focus_ticker
+        normalized = str(focus_ticker or "").strip().upper()
+        # Simulate the "ticker not in results" state that real context returns.
+        focused_final_selection = {
+            "requested": bool(normalized),
+            "ticker": normalized,
+            "found": False,
+            "rows": [],
+            "headline": (
+                f"{normalized} candidate is not in the latest final-selection cycle"
+                if normalized
+                else ""
+            ),
+            "detail": "",
+            "next_step": (
+                "Stay with the selected ticker by opening its execution follow-up, "
+                "or show the full candidate queue."
+                if normalized
+                else ""
+            ),
+            "status_label": "Not in current queue" if normalized else "",
+            "status_class": "warn" if normalized else "neutral",
+        }
         return {
             "data_health": None,
             "final_rows": [],
@@ -1182,7 +1204,8 @@ def test_final_selection_route_preserves_requested_focus(
             "no_trade_rows": [],
             "blocked_rows": [],
             "trace_rows": [],
-            "focused_ticker": focus_ticker or "",
+            "focused_ticker": normalized,
+            "focused_final_selection": focused_final_selection,
             "summary": final_selection_summary([], all_report_count=0, cycle_id="cycle-test"),
         }
 
@@ -1191,7 +1214,9 @@ def test_final_selection_route_preserves_requested_focus(
     response = TestClient(create_app()).get("/final-selection?ticker=pltr")
 
     assert response.status_code == HTTP_OK
-    assert seen["focus_ticker"] is None
+    # The new code path passes focus_ticker directly to final_selection_context
+    # (instead of fetching base context first and injecting focus separately).
+    assert seen["focus_ticker"] == "PLTR"
     assert "PLTR candidate is not in the latest final-selection cycle" in response.text
     assert "Show full candidate queue" in response.text
 
@@ -1246,32 +1271,49 @@ async def test_final_selection_focused_routes_do_not_reuse_other_ticker_cache(
 ) -> None:
     calls: list[str | None] = []
 
+    all_rows = [
+        {
+            "ticker": "AAPL",
+            "action": "WATCH",
+            "gate_status": "PASS",
+            "human_review_decision": "Pending",
+            "review_next_step": "Review AAPL.",
+            "action_class": "pass",
+        },
+        {
+            "ticker": "MSFT",
+            "action": "WATCH",
+            "gate_status": "PASS",
+            "human_review_decision": "Pending",
+            "review_next_step": "Review MSFT.",
+            "action_class": "pass",
+        },
+    ]
+
     async def fake_final_selection_context(
         *,
         focus_ticker: str | None = None,
     ) -> dict[str, object]:
         calls.append(focus_ticker)
+        # The real context filters rows and computes focused_final_selection.
+        # The new code path delegates focus handling to the context function.
+        normalized = str(focus_ticker or "").strip().upper()
+        focused_rows = [r for r in all_rows if r["ticker"] == normalized] if normalized else all_rows
+        found = bool(focused_rows)
         return {
-            "final_rows": [
-                {
-                    "ticker": "AAPL",
-                    "action": "WATCH",
-                    "gate_status": "PASS",
-                    "human_review_decision": "Pending",
-                    "review_next_step": "Review AAPL.",
-                    "action_class": "pass",
-                },
-                {
-                    "ticker": "MSFT",
-                    "action": "WATCH",
-                    "gate_status": "PASS",
-                    "human_review_decision": "Pending",
-                    "review_next_step": "Review MSFT.",
-                    "action_class": "pass",
-                },
-            ],
-            "focused_ticker": "",
-            "focused_final_selection": {},
+            "final_rows": focused_rows,
+            "focused_ticker": normalized,
+            "focused_final_selection": {
+                "requested": bool(normalized),
+                "ticker": normalized,
+                "found": found,
+                "rows": focused_rows,
+                "headline": f"{normalized} candidate is ready for review" if found else f"{normalized} not found",
+                "detail": "",
+                "next_step": "",
+                "status_label": "Pass" if found else "Not in current queue",
+                "status_class": "pass" if found else "warn",
+            },
         }
 
     monkeypatch.setattr(dashboard_module, "final_selection_context", fake_final_selection_context)
@@ -1280,7 +1322,9 @@ async def test_final_selection_focused_routes_do_not_reuse_other_ticker_cache(
     first = await dashboard_module._final_selection_route_context(focus_ticker="AAPL")
     second = await dashboard_module._final_selection_route_context(focus_ticker="MSFT")
 
-    assert calls == [None]
+    # New behavior: focus_ticker is passed directly to final_selection_context
+    # rather than fetching a shared base context and injecting focus on top.
+    assert calls == ["AAPL", "MSFT"]
     assert first["focused_final_selection"]["ticker"] == "AAPL"
     assert first["focused_final_selection"]["found"] is True
     assert second["focused_final_selection"]["ticker"] == "MSFT"
@@ -1290,6 +1334,8 @@ async def test_final_selection_focused_routes_do_not_reuse_other_ticker_cache(
 async def test_final_selection_route_context_shares_inflight_build(
     monkeypatch: MonkeyPatch,
 ) -> None:
+    # Concurrent requests for the SAME focus ticker share one inflight build.
+    # Different focus tickers are separate cache keys and each launch their own task.
     calls = 0
 
     async def fake_final_selection_context(
@@ -1299,27 +1345,21 @@ async def test_final_selection_route_context_shares_inflight_build(
         nonlocal calls
         calls += 1
         await asyncio.sleep(0.01)
+        normalized = str(focus_ticker or "").strip().upper()
         return {
-            "final_rows": [
-                {
-                    "ticker": "AAPL",
-                    "action": "WATCH",
-                    "gate_status": "PASS",
-                    "human_review_decision": "Pending",
-                    "review_next_step": "Review AAPL.",
-                    "action_class": "pass",
-                },
-                {
-                    "ticker": "MSFT",
-                    "action": "WATCH",
-                    "gate_status": "PASS",
-                    "human_review_decision": "Pending",
-                    "review_next_step": "Review MSFT.",
-                    "action_class": "pass",
-                },
-            ],
-            "focused_ticker": focus_ticker or "",
-            "focused_final_selection": {},
+            "final_rows": [{"ticker": normalized, "action": "WATCH", "gate_status": "PASS"}],
+            "focused_ticker": normalized,
+            "focused_final_selection": {
+                "requested": bool(normalized),
+                "ticker": normalized,
+                "found": True,
+                "rows": [],
+                "headline": f"{normalized} ready",
+                "detail": "",
+                "next_step": "",
+                "status_label": "Pass",
+                "status_class": "pass",
+            },
         }
 
     monkeypatch.setattr(dashboard_module, "final_selection_context", fake_final_selection_context)
@@ -1327,12 +1367,13 @@ async def test_final_selection_route_context_shares_inflight_build(
 
     first, second = await asyncio.gather(
         dashboard_module._final_selection_route_context(focus_ticker="AAPL"),
-        dashboard_module._final_selection_route_context(focus_ticker="MSFT"),
+        dashboard_module._final_selection_route_context(focus_ticker="AAPL"),
     )
 
+    # Both concurrent AAPL requests share the same inflight task.
     assert calls == 1
     assert first["focused_final_selection"]["ticker"] == "AAPL"
-    assert second["focused_final_selection"]["ticker"] == "MSFT"
+    assert second["focused_final_selection"]["ticker"] == "AAPL"
 
 
 async def test_command_dashboard_route_context_shares_inflight_build(
@@ -1394,6 +1435,57 @@ def test_execution_status_row_uses_operator_refresh_language() -> None:
 
     assert "stale" not in json.dumps(row).lower()
     assert "needs refresh" in json.dumps(row).lower()
+
+
+def test_data_load_status_compaction_repairs_missing_lane_proof() -> None:
+    payload = health_module._compact_data_load_status(
+        {
+            "status_checked_at": "2026-06-20T10:30:00+00:00",
+            "lane_states": [
+                {
+                    "lane_id": "massive_options_flow",
+                    "state": "disabled_optional",
+                    "status_label": "Not required for current workflow",
+                    "latest_as_of": "not recorded",
+                    "checked_at": "not recorded",
+                    "source_status": "UNKNOWN",
+                    "source_freshness": "UNKNOWN",
+                    "source_proof_label": "Provider UNKNOWN; checked not recorded",
+                    "manifest_path": "research/data/manifests/massive_lanes/massive_options_flow.json",
+                }
+            ],
+        }
+    )
+
+    lane = payload["lane_states"][0]
+    assert lane["latest_as_of"] == "not required for current workflow"
+    assert lane["checked_at"] == "2026-06-20T10:30:00+00:00"
+    assert "not recorded" not in lane["source_proof_label"].lower()
+
+
+def test_command_delayed_context_preserves_artifact_review_execute_links(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    report = _selection_report_for_cycle(
+        "cycle-artifact",
+        "ABNB",
+        "2026-06-20T10:30:00+00:00",
+    )
+    monkeypatch.setattr(
+        dashboard_module,
+        "runtime_selection_report_artifacts",
+        lambda **_kwargs: [report],
+    )
+    monkeypatch.setattr(
+        dashboard_module,
+        "runtime_risk_decision_artifacts",
+        lambda **_kwargs: [],
+    )
+
+    context = dashboard_module._command_delayed_context()
+
+    assert context["review_progress"]["total_count"] == 1
+    assert context["review_queue"][0]["ticker"] == "ABNB"
 
 
 def test_execution_status_payload_uses_fast_runtime_artifact(

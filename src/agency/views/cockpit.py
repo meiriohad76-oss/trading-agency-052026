@@ -2506,7 +2506,7 @@ def _scenario_from_context(
             scenario["runtime_setup_required"] = True
             scenario["setup_steps"] = [
                 "Confirm the Pi runtime has the agency environment file and provider keys loaded.",
-                "Start the scheduler or run the required lane refresh from System Status.",
+                "Start the scheduler or trigger a data refresh from System Health.",
                 "Reload this cockpit and verify Active universe shows 168 tickers and a current proof timestamp.",
             ]
         return scenario
@@ -2607,11 +2607,7 @@ def _scenario_from_data_gap(
     lane = _data_state_text(_first_text(primary.get("lane"), default="Required source"))
     action = dict(_mapping(primary.get("refresh_action")))
     if not _first_text(action.get("url")):
-        action_label = (
-            f"Open Diagnostics for {lane}"
-            if lane.casefold() == "source proof"
-            else f"Open System Status for {lane}"
-        )
+        action_label = f"Open System Health for {lane}"
         action = {
             "label": action_label,
             "url": "/command",

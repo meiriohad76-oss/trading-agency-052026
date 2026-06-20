@@ -38,20 +38,19 @@ def test_root_and_brand_make_cockpit_the_primary_operator_entry(
 def test_legacy_routes_are_labeled_as_diagnostics_not_primary_workflow() -> None:
     base = _template("base.html")
 
+    # Secondary routes are accessible with clear operator labels; the
+    # "Diagnostics:" prefix was dropped in favour of shorter functional names.
     required = (
-        "Diagnostics: System Status",
-        "Research diagnostics",
-        "Legacy workflow diagnostics",
-        "Diagnostic: Candidate Queue",
-        "Diagnostic: Order Preview",
-        "Candidate Diagnostics",
-        "Order Diagnostics",
-        "Runtime diagnostics",
+        "System Health",       # /command — system status page
+        "Candidate Review",    # /final-selection — workflow nav
+        "Order Clearance",     # /execution-preview — workflow nav
+        "Audit Trail",         # /audit — secondary nav
+        "Runtime checks",      # topbar meta block default
     )
+    # These phrases belonged to an earlier naming pass; they must not return.
     forbidden = (
         ">Review Candidates<",
         ">Submit Orders<",
-        ">Order Clearance<",
         ">Command<",
         "Pre-Flight Dashboards",
         "Runtime dashboard",

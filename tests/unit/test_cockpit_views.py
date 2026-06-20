@@ -167,7 +167,7 @@ def test_cockpit_mobile_primary_actions_keep_touch_target_height() -> None:
     assert ".v3-screen-cockpit .cockpit-primary-action .button" in css
     assert ".v3-screen-cockpit .cockpit-top-actions .button" in css
     assert "min-height: 46px" not in css
-    assert "min-height: 54px" in css
+    assert "min-height: 58px" in css
 
 
 def test_cockpit_template_uses_mono_class_for_numeric_readouts() -> None:
@@ -184,9 +184,8 @@ def test_base_brand_links_to_cockpit_and_marks_legacy_routes_diagnostic() -> Non
     assert '<a class="brand" href="/cockpit">' in base
     assert "href=\"/cockpit\"" in base
     assert "Cockpit" in base
-    assert "Diagnostics: System Status" in base
-    assert "Legacy workflow diagnostics" in base
-    assert "Diagnostic: Order Preview" in base
+    assert "System Health" in base       # /command nav label (was "Diagnostics: System Status")
+    assert "Order Clearance" in base     # /execution-preview nav label (was "Diagnostic: Order Preview")
     assert "data-enable-heartbeat" in base
 
 

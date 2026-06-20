@@ -89,7 +89,7 @@ def test_qa_script_semantic_contract_cases_require_operator_proof_text() -> None
     assert "What remains usable" in live_gap_text
     assert "Refresh live trade slices" in live_gap_text
     assert "confirm proof timestamp changed" in live_gap_text
-    assert "Open Diagnostics for Source proof" in missing_proof_text
+    assert "Open System Health for Source proof" in missing_proof_text
     assert "not checked" in missing_proof_text
     assert "Broker paper API connected" in paper_ready_text
     assert "API keys loaded" in paper_ready_text
