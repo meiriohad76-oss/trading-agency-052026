@@ -1712,11 +1712,17 @@ def _data_state_section(dashboard: Mapping[str, object]) -> dict[str, object]:
             f"{review_label}; {paper_label}. "
             f"First action: {_first_text(primary_gap.get('recommended_action'), default='Recheck source proof.')}"
         )
+    elif review_ready and not paper_ready and top_gaps:
+        headline = (
+            f"{review_label}; {paper_label}. "
+            f"Research review can continue now; paper submit needs {len(top_gaps)} "
+            "readiness check(s) first."
+        )
     else:
         headline = (
             f"{review_label}; {paper_label}. "
             f"{overall_percent}% overall data readiness with {warning_count} warning(s) "
-            f"and {blocker_count} must-fix issue(s)."
+            f"and {blocker_count} paper-readiness issue(s)."
         )
     return {
         "status_label": _data_state_text(data_load.get("status_label") or "Data state checked"),
@@ -2165,7 +2171,7 @@ def _operational_readiness_gap(
         _first_text(
             data_load.get("detail"),
             (
-                f"Current data-load status reports {blocker_count} must-fix issue(s) "
+                f"Current data-load status reports {blocker_count} paper-readiness issue(s) "
                 f"and {warning_count} warning(s), but no lane-specific gap was attached."
             ),
         )

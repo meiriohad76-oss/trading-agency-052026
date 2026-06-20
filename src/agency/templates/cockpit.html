@@ -24,6 +24,13 @@
   {% set data_state = data_state|default({}, true) %}
   {% set data_review = data_state.review|default({}, true) %}
   {% set data_paper = data_state.paper|default({}, true) %}
+  {% set review_is_ready = data_review.ready|default(false, true) %}
+  {% set paper_is_ready = data_paper.ready|default(false, true) %}
+  {% set phase_states = phase_states|default({}, true) %}
+  {% set phase_candidates = phase_states.candidates|default({}, true) %}
+  {% set phase_portfolio = phase_states.portfolio|default({}, true) %}
+  {% set phase_clearance = phase_states.clearance|default({}, true) %}
+  {% set phase_cleared = phase_states.cleared|default({}, true) %}
   <header class="cockpit-topline" data-tour="topline">
     <div>
       <p class="eyebrow">Today's trading workflow</p>
@@ -49,7 +56,9 @@
           <span>1</span>
           <div>
             <strong>
-              {% if first_gap %}
+              {% if review_is_ready %}
+                Review stocks
+              {% elif first_gap %}
                 Fix {{ first_gap.lane }}
               {% elif data_review.label is defined %}
                 {{ data_review.label }}
@@ -58,7 +67,9 @@
               {% endif %}
             </strong>
             <small>
-              {% if first_gap %}
+              {% if review_is_ready %}
+                {{ funnel.reviewable|default(funnel.actionable|default(0, true), true) }} candidates are usable for research review now.
+              {% elif first_gap %}
                 {{ first_gap.status_label|default("Needs attention", true) }}. {{ first_gap.recommended_action|default("Refresh this lane, then confirm the proof timestamp changed.", true) }}
               {% else %}
                 Use the current queue if review proof is ready; otherwise refresh the lane shown below.
@@ -81,6 +92,34 @@
           </div>
         </article>
       </div>
+      <section class="cockpit-phase-rail cockpit-phase-rail-compact" aria-label="Workflow phases" data-tour="phaserail">
+        <button type="button" class="cockpit-phase-cell" data-cockpit-phase-target="candidates" data-phase-state="{{ phase_candidates.state|default('active', true) }}"><span class="cockpit-phase-index cockpit-mono">C</span><strong>Candidates</strong><small>{{ phase_candidates.label|default("Active", true) }}</small></button>
+        <button type="button" class="cockpit-phase-cell" data-cockpit-phase-target="portfolio" data-phase-state="{{ phase_portfolio.state|default('pending', true) }}"><span class="cockpit-phase-index cockpit-mono">P</span><strong>Portfolio</strong><small>{{ phase_portfolio.label|default("Review next", true) }}</small></button>
+        <button type="button" class="cockpit-phase-cell" data-cockpit-phase-target="clearance" data-phase-state="{{ phase_clearance.state|default('pending', true) }}"><span class="cockpit-phase-index cockpit-mono">G</span><strong>Clearance</strong><small>{{ phase_clearance.label|default("Paper gate", true) }}</small></button>
+        <button type="button" class="cockpit-phase-cell" data-cockpit-phase-target="cleared" data-phase-state="{{ phase_cleared.state|default('pending', true) }}"><span class="cockpit-phase-index cockpit-mono">OK</span><strong>Cleared</strong><small>{{ phase_cleared.label|default("After submit", true) }}</small></button>
+      </section>
+      <section class="cockpit-instrument-cluster cockpit-instrument-cluster-brief" aria-label="Cockpit instruments" data-tour="cluster">
+        <article class="cockpit-arc-gauge">
+          <p>Market</p>
+          <strong>{{ market.status_label }}</strong>
+          <small>{{ market.regime }}</small>
+        </article>
+        <article class="cockpit-arc-gauge">
+          <p>Exposure</p>
+          <strong class="cockpit-mono">{{ "%.1f"|format(account.gross_post_trade|default(0, true)) }}%</strong>
+          <small>Cap {{ account.gross_cap_label|default("not reported", true) }}</small>
+        </article>
+        <article class="cockpit-arc-gauge">
+          <p>Cash</p>
+          <strong class="cockpit-mono">{{ "%.1f"|format(account.cash_available|default(0, true)) }}%</strong>
+          <small>Floor {{ account.cash_cap_label|default("not reported", true) }}</small>
+        </article>
+        <article class="cockpit-arc-gauge">
+          <p>Ready</p>
+          <strong class="cockpit-mono">{{ account.ready_to_trade|default("0/0", true) }}</strong>
+          <small>paper previews</small>
+        </article>
+      </section>
       <nav class="cockpit-first-nav" aria-label="Primary dashboard navigation">
         <a href="/command">
           <span>Fix Data</span>
@@ -193,13 +232,17 @@
       </article>
     </div>
     <div class="cockpit-data-state-gaps" aria-label="Action required">
-      <strong>What to do now</strong>
+      <strong>{% if review_is_ready and not paper_is_ready %}Before paper submit{% else %}What to do now{% endif %}</strong>
       {% for gap in data_state.top_gaps|default([], true) %}
         <article class="cockpit-data-state-gap" title="{{ gap.detail }}">
           <span class="status-pill status-pill-{{ gap.status_class|default('warn', true) }}">{{ gap.lane }}</span>
           <strong>{{ gap.status_label|default("Needs attention", true) }}</strong>
           <p>
-            {{ gap.lane }} proof is not ready.
+            {% if review_is_ready and not paper_is_ready %}
+              Research review can continue. Paper submit waits for this check:
+            {% else %}
+              {{ gap.lane }} proof is not ready.
+            {% endif %}
             {{ gap.recommended_action|default("Use the available refresh action, then confirm the proof timestamp changed.", true) }}
           </p>
           <small>{{ gap.progress_label }} - {{ gap.recommended_action }}</small>
@@ -380,18 +423,6 @@
     <button type="button" data-cockpit-panel-target="policy">Policy <span class="cockpit-mono">{{ policy.mode|default("paper") }}</span></button>
     <button type="button" data-cockpit-panel-target="monitor">Monitor <span class="cockpit-mono">{{ monitor_events|length }}</span></button>
   </nav>
-
-  {% set phase_states = phase_states|default({}, true) %}
-  {% set phase_candidates = phase_states.candidates|default({}, true) %}
-  {% set phase_portfolio = phase_states.portfolio|default({}, true) %}
-  {% set phase_clearance = phase_states.clearance|default({}, true) %}
-  {% set phase_cleared = phase_states.cleared|default({}, true) %}
-  <section class="cockpit-phase-rail" aria-label="Workflow phases" data-tour="phaserail">
-    <button type="button" class="cockpit-phase-cell" data-cockpit-phase-target="candidates" data-phase-state="{{ phase_candidates.state|default('active', true) }}"><span class="cockpit-phase-index cockpit-mono">C</span><strong>Candidates</strong><small>{{ phase_candidates.label|default("Active", true) }}</small></button>
-    <button type="button" class="cockpit-phase-cell" data-cockpit-phase-target="portfolio" data-phase-state="{{ phase_portfolio.state|default('pending', true) }}"><span class="cockpit-phase-index cockpit-mono">P</span><strong>Portfolio Review</strong><small>{{ phase_portfolio.label|default("Review next", true) }}</small></button>
-    <button type="button" class="cockpit-phase-cell" data-cockpit-phase-target="clearance" data-phase-state="{{ phase_clearance.state|default('pending', true) }}"><span class="cockpit-phase-index cockpit-mono">G</span><strong>Clearance</strong><small>{{ phase_clearance.label|default("Paper gate", true) }}</small></button>
-    <button type="button" class="cockpit-phase-cell" data-cockpit-phase-target="cleared" data-phase-state="{{ phase_cleared.state|default('pending', true) }}"><span class="cockpit-phase-index cockpit-mono">OK</span><strong>Cleared</strong><small>{{ phase_cleared.label|default("After submit", true) }}</small></button>
-  </section>
 
   {% set portfolio_vm = portfolio_phase|default({}, true) %}
   {% set clearance_vm = clearance|default({}, true) %}

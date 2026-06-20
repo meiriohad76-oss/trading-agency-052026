@@ -5857,7 +5857,7 @@ table.signal-table {
 
 .cockpit-topline {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 380px);
   gap: 16px;
   align-items: start;
   padding: 18px;
@@ -5881,12 +5881,150 @@ table.signal-table {
   color: var(--text);
 }
 
+.cockpit-operator-summary {
+  max-width: 850px;
+  font-size: 1.02rem;
+}
+
+.cockpit-proof-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.cockpit-proof-strip span {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  border: 1px solid rgba(94, 234, 212, 0.42);
+  border-radius: 4px;
+  padding: 6px 10px;
+  background: rgba(8, 47, 73, 0.38);
+  color: var(--text);
+  font-weight: 800;
+}
+
+.cockpit-operator-path {
+  display: grid;
+  grid-template-columns: 1.1fr 0.9fr 0.9fr;
+  gap: 10px;
+  margin: 10px 0;
+}
+
+.cockpit-operator-step {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  min-height: 86px;
+  padding: 12px;
+  border: 1px solid rgba(94, 234, 212, 0.28);
+  border-radius: 5px;
+  background: linear-gradient(180deg, rgba(14, 37, 59, 0.88), rgba(7, 17, 31, 0.88));
+}
+
+.cockpit-operator-step-now {
+  border-color: rgba(252, 191, 73, 0.8);
+  background: linear-gradient(180deg, rgba(63, 45, 13, 0.9), rgba(22, 24, 24, 0.92));
+  box-shadow: inset 0 0 0 1px rgba(252, 191, 73, 0.1);
+}
+
+.cockpit-operator-step span {
+  display: inline-grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 999px;
+  background: #5eead4;
+  color: #06111d;
+  font-weight: 900;
+}
+
+.cockpit-operator-step-now span {
+  background: #fbbf24;
+}
+
+.cockpit-operator-step strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--text);
+  font-size: 1.02rem;
+}
+
+.cockpit-operator-step small {
+  color: var(--text-dim);
+  font-size: 0.93rem;
+  line-height: 1.35;
+}
+
+.cockpit-first-nav,
+.cockpit-dashboard-nav {
+  display: grid;
+  gap: 10px;
+}
+
+.cockpit-first-nav {
+  grid-template-columns: repeat(5, minmax(130px, 1fr));
+  margin: 10px 0 0;
+}
+
+.cockpit-first-nav a,
+.cockpit-dashboard-nav a {
+  display: grid;
+  gap: 4px;
+  min-height: 64px;
+  align-content: center;
+  padding: 11px 14px;
+  border: 1px solid rgba(94, 234, 212, 0.26);
+  border-radius: 5px;
+  background: linear-gradient(180deg, rgba(8, 26, 43, 0.92), rgba(6, 18, 31, 0.92));
+  color: var(--text);
+  text-decoration: none;
+}
+
+.cockpit-first-nav a:first-child {
+  border-color: rgba(252, 191, 73, 0.7);
+  background: linear-gradient(180deg, #fee4a6, #f59e0b);
+  color: #111827;
+}
+
+.cockpit-first-nav span,
+.cockpit-dashboard-nav span {
+  font-size: 1.04rem;
+  font-weight: 900;
+}
+
+.cockpit-first-nav small,
+.cockpit-dashboard-nav small {
+  color: inherit;
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.25;
+  opacity: 0.9;
+}
+
+.cockpit-top-actions,
 .cockpit-primary-action {
   display: flex;
   flex-wrap: wrap;
   gap: 8px 12px;
   align-items: center;
   margin-top: 12px;
+}
+
+.cockpit-main-action,
+.cockpit-primary-action .button-primary {
+  min-width: min(410px, 100%);
+  min-height: 52px;
+  justify-content: center;
+  border-color: rgba(252, 191, 73, 0.86);
+  background: linear-gradient(180deg, #ffd88a, #f59e0b);
+  color: #111827;
+  font-size: 1.1rem;
+  font-weight: 950;
+  letter-spacing: 0;
+  box-shadow: 0 0 0 1px rgba(255, 216, 138, 0.32), 0 10px 22px rgba(245, 158, 11, 0.22);
 }
 
 .cockpit-primary-action small {
@@ -5897,7 +6035,7 @@ table.signal-table {
 
 .cockpit-data-state-strip {
   display: grid;
-  grid-template-columns: minmax(240px, 0.9fr) minmax(360px, 1.4fr) minmax(280px, 1fr);
+  grid-template-columns: minmax(240px, 0.9fr) minmax(320px, 1.25fr) minmax(280px, 1fr);
   gap: 14px;
   align-items: stretch;
   padding: 14px;
@@ -5959,7 +6097,7 @@ table.signal-table {
   padding: 10px;
   border: 1px solid rgba(204, 143, 44, 0.26);
   border-radius: 4px;
-  background: rgba(204, 143, 44, 0.08);
+  background: rgba(204, 143, 44, 0.06);
 }
 
 .cockpit-data-state-gaps strong {
@@ -5994,6 +6132,31 @@ table.signal-table {
   grid-template-columns: repeat(4, minmax(130px, 1fr)) minmax(180px, 0.8fr);
   gap: 12px;
   padding: 14px;
+}
+
+.cockpit-instrument-cluster-brief {
+  grid-template-columns: repeat(4, minmax(110px, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.cockpit-instrument-cluster-brief .cockpit-arc-gauge {
+  min-height: 72px;
+  justify-items: start;
+  gap: 2px;
+  padding: 9px 11px;
+  text-align: left;
+}
+
+.cockpit-instrument-cluster-brief .cockpit-arc-gauge strong {
+  font-size: 1.02rem;
+}
+
+.cockpit-instrument-cluster-brief .cockpit-arc-gauge small {
+  color: var(--text-muted);
 }
 
 .cockpit-arc-gauge {
@@ -6186,6 +6349,10 @@ table.signal-table {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   overflow: hidden;
+}
+
+.cockpit-phase-rail-compact {
+  margin-top: 10px;
 }
 
 .cockpit-phase-cell {
@@ -6936,6 +7103,14 @@ table.signal-table {
 }
 
 @media (max-width: 1400px) {
+  .cockpit-topline {
+    grid-template-columns: minmax(0, 1fr) minmax(240px, 380px);
+  }
+
+  .cockpit-first-nav {
+    grid-template-columns: repeat(5, minmax(112px, 1fr));
+  }
+
   .cockpit-candidate-row {
     grid-template-columns: 1fr;
   }
@@ -7009,6 +7184,16 @@ table.signal-table {
     grid-template-columns: 1fr;
   }
 
+  .cockpit-operator-path,
+  .cockpit-first-nav,
+  .cockpit-instrument-cluster-brief {
+    grid-template-columns: 1fr;
+  }
+
+  .cockpit-cycle-card {
+    min-width: 0;
+  }
+
   .cockpit-data-state-metrics {
     grid-template-columns: 1fr;
   }
@@ -7032,6 +7217,39 @@ table.signal-table {
     line-height: 1.12;
   }
 
+  .cockpit-operator-summary {
+    margin: 0;
+  }
+
+  .cockpit-proof-strip {
+    margin: 8px 0;
+  }
+
+  .cockpit-proof-strip span {
+    min-height: 30px;
+    padding: 4px 8px;
+  }
+
+  .cockpit-operator-path {
+    gap: 8px;
+    margin: 8px 0;
+  }
+
+  .cockpit-operator-step {
+    min-height: 74px;
+    padding: 9px;
+  }
+
+  .cockpit-first-nav a {
+    min-height: 56px;
+    padding: 8px 11px;
+  }
+
+  .cockpit-top-actions,
+  .cockpit-primary-action {
+    margin-top: 8px;
+  }
+
   .cockpit-cycle-card {
     padding: 9px 12px;
   }
@@ -7039,6 +7257,15 @@ table.signal-table {
   .cockpit-instrument-cluster {
     gap: 8px;
     padding: 10px;
+  }
+
+  .cockpit-instrument-cluster-brief {
+    padding: 0;
+  }
+
+  .cockpit-instrument-cluster-brief .cockpit-arc-gauge {
+    min-height: 62px;
+    padding: 7px 9px;
   }
 
   .cockpit-arc-gauge {
