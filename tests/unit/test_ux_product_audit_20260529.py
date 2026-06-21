@@ -19,8 +19,16 @@ def test_command_dashboard_starts_with_act_zone_and_review_queue() -> None:
     assert "operator-checklist-card" in html
     assert 'class="command-act-zone"' in html
     assert 'class="command-diagnose-zone"' in html
-    assert html.index('class="command-act-zone"') < html.index('id="review-queue-heading"')
-    assert html.index('id="review-queue-heading"') < html.index('class="command-diagnose-zone"')
+    # dashboard.html has two branches: a fallback branch ({% if route_context_status %})
+    # that renders a compact review queue for source-proof delays, and the normal
+    # operator branch ({% else %}) that renders act-zone → review-queue → diagnose-zone.
+    # The fallback branch appears first in source, so we search for the review-queue
+    # heading *starting from* the act-zone position to assert the normal-branch order.
+    act_zone_pos = html.index('class="command-act-zone"')
+    review_queue_in_normal_branch = html.index('id="review-queue-heading"', act_zone_pos)
+    diagnose_zone_pos = html.index('class="command-diagnose-zone"')
+    assert act_zone_pos < review_queue_in_normal_branch
+    assert review_queue_in_normal_branch < diagnose_zone_pos
     assert "System health" in html  # section label (was "System diagnostics")
     assert "advanced-detail" in html
 

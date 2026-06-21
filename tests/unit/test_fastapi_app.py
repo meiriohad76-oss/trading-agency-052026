@@ -1949,7 +1949,27 @@ def test_portfolio_and_learning_pages_render_empty_states() -> None:
     assert "No auto-tuning" in learning_response.text
 
 
-def test_policy_page_shows_loaded_controls() -> None:
+def test_policy_page_shows_loaded_controls(monkeypatch: MonkeyPatch) -> None:
+    # _policy_context has two DB round-trips (load_policy_from_db + load_active_portfolio_policy)
+    # that exceed the 2.5 s bounded-context timeout in test environments.
+    # Patch both slow functions and clear the bounded-context cache/inflight state so
+    # the route renders with real policy data instead of the delayed fallback.
+    from agency.services.risk import PortfolioPolicy
+
+    async def empty_data_load_status() -> dict[str, object]:
+        return {}
+
+    async def fast_load_policy(_session: object) -> None:
+        return None  # db_backed stays False
+
+    async def fast_active_policy(**_: object) -> PortfolioPolicy:
+        return PortfolioPolicy.from_env()
+
+    monkeypatch.setattr(dashboard_module, "live_dashboard_data_load_status", empty_data_load_status)
+    monkeypatch.setattr(dashboard_module, "load_policy_from_db", fast_load_policy)
+    monkeypatch.setattr(dashboard_module, "load_active_portfolio_policy", fast_active_policy)
+    monkeypatch.delitem(dashboard_module._dashboard_route_context_cache, "policy", raising=False)  # type: ignore[attr-defined]
+    dashboard_module._dashboard_route_context_inflight.pop("policy", None)  # type: ignore[attr-defined]
     client = TestClient(create_app())
 
     response = client.get("/policy")

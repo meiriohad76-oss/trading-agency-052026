@@ -22,6 +22,9 @@ def test_audit_dashboard_renders_empty_state(monkeypatch) -> None:
     async def empty_data_load_status() -> dict[str, object]:
         return {}
 
+    # Clear the module-level route context cache so the patched functions are
+    # actually called even if a prior test (e.g. the e2e smoke suite) populated it.
+    monkeypatch.setattr(audit_dashboard_module, "_audit_route_context_cache", None)
     monkeypatch.setattr(audit_dashboard_module, "runtime_agent_runs", empty_rows)
     monkeypatch.setattr(audit_dashboard_module, "runtime_prompt_audits", empty_rows)
     monkeypatch.setattr(audit_dashboard_module, "runtime_risk_snapshots", empty_rows)
