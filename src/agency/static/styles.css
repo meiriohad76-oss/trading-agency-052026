@@ -7564,3 +7564,33 @@ table.signal-table {
     padding: 12px;
   }
 }
+
+/* Loading spinner — used when source proof is pending (e.g. signals page mid-cycle) */
+@keyframes loading-spin {
+  to { transform: rotate(360deg); }
+}
+
+.loading-spinner {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  border: 2px solid var(--amber);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: loading-spin 0.8s linear infinite;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
+.source-proof-loading {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.75rem 1rem;
+  background: rgba(154, 91, 0, 0.08);
+  border-left: 3px solid var(--amber);
+  border-radius: 4px;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+}

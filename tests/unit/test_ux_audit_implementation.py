@@ -480,6 +480,27 @@ def test_approved_watch_can_be_promoted_to_orderable_buy_report() -> None:
     assert risk_decision["decision"] == "ALLOW"
 
 
+def test_signals_page_shows_loading_indicator_and_polls_when_source_proof_pending() -> None:
+    """Regression: signals page must show a visual spinner and auto-poll the scheduler
+    when evidence_currentness.display_mode is work_in_progress or not_current.
+    Without this, the page looks broken/empty with no indication data is loading."""
+    html = _template("signals.html")
+    css = STYLE_PATH.read_text(encoding="utf-8")
+
+    # Template must render a visible loading indicator when source proof is pending
+    assert "data-source-proof-loading" in html, (
+        "signals.html must include data-source-proof-loading element for the loading state"
+    )
+    # Template must poll the scheduler to auto-refresh when the cycle finishes
+    assert "scheduler-work-queue" in html, (
+        "signals.html must reference /status/scheduler-work-queue to auto-reload when cycle completes"
+    )
+    # CSS must have a spinner animation so the loading indicator is visually distinct
+    assert ".loading-spinner" in css, (
+        "styles.css must define .loading-spinner for the signals loading state"
+    )
+
+
 def _allowed_risk_decision(report: dict[str, object] | None = None) -> dict[str, object]:
     from agency.services import build_risk_decision
 

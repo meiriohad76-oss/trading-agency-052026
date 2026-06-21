@@ -66,12 +66,11 @@ async def bounded_audit_context() -> dict[str, object]:
         _audit_route_context_task = asyncio.create_task(_call_context_builder(audit_context))
     try:
         context = await asyncio.wait_for(
-            _audit_route_context_task,
+            asyncio.shield(_audit_route_context_task),
             timeout=AUDIT_ROUTE_CONTEXT_TIMEOUT_SECONDS,
         )
     except TimeoutError:
-        _audit_route_context_task.cancel()
-        _audit_route_context_task = None
+        _audit_route_context_task.add_done_callback(_store_audit_context_result)
         return delayed_audit_context()
     except Exception as exc:  # noqa: BLE001 - route should render an operator state
         _audit_route_context_task = None
@@ -101,7 +100,7 @@ def _store_audit_context_result(task: asyncio.Task[dict[str, object]]) -> None:
         _audit_route_context_task = None
     try:
         context = task.result()
-    except Exception:
+    except BaseException:
         return
     _audit_route_context_cache = (time.monotonic(), dict(context), id(audit_context))
 

@@ -13,6 +13,12 @@
 {% block evidence_contract %}Signal rows include process, tier, score, ticker relation, timestamp, and confirmed/inferred treatment.{% endblock %}
 
 {% block content %}
+  {% if evidence_currentness.display_mode != 'current' %}
+  <div class="source-proof-loading" data-source-proof-loading aria-live="polite" aria-busy="true">
+    <span class="loading-spinner" aria-hidden="true"></span>
+    <span>{{ evidence_currentness.status_label }} — signal rows will appear automatically when the cycle finishes.</span>
+  </div>
+  {% endif %}
   <section class="next-action hero-info" aria-label="Signals state">
     <div class="next-action-step" aria-hidden="true">06</div>
     <div class="next-action-copy">
@@ -273,4 +279,24 @@
 
 {% block extra_scripts %}
   <script src="/static/signal-table.js" defer></script>
+  {% if evidence_currentness.display_mode != 'current' %}
+  <script>
+    /* Auto-reload when the active runtime cycle completes */
+    (function () {
+      var POLL_MS = 30000;
+      var pollAndReload = async function () {
+        try {
+          var r = await fetch('/status/scheduler-work-queue', { headers: { Accept: 'application/json' } });
+          if (!r.ok) return;
+          var d = await r.json();
+          var runtime = (d && d.scheduler_runtime) || {};
+          if (runtime.state !== 'running') {
+            window.location.reload();
+          }
+        } catch (_) {}
+      };
+      window.setInterval(pollAndReload, POLL_MS);
+    })();
+  </script>
+  {% endif %}
 {% endblock %}

@@ -133,6 +133,7 @@ from agency.views.execution import (  # noqa: F401
     execution_preview_focus_context,
     execution_preview_order_row,
     execution_preview_rows,
+    execution_preview_summary,
     row_from_execution_context,
 )
 from agency.views.final_selection import (  # noqa: F401
@@ -307,7 +308,7 @@ def _store_bounded_dashboard_context_result(
         _dashboard_route_context_inflight.pop(key, None)
     try:
         context = task.result()
-    except Exception:
+    except BaseException:
         return
     _dashboard_route_context_cache[key] = (time.monotonic(), dict(context), builder_id)
 
@@ -557,6 +558,9 @@ def _runtime_artifact_review_queue() -> list[dict[str, object]]:
 
 def _final_selection_delayed_context(focus_ticker: str | None = None) -> dict[str, object]:
     normalized = str(focus_ticker or "").strip().upper()
+    artifact_context = _final_selection_context_from_artifact(focus_ticker=normalized or None)
+    if artifact_context is not None:
+        return artifact_context
     return {
         "data_health": _route_delayed_data_health("Final selection dashboard", "Candidate review queue"),
         "final_rows": [],
@@ -585,8 +589,115 @@ def _final_selection_delayed_context(focus_ticker: str | None = None) -> dict[st
     }
 
 
+def _final_selection_context_from_artifact(
+    *,
+    focus_ticker: str | None = None,
+) -> dict[str, object] | None:
+    reports = runtime_selection_report_artifacts(limit=FINAL_SELECTION_REPORT_LIMIT)
+    if not reports:
+        return None
+    cycle_id = str(reports[0].get("cycle_id") or "").strip()
+    if not cycle_id:
+        return None
+    cycle_reports = [
+        report for report in reports if str(report.get("cycle_id") or "") == cycle_id
+    ]
+    normalized = str(focus_ticker or "").strip().upper()
+    display_reports = (
+        [
+            report
+            for report in cycle_reports
+            if str(report.get("ticker") or "").strip().upper() == normalized
+        ]
+        if normalized
+        else cycle_reports
+    )
+    risk_decisions = runtime_risk_decision_artifacts(
+        ticker=normalized or None,
+        limit=max(len(display_reports), 1),
+    )
+    rows = final_selection_rows(
+        display_reports,
+        risk_decisions=risk_decisions,
+    )
+    actionable_rows = [row for row in rows if str(row.get("review_bucket") or "") == "Actionable review"]
+    watch_rows = [row for row in rows if str(row.get("action") or "") == "WATCH"]
+    no_trade_rows = [row for row in rows if str(row.get("action") or "") == "NO_TRADE"]
+    blocked_rows = [
+        row
+        for row in rows
+        if str(row.get("gate_status") or "") == "BLOCK"
+        or str(row.get("action") or "") in {"BLOCK", "BLOCKED"}
+    ]
+    return {
+        "data_health": _final_selection_artifact_data_health(cycle_reports),
+        "final_rows": rows,
+        "actionable_rows": actionable_rows,
+        "watch_rows": watch_rows,
+        "no_trade_rows": no_trade_rows,
+        "blocked_rows": blocked_rows,
+        "trace_rows": [row for row in rows if row not in actionable_rows],
+        "focused_ticker": normalized,
+        "focused_final_selection": final_selection_focus_context(rows, normalized),
+        "summary": {
+            **final_selection_summary(
+                rows if not normalized else final_selection_rows(cycle_reports),
+                all_report_count=len(reports),
+                cycle_id=cycle_id,
+            ),
+            "detail": (
+                "Showing latest runtime artifact rows while live final-selection "
+                "source proof finishes loading."
+            ),
+            "scope_detail": "Runtime artifact fallback; full live proof is still warming.",
+        },
+        "runtime_origin": "runtime_artifact_selected",
+        "runtime_artifact_path": str(DEFAULT_RUNTIME_ARTIFACT_ROOT / "selection-reports.json"),
+    }
+
+
+def _final_selection_artifact_data_health(
+    reports: Sequence[Mapping[str, object]],
+) -> dict[str, object]:
+    generated_at = str(reports[0].get("generated_at") or "")
+    artifact_path = DEFAULT_RUNTIME_ARTIFACT_ROOT / "selection-reports.json"
+    return dashboard_data_health(
+        "Final selection dashboard",
+        data_load_status={
+            "status_checked_at": datetime.now(UTC).isoformat(),
+            "overall_percent": 0,
+            "health_monitor": {
+                "status_label": "Runtime artifact visible",
+                "status_class": "warn",
+                "live": False,
+                "origin": "runtime selection-report artifact",
+                "latest_checked_at": generated_at or datetime.now(UTC).isoformat(),
+                "detail": (
+                    "The live final-selection check is still running. Latest runtime "
+                    "artifact rows are displayed so focused review does not go blank."
+                ),
+            },
+        },
+        extra_rows=(
+            {
+                "kind": "Runtime artifact",
+                "name": "Final selection reports",
+                "status_label": "Visible with recheck",
+                "status_class": "warn",
+                "coverage_label": f"{len(reports)} row(s)",
+                "freshness_label": "latest artifact",
+                "last_update": generated_at or "not recorded",
+                "detail": f"Source: {artifact_path}. Full live source proof is still warming.",
+            },
+        ),
+    )
+
+
 def _execution_preview_delayed_context(focus_ticker: str | None = None) -> dict[str, object]:
     normalized = str(focus_ticker or "").strip().upper()
+    artifact_context = _execution_preview_context_from_artifact(focus_ticker=normalized or None)
+    if artifact_context is not None:
+        return artifact_context
     return {
         "broker": {"connected": False, "status_class": "warn", "detail": "Broker proof is being checked."},
         "data_health": _route_delayed_data_health("Execution preview dashboard", "Paper clearance queue"),
@@ -636,6 +747,148 @@ def _execution_preview_delayed_context(focus_ticker: str | None = None) -> dict[
         "freshness_gate": {"ready": False},
         "scheduler_tradability": {},
     }
+
+
+def _execution_preview_context_from_artifact(
+    *,
+    focus_ticker: str | None = None,
+) -> dict[str, object] | None:
+    if id(execution_preview_context) != _DEFAULT_EXECUTION_PREVIEW_CONTEXT_ID:
+        return None
+    previews = runtime_execution_preview_artifacts(limit=FINAL_SELECTION_REPORT_LIMIT)
+    if not previews:
+        return None
+    broker = {
+        "connected": False,
+        "mode": "paper",
+        "status_class": "warn",
+        "status_label": "Full broker recheck required",
+        "detail": "Latest runtime artifact rows are visible, but broker proof must recheck before paper submit.",
+        "checked_at": datetime.now(UTC).isoformat(),
+        "positions": [],
+        "orders": [],
+    }
+    execution_gate = _execution_preview_artifact_execution_gate(previews)
+    preview_rows = execution_preview_rows(
+        previews,
+        execution_gate=execution_gate,
+    )
+    normalized = str(focus_ticker or "").strip().upper()
+    return {
+        "broker": broker,
+        "data_health": _execution_preview_artifact_data_health(previews),
+        "preview_rows": preview_rows,
+        "focused_execution": execution_preview_focus_context(preview_rows, normalized),
+        "orderable_rows": [row for row in preview_rows if row["preview_state"] == "READY"],
+        "review_only_rows": [
+            row for row in preview_rows if _execution_preview_artifact_is_context_only(row)
+        ],
+        "approved_review_only_rows": [
+            row
+            for row in preview_rows
+            if _execution_preview_artifact_is_context_only(row)
+            and row.get("human_approved") is True
+        ],
+        "blocked_rows": [
+            row for row in preview_rows if _execution_preview_artifact_is_operator_blocker(row)
+        ],
+        "leveraged_alternatives": {
+            "rows": [],
+            "review_count": 0,
+            "triggered_count": 0,
+            "available_count": 0,
+            "status_label": "Full recheck required",
+            "status_class": "warn",
+            "headline": "Leveraged-advisory context is hidden until live execution context finishes.",
+            "detail": "Artifact fallback only shows paper-preview rows; advisory rows require the full live context.",
+        },
+        "summary": execution_preview_summary(
+            preview_rows,
+            broker=broker,
+            policy=PortfolioPolicy.from_env(),
+            execution_gate=execution_gate,
+        ),
+        "execution_freshness_gate": execution_gate,
+        "freshness_gate": execution_gate,
+        "scheduler_tradability": {
+            "state": "recheck_required",
+            "status_label": "Full recheck required",
+            "status_class": "warn",
+            "detail": "Artifact rows do not prove current scheduler tradability.",
+        },
+        "runtime_origin": "runtime_artifact_selected",
+        "runtime_artifact_path": str(DEFAULT_RUNTIME_ARTIFACT_ROOT / "execution-previews.json"),
+    }
+
+
+def _execution_preview_artifact_execution_gate(
+    previews: Sequence[Mapping[str, object]],
+) -> dict[str, object]:
+    generated_at = str(previews[0].get("generated_at") or "")
+    artifact_path = DEFAULT_RUNTIME_ARTIFACT_ROOT / "execution-previews.json"
+    return {
+        "ready": False,
+        "state": "recheck_required",
+        "status_label": "Full execution recheck required",
+        "status_class": "warn",
+        "blocker_count": 1,
+        "detail": (
+            "Rows are from the latest runtime execution-preview artifact"
+            f"{' written at ' + generated_at if generated_at else ''}. "
+            "Broker, source freshness, approvals, and scheduler tradability must recheck before paper submit."
+        ),
+        "checks": [
+            {
+                "label": "Artifact source",
+                "status": "WARN",
+                "status_class": "warn",
+                "detail": f"Loaded {len(previews)} row(s) from {artifact_path}.",
+            },
+            {
+                "label": "Paper submit safety",
+                "status": "BLOCK",
+                "status_class": "block",
+                "detail": "Paper submission stays closed until the full live execution context completes.",
+            },
+        ],
+    }
+
+
+def _execution_preview_artifact_data_health(
+    previews: Sequence[Mapping[str, object]],
+) -> dict[str, object]:
+    generated_at = str(previews[0].get("generated_at") or "")
+    artifact_path = DEFAULT_RUNTIME_ARTIFACT_ROOT / "execution-previews.json"
+    return dashboard_data_health(
+        "Execution preview dashboard",
+        data_load_status={
+            "status_checked_at": datetime.now(UTC).isoformat(),
+            "overall_percent": 0,
+            "health_monitor": {
+                "status_label": "Runtime artifact visible",
+                "status_class": "warn",
+                "live": False,
+                "origin": "runtime execution-preview artifact",
+                "latest_checked_at": generated_at or datetime.now(UTC).isoformat(),
+                "detail": (
+                    "The full live execution check is still running. Artifact rows are "
+                    "shown so the operator path is not blank, but paper submit requires recheck."
+                ),
+            },
+        },
+        extra_rows=(
+            {
+                "kind": "Runtime artifact",
+                "name": "Execution preview rows",
+                "status_label": "Visible with recheck",
+                "status_class": "warn",
+                "coverage_label": f"{len(previews)} row(s)",
+                "freshness_label": "latest artifact",
+                "last_update": generated_at or "not recorded",
+                "detail": f"Source: {artifact_path}. Full broker and freshness proof is required before submit.",
+            },
+        ),
+    )
 
 
 def _risk_delayed_context() -> dict[str, object]:
@@ -2218,6 +2471,14 @@ def _store_status_cache(
 
 
 def _execution_preview_status_timeout_payload() -> dict[str, object]:
+    artifact_payload = _execution_preview_status_payload_from_artifact()
+    if artifact_payload is not None:
+        artifact_payload["verdict"] = "artifact_status_after_timeout"
+        artifact_payload["detail"] = (
+            f"{artifact_payload.get('detail', '')} The live status reader is still "
+            "warming, so this response is artifact-backed and paper submit remains gated."
+        )
+        return artifact_payload
     return {
         "schema_version": "0.1.0",
         "cycle_id": "",
@@ -3063,6 +3324,18 @@ def _clean_form_text(value: object) -> str | None:
 
 @router.get("/policy")
 async def policy(request: Request) -> Response:
+    return templates.TemplateResponse(
+        request,
+        "policy.html",
+        await _bounded_dashboard_context(
+            "policy",
+            _policy_context,
+            _policy_delayed_context,
+        ),
+    )
+
+
+async def _policy_context() -> dict[str, object]:
     db_policy: PortfolioPolicy | None = None
     try:
         async with get_session() as session:
@@ -3073,34 +3346,50 @@ async def policy(request: Request) -> Response:
     active_policy = await load_active_portfolio_policy()
     db_backed = db_policy is not None
     data_load_status = await live_dashboard_data_load_status()
-    return templates.TemplateResponse(
-        request,
-        "policy.html",
-        {
-            "policy_sections": policy_sections(active_policy),
-            "policy": active_policy.as_dict(),
-            "summary": policy_summary(db_backed=db_backed, policy=active_policy),
-            "data_health": dashboard_data_health(
-                "Policy dashboard",
-                data_load_status=data_load_status,
-                extra_rows=(
-                    {
-                        "kind": "Policy source",
-                        "name": "Portfolio and execution policy",
-                        "status_label": "DB-backed" if db_backed else "Local fallback",
-                        "status_class": "pass" if db_backed else "warn",
-                        "coverage_label": "active policy loaded",
-                        "freshness_label": "loaded on request",
-                        "last_update": "database" if db_backed else "environment/local config",
-                        "detail": (
-                            "Risk and execution gates read these limits before "
-                            "paper sizing and submission."
-                        ),
-                    },
-                ),
+    return {
+        "policy_sections": policy_sections(active_policy),
+        "policy": active_policy.as_dict(),
+        "summary": policy_summary(db_backed=db_backed, policy=active_policy),
+        "data_health": dashboard_data_health(
+            "Policy dashboard",
+            data_load_status=data_load_status,
+            extra_rows=(
+                {
+                    "kind": "Policy source",
+                    "name": "Portfolio and execution policy",
+                    "status_label": "DB-backed" if db_backed else "Local fallback",
+                    "status_class": "pass" if db_backed else "warn",
+                    "coverage_label": "active policy loaded",
+                    "freshness_label": "loaded on request",
+                    "last_update": "database" if db_backed else "environment/local config",
+                    "detail": (
+                        "Risk and execution gates read these limits before "
+                        "paper sizing and submission."
+                    ),
+                },
+            ),
+        ),
+    }
+
+
+def _policy_delayed_context() -> dict[str, object]:
+    fallback_policy = PortfolioPolicy.from_env()
+    return {
+        "policy_sections": policy_sections(fallback_policy),
+        "policy": fallback_policy.as_dict(),
+        "summary": {
+            **policy_summary(db_backed=False, policy=fallback_policy),
+            "headline": "Policy dashboard is checking source proof",
+            "detail": (
+                "Policy limits are shown from local configuration while database and "
+                "data-health proof finishes loading."
             ),
         },
-    )
+        "data_health": _route_delayed_data_health(
+            "Policy dashboard",
+            "Portfolio and execution policy",
+        ),
+    }
 
 
 @router.get("/portfolio-monitor")

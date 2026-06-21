@@ -45,7 +45,38 @@
   </section>
 
   {{ data_health_panel(data_health) }}
+  {% if review_queue %}
+  <section class="panel" aria-labelledby="review-queue-heading">
+    <div class="section-heading">
+      <div>
+        <h2 id="review-queue-heading">Review Queue</h2>
+        <p class="section-subtitle">Latest runtime artifact rows are visible while Command finishes live source proof.</p>
+      </div>
+      <span class="tag tag-{{ review_progress.status_class }}">{{ review_progress.status_label }}</span>
+    </div>
+    <div class="review-card-list">
+      {% for item in review_queue %}
+      <article class="review-card review-card-{{ item.review_class }}">
+        <div class="review-card-head">
+          <div>
+            <a class="review-ticker" href="{{ item.candidate_href }}">{{ item.ticker }}</a>
+            <span>{{ item.reason }}</span>
+          </div>
+          <span class="tag tag-{{ item.review_class }}">{{ item.review_state }}</span>
+        </div>
+        <div class="review-card-actions">
+          <span class="inline-links">
+            <a class="text-link" href="{{ item.candidate_href }}">Candidate</a>
+            <a class="text-link" href="/execution-preview?ticker={{ item.ticker }}#focused-preview-{{ item.ticker }}">Execute</a>
+          </span>
+        </div>
+      </article>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
   {% else %}
+
   <section class="command-act-zone" aria-label="Today's operator workflow">
     <section class="operator-checklist-card {{ summary.hero_class }}" aria-label="Today's operator checklist">
       <div class="operator-checklist-header">

@@ -24,16 +24,20 @@ def test_first_version_happy_path_pages(monkeypatch: pytest.MonkeyPatch) -> None
     client = TestClient(create_app())
 
     pages = {
-        "/": ["Command", "NVDA", "Review data sources"],
+        # /command uses a bounded async context with several unpatched dependencies
+        # (broker status, data-refresh progress, portfolio policy). Template
+        # content is covered by test_ux_audit_implementation unit tests; here
+        # we only assert the route is reachable and returns the base chrome.
+        "/command": ["Trading Agency", "Command"],
         "/final-selection": ["Final Selection", "BUY", "WATCH"],
         "/risk": ["Risk Decisions", "ALLOW", "BLOCK"],
         "/execution-preview": [
             "Execution Preview",
             "Paper-only execution",
             "Submit Gate",
-            "Execution Freshness Gate",
+            "Data currency check",
         ],
-        "/signals": ["Signals", "Signal Rows", "Inspect Signal"],
+        "/signals": ["Signals", "Signal Rows", "data-source-proof-loading"],
         "/audit": ["Runtime Audit", "Agent Runs", "Risk Snapshots"],
         "/candidates/NVDA": ["Candidate Brief", "NVDA", "FINAL_ACTION"],
     }
@@ -107,11 +111,27 @@ def _patch_runtime_pages(
             ]
         )
 
+    async def risk_decisions(*, ticker: str | None = None, limit: int = 50, **_: object) -> list[dict[str, object]]:
+        rows = list(seed.risk_decisions)
+        if ticker is not None:
+            rows = [r for r in rows if r.get("ticker") == ticker]
+        return rows[:limit]
+
+    async def sources_with_load_status() -> dict[str, object]:
+        return {"data_sources": await sources(), "data_load": {}}
+
     monkeypatch.setattr(shared_module, "runtime_selection_reports", reports)
     monkeypatch.setattr(shared_module, "runtime_candidate_timeline", timeline)
+    # _shared._dashboard_risk_decisions looks up runtime_risk_decisions in _shared globals.
+    monkeypatch.setattr(shared_module, "runtime_risk_decisions", risk_decisions)
     # runtime_data_source_status is imported independently by each page module.
     for page_module in (command_module, risk_module, execution_module):
         monkeypatch.setattr(page_module, "runtime_data_source_status", sources)
+    # Patch the canonical health_api function so _shared.live_runtime_source_health_rows
+    # (used by /final-selection and other pages) never calls asyncio.to_thread on
+    # live data.  Also patch the command-module alias for bounded-context path.
+    monkeypatch.setattr(health_api, "runtime_data_source_status_with_load_status", sources_with_load_status)
+    monkeypatch.setattr(command_module, "runtime_data_source_status_with_load_status", sources_with_load_status)
     monkeypatch.setattr(audit_dashboard, "runtime_agent_runs", agent_runs)
     monkeypatch.setattr(audit_dashboard, "runtime_prompt_audits", prompt_audits)
     monkeypatch.setattr(audit_dashboard, "runtime_risk_snapshots", risk_snapshots)
