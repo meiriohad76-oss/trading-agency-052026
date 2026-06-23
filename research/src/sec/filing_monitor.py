@@ -4,15 +4,13 @@ import json
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Any
-
 from sec.client import SecClient, archive_url
-from sec.submissions import FilingSummary, parse_recent_filings
+from sec.submissions import parse_recent_filings
 
 FORMS_OF_INTEREST: frozenset[str] = frozenset({"8-K", "10-Q", "10-K", "SC 13D"})
 
 DEFAULT_CHECKPOINT_PATH = (
-    Path(__file__).resolve().parents[3] /
+    Path(__file__).resolve().parents[2] /
     "data" / "state" / "sec_filings" / "checkpoint.json"
 )
 
