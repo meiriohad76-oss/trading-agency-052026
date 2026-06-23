@@ -30,19 +30,30 @@
   {% endif %}
 
   {% if route_context_status %}
-  <section class="next-action hero-watch" aria-label="Command status">
+  <section class="next-action hero-watch" aria-label="Command status" data-command-loading>
     <div class="next-action-step" aria-hidden="true">Now</div>
     <div class="next-action-copy">
       <p class="eyebrow">Command status</p>
       <h2>{{ route_context_status.status_label }}</h2>
       <p>{{ route_context_status.detail }}</p>
-      <p class="next-action-sub">{{ route_context_status.action }}</p>
+      <p class="next-action-sub" data-command-countdown>Refreshing in <strong data-command-countdown-value>4</strong>s…</p>
     </div>
     <div class="next-action-buttons">
       <a class="primary-action" href="/cockpit">Open cockpit</a>
       <a class="secondary-action" href="/command">Recheck Command</a>
     </div>
   </section>
+  <script>
+    (function() {
+      var el = document.querySelector('[data-command-countdown-value]');
+      var n = 4;
+      var iv = setInterval(function() {
+        n--;
+        if (el) el.textContent = n;
+        if (n <= 0) { clearInterval(iv); window.location.reload(); }
+      }, 1000);
+    })();
+  </script>
 
   {{ data_health_panel(data_health) }}
   {% if review_queue %}

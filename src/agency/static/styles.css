@@ -3439,6 +3439,30 @@ summary:focus-visible {
   flex: 0 0 auto;
 }
 
+.cockpit-email-action-feedback {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.cockpit-email-action-feedback-launched {
+  background: rgba(240, 161, 38, 0.12);
+  border: 1px solid rgba(240, 161, 38, 0.3);
+}
+
+.cockpit-email-action-feedback-started {
+  background: rgba(60, 186, 112, 0.1);
+  border: 1px solid rgba(60, 186, 112, 0.3);
+}
+
+.cockpit-email-action-feedback strong {
+  font-weight: 600;
+}
+
 .data-health-summary > div {
   min-width: 0;
   padding: 10px;
@@ -4832,6 +4856,17 @@ table.signal-table {
   border-color: rgba(255, 90, 118, 0.32);
 }
 
+.risk-chip-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.risk-chip-exec-link {
+  font-size: 0.78rem;
+  padding-left: 2px;
+  color: var(--amber);
+}
+
 .risk-chip {
   display: grid;
   gap: 2px;
@@ -6217,6 +6252,12 @@ table.signal-table {
   box-shadow: 0 0 8px rgba(204, 143, 44, 0.6);
 }
 
+/* SVG arc gauge — replaces the CSS border-hack arc */
+.cockpit-svg-gauge {
+  display: block;
+  filter: drop-shadow(0 0 6px rgba(255, 184, 69, 0.35));
+}
+
 .cockpit-whymark {
   position: absolute;
   top: 8px;
@@ -7593,4 +7634,43 @@ table.signal-table {
   margin-bottom: 1rem;
   font-size: 0.9rem;
   color: var(--muted);
+}
+
+/* Stale-source warning — shown when data exists but sources need refresh */
+.source-proof-stale {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.9rem 1.1rem;
+  background: rgba(232, 85, 85, 0.07);
+  border-left: 3px solid #e85555;
+  border-radius: 4px;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+.source-proof-stale strong {
+  color: #e85555;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.source-proof-stale span {
+  color: var(--muted);
+  line-height: 1.4;
+}
+.source-proof-stale a {
+  color: var(--amber);
+  text-decoration: underline;
+}
+.source-proof-stale-inline {
+  display: block;
+  color: var(--amber);
+  font-size: 0.82rem;
+  margin-top: 0.3rem;
+}
+
+/* countdown in command "still running" banner */
+[data-command-countdown] {
+  font-size: 0.85rem;
+  opacity: 0.75;
 }

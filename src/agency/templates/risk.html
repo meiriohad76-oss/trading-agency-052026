@@ -88,10 +88,13 @@
       </div>
       <div class="risk-chip-list">
         {% for row in allow_rows %}
-        <a class="risk-chip" href="/candidates/{{ row.ticker }}">
-          <strong>{{ row.ticker }} / {{ row.final_action }}</strong>
-          <span>Agent checked - OK. {{ row.decision_meaning }}</span>
-        </a>
+        <div class="risk-chip-wrapper">
+          <a class="risk-chip" href="/candidates/{{ row.ticker }}">
+            <strong>{{ row.ticker }} / {{ row.final_action }}</strong>
+            <span>Agent checked - OK. {{ row.decision_meaning }}</span>
+          </a>
+          <a class="text-link risk-chip-exec-link" href="/execution-preview?ticker={{ row.ticker }}#focused-preview-{{ row.ticker }}">Review order →</a>
+        </div>
         {% else %}
         <p class="empty-block">No allowed candidates in this cycle.</p>
         {% endfor %}

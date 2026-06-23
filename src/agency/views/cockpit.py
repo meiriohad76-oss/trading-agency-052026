@@ -1078,6 +1078,7 @@ def _market_section(
         ),
         "score": regime_score,
         "needle_degrees": _gauge_degrees(regime_score, 1.0),
+        "zones": _arc_zones(_MARKET_ZONE_CONFIG),
         "status_label": _first_text(summary.get("status_label"), default="Market check"),
         "readiness_label": _first_text(readiness.get("status_label"), default="Readiness check"),
         "long_threshold": _float(_mapping(dashboard.get("policy_summary")).get("min_conviction"), fallback=0.62),
@@ -1545,10 +1546,12 @@ def _account_section(
         "gross_cap": gross_cap,
         "gross_cap_label": _percent_label(gross_cap, reported=gross_cap_reported, decimals=0),
         "gross_needle_degrees": _gauge_degrees(gross_post_trade, gross_cap),
+        "gross_zones": _arc_zones(_EXPOSURE_ZONE_CONFIG),
         "cash_available": cash_available,
         "cash_cap": cash_cap,
         "cash_cap_label": _percent_label(cash_cap, reported=cash_cap_reported, decimals=0),
         "cash_needle_degrees": _gauge_degrees(cash_available, cash_cap),
+        "cash_zones": _arc_zones(_CASH_ZONE_CONFIG),
         "sector_exposure": sector_exposure,
         "sector_cap": sector_cap,
         "sector_cap_label": _percent_label(sector_cap, reported=sector_cap_reported, decimals=0),
@@ -1561,6 +1564,7 @@ def _account_section(
             decimals=0,
         ),
         "concentration_needle_degrees": _gauge_degrees(largest_name, largest_name_cap),
+        "concentration_zones": _arc_zones(_CONCENTRATION_ZONE_CONFIG),
         "open_orders": _int(broker.get("open_order_count"), fallback=len(_list(broker.get("orders")))),
         "open_orders_cap": _int(policy.get("max_open_orders"), fallback=0),
         "open_orders_cap_label": (
@@ -3536,3 +3540,42 @@ def _bounded_score(*values: object, fallback: float = 0.0) -> float:
 def _gauge_degrees(value: float, cap: float) -> int:
     ratio = value / cap if cap > 0 else 0.0
     return int(round(max(0.0, min(1.0, ratio)) * 180 - 90))
+
+
+def _svg_arc_zone_path(from_t: float, to_t: float, r: int = 70, cx: int = 80, cy: int = 80) -> str:
+    """SVG path for a gauge zone arc. t=0 → left (−90° needle), t=1 → right (+90° needle), arc through top."""
+
+    def _pt(t: float) -> tuple[float, float]:
+        a = math.radians(-90.0 + t * 180.0)
+        return cx + r * math.sin(a), cy - r * math.cos(a)
+
+    x0, y0 = _pt(from_t)
+    x1, y1 = _pt(to_t)
+    large = 1 if (to_t - from_t) > 0.5 else 0
+    return f"M {x0:.1f} {y0:.1f} A {r} {r} 0 {large} 1 {x1:.1f} {y1:.1f}"
+
+
+def _arc_zones(zone_config: list[dict[str, object]]) -> list[dict[str, object]]:
+    return [{"path": _svg_arc_zone_path(z["from"], z["to"]), "color": z["color"]} for z in zone_config]
+
+
+_MARKET_ZONE_CONFIG: list[dict[str, object]] = [
+    {"from": 0.00, "to": 0.40, "color": "#e85555"},  # bear
+    {"from": 0.40, "to": 0.62, "color": "#ffb845"},  # neutral
+    {"from": 0.62, "to": 1.00, "color": "#3cba70"},  # bull
+]
+_EXPOSURE_ZONE_CONFIG: list[dict[str, object]] = [
+    {"from": 0.00, "to": 0.25, "color": "#ffb845"},  # under-deployed
+    {"from": 0.25, "to": 0.75, "color": "#3cba70"},  # healthy
+    {"from": 0.75, "to": 1.00, "color": "#e85555"},  # overexposed
+]
+_CASH_ZONE_CONFIG: list[dict[str, object]] = [
+    {"from": 0.00, "to": 0.35, "color": "#e85555"},  # floor violated
+    {"from": 0.35, "to": 0.65, "color": "#ffb845"},  # warning
+    {"from": 0.65, "to": 1.00, "color": "#3cba70"},  # healthy cash
+]
+_CONCENTRATION_ZONE_CONFIG: list[dict[str, object]] = [
+    {"from": 0.00, "to": 0.60, "color": "#3cba70"},  # safe
+    {"from": 0.60, "to": 0.80, "color": "#ffb845"},  # approaching limit
+    {"from": 0.80, "to": 1.00, "color": "#e85555"},  # over-concentrated
+]

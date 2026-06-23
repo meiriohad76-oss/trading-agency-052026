@@ -17,8 +17,8 @@
     <div class="next-action-step" aria-hidden="true">BLUF</div>
     <div class="next-action-copy">
       <p class="eyebrow">Market Regime Agent / {{ snapshot_type | default("manual") }}</p>
-      <h2 title="Latest top-down conclusion from the Market Regime Agent.">{{ bluf.headline }}</h2>
-      <p title="Plain-English operator interpretation of the current regime.">{{ bluf.operator_message }}</p>
+      <h2 title="Latest top-down conclusion from the Market Regime Agent.">{{ summary.headline }}</h2>
+      <p title="Plain-English operator interpretation of the current regime.">{{ summary.interpretation }}</p>
       <p class="next-action-sub" title="How this market context should affect paper-trade review.">{{ summary.decision_guidance }}</p>
       {% if change and change.regime_changed %}
       <p class="next-action-sub" title="Regime or sector-state transition detected versus the prior saved snapshot.">

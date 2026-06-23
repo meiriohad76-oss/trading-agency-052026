@@ -13,10 +13,20 @@
 {% block evidence_contract %}Signal rows include process, tier, score, ticker relation, timestamp, and confirmed/inferred treatment.{% endblock %}
 
 {% block content %}
-  {% if evidence_currentness.display_mode != 'current' %}
+  {% if evidence_currentness.display_mode == 'work_in_progress' %}
   <div class="source-proof-loading" data-source-proof-loading aria-live="polite" aria-busy="true">
     <span class="loading-spinner" aria-hidden="true"></span>
-    <span>{{ evidence_currentness.status_label }} — signal rows will appear automatically when the cycle finishes.</span>
+    <span>{{ evidence_currentness.status_label }} — signal rows will appear when the current cycle finishes.</span>
+  </div>
+  {% elif evidence_currentness.display_mode == 'cycle_mismatch' %}
+  <div class="source-proof-loading" data-source-proof-loading aria-live="polite" aria-busy="false">
+    <span>{{ evidence_currentness.status_label }} — signal rows will appear once the cycle catches up.</span>
+  </div>
+  {% elif evidence_currentness.display_mode != 'current' %}
+  <div class="source-proof-stale" data-source-proof-stale role="status" aria-live="polite">
+    <strong>Sources need refreshing</strong>
+    <span>{{ evidence_currentness.reason }}</span>
+    <span>Signal rows are hidden until sources are updated. <a href="/command#system-diagnostics">Open System Health</a> to see which sources need refresh and trigger a data pull.</span>
   </div>
   {% endif %}
   <section class="next-action hero-info" aria-label="Signals state">
@@ -64,6 +74,9 @@
         <h2 id="lane-heading">Signal Process Readiness</h2>
         <p class="section-subtitle">
           {{ summary.configured_lanes }} configured process(es), {{ summary.lanes_with_data }} with latest-cycle data.
+          {% if evidence_currentness.display_mode != 'current' %}
+          <strong class="source-proof-stale-inline">Row counts below are from the last available cycle — sources need refresh before new counts are shown.</strong>
+          {% endif %}
         </p>
       </div>
       <span class="tag tag-neutral">{{ summary.cycle_label }}</span>

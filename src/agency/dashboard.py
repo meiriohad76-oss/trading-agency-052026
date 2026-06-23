@@ -1136,14 +1136,13 @@ async def _cockpit_response(request: Request) -> Response:
     qa_enabled = _env_bool_text("AGENCY_COCKPIT_QA_SCENARIOS")
     qa_scenario = request.query_params.get("scenario") if qa_enabled else None
     qa_cache_flag = qa_enabled if qa_enabled else None
-    return templates.TemplateResponse(
-        request,
-        "cockpit.html",
-        await cached_cockpit_context_with_timeout(
-            qa_scenario=qa_scenario,
-            qa_scenarios_enabled=qa_cache_flag,
-        ),
+    email_action = request.query_params.get("email_action") or ""
+    context = await cached_cockpit_context_with_timeout(
+        qa_scenario=qa_scenario,
+        qa_scenarios_enabled=qa_cache_flag,
     )
+    context = {**context, "email_action": email_action}
+    return templates.TemplateResponse(request, "cockpit.html", context)
 
 
 @router.get("/api/cockpit")
@@ -1507,10 +1506,9 @@ async def refresh_subscription_email_with_login(
     return_to: str | None = None,
 ) -> Response:
     background_tasks.add_task(launch_subscription_email_login_refresh)
-    return RedirectResponse(
-        url=_scheduler_return_url(return_to, default="/#scheduler-heading", anchor="email-agent"),
-        status_code=303,
-    )
+    base = _scheduler_return_url(return_to, default="/#scheduler-heading", anchor="email-agent")
+    sep = "&" if "?" in base else "?"
+    return RedirectResponse(url=f"{base}{sep}email_action=sa_browser_launched", status_code=303)
 
 
 @router.post("/scheduler/subscription-emails/continue-after-login")
@@ -1519,10 +1517,9 @@ async def continue_subscription_email_after_login(
     return_to: str | None = None,
 ) -> Response:
     background_tasks.add_task(launch_subscription_email_article_analysis_after_login)
-    return RedirectResponse(
-        url=_scheduler_return_url(return_to, default="/#scheduler-heading", anchor="email-agent"),
-        status_code=303,
-    )
+    base = _scheduler_return_url(return_to, default="/#scheduler-heading", anchor="email-agent")
+    sep = "&" if "?" in base else "?"
+    return RedirectResponse(url=f"{base}{sep}email_action=sa_analysis_started", status_code=303)
 
 
 def _scheduler_return_url(
