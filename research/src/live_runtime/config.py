@@ -255,6 +255,7 @@ OPTIONAL_RUNTIME_SIGNALS = (
     "pre_market_unusual_activity",
     "subscription_thesis",
     "unusual_trade_activity",
+    "sec_filing_analysis",
 )
 
 DEFAULT_RUNTIME_SIGNALS = STOCKS_ONLY_RUNTIME_SIGNALS
