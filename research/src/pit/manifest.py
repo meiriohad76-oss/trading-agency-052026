@@ -26,6 +26,7 @@ class DatasetName(StrEnum):
     STOCK_TRADES = "stock_trades"
     OPTIONS_CHAINS = "options_chains"
     UNUSUAL_ACTIVITY_ALERTS = "unusual_activity_alerts"
+    SEC_FILINGS = "sec_filings"
 
 
 @dataclass(frozen=True)

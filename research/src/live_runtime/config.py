@@ -167,6 +167,15 @@ LANE_CONFIGS: dict[str, RuntimeLaneConfig] = {
         FreshnessDomain.TRADE_PRINTS,
         0.55,
     ),
+    "sec_filing_analysis": RuntimeLaneConfig(
+        "sec_filing_analysis",
+        DatasetName.SEC_FILINGS,
+        "sec-edgar-filings",
+        "OFFICIAL_FILING",
+        "CONFIRMED",
+        FreshnessDomain.SEC_FUNDAMENTALS,
+        0.75,
+    ),
 }
 
 DATASET_CONFIGS: dict[DatasetName, RuntimeDatasetConfig] = {
