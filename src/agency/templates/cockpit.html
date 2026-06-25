@@ -331,6 +331,17 @@
       <strong>Seeking Alpha login and article analysis</strong>
       <p>Use this before running the email/article agent: open regular Chrome, log in to Seeking Alpha, then acknowledge the login so the analyzer can open article links in that same session.</p>
     </div>
+    {% if email_action == "sa_browser_launched" %}
+    <div class="cockpit-email-action-feedback cockpit-email-action-feedback-launched" role="status" aria-live="polite">
+      <span class="status-dot status-dot-warn" aria-hidden="true"></span>
+      <strong>Browser launch initiated.</strong> Chrome is opening — log in to Seeking Alpha, then click "I logged in" below.
+    </div>
+    {% elif email_action == "sa_analysis_started" %}
+    <div class="cockpit-email-action-feedback cockpit-email-action-feedback-started" role="status" aria-live="polite">
+      <span class="status-dot status-dot-pass" aria-hidden="true"></span>
+      <strong>Analysis started.</strong> The email/article analyzer is running in the background. Check System Health for progress.
+    </div>
+    {% endif %}
     <div class="cockpit-email-agent-actions">
       <form method="post" action="/scheduler/subscription-emails/login-refresh?return_to=cockpit" title="Open regular installed Chrome for the login-gated email/article refresh flow.">
         <button class="mini-button data-health-action-button" type="submit">Open SA browser and verify login</button>
@@ -400,39 +411,45 @@
     </form>
   </aside>
 
+  {%- macro svg_gauge(needle_degrees, zones) -%}
+  <svg class="cockpit-svg-gauge" viewBox="0 0 160 100" width="160" height="100" aria-hidden="true">
+    <path d="M 10 80 A 70 70 0 0 1 150 80" stroke="rgba(255,255,255,.07)" stroke-width="10" fill="none"/>
+    {%- for z in zones %}
+    <path d="{{ z.path }}" stroke="{{ z.color }}" stroke-width="10" fill="none" stroke-linecap="butt" opacity="0.75"/>
+    {%- endfor %}
+    <g transform="rotate({{ needle_degrees }} 80 80)" style="transition:transform .45s cubic-bezier(.4,2,.6,1)">
+      <line x1="80" y1="80" x2="80" y2="18" stroke="#ffb845" stroke-width="2.5" stroke-linecap="round"/>
+      <circle cx="80" cy="18" r="2.5" fill="#ffb845"/>
+    </g>
+    <circle cx="80" cy="80" r="5" fill="var(--cockpit-panel-bg,#07111f)" stroke="#ffb845" stroke-width="1.5"/>
+  </svg>
+  {%- endmacro %}
+
   <section class="cockpit-instrument-cluster" aria-label="Cockpit instruments" data-tour="cluster">
     <article class="cockpit-arc-gauge">
       <span class="cockpit-whymark info-tip" title="Market regime summarizes the current environment from the production market-regime view.">?</span>
-      <div class="cockpit-arc">
-        <span class="cockpit-arc-needle" style="--needle: {{ market.needle_degrees|default(0, true) }}deg"></span>
-      </div>
+      {{ svg_gauge(market.needle_degrees|default(-90), market.zones|default([])) }}
       <p>Market Regime</p>
       <strong>{{ market.status_label }}</strong>
       <small>{{ market.regime }}</small>
     </article>
     <article class="cockpit-arc-gauge">
       <span class="cockpit-whymark info-tip" data-cockpit-tip="gross-exposure-threshold" title="Gross exposure compares current exposure plus staged orders to the policy cap.">?</span>
-      <div class="cockpit-arc">
-        <span class="cockpit-arc-needle" style="--needle: {{ account.gross_needle_degrees|default(0, true) }}deg"></span>
-      </div>
+      {{ svg_gauge(account.gross_needle_degrees|default(-90), account.gross_zones|default([])) }}
       <p>Gross Exposure</p>
       <strong class="cockpit-mono" data-capacity-gross-post data-base-gross="{{ account.gross_exposure|default(0, true) }}" data-equity="{{ account.equity|default(0, true) }}" data-base-cash="{{ account.cash_available|default(0, true) }}">{{ "%.1f"|format(account.gross_post_trade|default(0, true)) }}%</strong>
       <small>Now {{ "%.1f"|format(account.gross_exposure|default(0, true)) }}% / cap {{ account.gross_cap_label|default("not reported", true) }}</small>
     </article>
     <article class="cockpit-arc-gauge">
       <span class="cockpit-whymark info-tip" data-cockpit-tip="cash-reserve-threshold" title="Cash reserve shows how much cash remains against the policy floor after staged orders.">?</span>
-      <div class="cockpit-arc">
-        <span class="cockpit-arc-needle" style="--needle: {{ account.cash_needle_degrees|default(0, true) }}deg"></span>
-      </div>
+      {{ svg_gauge(account.cash_needle_degrees|default(-90), account.cash_zones|default([])) }}
       <p>Cash Reserve</p>
       <strong class="cockpit-mono" data-capacity-cash data-base-cash="{{ account.cash_available|default(0, true) }}" data-equity="{{ account.equity|default(0, true) }}">{{ "%.1f"|format(account.cash_available|default(0, true)) }}%</strong>
       <small>Floor {{ account.cash_cap_label|default("not reported", true) }}</small>
     </article>
     <article class="cockpit-arc-gauge">
       <span class="cockpit-whymark info-tip" data-cockpit-tip="concentration-threshold" title="Concentration compares the largest single-name exposure to the policy cap.">?</span>
-      <div class="cockpit-arc">
-        <span class="cockpit-arc-needle" style="--needle: {{ account.concentration_needle_degrees|default(0, true) }}deg"></span>
-      </div>
+      {{ svg_gauge(account.concentration_needle_degrees|default(-90), account.concentration_zones|default([])) }}
       <p>Concentration</p>
       <strong class="cockpit-mono" data-capacity-concentration>{{ "%.1f"|format(account.largest_name|default(0, true)) }}%</strong>
       <small>Cap {{ account.largest_name_cap_label|default("not reported", true) }}</small>

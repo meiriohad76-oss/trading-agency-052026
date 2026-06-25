@@ -4754,7 +4754,8 @@ def test_subscription_email_login_refresh_endpoint_opens_interactive_flow(
     )
 
     assert response.status_code == HTTP_SEE_OTHER
-    assert response.headers["location"] == "/#scheduler-heading"
+    # Route appends email_action for cockpit/command feedback messaging
+    assert response.headers["location"] == "/#scheduler-heading?email_action=sa_browser_launched"
     assert calls == [{}]
 
 
@@ -4779,7 +4780,8 @@ def test_subscription_email_continue_after_login_endpoint_opens_article_analysis
     )
 
     assert response.status_code == HTTP_SEE_OTHER
-    assert response.headers["location"] == "/#scheduler-heading"
+    # Route appends email_action for cockpit/command feedback messaging
+    assert response.headers["location"] == "/#scheduler-heading?email_action=sa_analysis_started"
     assert calls == [{}]
 
 

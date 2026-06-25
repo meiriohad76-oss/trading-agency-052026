@@ -854,11 +854,18 @@ def _label_text(value: str) -> str:
         "institutional": "Institutional Flow",
         "market_flow_trend": "Market Flow Trend",
         "news": "News",
+        "options_anomaly": "Options Anomaly",
+        "options_flow": "Options Flow",
         "pre_market_unusual_activity": "Pre-Market Unusual Activity",
+        "prepost": "Extended Hours",
         "sector_momentum": "Sector Momentum",
         "subscription_thesis": "Email/Article Thesis",
         "technical_analysis": "Technical Analysis",
         "unusual_trade_activity": "Unusual Trade Activity",
+        # Lane pipeline configuration states — investor-friendly labels (UX-12)
+        "action_weighted": "Drives decisions",
+        "corroborating": "Context only",
+        "disabled": "Disabled",
     }
     return labels.get(key, cleaned.replace("_", " ").title())
 

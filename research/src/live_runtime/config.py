@@ -167,6 +167,15 @@ LANE_CONFIGS: dict[str, RuntimeLaneConfig] = {
         FreshnessDomain.TRADE_PRINTS,
         0.55,
     ),
+    "sec_filing_analysis": RuntimeLaneConfig(
+        "sec_filing_analysis",
+        DatasetName.SEC_FILINGS,
+        "sec-edgar-filings",
+        "OFFICIAL_FILING",
+        "CONFIRMED",
+        FreshnessDomain.SEC_FUNDAMENTALS,
+        0.75,
+    ),
 }
 
 DATASET_CONFIGS: dict[DatasetName, RuntimeDatasetConfig] = {
@@ -246,6 +255,7 @@ OPTIONAL_RUNTIME_SIGNALS = (
     "pre_market_unusual_activity",
     "subscription_thesis",
     "unusual_trade_activity",
+    "sec_filing_analysis",
 )
 
 DEFAULT_RUNTIME_SIGNALS = STOCKS_ONLY_RUNTIME_SIGNALS

@@ -145,6 +145,16 @@ LANE_PROMOTION_POLICIES: dict[str, LanePromotionPolicy] = {
         "Paid options-flow provider/API or export with historical validation.",
         "The code path exists, but the provider-backed data source is intentionally backlog.",
     ),
+    "sec_filing_analysis": LanePromotionPolicy(
+        "sec_filing_analysis",
+        ACTION_WEIGHTED,
+        "Can contribute to WATCH when a recent filing with clear sentiment is available.",
+        "At least one SEC filing analyzed within the last 90 days.",
+        (
+            "Official SEC filings are the most reliable forward-looking signal available. "
+            "LLM-extracted guidance and surprise data directly informs the trade decision."
+        ),
+    ),
 }
 
 

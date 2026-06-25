@@ -219,3 +219,51 @@ def _card(payload: dict[str, object], label: str) -> dict[str, str]:
         if isinstance(card, dict) and card.get("label") == label:
             return card
     raise AssertionError(f"missing card: {label}")
+
+
+def test_sec_filing_evidence_includes_sentiment_card() -> None:
+    from agency.runtime.signal_evidence import _sec_filing_evidence
+
+    row = {"ticker": "AAPL", "lane_key": "sec_filing_analysis"}
+    detail = {
+        "sentiment": "BULLISH",
+        "confidence": 0.8,
+        "eps_vs_estimate": "BEAT",
+        "revenue_vs_estimate": "BEAT",
+        "guidance_change": "RAISED",
+        "key_positives": ["Revenue beat estimates", "Services growth"],
+        "key_risks": ["Margin pressure from FX"],
+        "headline_sentence": "Strong quarter with beats across the board.",
+        "filing_form": "10-Q",
+        "filing_date": "2024-11-01",
+    }
+    result = _sec_filing_evidence(row, detail, date(2024, 11, 15))
+
+    card_labels = [c["label"] for c in result["trigger_cards"]]
+    assert "Sentiment" in card_labels
+    assert "EPS vs. estimate" in card_labels or any("EPS" in l for l in card_labels)
+
+    sentiment_card = next(c for c in result["trigger_cards"] if c["label"] == "Sentiment")
+    assert sentiment_card["tone"] == "pass"  # BULLISH → pass
+
+
+def test_sec_filing_evidence_bearish_gives_block_tone() -> None:
+    from agency.runtime.signal_evidence import _sec_filing_evidence
+
+    row = {"ticker": "MSFT", "lane_key": "sec_filing_analysis"}
+    detail = {
+        "sentiment": "BEARISH",
+        "confidence": 0.7,
+        "eps_vs_estimate": "MISS",
+        "revenue_vs_estimate": "MISS",
+        "guidance_change": "LOWERED",
+        "key_positives": [],
+        "key_risks": ["Revenue miss", "Guidance lowered"],
+        "headline_sentence": "Disappointing quarter with guidance cut.",
+        "filing_form": "10-Q",
+        "filing_date": "2024-11-01",
+    }
+    result = _sec_filing_evidence(row, detail, date(2024, 11, 15))
+
+    sentiment_card = next(c for c in result["trigger_cards"] if c["label"] == "Sentiment")
+    assert sentiment_card["tone"] == "block"  # BEARISH → block

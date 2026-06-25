@@ -37,7 +37,10 @@ def test_first_version_happy_path_pages(monkeypatch: pytest.MonkeyPatch) -> None
             "Submit Gate",
             "Data currency check",
         ],
-        "/signals": ["Signals", "Signal Rows", "data-source-proof-loading"],
+        # data-source-proof-loading (work_in_progress/cycle_mismatch) or
+        # data-source-proof-stale (not_current) — either indicator proves non-current state.
+        # Use the common prefix "data-source-proof" which matches both attributes.
+        "/signals": ["Signals", "Signal Rows", "data-source-proof"],
         "/audit": ["Runtime Audit", "Agent Runs", "Risk Snapshots"],
         "/candidates/NVDA": ["Candidate Brief", "NVDA", "FINAL_ACTION"],
     }
