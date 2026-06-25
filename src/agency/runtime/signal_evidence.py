@@ -340,6 +340,7 @@ def _evidence_for_row(
         "news": _news_evidence,
         "options_flow": _options_flow_evidence,
         "options_anomaly": _options_anomaly_evidence,
+        "sec_filing_analysis": _sec_filing_evidence,
     }
     builder = builders.get(lane, _fallback_evidence_from_detail)
     return builder(row, detail_row, as_of)
@@ -946,6 +947,62 @@ def _news_evidence(
                 _source_id_count(detail.get("source_ids")),
                 _source_id_detail(detail.get("source_ids")),
             ),
+        ],
+    )
+
+
+def _sec_filing_evidence(
+    row: Mapping[str, object],
+    detail: Mapping[str, object],
+    as_of: date,
+) -> dict[str, object]:
+    sentiment = _text(detail.get("sentiment"), "NEUTRAL")
+    filing_form = _text(detail.get("filing_form"), "filing")
+    filing_date = _text(detail.get("filing_date"), "unknown")
+    headline_sentence = _text(detail.get("headline_sentence"), "SEC filing analyzed.")
+    confidence = _float(detail.get("confidence"))
+    positives = detail.get("key_positives") or []
+    risks = detail.get("key_risks") or []
+    first_positive = str(positives[0]) if positives else "n/a"
+    first_risk = str(risks[0]) if risks else "n/a"
+
+    def _sentiment_tone(s: str) -> str:
+        return {"BULLISH": "pass", "BEARISH": "block"}.get(s.upper(), "neutral")
+
+    def _surprise_tone(s: str) -> str:
+        return {"BEAT": "pass", "MISS": "block"}.get(s.upper(), "neutral")
+
+    def _guidance_tone(s: str) -> str:
+        return {"RAISED": "pass", "LOWERED": "block"}.get(s.upper(), "neutral")
+
+    return _detail_payload(
+        row,
+        as_of,
+        headline=f"{row['ticker']} {filing_form} filed {filing_date} — {headline_sentence}",
+        detail=(
+            f"LLM analysis of the official SEC {filing_form} filing text. "
+            f"Score confidence: {_pct(confidence)}. "
+            "Source: SEC EDGAR official filing."
+        ),
+        cards=[
+            _card("Sentiment",            sentiment,
+                  "Overall tone of the filing.",
+                  _sentiment_tone(sentiment)),
+            _card("EPS vs. estimate",      _text(detail.get("eps_vs_estimate"), "UNKNOWN"),
+                  "Actual EPS vs. analyst consensus at time of filing.",
+                  _surprise_tone(_text(detail.get("eps_vs_estimate"), ""))),
+            _card("Revenue vs. estimate",  _text(detail.get("revenue_vs_estimate"), "UNKNOWN"),
+                  "Actual revenue vs. analyst consensus.",
+                  _surprise_tone(_text(detail.get("revenue_vs_estimate"), ""))),
+            _card("Guidance",              _text(detail.get("guidance_change"), "UNKNOWN"),
+                  "Whether the company raised, maintained, or lowered guidance.",
+                  _guidance_tone(_text(detail.get("guidance_change"), ""))),
+            _card("Key positive",          first_positive,
+                  "Top positive factor extracted from the filing.",
+                  "pass" if first_positive != "n/a" else "neutral"),
+            _card("Key risk",              first_risk,
+                  "Top risk factor extracted from the filing.",
+                  "warn" if first_risk != "n/a" else "neutral"),
         ],
     )
 
