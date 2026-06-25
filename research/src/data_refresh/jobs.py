@@ -277,6 +277,13 @@ def _activity_alerts_job(config: RefreshBatchConfig) -> RefreshJob:
     return _job(config, "unusual_activity_alerts", command, reasons)
 
 
+def _sec_filing_job(config: RefreshBatchConfig) -> RefreshJob:
+    """Build a job to run the SEC filing monitor."""
+    command = _base_command(config, "run_sec_filing_monitor.py")
+    reasons = list(_sec_reasons(config))
+    return _job(config, "sec_filing_analysis", command, reasons)
+
+
 def _base_command(config: RefreshBatchConfig, script_name: str) -> list[str]:
     return [config.python_executable, str(config.repo_root / "research" / "scripts" / script_name)]
 

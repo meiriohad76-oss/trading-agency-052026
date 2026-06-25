@@ -112,7 +112,7 @@ MARKET_FLOW_LANES = {
     "pre_market_unusual_activity",
     "market_flow_trend",
 }
-SUPPORT_LANES = {"fundamentals", "insider", "institutional"}
+SUPPORT_LANES = {"fundamentals", "insider", "institutional", "sec_filing_analysis"}
 CONTEXT_LANES = {"news", "subscription_thesis", "sector_momentum"}
 PER_TICKER_SUPPORT_LANES = {"fundamentals"}
 SPARSE_SUPPORT_LANES = {"insider", "institutional"}
